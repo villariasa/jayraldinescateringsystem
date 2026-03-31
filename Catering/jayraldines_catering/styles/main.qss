@@ -1,0 +1,374 @@
+/* main.qss */
+QWidget {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: #1a1f36; /* Dark navy text */
+}
+
+QMainWindow {
+    background-color: #f7f9fc; /* Very light gray background */
+}
+
+/* ----------------- Sidebar (Dark Theme) ----------------- */
+#sidebar {
+    background-color: #101529; /* Dark Navy Slate */
+    border: none;
+}
+
+#logoArea {
+    padding: 30px 20px 20px 20px;
+}
+
+#logoIcon {
+    border-radius: 8px;
+    background-color: #e53935; /* Primary Red */
+    padding: 8px;
+}
+
+#logoText {
+    color: white;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+#sidebar QPushButton {
+    text-align: left;
+    padding: 12px 20px;
+    border: none;
+    background: transparent;
+    font-size: 14px;
+    font-weight: bold;
+    color: #8fa0bc;
+    margin: 2px 16px;
+    border-radius: 8px;
+    icon-size: 20px; /* <--- ADD THIS LINE to control your custom icon size */
+}
+
+#sidebar QPushButton:hover {
+    color: white;
+}
+
+/* Active Page Accent */
+#sidebar QPushButton:checked {
+    background-color: #1c233e; /* Slightly lighter navy */
+    color: white;
+    border-right: 3px solid #e53935; /* Red indicator on right */
+}
+
+/* User Profile Section at bottom */
+#userProfileArea {
+    border-top: 1px solid #1c233e;
+    margin-top: auto;
+    padding: 20px;
+}
+
+#userAvatar {
+    background-color: #2e3b52;
+    color: white;
+    font-weight: bold;
+    font-size: 14px;
+    border-radius: 17px; /* 35px size / 2 */
+}
+
+/* ----------------- Cards and Content ----------------- */
+QFrame#card {
+    background-color: white;
+    border-radius: 12px;
+    padding: 20px;
+}
+
+/* Welcome Card Header */
+#welcomeTitle {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+#welcomeSub {
+    font-size: 12px;
+    color: #4f566b;
+}
+
+/* Buttons */
+QPushButton#primaryButton {
+    background-color: #e53935;
+    color: white;
+    font-weight: bold;
+    border-radius: 6px;
+    padding: 10px 16px;
+    border: none;
+}
+
+QPushButton#primaryButton:hover {
+    background-color: #c62828;
+}
+
+QPushButton#secondaryButton {
+    background-color: white;
+    color: #1a1f36;
+    border: 1px solid #c1c9d2;
+    font-weight: bold;
+    border-radius: 6px;
+    padding: 10px 16px;
+}
+
+QPushButton#secondaryButton:hover {
+    background-color: #f7f9fc;
+}
+
+/* KPI Cards */
+#kpiTitle {
+    color: #4f566b;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+#kpiValue {
+    font-size: 32px;
+    font-weight: bold;
+    color: #1a1f36;
+    margin-top: 10px;
+}
+
+#trendPositive {
+    color: #17bb84; /* Success Green */
+    font-weight: bold;
+    font-size: 12px;
+}
+
+#trendNegative {
+    color: #ef4444; /* Danger Red */
+    font-weight: bold;
+    font-size: 12px;
+}
+
+/* Capacity Tracker */
+#capacityValue {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+#capacityDenominator {
+    color: #a3acb9;
+    font-weight: normal;
+}
+
+/* Custom Progress Bar Styling */
+QProgressBar {
+    background-color: #e6ebf1;
+    border: none;
+    border-radius: 6px;
+    text-align: center; /* Needed to make chunks show up properly */
+}
+
+QProgressBar::chunk {
+    background-color: #fca311; /* Warning Yellow/Orange */
+    border-radius: 6px;
+}
+
+/* Recent Activity */
+#activityTitle {
+    font-size: 16px;
+    font-weight: bold;
+}
+
+#logLink {
+    color: #e53935;
+    background: transparent;
+    border: none;
+    font-weight: bold;
+}
+
+#activityItemTitle {
+    font-weight: bold;
+    font-size: 13px;
+}
+
+#activityItemDesc {
+    color: #4f566b;
+    font-size: 12px;
+}
+
+#activityTime {
+    color: #a3acb9;
+    font-size: 12px;
+}
+
+/* ----------------- Advanced Form Controls ----------------- */
+QLineEdit, QDateEdit, QTimeEdit {
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background-color: #f8fafc;
+    color: #1e293b;
+    font-size: 13px;
+}
+
+QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus {
+    border: 1px solid #e53935;
+    background-color: #ffffff;
+}
+
+/* Custom ComboBox (Dropdowns) */
+QComboBox {
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background-color: #f8fafc;
+    color: #1e293b;
+}
+QComboBox:focus {
+    border: 1px solid #e53935;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 30px;
+    border-left: none;
+}
+/* The list inside the dropdown */
+QComboBox QAbstractItemView {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background-color: #ffffff;
+    selection-background-color: #fce4e4;
+    selection-color: #e53935;
+    outline: none; /* removes dotted focus border */
+}
+
+/* Segmented Buttons (Menu Selection Type) */
+QPushButton#segmentLeft {
+    background-color: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+    border-top-left-radius: 6px;
+    border-bottom-left-radius: 6px;
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+    padding: 8px;
+    font-weight: bold;
+}
+QPushButton#segmentRight {
+    background-color: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+    border-left: none;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 0px;
+    padding: 8px;
+    font-weight: bold;
+}
+QPushButton#segmentLeft:checked, QPushButton#segmentRight:checked {
+    background-color: #ffffff;
+    color: #1e293b;
+    border: 1px solid #cbd5e1;
+    /* Soft shadow implication */
+}
+
+/* Cost Breakdown Box */
+QFrame#costBox {
+    background-color: #f8fafc;
+    border-radius: 8px;
+    padding: 15px;
+}
+
+/* ----------------- Modern Table ----------------- */
+QTableWidget {
+    background-color: white;
+    border: none;
+    gridline-color: transparent;
+    font-size: 13px;
+    color: #1e293b;
+}
+
+QHeaderView::section {
+    background-color: white;
+    color: #64748b;
+    font-weight: bold;
+    font-size: 11px;
+    padding: 12px 5px;
+    border: none;
+    border-bottom: 2px solid #f1f5f9;
+    text-transform: uppercase;
+}
+
+QTableWidget::item {
+    border-bottom: 1px solid #f1f5f9;
+    padding: 5px;
+}
+
+/* ----------------- Custom Scrollbars ----------------- */
+QScrollBar:vertical {
+    border: none;
+    background: #f1f5f9;
+    width: 8px;
+    border-radius: 4px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:vertical {
+    background: #cbd5e1;
+    min-height: 20px;
+    border-radius: 4px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #94a3b8;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px; /* Hide arrows */
+}
+
+/* ----------------- Custom Calendar ----------------- */
+QFrame#calendarContainer {
+    background-color: white;
+    border-radius: 12px;
+}
+
+/* Day Cell Styling */
+QFrame#dayCell {
+    background-color: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+}
+QFrame#dayCell:hover {
+    border: 1px solid #cbd5e1;
+    background-color: #f8fafc;
+}
+QFrame#dayCell[active="true"] {
+    border: 2px solid #e53935;
+    background-color: #fffafa;
+}
+
+QLabel#dayNumber {
+    font-size: 13px;
+    font-weight: bold;
+    color: #1e293b;
+}
+QLabel#dayDayOff {
+    color: #94a3b8; /* Dim text for previous/next month days */
+}
+
+QLabel#bookingCount {
+    color: #64748b;
+    font-size: 11px;
+}
+
+/* ----------------- Calendar Side Panel ----------------- */
+QFrame#sidePanel {
+    background-color: #f8fafc;
+    border-radius: 12px;
+}
+
+QFrame#panelHeader {
+    background-color: #e53935;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+
+QFrame#scheduleCard {
+    background-color: white;
+    border-left: 4px solid #e53935;
+    border-radius: 6px;
+    padding: 10px;
+}
