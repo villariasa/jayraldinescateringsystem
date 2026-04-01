@@ -19,10 +19,18 @@ class HoverCard(QFrame):
         self.anim.valueChanged.connect(self._animate_shadow)
 
     def _animate_shadow(self, value):
-        # Dynamically increase blur and offset to simulate Z-index lift
-        self.shadow.setBlurRadius(15 + (value * 1.5))
-        self.shadow.setOffset(0, 3 + (value / 2))
-        self.shadow.setColor(QColor(0, 0, 0, 15 + int(value / 2)))
+        # Stop agad if shadow not initialized
+        if not hasattr(self, "shadow") or self.shadow is None:
+            return
+
+        try:
+            # Dynamically increase blur and offset to simulate Z-index lift
+            self.shadow.setBlurRadius(15 + (value * 1.5))
+            self.shadow.setOffset(0, 3 + (value / 2))
+            self.shadow.setColor(QColor(0, 0, 0, 15 + int(value / 2)))
+        except RuntimeError:
+            # Qt may delete the effect internally (newer PySide behavior)
+            return
 
     def enterEvent(self, event):
         self.anim.stop()

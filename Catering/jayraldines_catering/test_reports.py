@@ -124,10 +124,17 @@ class HoverCard(QFrame):
         self.anim.valueChanged.connect(self._animate_shadow)
 
     def _animate_shadow(self, value):
-        self.shadow.setBlurRadius(15 + (value * 1.5))
-        self.shadow.setOffset(0, 3 + (value / 2))
-        self.shadow.setColor(QColor(0, 0, 0, 10 + int(value / 2)))
+    # make sure shadow exists
+        if not hasattr(self, "shadow") or self.shadow is None:
+            return
 
+        try:
+            self.shadow.setBlurRadius(15 + (value * 1.5))
+            self.shadow.setOffset(0, 3 + (value / 2))
+            self.shadow.setColor(QColor(0, 0, 0, 10 + int(value / 2)))
+        except RuntimeError:
+            # Qt sometimes deletes the effect internally in newer versions
+            return
     def enterEvent(self, event):
         self.anim.stop()
         self.anim.setStartValue(0)
