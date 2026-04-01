@@ -1,0 +1,5 @@
+/* ----------------- Sidebar (Dark Theme) ----------------- */
+#sidebar {
+    background-color:rgb(78, 22, 22); /* Dark Navy Slate */
+    border: none;
+}

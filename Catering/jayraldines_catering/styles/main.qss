@@ -1,16 +1,35 @@
-/* main.qss */
-QWidget {
-    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-    color: #1a1f36; /* Dark navy text */
+/* =========================================================
+   JAYRALDINE'S CATERING - MODERN SAAS DESIGN SYSTEM
+   Theme: Light Mode (Slate & Red)
+   Fonts: Inter, Roboto, Segoe UI
+   ========================================================= */
+
+* {
+    font-family: "Inter", "Roboto", "Segoe UI", sans-serif;
+    outline: none; /* Remove focus dotted lines */
 }
 
-QMainWindow {
-    background-color: #f7f9fc; /* Very light gray background */
+QMainWindow, QStackedWidget {
+    background-color: #F8FAFC; /* Slate 50 - Ultra light background */
 }
 
-/* ----------------- Sidebar (Dark Theme) ----------------- */
+/* --- TYPOGRAPHY --- */
+QLabel { color: #0F172A; } /* Slate 900 - Deep text */
+QLabel#h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+QLabel#h2 { font-size: 20px; font-weight: 700; }
+QLabel#h3 { font-size: 16px; font-weight: 600; }
+QLabel#subtitle { color: #64748B; font-size: 14px; } /* Slate 500 */
+QLabel#kpiValue { font-size: 36px; font-weight: 800; color: #0F172A; margin-top: 10px;}
+QLabel#kpiLabel { font-size: 13px; font-weight: 600; color: #64748B; text-transform: uppercase; }
+
+/* Badges & Trends */
+QLabel#badgeSuccess, #trendPositive { color: #16A34A; font-weight: 700; font-size: 12px; }
+QLabel#badgeWarning { color: #D97706; font-weight: 700; font-size: 12px; }
+QLabel#badgeDanger, #trendNegative { color: #DC2626; font-weight: 700; font-size: 12px; }
+
+/* --- ----------------- Sidebar (Dark Theme) ----------------- --- */
 #sidebar {
-    background-color: #101529; /* Dark Navy Slate */
+    background-color: rgb(78, 22, 22); /* Dark Navy Slate / Deep Red */
     border: none;
 }
 
@@ -40,7 +59,7 @@ QMainWindow {
     color: #8fa0bc;
     margin: 2px 16px;
     border-radius: 8px;
-    icon-size: 20px; /* <--- ADD THIS LINE to control your custom icon size */
+    icon-size: 20px;
 }
 
 #sidebar QPushButton:hover {
@@ -49,14 +68,14 @@ QMainWindow {
 
 /* Active Page Accent */
 #sidebar QPushButton:checked {
-    background-color: #1c233e; /* Slightly lighter navy */
+    background-color: #1c233e; /* Slightly lighter navy/red combo */
     color: white;
     border-right: 3px solid #e53935; /* Red indicator on right */
 }
 
 /* User Profile Section at bottom */
 #userProfileArea {
-    border-top: 1px solid #1c233e;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
     margin-top: auto;
     padding: 20px;
 }
@@ -69,131 +88,98 @@ QMainWindow {
     border-radius: 17px; /* 35px size / 2 */
 }
 
-/* ----------------- Cards and Content ----------------- */
+/* --- CARDS & CONTAINERS --- */
 QFrame#card {
-    background-color: white;
+    background-color: #FFFFFF;
     border-radius: 12px;
+    border: 1px solid #F1F5F9; /* Slate 100 - subtle border */
     padding: 20px;
 }
 
-/* Welcome Card Header */
-#welcomeTitle {
-    font-size: 20px;
-    font-weight: bold;
+/* --- BUTTONS --- */
+QPushButton {
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 10px 18px;
 }
 
-#welcomeSub {
-    font-size: 12px;
-    color: #4f566b;
-}
-
-/* Buttons */
 QPushButton#primaryButton {
-    background-color: #e53935;
-    color: white;
-    font-weight: bold;
-    border-radius: 6px;
-    padding: 10px 16px;
+    background-color: #E53935;
+    color: #FFFFFF;
     border: none;
 }
-
 QPushButton#primaryButton:hover {
-    background-color: #c62828;
+    background-color: #EF4444; /* Slightly lighter red on hover */
+}
+QPushButton#primaryButton:pressed {
+    background-color: #B91C1C; /* Darker red on click */
+    padding-top: 12px; /* Simulate click depth */
+    padding-bottom: 8px;
 }
 
 QPushButton#secondaryButton {
-    background-color: white;
-    color: #1a1f36;
-    border: 1px solid #c1c9d2;
-    font-weight: bold;
-    border-radius: 6px;
-    padding: 10px 16px;
+    background-color: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #E2E8F0;
 }
-
 QPushButton#secondaryButton:hover {
-    background-color: #f7f9fc;
+    background-color: #F8FAFC;
+    border: 1px solid #CBD5E1;
+    color: #E53935;
 }
 
-/* KPI Cards */
-#kpiTitle {
-    color: #4f566b;
-    font-size: 12px;
-    font-weight: bold;
+QPushButton#ghostButton {
+    background-color: transparent;
+    color: #E53935;
+    border: none;
+}
+QPushButton#ghostButton:hover {
+    background-color: #FEE2E2; /* Very light red background */
 }
 
-#kpiValue {
-    font-size: 32px;
-    font-weight: bold;
-    color: #1a1f36;
-    margin-top: 10px;
-}
-
-#trendPositive {
-    color: #17bb84; /* Success Green */
-    font-weight: bold;
-    font-size: 12px;
-}
-
-#trendNegative {
-    color: #ef4444; /* Danger Red */
-    font-weight: bold;
-    font-size: 12px;
-}
-
-/* Capacity Tracker */
-#capacityValue {
-    font-size: 24px;
-    font-weight: bold;
-}
-
-#capacityDenominator {
-    color: #a3acb9;
-    font-weight: normal;
-}
-
-/* Custom Progress Bar Styling */
+/* --- PROGRESS BAR --- */
 QProgressBar {
     background-color: #e6ebf1;
     border: none;
     border-radius: 6px;
+    height: 12px;
     text-align: center; /* Needed to make chunks show up properly */
+    color: transparent;
 }
-
 QProgressBar::chunk {
-    background-color: #fca311; /* Warning Yellow/Orange */
+    background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #FCA5A5, stop:1 #E53935);
     border-radius: 6px;
 }
 
-/* Recent Activity */
-#activityTitle {
-    font-size: 16px;
-    font-weight: bold;
-}
-
-#logLink {
-    color: #e53935;
-    background: transparent;
+/* --- SMOOTH SCROLLBARS (Web-like) --- */
+QScrollArea {
     border: none;
-    font-weight: bold;
+    background-color: transparent;
 }
-
-#activityItemTitle {
-    font-weight: bold;
-    font-size: 13px;
+QScrollBar:vertical {
+    border: none;
+    background: transparent;
+    width: 8px;
+    margin: 0px 0px 0px 0px;
 }
-
-#activityItemDesc {
-    color: #4f566b;
-    font-size: 12px;
+QScrollBar::handle:vertical {
+    background: #CBD5E1;
+    min-height: 30px;
+    border-radius: 4px;
 }
-
-#activityTime {
-    color: #a3acb9;
-    font-size: 12px;
+QScrollBar::handle:vertical:hover {
+    background: #94A3B8; /* Darken on hover */
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    border: none;
+    background: none;
+    height: 0px;
 }
 
 /* ----------------- Advanced Form Controls ----------------- */
-QLineEdit, QDateEdit, QTimeEdit {
+QLineEdit, QDateEdit, QTimeEdit, QSpinBox {
     padding: 10px;
     border: 1px solid #e2e8f0;
     border-radius: 6px;
@@ -202,7 +188,7 @@ QLineEdit, QDateEdit, QTimeEdit {
     font-size: 13px;
 }
 
-QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus {
+QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QSpinBox:focus {
     border: 1px solid #e53935;
     background-color: #ffffff;
 }
@@ -245,6 +231,7 @@ QPushButton#segmentLeft {
     border-bottom-right-radius: 0px;
     padding: 8px;
     font-weight: bold;
+    border-radius: 0px; /* Override global button radius */
 }
 QPushButton#segmentRight {
     background-color: #f1f5f9;
@@ -257,12 +244,12 @@ QPushButton#segmentRight {
     border-bottom-left-radius: 0px;
     padding: 8px;
     font-weight: bold;
+    border-radius: 0px; /* Override global button radius */
 }
 QPushButton#segmentLeft:checked, QPushButton#segmentRight:checked {
     background-color: #ffffff;
     color: #1e293b;
     border: 1px solid #cbd5e1;
-    /* Soft shadow implication */
 }
 
 /* Cost Breakdown Box */
@@ -270,6 +257,7 @@ QFrame#costBox {
     background-color: #f8fafc;
     border-radius: 8px;
     padding: 15px;
+    border: none;
 }
 
 /* ----------------- Modern Table ----------------- */
@@ -297,24 +285,8 @@ QTableWidget::item {
     padding: 5px;
 }
 
-/* ----------------- Custom Scrollbars ----------------- */
-QScrollBar:vertical {
-    border: none;
-    background: #f1f5f9;
-    width: 8px;
-    border-radius: 4px;
-    margin: 0px 0px 0px 0px;
-}
-QScrollBar::handle:vertical {
-    background: #cbd5e1;
-    min-height: 20px;
-    border-radius: 4px;
-}
-QScrollBar::handle:vertical:hover {
-    background: #94a3b8;
-}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    height: 0px; /* Hide arrows */
+QTableWidget::item:hover {
+    background-color: #f8fafc; /* Subtle row highlight on hover */
 }
 
 /* ----------------- Custom Calendar ----------------- */
