@@ -8,9 +8,11 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QProgressBar, QScrollArea, QGraphicsDropShadowEffect,
     QStackedWidget
 )
-from PySide6.QtCore import Qt, QVariantAnimation, Signal
+from PySide6.QtCore import Qt, QVariantAnimation, Signal, QSize
 from PySide6.QtGui import QColor
 import sys
+
+from utils.icon_manager import btn_icon_primary, btn_icon_secondary, btn_icon_muted
 
 # Import your real booking page
 from ui.booking_page import BookingPage   # ← must be in same folder
@@ -99,9 +101,9 @@ class ActivityItem(QWidget):
         vbox = QVBoxLayout()
         vbox.setSpacing(4)
         t_lbl = QLabel(title)
-        t_lbl.setStyleSheet("font-weight: 700; font-size: 14.5px; color: #0F172A;")
+        t_lbl.setStyleSheet("font-weight: 700; font-size: 14.5px; color: #eaeaea;")
         d_lbl = QLabel(desc)
-        d_lbl.setStyleSheet("color: #64748B; font-size: 13px;")
+        d_lbl.setStyleSheet("color: #9aa0a6; font-size: 13px;")
         d_lbl.setWordWrap(True)
         vbox.addWidget(t_lbl)
         vbox.addWidget(d_lbl)
@@ -109,7 +111,7 @@ class ActivityItem(QWidget):
         layout.addStretch()
 
         time_lbl = QLabel(time)
-        time_lbl.setStyleSheet("color: #94A3B8; font-size: 12.5px;")
+        time_lbl.setStyleSheet("color: #9aa0a6; font-size: 12.5px;")
         layout.addWidget(time_lbl)
 
 
@@ -121,17 +123,17 @@ class DashboardPage(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setStyleSheet("background-color: #F8FAFC;")
+        self.setStyleSheet("background-color: #0f1115;")
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { background-color: #F8FAFC; border: none; }")
+        scroll.setStyleSheet("QScrollArea { background-color: #0f1115; border: none; }")
 
         content_widget = QWidget()
-        content_widget.setStyleSheet("background-color: #F8FAFC;")
+        content_widget.setStyleSheet("background-color: #0f1115;")
         self.layout = QVBoxLayout(content_widget)
         self.layout.setContentsMargins(40, 40, 40, 40)
         self.layout.setSpacing(32)
@@ -153,12 +155,16 @@ class DashboardPage(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(12)          # space between Export and New Booking
 
-        btn_export = QPushButton("Export Report")
+        btn_export = QPushButton(" Export Report")
         btn_export.setObjectName("secondaryButton")
         btn_export.setMinimumWidth(140)
+        btn_export.setIcon(btn_icon_secondary("export"))
+        btn_export.setIconSize(QSize(16, 16))
 
-        self.btn_new = QPushButton("+ New Booking")
+        self.btn_new = QPushButton("  New Booking")
         self.btn_new.setObjectName("primaryButton")
+        self.btn_new.setIcon(btn_icon_primary("plus"))
+        self.btn_new.setIconSize(QSize(16, 16))
         self.btn_new.setMinimumWidth(160)
         self.btn_new.clicked.connect(self.new_booking_requested.emit)
 
@@ -204,9 +210,9 @@ class DashboardPage(QWidget):
         cap_lay.addWidget(prog)
 
         cap_foot = QHBoxLayout()
-        cap_foot.addWidget(QLabel('<span style="color:#E53935;font-weight:700;font-size:13px;">8% Capacity Reached</span>'))
+        cap_foot.addWidget(QLabel('<span style="color:#c5a46d;font-weight:700;font-size:13px;">8% Capacity Reached</span>'))
         cap_foot.addStretch()
-        cap_foot.addWidget(QLabel('<span style="color:#64748B;font-weight:600;font-size:13px;">555 slots remaining today</span>'))
+        cap_foot.addWidget(QLabel('<span style="color:#9aa0a6;font-weight:600;font-size:13px;">555 slots remaining today</span>'))
         cap_lay.addLayout(cap_foot)
         self.layout.addWidget(cap_card)
 
@@ -221,14 +227,16 @@ class DashboardPage(QWidget):
         act_title.setObjectName("h2")
         act_head.addWidget(act_title)
         act_head.addStretch()
-        btn_view = QPushButton("View all logs")
+        btn_view = QPushButton(" View all logs")
         btn_view.setObjectName("ghostButton")
+        btn_view.setIcon(btn_icon_muted("eye"))
+        btn_view.setIconSize(QSize(14, 14))
         act_head.addWidget(btn_view)
         act_lay.addLayout(act_head)
 
         div = QFrame()
         div.setFixedHeight(1)
-        div.setStyleSheet("background-color: #F1F5F9;")
+        div.setStyleSheet("background-color: rgba(255,255,255,0.06);")
         act_lay.addWidget(div)
 
         act_lay.addWidget(ActivityItem("✓", "Wedding Reception Confirmed",

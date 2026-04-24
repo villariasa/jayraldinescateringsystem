@@ -2,8 +2,10 @@ import calendar
 from datetime import datetime
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFrame, 
                                QLabel, QPushButton, QGridLayout, QScrollArea, QGraphicsDropShadowEffect, QSizePolicy)
-from PySide6.QtCore import Qt, Signal, QVariantAnimation
+from PySide6.QtCore import Qt, Signal, QVariantAnimation, QSize
 from PySide6.QtGui import QColor
+
+from utils.icon_manager import btn_icon_primary, btn_icon_secondary, btn_icon_muted
 
 def create_shadow():
     shadow = QGraphicsDropShadowEffect()
@@ -95,18 +97,18 @@ class DayCell(QFrame):
         pax_tag.setAlignment(Qt.AlignCenter)
         
         if total_pax >= 600:
-            pax_tag.setStyleSheet("background-color: #fee2e2; color: #b91c1c; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
+            pax_tag.setStyleSheet("background-color: rgba(248,113,113,0.15); color: #f87171; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
         elif total_pax >= 400:
-            pax_tag.setStyleSheet("background-color: #fef9c3; color: #854d0e; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
+            pax_tag.setStyleSheet("background-color: rgba(197,164,109,0.15); color: #c5a46d; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
         else:
-            pax_tag.setStyleSheet("background-color: #dcfce7; color: #166534; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
+            pax_tag.setStyleSheet("background-color: rgba(110,231,183,0.15); color: #6ee7b7; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
             
         self.layout.insertWidget(1, pax_tag)
 
         # 2. Booking Count
         count_lbl = QLabel(f"{booking_count} Booking{'s' if booking_count > 1 else ''}")
         count_lbl.setObjectName("bookingCount")
-        count_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: 600;")
+        count_lbl.setStyleSheet("color: #9aa0a6; font-size: 11px; font-weight: 600;")
         self.layout.insertWidget(2, count_lbl)
 
     def mousePressEvent(self, event):
@@ -126,18 +128,18 @@ class ScheduleCard(AnimatedCard):
         
         top_row = QHBoxLayout()
         title = QLabel(event_name)
-        title.setStyleSheet("font-weight: 700; font-size: 14px; color: #0F172A;")
+        title.setStyleSheet("font-weight: 700; font-size: 14px; color: #eaeaea;")
         pax_lbl = QLabel(f"👥 {pax}")
-        pax_lbl.setStyleSheet("color: #64748B; font-weight: 600; font-size: 12px; background: #F1F5F9; padding: 4px 8px; border-radius: 4px;")
+        pax_lbl.setStyleSheet("color: #9aa0a6; font-weight: 600; font-size: 12px; background: #20242c; padding: 4px 8px; border-radius: 4px;")
         top_row.addWidget(title)
         top_row.addStretch()
         top_row.addWidget(pax_lbl)
         layout.addLayout(top_row)
         
         time_lbl = QLabel(f"🕒 {time}")
-        time_lbl.setStyleSheet("color: #64748B; font-weight: 500; font-size: 12px; margin-top: 8px;")
+        time_lbl.setStyleSheet("color: #9aa0a6; font-weight: 500; font-size: 12px; margin-top: 8px;")
         loc_lbl = QLabel(f"📍 {location}")
-        loc_lbl.setStyleSheet("color: #64748B; font-weight: 500; font-size: 12px;")
+        loc_lbl.setStyleSheet("color: #9aa0a6; font-weight: 500; font-size: 12px;")
         layout.addWidget(time_lbl)
         layout.addWidget(loc_lbl)
 
@@ -167,8 +169,10 @@ class CalendarPage(QWidget):
         header_row.addLayout(v_title)
         
         header_row.addStretch()
-        btn_add = QPushButton("+ Add New Booking")
+        btn_add = QPushButton("  Add New Booking")
         btn_add.setObjectName("primaryButton")
+        btn_add.setIcon(btn_icon_primary("plus"))
+        btn_add.setIconSize(QSize(16, 16))
         header_row.addWidget(btn_add)
         main_layout.addLayout(header_row)
 
@@ -193,17 +197,21 @@ class CalendarPage(QWidget):
         
         cal_head.addStretch()
         legend = QLabel("🟢 Available  |  🟡 Near Full (400+)  |  🔴 Fully Booked (600)")
-        legend.setStyleSheet("font-size: 12px; font-weight: 600; color: #64748B; margin-right: 24px;")
+        legend.setStyleSheet("font-size: 12px; font-weight: 600; color: #9aa0a6; margin-right: 24px;")
         cal_head.addWidget(legend)
 
         # Dynamic Nav Buttons
-        btn_prev = QPushButton("◀")
+        btn_prev = QPushButton()
         btn_today = QPushButton("Today")
-        btn_next = QPushButton("▶")
+        btn_next = QPushButton()
         
         btn_prev.setObjectName("secondaryButton")
+        btn_prev.setIcon(btn_icon_secondary("chevron-left"))
+        btn_prev.setIconSize(QSize(16, 16))
         btn_today.setObjectName("secondaryButton")
         btn_next.setObjectName("secondaryButton")
+        btn_next.setIcon(btn_icon_secondary("chevron-right"))
+        btn_next.setIconSize(QSize(16, 16))
         
         btn_prev.clicked.connect(self.go_prev_month)
         btn_today.clicked.connect(self.go_today)
@@ -269,8 +277,10 @@ class CalendarPage(QWidget):
         self.lbl_panel_date.setStyleSheet("color: white; font-size: 20px; font-weight: 800;")
         close_row.addWidget(self.lbl_panel_date)
         
-        btn_close = QPushButton("✕")
-        btn_close.setStyleSheet("background: transparent; color: white; font-size: 18px; border: none; font-weight: bold;")
+        btn_close = QPushButton()
+        btn_close.setIcon(btn_icon_muted("close"))
+        btn_close.setIconSize(QSize(16, 16))
+        btn_close.setStyleSheet("background: transparent; border: none;")
         btn_close.clicked.connect(lambda: self.side_panel.setVisible(False))
         btn_close.setCursor(Qt.PointingHandCursor)
         close_row.addWidget(btn_close, alignment=Qt.AlignTop)
@@ -278,7 +288,7 @@ class CalendarPage(QWidget):
         
         # Capacity Box
         cap_box = QFrame()
-        cap_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.15); border-radius: 8px; margin-top: 15px;")
+        cap_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.06); border-radius: 8px; margin-top: 15px;")
         cap_layout = QHBoxLayout(cap_box)
         
         # --- THE FIX: Force RichText and use <br> ---
@@ -299,7 +309,7 @@ class CalendarPage(QWidget):
         self.sp_body_layout.setSpacing(16)
         
         lbl_ds = QLabel("DAILY SCHEDULE")
-        lbl_ds.setStyleSheet("color: #64748B; font-size: 12px; font-weight: 800; letter-spacing: 0.5px;")
+        lbl_ds.setStyleSheet("color: #9aa0a6; font-size: 12px; font-weight: 800; letter-spacing: 0.5px;")
         self.sp_body_layout.addWidget(lbl_ds)
 
         self.cards_container = QVBoxLayout()
@@ -316,7 +326,7 @@ class CalendarPage(QWidget):
 
         # Bottom Button
         btn_manage = QPushButton("Manage Day Schedule")
-        btn_manage.setStyleSheet("background-color: #FEF2F2; color: #DC2626; font-weight: 700; padding: 14px; border-radius: 8px; border: 1px solid #FECACA; margin: 20px;")
+        btn_manage.setStyleSheet("background-color: rgba(197,164,109,0.10); color: #c5a46d; font-weight: 700; padding: 14px; border-radius: 8px; border: 1px solid rgba(197,164,109,0.3); margin: 20px;")
         btn_manage.setCursor(Qt.PointingHandCursor)
         sp_layout.addWidget(btn_manage)
 

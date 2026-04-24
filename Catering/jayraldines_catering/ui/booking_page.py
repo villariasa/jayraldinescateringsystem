@@ -2,8 +2,10 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFrame,
                                QLabel, QLineEdit, QComboBox, QPushButton, QTableWidget, 
                                QTableWidgetItem, QHeaderView, QGraphicsDropShadowEffect,
                                QStackedWidget, QCheckBox, QScrollArea, QDateEdit, QTimeEdit, QSpinBox)
-from PySide6.QtCore import Qt, QDate, QTime, QVariantAnimation
+from PySide6.QtCore import Qt, QDate, QTime, QVariantAnimation, QSize
 from PySide6.QtGui import QColor
+
+from utils.icon_manager import btn_icon_primary, btn_icon_secondary, btn_icon_muted
 
 # ==========================================================
 # CUSTOM WIDGET: Animated Hover Card
@@ -60,11 +62,11 @@ def create_status_badge(status_text):
     lbl.setAlignment(Qt.AlignCenter)
     
     if status_text == "CONFIRMED":
-        lbl.setStyleSheet("background-color: #dcfce7; color: #166534; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 12px; border: 1px solid #bbf7d0;")
+        lbl.setStyleSheet("background-color: rgba(110,231,183,0.15); color: #6ee7b7; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(110,231,183,0.3);")
     elif status_text == "PENDING":
-        lbl.setStyleSheet("background-color: #fef9c3; color: #854d0e; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 12px; border: 1px solid #fef08a;")
+        lbl.setStyleSheet("background-color: rgba(197,164,109,0.15); color: #c5a46d; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(197,164,109,0.3);")
     else:
-        lbl.setStyleSheet("background-color: #f1f5f9; color: #475569; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 12px; border: 1px solid #e2e8f0;")
+        lbl.setStyleSheet("background-color: rgba(248,113,113,0.15); color: #f87171; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(248,113,113,0.3);")
     layout.addWidget(lbl)
     return widget
 
@@ -107,7 +109,7 @@ class BookingPage(QWidget):
         scroll_area.setStyleSheet("background: transparent;")
         
         scroll_content = QWidget()
-        scroll_content.setStyleSheet("background: transparent;")
+        scroll_content.setStyleSheet("background: #1a1d24;")
         self.form_layout = QVBoxLayout(scroll_content)
         self.form_layout.setContentsMargins(10, 10, 10, 10)
         self.form_layout.setSpacing(20) # More space between fields
@@ -186,8 +188,10 @@ class BookingPage(QWidget):
         self.pkg_qty.setRange(1, 10)
         self.pkg_qty.setToolTip("Quantity")
         
-        btn_add_pkg = QPushButton("Add")
+        btn_add_pkg = QPushButton(" Add")
         btn_add_pkg.setObjectName("secondaryButton")
+        btn_add_pkg.setIcon(btn_icon_secondary("plus"))
+        btn_add_pkg.setIconSize(QSize(14, 14))
         
         pick_lay.addWidget(self.pkg_combo, 3)
         pick_lay.addWidget(self.pkg_qty, 1)
@@ -204,7 +208,7 @@ class BookingPage(QWidget):
         c_scroll = QScrollArea()
         c_scroll.setWidgetResizable(True)
         c_scroll.setFixedHeight(150)
-        c_scroll.setStyleSheet("border: 1px solid #e2e8f0; border-radius: 6px; background: white;")
+        c_scroll.setStyleSheet("border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; background: #20242c;")
         c_list = QWidget()
         c_vbox = QVBoxLayout(c_list)
         
@@ -232,7 +236,7 @@ class BookingPage(QWidget):
         # Cost Breakdown Box
         cost_box = QFrame()
         cost_box.setObjectName("costBox")
-        cost_box.setStyleSheet("background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;")
+        cost_box.setStyleSheet("background-color: #20242c; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;")
         c_layout = QVBoxLayout(cost_box)
         c_layout.addWidget(QLabel("<span style='color:#64748b; font-size:11px; font-weight:700;'>COST BREAKDOWN</span>"))
         
@@ -269,8 +273,10 @@ class BookingPage(QWidget):
         container_lay.setContentsMargins(20, 20, 20, 20)
         container_lay.addWidget(scroll_area) 
         
-        submit_btn = QPushButton("✓ Confirm Booking")
+        submit_btn = QPushButton("  Confirm Booking")
         submit_btn.setObjectName("primaryButton")
+        submit_btn.setIcon(btn_icon_primary("check"))
+        submit_btn.setIconSize(QSize(16, 16))
         submit_btn.setFixedHeight(48)
         container_lay.addWidget(submit_btn) 
         
@@ -290,10 +296,14 @@ class BookingPage(QWidget):
         t_head.addWidget(t_title)
         t_head.addStretch()
         
-        btn_filter = QPushButton("Filter")
+        btn_filter = QPushButton(" Filter")
         btn_filter.setObjectName("secondaryButton")
-        btn_export = QPushButton("Export")
+        btn_filter.setIcon(btn_icon_secondary("filter"))
+        btn_filter.setIconSize(QSize(14, 14))
+        btn_export = QPushButton(" Export")
         btn_export.setObjectName("secondaryButton")
+        btn_export.setIcon(btn_icon_secondary("export"))
+        btn_export.setIconSize(QSize(14, 14))
         t_head.addWidget(btn_filter)
         t_head.addWidget(btn_export)
         table_layout.addLayout(t_head)
@@ -336,8 +346,10 @@ class BookingPage(QWidget):
             self.table.setCellWidget(row, 4, create_status_badge(data[4]))
             
             # Action Button Cell (Trash icon)
-            del_btn = QPushButton("🗑")
-            del_btn.setStyleSheet("color: #94A3B8; font-size: 16px; border: none; background: transparent;")
+            del_btn = QPushButton()
+            del_btn.setIcon(btn_icon_muted("trash"))
+            del_btn.setIconSize(QSize(16, 16))
+            del_btn.setStyleSheet("border: none; background: transparent;")
             del_btn.setCursor(Qt.PointingHandCursor)
             self.table.setCellWidget(row, 5, del_btn)
 

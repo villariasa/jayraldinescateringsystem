@@ -4,8 +4,10 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QTableWidgetItem, QHeaderView, QScrollArea, 
                                QGraphicsOpacityEffect, QGraphicsDropShadowEffect,
                                QMessageBox, QToolTip)
-from PySide6.QtCore import Qt, QPropertyAnimation, QVariantAnimation, QEasingCurve, QMargins, QPointF
+from PySide6.QtCore import Qt, QPropertyAnimation, QVariantAnimation, QEasingCurve, QMargins, QPointF, QSize
 from PySide6.QtGui import QColor, QPainter, QLinearGradient, QPen, QCursor
+
+from utils.icon_manager import btn_icon_primary, btn_icon_secondary, btn_icon_muted
 from PySide6.QtCharts import (QChart, QChartView, QLineSeries, QAreaSeries, 
                               QPieSeries, QBarCategoryAxis, QValueAxis, QLegend)
 
@@ -179,9 +181,9 @@ def create_status_badge(text):
     layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     lbl = QLabel(f" {text} ")
     if "Completed" in text:
-        lbl.setStyleSheet("font-weight: 700; font-size: 11px; padding: 4px 12px; border-radius: 12px; border: 1px solid #bbf7d0; background-color: #dcfce7; color: #166534;")
+        lbl.setStyleSheet("font-weight: 700; font-size: 11px; padding: 4px 12px; border-radius: 12px; border: 1px solid rgba(110,231,183,0.3); background-color: rgba(110,231,183,0.15); color: #6ee7b7;")
     else:
-        lbl.setStyleSheet("font-weight: 700; font-size: 11px; padding: 4px 12px; border-radius: 12px; border: 1px solid #fef08a; background-color: #fef9c3; color: #854d0e;")
+        lbl.setStyleSheet("font-weight: 700; font-size: 11px; padding: 4px 12px; border-radius: 12px; border: 1px solid rgba(197,164,109,0.3); background-color: rgba(197,164,109,0.15); color: #c5a46d;")
     layout.addWidget(lbl)
     return widget
 
@@ -199,9 +201,9 @@ def create_pax_limit_badge(pax, limit_status):
     if limit_status:
         badge = QLabel(limit_status)
         if limit_status == "LIMIT REACHED":
-            badge.setStyleSheet("font-weight: 800; font-size: 10px; padding: 3px 8px; border-radius: 6px; background-color: #fee2e2; color: #DC2626; border: 1px solid #fca5a5;")
+            badge.setStyleSheet("font-weight: 800; font-size: 10px; padding: 3px 8px; border-radius: 6px; background-color: rgba(248,113,113,0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.3);")
         else:
-            badge.setStyleSheet("font-weight: 800; font-size: 10px; padding: 3px 8px; border-radius: 6px; background-color: #fef2f2; color: #f43f5e; border: 1px solid #fda4af;")
+            badge.setStyleSheet("font-weight: 800; font-size: 10px; padding: 3px 8px; border-radius: 6px; background-color: rgba(197,164,109,0.12); color: #c5a46d; border: 1px solid rgba(197,164,109,0.3);")
         layout.addWidget(badge)
     return widget
 
@@ -217,7 +219,7 @@ class AreaChartCard(QVBoxLayout):
         data = [45, 52, 38, 65, 58, 75, 82]
         for i, val in enumerate(data): 
             self.upper_series.append(i, val)
-        self.pen = QPen(QColor("#DC2626"))
+        self.pen = QPen(QColor("#c5a46d"))
         self.pen.setWidth(3)
         self.upper_series.setPen(self.pen)
 
@@ -227,8 +229,8 @@ class AreaChartCard(QVBoxLayout):
 
         self.area = QAreaSeries(self.upper_series, self.lower_series)
         self.gradient = QLinearGradient(0, 0, 0, 300)
-        self.gradient.setColorAt(0.0, QColor(220, 38, 38, 80))
-        self.gradient.setColorAt(1.0, QColor(220, 38, 38, 0))
+        self.gradient.setColorAt(0.0, QColor(197, 164, 109, 80))
+        self.gradient.setColorAt(1.0, QColor(197, 164, 109, 0))
         self.area.setBrush(self.gradient)
         self.area.setPen(Qt.NoPen)
 
@@ -244,7 +246,7 @@ class AreaChartCard(QVBoxLayout):
         self.axis_x.append(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"])
         self.axis_x.setLinePenColor(Qt.transparent)
         self.axis_x.setGridLineColor(Qt.transparent)
-        self.axis_x.setLabelsColor(QColor("#64748B"))
+        self.axis_x.setLabelsColor(QColor("#9aa0a6"))
         self.chart.addAxis(self.axis_x, Qt.AlignBottom)
         self.area.attachAxis(self.axis_x)
         self.upper_series.attachAxis(self.axis_x)
@@ -252,9 +254,9 @@ class AreaChartCard(QVBoxLayout):
         self.axis_y = QValueAxis()
         self.axis_y.setRange(0, 100)
         self.axis_y.setLabelFormat("₱%ik")          # Fixed peso symbol on axis
-        self.axis_y.setGridLineColor(QColor("#F1F5F9"))
+        self.axis_y.setGridLineColor(QColor("#20242c"))
         self.axis_y.setLinePenColor(Qt.transparent)
-        self.axis_y.setLabelsColor(QColor("#64748B"))
+        self.axis_y.setLabelsColor(QColor("#9aa0a6"))
         self.chart.addAxis(self.axis_y, Qt.AlignLeft)
         self.area.attachAxis(self.axis_y)
         self.upper_series.attachAxis(self.axis_y)
@@ -273,8 +275,10 @@ class AreaChartCard(QVBoxLayout):
         # Reset button
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        self.reset_btn = QPushButton("⟳ Reset Zoom")
+        self.reset_btn = QPushButton("  Reset Zoom")
         self.reset_btn.setObjectName("secondaryButton")
+        self.reset_btn.setIcon(btn_icon_secondary("reset-zoom"))
+        self.reset_btn.setIconSize(QSize(14, 14))
         self.reset_btn.clicked.connect(self.reset_chart_zoom)
         btn_layout.addWidget(self.reset_btn)
         self.addLayout(btn_layout)
@@ -310,10 +314,10 @@ class DonutChartCard(QVBoxLayout):
         
         # Short labels for clean display (no "...")
         self.slice_data = {
-            "Cash":        (45, "#DC2626"),
-            "GCash":       (30, "#F87171"),
-            "Bank":        (15, "#FCA5A5"),   # shortened from "Bank Transfer"
-            "PayMaya":     (10, "#7F1D1D")
+            "Cash":        (45, "#c5a46d"),
+            "GCash":       (30, "#d4b580"),
+            "Bank":        (15, "#a8885a"),
+            "PayMaya":     (10, "#7a6040")
         }
         self.full_names = {
             "Cash": "Cash",
@@ -335,7 +339,7 @@ class DonutChartCard(QVBoxLayout):
         self.chart.setBackgroundBrush(Qt.transparent)
         self.chart.legend().setAlignment(Qt.AlignRight)
         self.chart.legend().setMarkerShape(QLegend.MarkerShape.MarkerShapeCircle)
-        self.chart.legend().setLabelColor(QColor("#475569"))
+        self.chart.legend().setLabelColor(QColor("#9aa0a6"))
         
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
@@ -402,10 +406,14 @@ class ReportsPage(QWidget):
         header_row.addLayout(v_title)
         
         header_row.addStretch()
-        btn_date = QPushButton("📅 Custom Date Range")
+        btn_date = QPushButton("  Custom Date Range")
         btn_date.setObjectName("secondaryButton")
-        btn_filter = QPushButton("⚲ Filter by Payment/Package")
+        btn_date.setIcon(btn_icon_secondary("date-range"))
+        btn_date.setIconSize(QSize(16, 16))
+        btn_filter = QPushButton("  Filter by Payment/Package")
         btn_filter.setObjectName("primaryButton")
+        btn_filter.setIcon(btn_icon_primary("filter"))
+        btn_filter.setIconSize(QSize(16, 16))
         header_row.addWidget(btn_date)
         header_row.addWidget(btn_filter)
         self.main_layout.addLayout(header_row)
@@ -429,7 +437,7 @@ class ReportsPage(QWidget):
         
         prog = QFrame()
         prog.setFixedHeight(8)
-        prog.setStyleSheet("background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #FCA5A5, stop:1 #DC2626); margin-right: 40px; border-radius: 4px;")
+        prog.setStyleSheet("background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #a8885a, stop:1 #c5a46d); margin-right: 40px; border-radius: 4px;")
         t_lay.addWidget(prog)
         t_lay.addWidget(QLabel("<span style='color: #64748B; font-weight: 600; font-size: 12px;'>85% of weekly goal achieved</span>"))
         kpi_layout.addWidget(target_card)
@@ -440,13 +448,13 @@ class ReportsPage(QWidget):
         charts_layout.setSpacing(32)
         
         line_card = QFrame()
-        line_card.setStyleSheet("background-color: #FFFFFF; border-radius: 16px; border: 1px solid #F1F5F9;")
+        line_card.setStyleSheet("background-color: #1a1d24; border-radius: 16px; border: 1px solid rgba(255,255,255,0.08);")
         line_card.setLayout(AreaChartCard("Income Trends (Year-to-Date)"))
         line_card.layout().setContentsMargins(32, 24, 32, 24)
         charts_layout.addWidget(line_card, 2) 
         
         donut_card = QFrame()
-        donut_card.setStyleSheet("background-color: #FFFFFF; border-radius: 16px; border: 1px solid #F1F5F9;")
+        donut_card.setStyleSheet("background-color: #1a1d24; border-radius: 16px; border: 1px solid rgba(255,255,255,0.08);")
         donut_card.setLayout(DonutChartCard("Payment Methods"))
         donut_card.layout().setContentsMargins(32, 24, 32, 24)
         charts_layout.addWidget(donut_card, 1) 
@@ -463,7 +471,7 @@ class ReportsPage(QWidget):
         t_head.addWidget(QLabel("<span style='font-size: 18px; font-weight: 800; color: #1E293B;'>Recent Booking Statistics</span>"))
         t_head.addStretch()
         view_btn = QPushButton("View All")
-        view_btn.setStyleSheet("color: #DC2626; font-weight: bold; border: none; background: transparent;")
+        view_btn.setStyleSheet("color: #c5a46d; font-weight: bold; border: none; background: transparent;")
         t_head.addWidget(view_btn)
         t_layout.addLayout(t_head)
 
