@@ -7,18 +7,7 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
-
-
-_SAMPLE_MENU = [
-    {"item": "Lechon de Leche",       "category": "Main Course",  "package": "Premium",  "price": 8500.0,  "status": "Available"},
-    {"item": "Kare-Kare",             "category": "Main Course",  "package": "Standard", "price": 3500.0,  "status": "Available"},
-    {"item": "Pancit Malabon",        "category": "Noodles",      "package": "Standard", "price": 1800.0,  "status": "Available"},
-    {"item": "Buko Pandan",           "category": "Dessert",      "package": "Standard", "price": 950.0,   "status": "Available"},
-    {"item": "Leche Flan",            "category": "Dessert",      "package": "Premium",  "price": 1200.0,  "status": "Available"},
-    {"item": "Chicken Inasal",        "category": "Main Course",  "package": "Budget",   "price": 2200.0,  "status": "Available"},
-    {"item": "Chopsuey",              "category": "Vegetables",   "package": "Budget",   "price": 1200.0,  "status": "Available"},
-    {"item": "Puto Bumbong",          "category": "Dessert",      "package": "Budget",   "price": 600.0,   "status": "Seasonal"},
-]
+import utils.menu_store as menu_store
 
 _CATEGORIES = ["Main Course", "Noodles", "Soup", "Vegetables", "Dessert", "Drinks", "Bread", "Other"]
 _PACKAGES   = ["Budget", "Standard", "Premium", "Custom"]
@@ -149,7 +138,6 @@ class AddMenuItemDialog(QDialog):
 class MenuPage(QWidget):
     def __init__(self):
         super().__init__()
-        self._items = list(_SAMPLE_MENU)
         self._build_ui()
         self._populate_table()
 
@@ -199,9 +187,13 @@ class MenuPage(QWidget):
         root.addWidget(card)
 
     def _populate_table(self):
+        q = getattr(self, "_filter_q", "")
+        items = menu_store.all_items()
+        if q:
+            items = [i for i in items if q in i["item"].lower() or q in i["category"].lower() or q in i["package"].lower()]
         self._table.setRowCount(0)
         status_colors = {"Available": "#22C55E", "Unavailable": "#EF4444", "Seasonal": "#F59E0B"}
-        for row, item in enumerate(self._items):
+        for row, item in enumerate(items):
             self._table.insertRow(row)
             self._table.setItem(row, 0, QTableWidgetItem(item["item"]))
             self._table.setItem(row, 1, QTableWidgetItem(item["category"]))
@@ -225,7 +217,7 @@ class MenuPage(QWidget):
         btn = self.sender()
         for r in range(self._table.rowCount()):
             if self._table.cellWidget(r, 5) is btn:
-                self._items.pop(r)
+                menu_store.remove_item(r)
                 self._populate_table()
                 return
 
@@ -234,5 +226,10 @@ class MenuPage(QWidget):
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
             if result:
-                self._items.append(result)
+                menu_store.add_item(result)
                 self._populate_table()
+
+    def filter_search(self, text):
+        q = text.lower()
+        self._filter_q = q
+        self._populate_table()

@@ -20,7 +20,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Jayraldine's Catering")
         self.resize(1400, 900)
-        self.showMaximized()
+        self.showFullScreen()
 
         self.shortcut_f11 = QShortcut(QKeySequence("F11"), self)
         self.shortcut_f11.activated.connect(self._toggle_fullscreen)
@@ -70,9 +70,9 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(right)
 
         self.sidebar.page_changed.connect(self._navigate)
-
         self.dashboard_page.new_booking_requested.connect(lambda: self._navigate(1))
         self.topbar.notif_btn.clicked.connect(self._show_notifications)
+        self.topbar.search_changed.connect(self._on_search)
 
         self._navigate(0)
 
@@ -81,10 +81,17 @@ class MainWindow(QMainWindow):
         self.topbar.set_page(index)
         self.sidebar.handle_click(index)
 
+    def _on_search(self, text):
+        page = self.stack.currentWidget()
+        if hasattr(page, "filter_search"):
+            page.filter_search(text)
+
     def _show_notifications(self):
-        from components.notifications_panel import NotificationsPanel
+        from components.notifications_panel import NotificationsPanel, _notifications
         panel = NotificationsPanel(self)
         panel.exec()
+        self.topbar.notif_badge.setText(str(len(_notifications)))
+        self.topbar.notif_badge.setVisible(len(_notifications) > 0)
 
     def _toggle_fullscreen(self):
         if self.isFullScreen():

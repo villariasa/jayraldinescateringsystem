@@ -238,3 +238,6 @@ class CustomersPage(QWidget):
         q = text.lower()
         filtered = [c for c in self._customers if q in c["name"].lower() or q in c["email"].lower() or q in c["contact"].lower()]
         self._populate_table(filtered)
+
+    def filter_search(self, text):
+        self._search.setText(text)

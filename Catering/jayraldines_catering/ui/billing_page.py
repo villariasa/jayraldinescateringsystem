@@ -180,6 +180,7 @@ class BillingPage(QWidget):
         export_btn.setObjectName("secondaryButton")
         export_btn.setIcon(btn_icon_secondary("export"))
         export_btn.setIconSize(QSize(15, 15))
+        export_btn.clicked.connect(self.export_csv)
         header.addWidget(export_btn)
 
         root.addLayout(header)
@@ -240,3 +241,24 @@ class BillingPage(QWidget):
             if result:
                 self._invoices.append(result)
                 self._populate_table()
+
+    def filter_search(self, text):
+        q = text.lower()
+        orig = self._invoices
+        self._invoices = [i for i in orig if q in i["customer"].lower() or q in i["invoice"].lower()]
+        self._populate_table()
+        self._invoices = orig
+
+    def export_csv(self):
+        import csv
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        path, _ = QFileDialog.getSaveFileName(self, "Export Invoices", "invoices.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Invoice", "Customer", "Event Date", "Amount", "Paid", "Status"])
+            for inv in self._invoices:
+                writer.writerow([inv["invoice"], inv["customer"], inv["event_date"],
+                                 inv["amount"], inv["paid"], inv["status"]])
+        QMessageBox.information(self, "Export", f"Exported to:\n{path}")

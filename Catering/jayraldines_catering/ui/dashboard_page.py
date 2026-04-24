@@ -1,9 +1,8 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
-    QLabel, QPushButton, QProgressBar, QScrollArea, QGraphicsDropShadowEffect
+    QLabel, QPushButton, QProgressBar, QScrollArea
 )
-from PySide6.QtCore import Qt, QVariantAnimation, Signal, QSize
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, Signal, QSize
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
 
@@ -12,32 +11,6 @@ class AnimatedCard(QFrame):
     def __init__(self):
         super().__init__()
         self.setObjectName("card")
-        self.shadow = QGraphicsDropShadowEffect(self)
-        self.shadow.setBlurRadius(20)
-        self.shadow.setOffset(0, 6)
-        self.shadow.setColor(QColor(0, 0, 0, 60))
-        self.setGraphicsEffect(self.shadow)
-
-        self._anim = QVariantAnimation(self)
-        self._anim.setDuration(200)
-        self._anim.valueChanged.connect(lambda v: (
-            self.shadow.setBlurRadius(20 + int(v)),
-            self.shadow.setOffset(0, 6 + int(v / 2))
-        ))
-
-    def enterEvent(self, event):
-        self._anim.stop()
-        self._anim.setStartValue(0)
-        self._anim.setEndValue(12)
-        self._anim.start()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._anim.stop()
-        self._anim.setStartValue(12)
-        self._anim.setEndValue(0)
-        self._anim.start()
-        super().leaveEvent(event)
 
 
 class KPICard(AnimatedCard):

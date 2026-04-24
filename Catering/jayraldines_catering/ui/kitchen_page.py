@@ -148,3 +148,10 @@ class KitchenPage(QWidget):
         if order in self._orders:
             self._orders.remove(order)
             self._refresh_columns()
+
+    def filter_search(self, text):
+        q = text.lower()
+        orig = self._orders
+        self._orders = [o for o in orig if q in o["client"].lower() or q in o["id"].lower() or q in o["event"].lower()]
+        self._refresh_columns()
+        self._orders = orig

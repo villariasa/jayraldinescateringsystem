@@ -1,141 +1,82 @@
-Improve my existing PySide6 UI with focus on ICON SYSTEM and THEME SUPPORT.
-
-CRITICAL CONSTRAINTS:
-- Do NOT change layout, structure, widget positions, or UI flow.
-- Do NOT rewrite business logic.
-- Only improve ICONS and ADD THEME SYSTEM.
-
----
-
-PART 1: ICON SYSTEM UPGRADE
-- Replace all default Qt icons with a modern icon set (Lucide or Tabler preferred).
-- Use only ONE icon library (no mixing).
-- Convert all QPushButton, QAction, toolbar, menu icons to SVG-based icons.
-- Ensure consistent icon style (same stroke weight, minimal, modern SaaS look).
-- Ensure icons are scalable and sharp on high DPI screens.
-- Maintain consistent icon sizes (18px–24px).
-- Remove all Qt default/system icons completely.
-
-Implement:
-- Central IconManager class or module
-- Organized /icons directory structure
-- Clean mapping system for icon usage
-
----
-
-PART 2: THEME SYSTEM (LIGHT + DARK)
-
-Create a theme system with TWO modes:
-- Light Theme
-- Dark Theme
-
-IMPORTANT:
-- Both themes must use the SAME base color palette family (just inverted brightness levels).
-- Maintain consistent branding across both modes.
-
-Design rules:
-- Light theme: clean, soft, minimal contrast, modern UI
-- Dark theme: deep neutral background, reduced eye strain, same accent colors
-- Use consistent accent color across both themes (do NOT change brand identity)
-- Ensure text readability and proper contrast ratios
-
-Implementation requirements:
-- Create a ThemeManager class
-- Store themes as QSS (Qt Style Sheets)
-- Allow runtime switching between Light and Dark mode
-- Apply theme globally to QApplication
-
----
-
-PART 3: STRUCTURE REQUIREMENTS
-- Separate files:
-  - theme.py (ThemeManager)
-  - icons.py (IconManager)
-- Clean reusable architecture
-- Easy to extend in future
-
----
-
-OUTPUT:
-- Updated PySide6 code only for:
-  - Icon system refactor
-  - Theme system implementation
-- Provide sample usage (how to switch theme + assign icons)
+PS C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering> python main.py
+PS C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering> python main.py
+PS C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering> python main.py
+Traceback (most recent call last):
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 80, in nav_icon_active
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
+  File "<frozen codecs>", line 313, in _init_
+RecursionError: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
+  File "<frozen codecs>", line 313, in _init_
+RecursionError: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
+RecursionError: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
+RecursionError: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
+RecursionError: maximum recursion depth exceeded
+QWindowsWindow::setGeometry: Unable to set geometry 1920x1090+0+29 (frame: 1938x1137-9-9) on QWidgetWindow/"MainWindowClassWindow" on "\\.\DISPLAY1". Resulting geometry: 1920x1051+0+29 (frame: 1938x1098-9-9) margins: 9, 38, 9, 9 minimum size: 1071x872 MINMAXINFO(maxSize=POINT(x=0, y=0), maxpos=POINT(x=0, y=0), maxtrack=POINT(x=0, y=0), mintrack=POINT(x=1357, y=1137)))
+QWindowsWindow::setGeometry: Unable to set geometry 1920x1215+0+29 (frame: 1938x1262-9-9) on QWidgetWindow/"MainWindowClassWindow" on "\\.\DISPLAY1". Resulting geometry: 1920x1051+0+29 (frame: 1938x1098-9-9) margins: 9, 38, 9, 9 minimum size: 1071x972 MINMAXINFO(maxSize=POINT(x=0, y=0), maxpos=POINT(x=0, y=0), maxtrack=POINT(x=0, y=0), mintrack=POINT(x=1357, y=1262)))
+Traceback (most recent call last):
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
+RecursionError: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
+RecursionError: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
+RecursionError: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
+  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
+RecursionError: maximum recursion depth exceeded
 
 
-
-changes made , we dont need to have a an inventory since we are focusing in catering system so only menu , also pls dont remove the calendar part you remove it though pls dont remove the calendar part 
-
+i encountered this issues while testing , also its so laggy , very lag when i click every part pls fix that issue 
 
 
-As a user, the current “Add Booking” experience is difficult and not intuitive.
+lacking parts to add is the auto fullscreen of the gui app
 
-Redesign and improve ONLY the booking creation flow to make it significantly more user-friendly, modern, and efficient.
+lacking the export report not working when clicking , i said all buttons i see must work 
 
----
+orders module : the export also not working , the filter not working , the status i dont know where will i set if i want to confirm it , the customer name , why not select existing customer or type another customer , i dont know there flow either 
 
-🎯 OBJECTIVE:
+on the customer when will it add if i order first like that or will i able to select the customer when i add order or booking 
 
-Transform the “Add Booking” feature into a modern, guided modal-based interface that feels smooth, fast, and easy to use.
+make sure the notification is interactive that if i mark as read it will work 
 
----
+for the reports you can add many reports possible for the system for the owner it will be helpful for its business 
 
-🧠 REQUIREMENTS:
+billing : aexport must work 
 
-1. Replace the current booking form/page with a MODAL WINDOW design
-   - Do not use default or basic dialog styles
-   - Must feel like a modern SaaS interface (not a basic popup)
+all must work export etc all must work check in detailed and update the system 
 
-2. The modal must include:
-   - Step-by-step or structured form layout (not cluttered single page form)
-   - Clear sections (Customer Info, Event Details, Menu Selection, Schedule, Notes)
-   - Logical grouping of fields
-
-3. UX IMPROVEMENTS:
-   - Reduce cognitive load (no overwhelming long form)
-   - Use progressive disclosure (show only relevant fields)
-   - Add validation hints inline (not after submit only)
-   - Show clear call-to-action buttons (Next, Back, Save Booking)
-
----
-
-🎨 DESIGN REQUIREMENTS:
-
-- Modern dark theme consistent with system UI
-- Rounded corners (10px–16px)
-- Soft shadows (no hard borders)
-- Smooth transitions between steps
-- Clean spacing system (8 / 16 / 24 px)
-- Highlight active step clearly
-
----
-
-⚡ INTERACTION DESIGN:
-
-- Multi-step modal wizard OR structured sectioned modal
-- Step indicator (progress bar or step numbers)
-- Save progress before final submission
-- Easy cancel/close without losing context
-
----
-
-💎 VISUAL STYLE:
-
-- Do NOT use default Qt dialog styling
-- Use custom styled modal container
-- Must match modern SaaS UI (Stripe / Notion style)
-- Subtle hover effects and transitions
-- Clean typography and hierarchy
-
----
-
-🚀 GOAL:
-
-Make booking creation feel:
-- fast
-- guided
-- intuitive
-- modern
-- non-intimidating for users
-
-The final result should dramatically improve usability compared to the current implementation.

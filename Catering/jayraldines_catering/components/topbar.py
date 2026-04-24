@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QLineEdit, QWidget
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, Signal
 
 from utils.icons import get_icon
 from utils.theme import ThemeManager
@@ -19,6 +19,7 @@ _PAGE_TITLES = {
 
 
 class TopBar(QFrame):
+    search_changed = Signal(str)
     def __init__(self):
         super().__init__()
         self.setObjectName("topBar")
@@ -44,6 +45,7 @@ class TopBar(QFrame):
         self.search_box.setObjectName("searchBox")
         self.search_box.setPlaceholderText("Search...")
         self.search_box.setFixedHeight(36)
+        self.search_box.textChanged.connect(self.search_changed.emit)
         search_inner.addWidget(self.search_box)
         layout.addWidget(search_wrap)
 
@@ -112,3 +114,6 @@ class TopBar(QFrame):
 
     def set_page(self, index: int):
         self.page_title.setText(_PAGE_TITLES.get(index, ""))
+        self.search_box.blockSignals(True)
+        self.search_box.clear()
+        self.search_box.blockSignals(False)

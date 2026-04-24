@@ -2,31 +2,20 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QDateEdit, QTimeEdit, QSpinBox,
     QFrame, QWidget, QStackedWidget, QTextEdit, QCheckBox,
-    QScrollArea, QGraphicsDropShadowEffect, QSizePolicy
+    QScrollArea, QSizePolicy
 )
 from PySide6.QtCore import Qt, QDate, QTime, QSize, Signal
-from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
+import utils.menu_store as menu_store
 
 
 _STEPS = ["Customer", "Event", "Menu", "Payment"]
 
 _PACKAGES = [
-    ("Standard Package",  "₱1,500/pax", "Buffet setup, 5 dishes, dessert"),
-    ("Premium Package",   "₱2,500/pax", "Plated service, 8 dishes, dessert + drinks"),
-    ("VIP Package",       "₱3,500/pax", "Full service, 12 dishes, open bar, décor"),
-]
-
-_FOOD_ITEMS = [
-    ("Pork Adobo",          500),
-    ("Beef Caldereta",      750),
-    ("Chicken Cordon Bleu", 600),
-    ("Sweet & Sour Fish",   550),
-    ("Lechon Kawali",       800),
-    ("Kare-Kare",           700),
-    ("Pancit Canton",       400),
-    ("Lumpia Shanghai",     350),
+    ("Standard Package",  "₱1,500/pax", "Buffet setup, 5 dishes, dessert",  1500),
+    ("Premium Package",   "₱2,500/pax", "Plated service, 8 dishes, dessert + drinks", 2500),
+    ("VIP Package",       "₱3,500/pax", "Full service, 12 dishes, open bar, décor",  3500),
 ]
 
 
@@ -134,12 +123,6 @@ class BookingModal(QDialog):
         self._container = QFrame()
         self._container.setObjectName("card")
         self._container.setStyleSheet("")
-
-        shadow = QGraphicsDropShadowEffect(self._container)
-        shadow.setBlurRadius(50)
-        shadow.setOffset(0, 10)
-        shadow.setColor(QColor(0, 0, 0, 120))
-        self._container.setGraphicsEffect(shadow)
 
         container_layout = QVBoxLayout(self._container)
         container_layout.setContentsMargins(32, 28, 32, 28)
@@ -331,7 +314,7 @@ class BookingModal(QDialog):
         pkg_lay.setSpacing(10)
         pkg_lay.setContentsMargins(0, 0, 0, 0)
         self._pkg_btns = []
-        for i, (name, price, desc) in enumerate(_PACKAGES):
+        for i, (name, price, desc, _rate) in enumerate(_PACKAGES):
             card = QFrame()
             card.setStyleSheet(
                 "QFrame { background: #1F2937; border-radius: 10px; border: 2px solid #243244; }"
@@ -369,13 +352,16 @@ class BookingModal(QDialog):
         cus_lay.setSpacing(8)
         cus_lay.setContentsMargins(0, 0, 0, 0)
         self._custom_checks = []
-        for name, price in _FOOD_ITEMS:
+        for item in menu_store.get_available_items():
             row = QHBoxLayout()
-            chk = QCheckBox(name)
+            chk = QCheckBox(item["item"])
             chk.setStyleSheet("color: #F9FAFB; font-size: 13px;")
-            p = QLabel(f"₱{price}/pax")
+            cat = QLabel(item["category"])
+            cat.setStyleSheet("color: #6B7280; font-size: 11px;")
+            p = QLabel(f"₱{item['price']:,.0f}")
             p.setStyleSheet("color: #F59E0B; font-size: 12px; font-weight: 700;")
             row.addWidget(chk)
+            row.addWidget(cat)
             row.addStretch()
             row.addWidget(p)
             self._custom_checks.append(chk)
@@ -469,8 +455,7 @@ class BookingModal(QDialog):
     def _update_cost(self):
         pax = self.f_pax.value() if hasattr(self, "f_pax") else 100
         pkg_idx = getattr(self, "_selected_pkg", 0)
-        rates = [1500, 2500, 3500]
-        rate = rates[pkg_idx]
+        rate = _PACKAGES[pkg_idx][3]
         total = pax * rate
         deposit = total // 2
         self._lbl_base.setText(f"Base Rate: ₱{rate:,} × {pax} pax")
@@ -540,8 +525,7 @@ class BookingModal(QDialog):
             menu_value = ", ".join(custom_items)
 
         pax = self.f_pax.value()
-        rates = [1500, 2500, 3500]
-        rate = rates[self._selected_pkg]
+        rate = _PACKAGES[self._selected_pkg][3]
         total = pax * rate
 
         data = {

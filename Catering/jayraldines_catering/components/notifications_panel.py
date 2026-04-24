@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor
 from utils.icons import get_icon
 
 
-_NOTIFICATIONS = [
+_DEFAULT_NOTIFICATIONS = [
     {
         "type":    "warning",
         "title":   "Payment Pending",
@@ -32,6 +32,8 @@ _NOTIFICATIONS = [
     },
 ]
 
+_notifications = list(_DEFAULT_NOTIFICATIONS)
+
 
 class NotificationsPanel(QDialog):
     def __init__(self, parent=None):
@@ -41,40 +43,42 @@ class NotificationsPanel(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(400)
         self.setModal(True)
+        self._build_ui()
 
+    def _build_ui(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
-        container = QFrame()
-        container.setObjectName("card")
-        container.setStyleSheet("")
+        self._container = QFrame()
+        self._container.setObjectName("card")
+        self._container.setStyleSheet("")
 
-        shadow = QGraphicsDropShadowEffect(container)
-        shadow.setBlurRadius(40)
-        shadow.setOffset(0, 8)
-        shadow.setColor(QColor(0, 0, 0, 120))
-        container.setGraphicsEffect(shadow)
+        self._c_lay = QVBoxLayout(self._container)
+        self._c_lay.setContentsMargins(20, 20, 20, 20)
+        self._c_lay.setSpacing(0)
 
-        c_lay = QVBoxLayout(container)
-        c_lay.setContentsMargins(20, 20, 20, 20)
-        c_lay.setSpacing(0)
+        self._build_header()
+        self._build_list()
 
+        outer.addWidget(self._container)
+
+    def _build_header(self):
         header = QHBoxLayout()
         title = QLabel("Notifications")
         title.setObjectName("h3")
         header.addWidget(title)
 
-        badge = QLabel(str(len(_NOTIFICATIONS)))
-        badge.setObjectName("notifBadge")
-        badge.setFixedSize(20, 20)
-        badge.setAlignment(Qt.AlignCenter)
-        header.addWidget(badge)
+        self._badge = QLabel(str(len(_notifications)))
+        self._badge.setObjectName("notifBadge")
+        self._badge.setFixedSize(20, 20)
+        self._badge.setAlignment(Qt.AlignCenter)
+        header.addWidget(self._badge)
         header.addStretch()
 
         mark_btn = QPushButton("Mark all read")
         mark_btn.setObjectName("ghostButton")
         mark_btn.setCursor(Qt.PointingHandCursor)
-        mark_btn.clicked.connect(self.accept)
+        mark_btn.clicked.connect(self._mark_all_read)
         header.addWidget(mark_btn)
 
         close_btn = QPushButton()
@@ -85,39 +89,54 @@ class NotificationsPanel(QDialog):
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self.reject)
         header.addWidget(close_btn)
-        c_lay.addLayout(header)
+        self._c_lay.addLayout(header)
 
         div = QFrame()
         div.setObjectName("divider")
         div.setFixedHeight(1)
-        c_lay.addSpacing(12)
-        c_lay.addWidget(div)
-        c_lay.addSpacing(8)
+        self._c_lay.addSpacing(12)
+        self._c_lay.addWidget(div)
+        self._c_lay.addSpacing(8)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("background: transparent;")
-        scroll.setMaximumHeight(420)
+    def _build_list(self):
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setStyleSheet("background: transparent;")
+        self._scroll.setMaximumHeight(420)
 
-        inner = QWidget()
-        inner.setStyleSheet("background: transparent;")  # keep transparent so card bg shows through
-        inner_lay = QVBoxLayout(inner)
-        inner_lay.setSpacing(0)
-        inner_lay.setContentsMargins(0, 0, 0, 0)
+        self._inner = QWidget()
+        self._inner.setStyleSheet("background: transparent;")
+        self._inner_lay = QVBoxLayout(self._inner)
+        self._inner_lay.setSpacing(0)
+        self._inner_lay.setContentsMargins(0, 0, 0, 0)
 
-        for notif in _NOTIFICATIONS:
-            item = self._build_item(notif)
-            inner_lay.addWidget(item)
-            sep = QFrame()
-            sep.setObjectName("divider")
-            inner_lay.addWidget(sep)
+        self._refresh_list()
 
-        inner_lay.addStretch()
-        scroll.setWidget(inner)
-        c_lay.addWidget(scroll)
+        self._scroll.setWidget(self._inner)
+        self._c_lay.addWidget(self._scroll)
 
-        outer.addWidget(container)
+    def _refresh_list(self):
+        while self._inner_lay.count():
+            item = self._inner_lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not _notifications:
+            empty = QLabel("No new notifications.")
+            empty.setStyleSheet("color: #6B7280; font-size: 13px; padding: 20px;")
+            empty.setAlignment(Qt.AlignCenter)
+            self._inner_lay.addWidget(empty)
+        else:
+            for notif in list(_notifications):
+                item = self._build_item(notif)
+                self._inner_lay.addWidget(item)
+                sep = QFrame()
+                sep.setObjectName("divider")
+                self._inner_lay.addWidget(sep)
+
+        self._inner_lay.addStretch()
+        self._badge.setText(str(len(_notifications)))
 
     def _build_item(self, notif):
         w = QWidget()
@@ -131,25 +150,39 @@ class NotificationsPanel(QDialog):
         dot.setStyleSheet(
             f"background: {notif['color']}; border-radius: 5px; min-width: 10px; max-width: 10px;"
         )
-        lay.addWidget(dot, alignment=Qt.AlignTop)
-        lay.setAlignment(dot, Qt.AlignVCenter)
+        lay.addWidget(dot, alignment=Qt.AlignVCenter)
 
         text_col = QVBoxLayout()
         text_col.setSpacing(3)
-
         title_lbl = QLabel(notif["title"])
-        title_lbl.setStyleSheet("font-weight: 700; font-size: 13px; color: #F9FAFB;")
-
+        title_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
         msg_lbl = QLabel(notif["message"])
         msg_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px;")
         msg_lbl.setWordWrap(True)
-
         time_lbl = QLabel(notif["time"])
         time_lbl.setStyleSheet("color: #6B7280; font-size: 11px;")
-
         text_col.addWidget(title_lbl)
         text_col.addWidget(msg_lbl)
         text_col.addWidget(time_lbl)
+        lay.addLayout(text_col, 1)
 
-        lay.addLayout(text_col)
+        dismiss_btn = QPushButton()
+        dismiss_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(12, 12)))
+        dismiss_btn.setIconSize(QSize(12, 12))
+        dismiss_btn.setFixedSize(22, 22)
+        dismiss_btn.setStyleSheet("background: transparent; border: none;")
+        dismiss_btn.setCursor(Qt.PointingHandCursor)
+        dismiss_btn.setToolTip("Dismiss")
+        dismiss_btn.clicked.connect(lambda _, n=notif: self._dismiss(n))
+        lay.addWidget(dismiss_btn, alignment=Qt.AlignVCenter)
+
         return w
+
+    def _dismiss(self, notif):
+        if notif in _notifications:
+            _notifications.remove(notif)
+        self._refresh_list()
+
+    def _mark_all_read(self):
+        _notifications.clear()
+        self._refresh_list()

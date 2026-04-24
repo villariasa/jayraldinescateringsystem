@@ -1,10 +1,11 @@
 import sys
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                               QHBoxLayout, QFrame, QLabel, QPushButton, QTableWidget, 
-                               QTableWidgetItem, QHeaderView, QScrollArea, 
-                               QGraphicsOpacityEffect, QGraphicsDropShadowEffect,
-                               QMessageBox, QToolTip)
-from PySide6.QtCore import Qt, QPropertyAnimation, QVariantAnimation, QEasingCurve, QMargins, QPointF, QSize
+import csv
+import os
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                               QHBoxLayout, QFrame, QLabel, QPushButton, QTableWidget,
+                               QTableWidgetItem, QHeaderView, QScrollArea,
+                               QMessageBox, QToolTip, QFileDialog)
+from PySide6.QtCore import Qt, QMargins, QPointF, QSize
 from PySide6.QtGui import QColor, QPainter, QLinearGradient, QPen, QCursor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted
@@ -126,52 +127,12 @@ QToolTip {
 """
 
 # ==========================================
-# 2. ANIMATIONS & MICRO-INTERACTIONS
+# 2. CARDS
 # ==========================================
-def create_soft_shadow(widget, radius=20, y_offset=8, opacity=5):
-    shadow = QGraphicsDropShadowEffect(widget)
-    shadow.setBlurRadius(radius)
-    shadow.setColor(QColor(0, 0, 0, opacity))
-    shadow.setOffset(0, y_offset)
-    widget.setGraphicsEffect(shadow)
-    return shadow
-
 class HoverCard(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("saasCard")
-        self.shadow = create_soft_shadow(self, radius=20, y_offset=5, opacity=6)
-        
-        self.anim = QVariantAnimation(self)
-        self.anim.setDuration(250)
-        self.anim.setEasingCurve(QEasingCurve.OutQuad)
-        self.anim.valueChanged.connect(self._animate_shadow)
-
-    def _animate_shadow(self, value):
-    # Prevent crash if shadow not ready
-        if not hasattr(self, "shadow") or self.shadow is None:
-            return
-
-        try:
-            self.shadow.setBlurRadius(15 + value)
-            self.shadow.setOffset(0, 4 + (value / 2))
-            self.shadow.setColor(QColor(0, 0, 0, 15 + int(value / 3)))
-        except RuntimeError:
-            # Handles cases where Qt internally deleted the effect
-            return
-    def enterEvent(self, event):
-        self.anim.stop()
-        self.anim.setStartValue(0)
-        self.anim.setEndValue(10)
-        self.anim.start()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self.anim.stop()
-        self.anim.setStartValue(10)
-        self.anim.setEndValue(0)
-        self.anim.start()
-        super().leaveEvent(event)
 
 # --- Badge Generators ---
 def create_status_badge(text):
@@ -414,16 +375,22 @@ class ReportsPage(QWidget):
         btn_filter.setObjectName("primaryButton")
         btn_filter.setIcon(btn_icon_primary("filter"))
         btn_filter.setIconSize(QSize(16, 16))
+        btn_export = QPushButton("  Export CSV")
+        btn_export.setObjectName("secondaryButton")
+        btn_export.setIcon(btn_icon_secondary("export"))
+        btn_export.setIconSize(QSize(16, 16))
+        btn_export.clicked.connect(self._export_csv)
         header_row.addWidget(btn_date)
         header_row.addWidget(btn_filter)
+        header_row.addWidget(btn_export)
         self.main_layout.addLayout(header_row)
 
         # --- KPIS ---
         kpi_layout = QHBoxLayout()
         kpi_layout.setSpacing(24)
-        kpi_layout.addWidget(self.build_kpi_card("Total Bookings", "124", "8 Today | 32 Week | 124 Month", icon="📅"))
-        kpi_layout.addWidget(self.build_kpi_card("Total Pax Booked", "3,450", "↗ +12% from last month", "#16A34A", icon="👥"))
-        kpi_layout.addWidget(self.build_kpi_card("Estimated Income", "₱ 415k", "↗ +8.5% from last month", "#16A34A", icon="$"))
+        kpi_layout.addWidget(self.build_kpi_card("Total Bookings", "124", "8 Today | 32 Week | 124 Month"))
+        kpi_layout.addWidget(self.build_kpi_card("Total Pax Booked", "3,450", "↗ +12% from last month", "#16A34A"))
+        kpi_layout.addWidget(self.build_kpi_card("Estimated Income", "₱ 415k", "↗ +8.5% from last month", "#16A34A"))
         
         target_card = HoverCard()
         t_lay = QVBoxLayout(target_card)
@@ -431,7 +398,6 @@ class ReportsPage(QWidget):
         t_head = QHBoxLayout()
         t_head.addWidget(QLabel("<span style='color: #64748B; font-weight: 600; font-size: 13px;'>Weekly Target</span>"))
         t_head.addStretch()
-        t_head.addWidget(QLabel("🎯"))
         t_lay.addLayout(t_head)
         t_lay.addWidget(QLabel("<span style='font-size: 36px; font-weight: 800; color: #0F172A;'>₱ 85k <span style='font-size:14px; color:#94A3B8;'>/ ₱ 100k</span></span>"))
         
@@ -448,13 +414,13 @@ class ReportsPage(QWidget):
         charts_layout.setSpacing(32)
         
         line_card = QFrame()
-        line_card.setStyleSheet("background-color: #1a1d24; border-radius: 16px; border: 1px solid rgba(255,255,255,0.08);")
+        line_card.setObjectName("card")
         line_card.setLayout(AreaChartCard("Income Trends (Year-to-Date)"))
         line_card.layout().setContentsMargins(32, 24, 32, 24)
-        charts_layout.addWidget(line_card, 2) 
-        
+        charts_layout.addWidget(line_card, 2)
+
         donut_card = QFrame()
-        donut_card.setStyleSheet("background-color: #1a1d24; border-radius: 16px; border: 1px solid rgba(255,255,255,0.08);")
+        donut_card.setObjectName("card")
         donut_card.setLayout(DonutChartCard("Payment Methods"))
         donut_card.layout().setContentsMargins(32, 24, 32, 24)
         charts_layout.addWidget(donut_card, 1) 
@@ -535,20 +501,36 @@ class ReportsPage(QWidget):
         scroll_area.setWidget(scroll_content)
         layout.addWidget(scroll_area)
 
-    def build_kpi_card(self, title, val, sub, sub_color="#64748B", icon=""):
+    def build_kpi_card(self, title, val, sub, sub_color="#64748B"):
         card = HoverCard()
         lay = QVBoxLayout(card)
         lay.setContentsMargins(24, 24, 24, 24)
-        
+
         top = QHBoxLayout()
         top.addWidget(QLabel(f"<span style='color: #64748B; font-weight: 600; font-size: 13px;'>{title}</span>"))
         top.addStretch()
-        if icon: top.addWidget(QLabel(icon))
         lay.addLayout(top)
-        
+
         lay.addWidget(QLabel(f"<span style='font-size: 36px; font-weight: 800; color: #0F172A;'>{val}</span>"))
         lay.addWidget(QLabel(f"<span style='color: {sub_color}; font-weight: 600; font-size: 12px;'>{sub}</span>"))
         return card
+
+    def _export_csv(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Export Reports", "reports.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+        rows_data = [
+            ("BKG-001", "Oct 24, 2026", "TechCorp Inc.",  "Premium Corporate", 45,  "Completed"),
+            ("BKG-002", "Oct 25, 2026", "Smith Wedding",  "Grand Banquet",      58,  "Pending"),
+            ("BKG-003", "Oct 26, 2026", "Sarah's 18th",   "Standard Buffet",    60,  "Pending"),
+            ("BKG-004", "Oct 28, 2026", "Local NGO Meet", "Basic Snack Box",    30,  "Completed"),
+            ("BKG-005", "Oct 29, 2026", "Alumni Reunion", "Premium Corporate",  55,  "Pending"),
+        ]
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["ID", "Date", "Client", "Package", "Pax", "Status"])
+            writer.writerows(rows_data)
+        QMessageBox.information(self, "Export", f"Exported to:\n{path}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

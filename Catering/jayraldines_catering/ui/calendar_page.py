@@ -1,61 +1,17 @@
 import calendar
 from datetime import datetime
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFrame, 
-                               QLabel, QPushButton, QGridLayout, QScrollArea, QGraphicsDropShadowEffect, QSizePolicy)
-from PySide6.QtCore import Qt, Signal, QVariantAnimation, QSize
-from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFrame,
+                               QLabel, QPushButton, QGridLayout, QScrollArea, QSizePolicy)
+from PySide6.QtCore import Qt, Signal, QSize
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted
 from components.booking_modal import BookingModal
 
-def create_shadow():
-    shadow = QGraphicsDropShadowEffect()
-    shadow.setBlurRadius(15)
-    shadow.setColor(QColor(0, 0, 0, 15))
-    shadow.setOffset(0, 4)
-    return shadow
 
-# ==========================================================
-# CUSTOM WIDGET: Animated Hover Card (From Dashboard)
-# ==========================================================
 class AnimatedCard(QFrame):
     def __init__(self):
         super().__init__()
         self.setObjectName("card")
-        self.setGraphicsEffect(create_shadow())
-        
-        # We need to access the effect for animation
-        self.shadow = self.graphicsEffect()
-
-        self.anim = QVariantAnimation(self)
-        self.anim.setDuration(250) 
-        self.anim.valueChanged.connect(self._animate_shadow)
-
-    def _animate_shadow(self, value):
-        # Prevent crash if shadow not ready
-        if not hasattr(self, "shadow") or self.shadow is None:
-            return
-
-        try:
-            self.shadow.setBlurRadius(15 + value)
-            self.shadow.setOffset(0, 4 + (value / 2))
-            self.shadow.setColor(QColor(0, 0, 0, 15 + int(value / 3)))
-        except RuntimeError:
-            # Handles cases where Qt internally deleted the effect
-            return
-    def enterEvent(self, event):
-        self.anim.stop()
-        self.anim.setStartValue(0)
-        self.anim.setEndValue(15)
-        self.anim.start()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self.anim.stop()
-        self.anim.setStartValue(15)
-        self.anim.setEndValue(0)
-        self.anim.start()
-        super().leaveEvent(event)
 
 # --- HELPER: Clickable Day Cell ---
 class DayCell(QFrame):
@@ -187,7 +143,6 @@ class CalendarPage(QWidget):
         # ==========================================
         cal_container = QFrame()
         cal_container.setObjectName("card")
-        cal_container.setGraphicsEffect(create_shadow())
         cal_layout = QVBoxLayout(cal_container)
         cal_layout.setContentsMargins(24, 24, 24, 24)
 
@@ -260,7 +215,6 @@ class CalendarPage(QWidget):
         # ==========================================
         self.side_panel = QFrame()
         self.side_panel.setObjectName("sidePanel")
-        self.side_panel.setGraphicsEffect(create_shadow())
         self.side_panel.setFixedWidth(340)
         self.side_panel.setVisible(False) 
         
