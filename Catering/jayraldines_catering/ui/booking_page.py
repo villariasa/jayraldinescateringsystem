@@ -32,9 +32,9 @@ def _status_badge(text, on_click=None):
     color, bg, border = _STATUS_COLORS.get(text, ("#9CA3AF", "rgba(156,163,175,.15)", "rgba(156,163,175,.3)"))
     btn = QPushButton(text)
     btn.setStyleSheet(
-        f"font-weight:700;font-size:11px;padding:4px 10px;border-radius:12px;"
-        f"background:{bg};color:{color};border:1px solid {border};"
-        f"QPushButton:hover{{background:{border};}}"
+        f"QPushButton {{font-weight:700;font-size:11px;padding:4px 10px;border-radius:12px;"
+        f"background:{bg};color:{color};border:1px solid {border};}}"
+        f"QPushButton:hover {{background:{border};}}"
     )
     btn.setCursor(Qt.PointingHandCursor)
     btn.setToolTip("Click to change status")
