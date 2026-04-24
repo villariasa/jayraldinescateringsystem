@@ -5,7 +5,8 @@ from ui.main_window import MainWindow
 
 def main():
     app = QApplication(sys.argv)
-    
+    app.setStyle("Fusion")
+
     # Load Stylesheet
     style_path = os.path.join(os.path.dirname(__file__), "styles", "main.qss")
     if os.path.exists(style_path):

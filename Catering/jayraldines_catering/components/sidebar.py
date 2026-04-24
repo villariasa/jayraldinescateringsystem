@@ -95,9 +95,9 @@ class Sidebar(QFrame):
         # User details
         vbox_details = QVBoxLayout()
         name = QLabel("Admin User")
-        name.setStyleSheet("color: white; font-weight: bold; font-size: 13px;")
+        name.setStyleSheet("color: #212529; font-weight: bold; font-size: 13px;")
         email = QLabel("admin@jayraldines.com")
-        email.setStyleSheet("color: #8fa0bc; font-size: 11px;")
+        email.setStyleSheet("color: #6C757D; font-size: 11px;")
         vbox_details.addWidget(name)
         vbox_details.addWidget(email)
         vbox_details.setSpacing(0)
@@ -106,7 +106,7 @@ class Sidebar(QFrame):
 
         # Logout placeholder icon
         logout_btn = QLabel("↪️") 
-        logout_btn.setStyleSheet("color: #8fa0bc; font-size: 16px; font-weight: bold;")
+        logout_btn.setStyleSheet("color: #6C757D; font-size: 16px; font-weight: bold;")
         user_layout.addWidget(logout_btn)
 
         layout.addWidget(user_frame)
