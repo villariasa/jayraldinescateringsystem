@@ -1,6 +1,7 @@
 import sys
 import os
-from PySide6.QtWidgets import QApplication
+import traceback
+from PySide6.QtWidgets import QApplication, QMessageBox
 from ui.main_window import MainWindow
 from utils.theme import ThemeManager
 import utils.db as db
@@ -21,8 +22,13 @@ def main():
 
     app.aboutToQuit.connect(db.close)
 
-    window = MainWindow()
-    window.show()
+    try:
+        window = MainWindow()
+        window.show()
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)
+
     sys.exit(app.exec())
 
 
