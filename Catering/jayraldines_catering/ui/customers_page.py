@@ -7,6 +7,8 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
+from components.dialogs import confirm, success
+import utils.repository as repo
 
 
 _SAMPLE_CUSTOMERS = [
@@ -33,10 +35,7 @@ class AddCustomerDialog(QDialog):
         outer.setContentsMargins(16, 16, 16, 16)
 
         container = QFrame()
-        container.setObjectName("modalContainer")
-        container.setStyleSheet(
-            "QFrame#modalContainer { background-color: #111827; border-radius: 14px; border: 1px solid #243244; }"
-        )
+        container.setObjectName("card")
 
         lay = QVBoxLayout(container)
         lay.setContentsMargins(24, 24, 24, 24)
@@ -131,7 +130,8 @@ class AddCustomerDialog(QDialog):
 class CustomersPage(QWidget):
     def __init__(self):
         super().__init__()
-        self._customers = list(_SAMPLE_CUSTOMERS)
+        db_rows = repo.get_all_customers()
+        self._customers = db_rows if db_rows else list(_SAMPLE_CUSTOMERS)
         self._build_ui()
         self._populate_table()
 
@@ -223,16 +223,28 @@ class CustomersPage(QWidget):
                     row = r
                     break
         if 0 <= row < len(self._customers):
+            c = self._customers[row]
+            if not confirm(self, title="Delete Customer",
+                           message=f"Are you sure you want to delete '{c['name']}'? This cannot be undone.",
+                           confirm_label="Delete", danger=True):
+                return
+            if c.get("id"):
+                repo.delete_customer(c["id"])
             self._customers.pop(row)
             self._populate_table()
+            success(self, message="Customer deleted successfully.")
 
     def _open_add_dialog(self):
         dlg = AddCustomerDialog(self)
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
             if result:
+                new_id = repo.add_customer(result)
+                if new_id:
+                    result["id"] = new_id
                 self._customers.append(result)
                 self._populate_table()
+                success(self, message="Customer added successfully.")
 
     def _filter_table(self, text):
         q = text.lower()

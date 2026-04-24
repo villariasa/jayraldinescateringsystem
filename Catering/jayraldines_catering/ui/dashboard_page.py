@@ -101,25 +101,21 @@ class EventItem(QWidget):
         layout.addWidget(badge)
 
 
-class InventoryAlertItem(QWidget):
-    def __init__(self, item, current, minimum):
+class MenuAlertItem(QWidget):
+    def __init__(self, item, issue, badge_type="badgeWarning"):
         super().__init__()
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 10, 0, 10)
         layout.setSpacing(14)
 
         name_lbl = QLabel(item)
-        name_lbl.setStyleSheet("font-weight: 600; font-size: 13px; color: #F9FAFB;")
+        name_lbl.setStyleSheet("font-weight: 600; font-size: 13px;")
         layout.addWidget(name_lbl)
         layout.addStretch()
 
-        stock_lbl = QLabel(f"{current} / {minimum} min")
-        stock_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px;")
-        layout.addWidget(stock_lbl)
-
-        badge = QLabel("Low Stock")
-        badge.setObjectName("badgeDanger")
-        layout.addWidget(badge)
+        issue_lbl = QLabel(issue)
+        issue_lbl.setObjectName(badge_type)
+        layout.addWidget(issue_lbl)
 
 
 class DashboardPage(QWidget):
@@ -283,39 +279,39 @@ class DashboardPage(QWidget):
             "3 hrs ago", "#3B82F6"))
         act_lay.addStretch()
 
-        inv_card = AnimatedCard()
-        inv_lay = QVBoxLayout(inv_card)
-        inv_lay.setContentsMargins(24, 24, 24, 24)
-        inv_lay.setSpacing(0)
+        menu_card = AnimatedCard()
+        menu_lay = QVBoxLayout(menu_card)
+        menu_lay.setContentsMargins(24, 24, 24, 24)
+        menu_lay.setSpacing(0)
 
-        inv_head = QHBoxLayout()
-        inv_title = QLabel("Inventory Alerts")
-        inv_title.setObjectName("h3")
-        inv_head.addWidget(inv_title)
-        inv_head.addStretch()
-        alert_badge = QLabel("3 Low")
-        alert_badge.setObjectName("badgeDanger")
-        inv_head.addWidget(alert_badge)
-        inv_lay.addLayout(inv_head)
+        menu_head = QHBoxLayout()
+        menu_title = QLabel("Menu Alerts")
+        menu_title.setObjectName("h3")
+        menu_head.addWidget(menu_title)
+        menu_head.addStretch()
+        menu_badge = QLabel("2 Issues")
+        menu_badge.setObjectName("badgeWarning")
+        menu_head.addWidget(menu_badge)
+        menu_lay.addLayout(menu_head)
 
-        inv_div = QFrame()
-        inv_div.setObjectName("divider")
-        inv_lay.addWidget(inv_div)
+        menu_div = QFrame()
+        menu_div.setObjectName("divider")
+        menu_lay.addWidget(menu_div)
 
-        for item, current, minimum in [
-            ("Chicken (kg)",   "8",  "20"),
-            ("Rice (kg)",      "15", "30"),
-            ("Cooking Oil (L)","4",  "10"),
+        for item, issue, badge_type in [
+            ("Puto Bumbong",   "Seasonal / Limited",  "badgeWarning"),
+            ("Lechon de Leche","High demand — monitor stock", "badgeDanger"),
+            ("Chopsuey",       "Ingredient near low stock",   "badgeDanger"),
         ]:
-            inv_lay.addWidget(InventoryAlertItem(item, current, minimum))
+            menu_lay.addWidget(MenuAlertItem(item, issue, badge_type))
             sep = QFrame()
             sep.setObjectName("divider")
-            inv_lay.addWidget(sep)
+            menu_lay.addWidget(sep)
 
-        inv_lay.addStretch()
+        menu_lay.addStretch()
 
         bot_row.addWidget(act_card, 3)
-        bot_row.addWidget(inv_card, 2)
+        bot_row.addWidget(menu_card, 2)
         lay.addLayout(bot_row)
 
         scroll.setWidget(content)

@@ -355,7 +355,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 }
 
 /* --- FORM CONTROLS --- */
-QLineEdit, QDateEdit, QTimeEdit, QSpinBox {
+QLineEdit, QDateEdit, QTimeEdit, QSpinBox, QDoubleSpinBox {
     padding: 10px 14px;
     border: 1px solid #E2E8F0;
     border-radius: 8px;
@@ -363,11 +363,13 @@ QLineEdit, QDateEdit, QTimeEdit, QSpinBox {
     color: #0F172A;
     font-size: 13px;
 }
-QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QSpinBox:focus {
+QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
     border: 1px solid #E11D48;
     background-color: #FFFFFF;
 }
 QLineEdit::placeholder { color: #94A3B8; }
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 0px; border: none; }
+QSpinBox::up-button, QSpinBox::down-button { width: 16px; }
 
 QComboBox {
     padding: 10px 14px;
@@ -488,6 +490,7 @@ QFrame#scheduleCard {
     border-radius: 8px;
     padding: 10px;
 }
+QFrame#scheduleCard QLabel { color: #0F172A; }
 
 /* --- STATUS STEP BAR --- */
 QFrame#stepActive  { background-color: #E11D48; border-radius: 14px; min-height: 6px; max-height: 6px; }

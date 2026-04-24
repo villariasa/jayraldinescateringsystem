@@ -5,6 +5,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize
 
 from utils.icons import btn_icon_primary, get_icon
+from components.dialogs import confirm, success
+import utils.repository as repo
 
 
 _SAMPLE_ORDERS = [
@@ -14,15 +16,23 @@ _SAMPLE_ORDERS = [
     {"id": "ORD-004", "client": "Smith Wedding", "event": "Wedding Reception",  "pax": 300, "items": "Full Package Premium",              "status": "Queued"},
 ]
 
-_STATUSES   = ["Queued", "In Progress", "Ready"]
-_NEXT_STATUS = {"Queued": "In Progress", "In Progress": "Ready", "Ready": "Done"}
-_COL_COLORS  = {"Queued": "#F59E0B", "In Progress": "#3B82F6", "Ready": "#22C55E"}
+_STATUSES    = ["Queued", "Preparing", "In Progress", "Ready", "Delivered", "Cancelled"]
+_NEXT_STATUS = {"Queued": "Preparing", "Preparing": "In Progress", "In Progress": "Ready", "Ready": "Delivered"}
+_COL_COLORS  = {
+    "Queued":      "#F59E0B",
+    "Preparing":   "#A855F7",
+    "In Progress": "#3B82F6",
+    "Ready":       "#22C55E",
+    "Delivered":   "#10B981",
+    "Cancelled":   "#EF4444",
+}
 
 
 class KitchenPage(QWidget):
     def __init__(self):
         super().__init__()
-        self._orders = list(_SAMPLE_ORDERS)
+        db_rows = repo.get_all_orders()
+        self._orders = db_rows if db_rows else list(_SAMPLE_ORDERS)
         self._build_ui()
         self._refresh_columns()
 
@@ -41,8 +51,10 @@ class KitchenPage(QWidget):
         self._cols_layout = QHBoxLayout()
         self._cols_layout.setSpacing(16)
 
+        _DISPLAY_COLS = ["Queued", "Preparing", "In Progress", "Ready", "Delivered", "Cancelled"]
         self._col_inner = {}
-        for status, color in _COL_COLORS.items():
+        for status in _DISPLAY_COLS:
+            color = _COL_COLORS[status]
             col_frame = QFrame()
             col_frame.setObjectName("card")
             col_layout = QVBoxLayout(col_frame)
@@ -121,31 +133,66 @@ class KitchenPage(QWidget):
         lay.addWidget(items_lbl)
 
         next_s = _NEXT_STATUS.get(order["status"])
-        if next_s and next_s != "Done":
-            btn = QPushButton(f"  Move to {next_s}")
-            btn.setObjectName("primaryButton")
+        status = order["status"]
+        if next_s:
+            if next_s == "Delivered":
+                btn = QPushButton("  Mark Delivered")
+                btn.setObjectName("primaryButton")
+            else:
+                btn = QPushButton(f"  Move to {next_s}")
+                btn.setObjectName("primaryButton")
             btn.setFixedHeight(30)
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda checked=False, o=order: self._advance_order(o))
             lay.addWidget(btn)
-        elif next_s == "Done":
-            btn = QPushButton("  Mark Done")
-            btn.setObjectName("secondaryButton")
-            btn.setFixedHeight(30)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda checked=False, o=order: self._remove_order(o))
-            lay.addWidget(btn)
+
+        if status not in ("Delivered", "Cancelled", "Done"):
+            cancel_btn = QPushButton("  Cancel")
+            cancel_btn.setObjectName("dangerButton")
+            cancel_btn.setFixedHeight(30)
+            cancel_btn.setCursor(Qt.PointingHandCursor)
+            cancel_btn.clicked.connect(lambda checked=False, o=order: self._cancel_order(o))
+            lay.addWidget(cancel_btn)
+
+        if status in ("Delivered", "Cancelled"):
+            done_btn = QPushButton("  Remove")
+            done_btn.setObjectName("secondaryButton")
+            done_btn.setFixedHeight(30)
+            done_btn.setCursor(Qt.PointingHandCursor)
+            done_btn.clicked.connect(lambda checked=False, o=order: self._remove_order(o))
+            lay.addWidget(done_btn)
 
         return card
 
     def _advance_order(self, order):
         next_s = _NEXT_STATUS.get(order["status"])
-        if next_s and next_s != "Done":
+        if next_s:
             order["status"] = next_s
+            if order.get("db_id"):
+                repo.update_order_status(order["db_id"], next_s)
             self._refresh_columns()
+            if next_s == "Delivered":
+                success(self, message=f"Order '{order['id']}' marked as Delivered.")
+
+    def _cancel_order(self, order):
+        if not confirm(self, title="Cancel Order",
+                       message=f"Are you sure you want to cancel order '{order['id']}' for {order['client']}?",
+                       confirm_label="Cancel Order", danger=True):
+            return
+        order["status"] = "Cancelled"
+        if order.get("db_id"):
+            repo.update_order_status(order["db_id"], "Cancelled")
+        self._refresh_columns()
+        success(self, message=f"Order '{order['id']}' has been cancelled.")
 
     def _remove_order(self, order):
+        if not confirm(self, title="Remove Order",
+                       message=f"Remove order '{order['id']}' from the board?",
+                       confirm_label="Remove"):
+            return
         if order in self._orders:
+            if order.get("db_id") and order["status"] not in ("Delivered", "Cancelled"):
+                repo.mark_order_done(order["db_id"])
             self._orders.remove(order)
             self._refresh_columns()
 

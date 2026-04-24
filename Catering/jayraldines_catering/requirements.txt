@@ -1,5 +1,2 @@
-/* ----------------- Sidebar (Dark Theme) ----------------- */
-#sidebar {
-    background-color:rgb(78, 22, 22); /* Dark Navy Slate */
-    border: none;
-}
+PySide6>=6.6.0
+psycopg2-binary>=2.9.9

@@ -6,6 +6,8 @@ from PySide6.QtCore import Qt, QSize
 
 from utils.icons import btn_icon_primary, get_icon
 from utils.theme import ThemeManager
+from components.dialogs import success
+import utils.repository as repo
 
 
 _BUSINESS_INFO = {
@@ -20,6 +22,9 @@ class SettingsPage(QWidget):
     def __init__(self):
         super().__init__()
         self._theme = ThemeManager()
+        db_info = repo.get_business_info()
+        if db_info:
+            _BUSINESS_INFO.update(db_info)
         self._build_ui()
 
     def _build_ui(self):
@@ -117,8 +122,10 @@ class SettingsPage(QWidget):
         _BUSINESS_INFO["contact"] = self._contact_f.text().strip()
         _BUSINESS_INFO["email"]   = self._email_f.text().strip()
         _BUSINESS_INFO["address"] = self._address_f.text().strip()
+        repo.save_business_info(_BUSINESS_INFO)
         self._save_notice.setText("Changes saved successfully.")
         self._save_notice.show()
+        success(self, message="Business information saved successfully.")
 
     def _toggle_theme(self):
         new_theme = self._theme.toggle()

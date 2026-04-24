@@ -7,11 +7,13 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
+from components.dialogs import confirm, success
 import utils.menu_store as menu_store
+import utils.repository as repo
 
 _CATEGORIES = ["Main Course", "Noodles", "Soup", "Vegetables", "Dessert", "Drinks", "Bread", "Other"]
 _PACKAGES   = ["Budget", "Standard", "Premium", "Custom"]
-_STATUSES   = ["Available", "Unavailable", "Seasonal"]
+_STATUSES   = ["Available", "Unavailable", "Out of Stock", "Seasonal"]
 
 
 class AddMenuItemDialog(QDialog):
@@ -30,10 +32,7 @@ class AddMenuItemDialog(QDialog):
         outer.setContentsMargins(16, 16, 16, 16)
 
         container = QFrame()
-        container.setObjectName("modalContainer")
-        container.setStyleSheet(
-            "QFrame#modalContainer { background-color: #111827; border-radius: 14px; border: 1px solid #243244; }"
-        )
+        container.setObjectName("card")
 
         lay = QVBoxLayout(container)
         lay.setContentsMargins(24, 24, 24, 24)
@@ -188,11 +187,12 @@ class MenuPage(QWidget):
 
     def _populate_table(self):
         q = getattr(self, "_filter_q", "")
-        items = menu_store.all_items()
+        db_items = repo.get_all_menu_items()
+        items = db_items if db_items else menu_store.all_items()
         if q:
             items = [i for i in items if q in i["item"].lower() or q in i["category"].lower() or q in i["package"].lower()]
         self._table.setRowCount(0)
-        status_colors = {"Available": "#22C55E", "Unavailable": "#EF4444", "Seasonal": "#F59E0B"}
+        status_colors = {"Available": "#22C55E", "Unavailable": "#EF4444", "Out of Stock": "#F97316", "Seasonal": "#F59E0B"}
         for row, item in enumerate(items):
             self._table.insertRow(row)
             self._table.setItem(row, 0, QTableWidgetItem(item["item"]))
@@ -217,8 +217,15 @@ class MenuPage(QWidget):
         btn = self.sender()
         for r in range(self._table.rowCount()):
             if self._table.cellWidget(r, 5) is btn:
-                menu_store.remove_item(r)
+                items = repo.get_all_menu_items() or menu_store.all_items()
+                item_name = items[r]["item"] if r < len(items) else ""
+                if not confirm(self, title="Delete Menu Item",
+                               message=f"Are you sure you want to delete '{item_name}'? This cannot be undone.",
+                               confirm_label="Delete", danger=True):
+                    return
+                repo.delete_menu_item(r, item_name)
                 self._populate_table()
+                success(self, message="Menu item deleted successfully.")
                 return
 
     def _open_add_dialog(self):
@@ -226,8 +233,9 @@ class MenuPage(QWidget):
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
             if result:
-                menu_store.add_item(result)
+                repo.add_menu_item(result)
                 self._populate_table()
+                success(self, message="Menu item added successfully.")
 
     def filter_search(self, text):
         q = text.lower()

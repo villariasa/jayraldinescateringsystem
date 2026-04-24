@@ -2,13 +2,16 @@ import csv
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QTableWidget, QHeaderView,
-    QComboBox, QDialog, QFileDialog, QMessageBox
+    QDialog, QFileDialog, QMessageBox
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red
 from components.booking_modal import BookingModal
+from components.dialogs import confirm, success
+from components.filter_popover import FilterPopover
+import utils.repository as repo
 
 
 _STATUS_CYCLE = {"PENDING": "CONFIRMED", "CONFIRMED": "CANCELLED", "CANCELLED": "PENDING"}
@@ -40,66 +43,18 @@ def _status_badge(text, on_click=None):
     return btn
 
 
-class FilterDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Filter Orders")
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(300)
-        self.setModal(True)
-        self._result = None
-        self._build_ui()
-
-    def _build_ui(self):
-        from utils.icons import get_icon
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 16, 16, 16)
-        container = QFrame()
-        container.setObjectName("card")
-        lay = QVBoxLayout(container)
-        lay.setContentsMargins(20, 20, 20, 20)
-        lay.setSpacing(14)
-
-        title = QLabel("Filter by Status")
-        title.setObjectName("h3")
-        lay.addWidget(title)
-
-        self.combo = QComboBox()
-        self.combo.addItems(["All", "PENDING", "CONFIRMED", "CANCELLED"])
-        lay.addWidget(self.combo)
-
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel = QPushButton("Cancel")
-        cancel.setObjectName("secondaryButton")
-        cancel.clicked.connect(self.reject)
-        apply_btn = QPushButton("Apply")
-        apply_btn.setObjectName("primaryButton")
-        apply_btn.clicked.connect(self._apply)
-        btn_row.addWidget(cancel)
-        btn_row.addWidget(apply_btn)
-        lay.addLayout(btn_row)
-        outer.addWidget(container)
-
-    def _apply(self):
-        self._result = self.combo.currentText()
-        self.accept()
-
-    def get_result(self):
-        return self._result
-
-
 class BookingPage(QWidget):
     def __init__(self):
         super().__init__()
-        self._bookings = [
+        db_rows = repo.get_all_bookings()
+        self._bookings = db_rows if db_rows else [
             {"date": "Oct 24, 2026", "id": "BKG-001", "name": "TechCorp Inc.",  "pax": "150", "total": "₱ 45,000",  "status": "CONFIRMED"},
             {"date": "Oct 25, 2026", "id": "BKG-002", "name": "Smith Wedding",  "pax": "300", "total": "₱ 120,000", "status": "PENDING"},
             {"date": "Oct 26, 2026", "id": "BKG-003", "name": "Sarah's 18th",   "pax": "100", "total": "₱ 35,000",  "status": "CONFIRMED"},
             {"date": "Oct 28, 2026", "id": "BKG-004", "name": "Local NGO Meet", "pax": "60",  "total": "₱ 18,000",  "status": "CANCELLED"},
         ]
         self._active_filter = "All"
+        self._filter_popover = None
         self._build_ui()
 
     def _build_ui(self):
@@ -138,11 +93,11 @@ class BookingPage(QWidget):
         t_head.addWidget(t_title)
         t_head.addStretch()
 
-        btn_filter = QPushButton("  Filter")
-        btn_filter.setObjectName("secondaryButton")
-        btn_filter.setIcon(btn_icon_secondary("filter"))
-        btn_filter.setIconSize(QSize(14, 14))
-        btn_filter.clicked.connect(self._open_filter)
+        self._btn_filter = QPushButton("  Filter")
+        self._btn_filter.setObjectName("secondaryButton")
+        self._btn_filter.setIcon(btn_icon_secondary("filter"))
+        self._btn_filter.setIconSize(QSize(14, 14))
+        self._btn_filter.clicked.connect(self._open_filter)
 
         btn_export = QPushButton("  Export")
         btn_export.setObjectName("secondaryButton")
@@ -150,7 +105,7 @@ class BookingPage(QWidget):
         btn_export.setIconSize(QSize(14, 14))
         btn_export.clicked.connect(self._export_csv)
 
-        t_head.addWidget(btn_filter)
+        t_head.addWidget(self._btn_filter)
         t_head.addWidget(btn_export)
         table_layout.addLayout(t_head)
 
@@ -169,9 +124,12 @@ class BookingPage(QWidget):
         self._populate_table()
 
     def _visible_bookings(self):
-        if self._active_filter == "All":
+        f = self._active_filter
+        if f == "All" or not f:
             return self._bookings
-        return [b for b in self._bookings if b["status"] == self._active_filter]
+        if isinstance(f, list):
+            return [b for b in self._bookings if b["status"] in f]
+        return [b for b in self._bookings if b["status"] == f]
 
     def _populate_table(self, data=None):
         rows = data if data is not None else self._visible_bookings()
@@ -216,13 +174,30 @@ class BookingPage(QWidget):
     def _cycle_status(self, name):
         for b in self._bookings:
             if b["name"] == name:
-                b["status"] = _STATUS_CYCLE.get(b["status"], "PENDING")
+                next_s = _STATUS_CYCLE.get(b["status"], "PENDING")
+                if not confirm(self, title="Update Status",
+                               message=f"Change status of '{name}' to {next_s}?",
+                               confirm_label="Update"):
+                    return
+                b["status"] = next_s
+                if b.get("db_id"):
+                    repo.update_booking_status(b["db_id"], b["status"])
                 break
         self._populate_table()
+        success(self, message="Booking status updated successfully.")
 
     def _delete_booking(self, name):
+        if not confirm(self, title="Delete Booking",
+                       message=f"Are you sure you want to delete booking for '{name}'? This cannot be undone.",
+                       confirm_label="Delete", danger=True):
+            return
+        for b in self._bookings:
+            if b["name"] == name and b.get("db_id"):
+                repo.delete_booking(b["db_id"])
+                break
         self._bookings = [b for b in self._bookings if b["name"] != name]
         self._populate_table()
+        success(self, message="Booking deleted successfully.")
 
     def _open_modal(self):
         modal = BookingModal(self)
@@ -230,8 +205,11 @@ class BookingPage(QWidget):
         modal.exec()
 
     def _add_booking(self, data):
-        bkg_id = f"BKG-{len(self._bookings) + 1:03d}"
+        result = repo.create_booking(data)
+        bkg_id = result["booking_ref"] if result else f"BKG-{len(self._bookings) + 1:03d}"
+        db_id  = result["booking_id"]  if result else None
         self._bookings.append({
+            "db_id":  db_id,
             "date":   data["date"],
             "id":     bkg_id,
             "name":   data["name"],
@@ -240,12 +218,25 @@ class BookingPage(QWidget):
             "status": data["status"],
         })
         self._populate_table()
+        success(self, message="Booking created successfully.")
 
     def _open_filter(self):
-        dlg = FilterDialog(self)
-        if dlg.exec() == QDialog.Accepted:
-            self._active_filter = dlg.get_result() or "All"
-            self._populate_table()
+        if self._filter_popover is None:
+            win = self.window()
+            self._filter_popover = FilterPopover(
+                parent=win if win else self,
+                statuses=["All", "PENDING", "CONFIRMED", "CANCELLED"],
+            )
+            self._filter_popover.filter_applied.connect(self._on_filter_applied)
+        self._filter_popover.toggle_anchored(self._btn_filter)
+
+    def _on_filter_applied(self, result):
+        statuses = result.get("statuses", [])
+        if not statuses or "All" in statuses:
+            self._active_filter = "All"
+        else:
+            self._active_filter = statuses[0] if len(statuses) == 1 else statuses
+        self._populate_table()
 
     def _export_csv(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export Bookings", "bookings.csv", "CSV Files (*.csv)")

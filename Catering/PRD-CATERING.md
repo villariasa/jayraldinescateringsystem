@@ -1,82 +1,91 @@
-PS C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering> python main.py
-PS C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering> python main.py
-PS C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering> python main.py
-Traceback (most recent call last):
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 80, in nav_icon_active
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
-  File "<frozen codecs>", line 313, in _init_
-RecursionError: maximum recursion depth exceeded
-Traceback (most recent call last):
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
-  File "<frozen codecs>", line 313, in _init_
-RecursionError: maximum recursion depth exceeded
-Traceback (most recent call last):
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
-RecursionError: maximum recursion depth exceeded
-Traceback (most recent call last):
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
-RecursionError: maximum recursion depth exceeded
-Traceback (most recent call last):
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
-RecursionError: maximum recursion depth exceeded
-QWindowsWindow::setGeometry: Unable to set geometry 1920x1090+0+29 (frame: 1938x1137-9-9) on QWidgetWindow/"MainWindowClassWindow" on "\\.\DISPLAY1". Resulting geometry: 1920x1051+0+29 (frame: 1938x1098-9-9) margins: 9, 38, 9, 9 minimum size: 1071x872 MINMAXINFO(maxSize=POINT(x=0, y=0), maxpos=POINT(x=0, y=0), maxtrack=POINT(x=0, y=0), mintrack=POINT(x=1357, y=1137)))
-QWindowsWindow::setGeometry: Unable to set geometry 1920x1215+0+29 (frame: 1938x1262-9-9) on QWidgetWindow/"MainWindowClassWindow" on "\\.\DISPLAY1". Resulting geometry: 1920x1051+0+29 (frame: 1938x1098-9-9) margins: 9, 38, 9, 9 minimum size: 1071x972 MINMAXINFO(maxSize=POINT(x=0, y=0), maxpos=POINT(x=0, y=0), maxtrack=POINT(x=0, y=0), mintrack=POINT(x=1357, y=1262)))
-Traceback (most recent call last):
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
-RecursionError: maximum recursion depth exceeded
-Traceback (most recent call last):
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
-RecursionError: maximum recursion depth exceeded
-Traceback (most recent call last):
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
-RecursionError: maximum recursion depth exceeded
-Traceback (most recent call last):
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\ui\main_window.py", line 82, in _navigate
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\components\sidebar.py", line 137, in handle_click
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 76, in nav_icon
-  File "C:\Testing\jayraldinescateringsystem\Catering\jayraldines_catering\utils\icons.py", line 55, in get_icon
-RecursionError: maximum recursion depth exceeded
+You are a senior UI/UX engineer working on a PySide6 SaaS-style catering management system.
 
+Improve the Notification system and Filter system using modern UI patterns.
 
-i encountered this issues while testing , also its so laggy , very lag when i click every part pls fix that issue 
+---
 
+🎯 OBJECTIVE:
 
-lacking parts to add is the auto fullscreen of the gui app
+Replace all modal-based interactions for Notifications and Filters with modern POPUP OVERLAY PANELS (Popover UI).
 
-lacking the export report not working when clicking , i said all buttons i see must work 
+These panels must be anchored to their trigger buttons and NOT centered like modals.
 
-orders module : the export also not working , the filter not working , the status i dont know where will i set if i want to confirm it , the customer name , why not select existing customer or type another customer , i dont know there flow either 
+---
 
-on the customer when will it add if i order first like that or will i able to select the customer when i add order or booking 
+## 🔔 NOTIFICATION SYSTEM (POPOVER)
 
-make sure the notification is interactive that if i mark as read it will work 
+When the user clicks the Notification button:
 
-for the reports you can add many reports possible for the system for the owner it will be helpful for its business 
+- Open a popover panel directly under the notification icon/button
+- Do NOT use a modal dialog
+- Do NOT block the full screen
 
-billing : aexport must work 
+Design requirements:
+- Floating panel anchored to button position
+- Soft shadow and rounded corners (10–14px)
+- Dark SaaS theme (#111827 surface)
+- Smooth fade/slide animation
+- Close when clicking outside
 
-all must work export etc all must work check in detailed and update the system 
+Content inside notification popover:
+- List of notifications
+- Grouped by type (Orders, Payments, System)
+- Timestamp display
+- Read / Unread state
+- Optional "Mark all as read" action
 
+---
+
+## 🔍 FILTER SYSTEM (POPOVER FILTER PANEL)
+
+Replace all filter modals with a FILTER POPOVER PANEL.
+
+When user clicks Filter button:
+
+- Open a popover panel anchored to the filter button
+- NOT centered modal
+- NOT full screen overlay
+
+Design requirements:
+- Compact floating panel
+- Clear grouping of filter options
+- Apply / Reset buttons at bottom
+- Smooth animation open/close
+- Dark modern SaaS styling consistent with system UI
+
+Filter features:
+- Date range filter
+- Status filter (dropdown or chips)
+- Category filter (if applicable)
+- Search refinement options
+
+---
+
+## 🎨 UI STYLE REQUIREMENTS
+
+Both Notification and Filter popovers must:
+
+- Use dark theme surface (#111827)
+- Rounded corners (10px–14px)
+- Subtle shadows (no harsh borders)
+- Consistent spacing (8 / 16 / 24 px system)
+- Smooth transition animation (150–250ms)
+- Match SaaS dashboard style (Stripe / Notion inspired)
+
+---
+
+## ⚡ UX RULES
+
+- Do NOT use modal dialogs for these features
+- Panels must feel lightweight and fast
+- Must close on outside click or ESC key
+- Must not block full UI interaction
+- Must feel like modern web SaaS popovers
+
+---
+
+🚀 FINAL GOAL:
+
+Transform Notifications and Filters into modern popover-based interaction systems that improve usability, reduce friction, and make the UI feel responsive, fast, and professional.
+
+also make sure no more laggy 

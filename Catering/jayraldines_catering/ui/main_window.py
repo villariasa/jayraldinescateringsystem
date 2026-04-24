@@ -4,6 +4,7 @@ from PySide6.QtCore import Signal
 
 from components.sidebar import Sidebar
 from components.topbar import TopBar
+from components.notifications_panel import NotificationPopover, _notifications
 from ui.dashboard_page import DashboardPage
 from ui.booking_page import BookingPage
 from ui.customers_page import CustomersPage
@@ -71,7 +72,10 @@ class MainWindow(QMainWindow):
 
         self.sidebar.page_changed.connect(self._navigate)
         self.dashboard_page.new_booking_requested.connect(lambda: self._navigate(1))
-        self.topbar.notif_btn.clicked.connect(self._show_notifications)
+        self._notif_popover = NotificationPopover(parent=self)
+        self.topbar.notif_btn.clicked.connect(
+            lambda: self._notif_popover.toggle_anchored(self.topbar.notif_btn)
+        )
         self.topbar.search_changed.connect(self._on_search)
 
         self._navigate(0)
@@ -85,13 +89,6 @@ class MainWindow(QMainWindow):
         page = self.stack.currentWidget()
         if hasattr(page, "filter_search"):
             page.filter_search(text)
-
-    def _show_notifications(self):
-        from components.notifications_panel import NotificationsPanel, _notifications
-        panel = NotificationsPanel(self)
-        panel.exec()
-        self.topbar.notif_badge.setText(str(len(_notifications)))
-        self.topbar.notif_badge.setVisible(len(_notifications) > 0)
 
     def _toggle_fullscreen(self):
         if self.isFullScreen():

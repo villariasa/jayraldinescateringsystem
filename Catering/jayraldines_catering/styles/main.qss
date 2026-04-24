@@ -366,7 +366,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 }
 
 /* --- FORM CONTROLS --- */
-QLineEdit, QDateEdit, QTimeEdit, QSpinBox {
+QLineEdit, QDateEdit, QTimeEdit, QSpinBox, QDoubleSpinBox {
     padding: 10px 14px;
     border: 1px solid #243244;
     border-radius: 8px;
@@ -374,10 +374,12 @@ QLineEdit, QDateEdit, QTimeEdit, QSpinBox {
     color: #F9FAFB;
     font-size: 13px;
 }
-QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QSpinBox:focus {
+QLineEdit:focus, QDateEdit:focus, QTimeEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
     border: 1px solid #E11D48;
 }
 QLineEdit::placeholder { color: #6B7280; }
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { width: 0px; border: none; }
+QSpinBox::up-button, QSpinBox::down-button { width: 16px; }
 
 QComboBox {
     padding: 10px 14px;
@@ -474,7 +476,7 @@ QFrame#dayCell[active="true"] {
 }
 
 QLabel#dayNumber { font-size: 13px; font-weight: 700; color: #F9FAFB; }
-QLabel#dayDayOff { color: #374151; }
+QLabel#dayDayOff { color: #4B5563; }
 QLabel#bookingCount { color: #9CA3AF; font-size: 11px; }
 
 QFrame#sidePanel {
@@ -494,6 +496,20 @@ QFrame#scheduleCard {
     border-left: 3px solid #E11D48;
     border-radius: 8px;
     padding: 10px;
+}
+QFrame#scheduleCard QLabel { color: #F9FAFB; }
+
+/* --- CHECKBOX --- */
+QCheckBox { color: #F9FAFB; font-size: 13px; }
+QCheckBox::indicator {
+    width: 16px; height: 16px;
+    border: 2px solid #374151;
+    border-radius: 4px;
+    background: #1F2937;
+}
+QCheckBox::indicator:checked {
+    background-color: #E11D48;
+    border: 2px solid #E11D48;
 }
 
 /* --- STATUS STEP BAR --- */

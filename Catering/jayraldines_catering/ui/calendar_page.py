@@ -1,11 +1,13 @@
 import calendar
 from datetime import datetime
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFrame,
-                               QLabel, QPushButton, QGridLayout, QScrollArea, QSizePolicy)
-from PySide6.QtCore import Qt, Signal, QSize
+                               QLabel, QPushButton, QGridLayout, QScrollArea,
+                               QSizePolicy, QDialog, QLineEdit, QFormLayout, QTimeEdit)
+from PySide6.QtCore import Qt, Signal, QSize, QTime
 
-from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted
+from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
 from components.booking_modal import BookingModal
+from components.dialogs import confirm, success
 
 
 class AnimatedCard(QFrame):
@@ -77,28 +79,187 @@ class DayCell(QFrame):
 class ScheduleCard(AnimatedCard):
     def __init__(self, event_name, pax, time, location):
         super().__init__()
-        # Override border to have the red accent
-        self.setStyleSheet("QFrame#card { border-left: 4px solid #e53935; border-radius: 8px; }")
+        self.setStyleSheet("QFrame#card { border-left: 4px solid #E11D48; border-radius: 8px; }")
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         
         top_row = QHBoxLayout()
         title = QLabel(event_name)
-        title.setStyleSheet("font-weight: 700; font-size: 14px; color: #eaeaea;")
+        title.setObjectName("h3")
         pax_lbl = QLabel(f"{pax} pax")
-        pax_lbl.setStyleSheet("color: #9aa0a6; font-weight: 600; font-size: 12px; background: rgba(0,0,0,0.15); padding: 4px 8px; border-radius: 4px;")
+        pax_lbl.setObjectName("badgeInfo")
         top_row.addWidget(title)
         top_row.addStretch()
         top_row.addWidget(pax_lbl)
         layout.addLayout(top_row)
         
         time_lbl = QLabel(f"Time: {time}")
-        time_lbl.setStyleSheet("color: #9aa0a6; font-weight: 500; font-size: 12px; margin-top: 8px;")
+        time_lbl.setObjectName("subtitle")
         loc_lbl = QLabel(f"Venue: {location}")
-        loc_lbl.setStyleSheet("color: #9aa0a6; font-weight: 500; font-size: 12px;")
+        loc_lbl.setObjectName("subtitle")
         layout.addWidget(time_lbl)
         layout.addWidget(loc_lbl)
+
+# --- MANAGE DAY SCHEDULE DIALOG ---
+class ManageScheduleDialog(QDialog):
+    def __init__(self, parent=None, date_str="", events=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(480)
+        self.setModal(True)
+        self._events = list(events or [])
+        self._result = None
+        self._date_str = date_str
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+
+        container = QFrame()
+        container.setObjectName("card")
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        header = QHBoxLayout()
+        title = QLabel(f"Manage Schedule — {self._date_str}")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        lay.addWidget(div)
+
+        self._events_layout = QVBoxLayout()
+        self._events_layout.setSpacing(8)
+        lay.addLayout(self._events_layout)
+        self._refresh_events()
+
+        add_lbl = QLabel("Add New Event")
+        add_lbl.setObjectName("h3")
+        lay.addWidget(add_lbl)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignRight)
+        self._name_f = QLineEdit()
+        self._name_f.setPlaceholderText("Event name")
+        self._pax_f = QLineEdit()
+        self._pax_f.setPlaceholderText("Number of guests")
+        self._time_f = QTimeEdit()
+        self._time_f.setDisplayFormat("hh:mm AP")
+        self._time_f.setTime(QTime(18, 0))
+        self._loc_f = QLineEdit()
+        self._loc_f.setPlaceholderText("Venue / location")
+        for lbl, w in [("Event Name *", self._name_f), ("Pax *", self._pax_f),
+                        ("Time", self._time_f), ("Venue", self._loc_f)]:
+            form.addRow(QLabel(lbl), w)
+        lay.addLayout(form)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.hide()
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        add_btn = QPushButton("  Add Event")
+        add_btn.setObjectName("primaryButton")
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.clicked.connect(self._add_event)
+        save_btn = QPushButton("  Save Schedule")
+        save_btn.setObjectName("goldButton")
+        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.clicked.connect(self._save)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(add_btn)
+        btn_row.addWidget(save_btn)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(container)
+
+    def _refresh_events(self):
+        while self._events_layout.count():
+            item = self._events_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        if not self._events:
+            lbl = QLabel("No events yet. Add one below.")
+            lbl.setObjectName("subtitle")
+            self._events_layout.addWidget(lbl)
+            return
+        for i, ev in enumerate(self._events):
+            row = QHBoxLayout()
+            info = QLabel(f"{ev['name']}  ·  {ev['pax']} pax  ·  {ev['time']}  ·  {ev['loc']}")
+            info.setObjectName("subtitle")
+            info.setWordWrap(True)
+            del_btn = QPushButton()
+            del_btn.setIcon(get_icon("trash", color="#EF4444", size=QSize(13, 13)))
+            del_btn.setIconSize(QSize(13, 13))
+            del_btn.setFixedSize(26, 26)
+            del_btn.setStyleSheet("background: transparent; border: none;")
+            del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.clicked.connect(lambda _, idx=i: self._remove_event(idx))
+            row.addWidget(info)
+            row.addWidget(del_btn)
+            w = QWidget()
+            w.setLayout(row)
+            self._events_layout.addWidget(w)
+
+    def _add_event(self):
+        name = self._name_f.text().strip()
+        pax_text = self._pax_f.text().strip()
+        if not name or not pax_text:
+            self._err.setText("Event name and pax are required.")
+            self._err.show()
+            return
+        try:
+            pax = int(pax_text)
+        except ValueError:
+            self._err.setText("Pax must be a number.")
+            self._err.show()
+            return
+        self._err.hide()
+        self._events.append({
+            "name": name,
+            "pax":  pax,
+            "time": self._time_f.time().toString("hh:mm AP"),
+            "loc":  self._loc_f.text().strip() or "TBD",
+        })
+        self._name_f.clear()
+        self._pax_f.clear()
+        self._loc_f.clear()
+        self._refresh_events()
+
+    def _remove_event(self, idx):
+        if 0 <= idx < len(self._events):
+            self._events.pop(idx)
+            self._refresh_events()
+
+    def _save(self):
+        self._result = list(self._events)
+        self.accept()
+
+    def get_result(self):
+        return self._result
+
 
 # --- MAIN PAGE ---
 class CalendarPage(QWidget):
@@ -281,13 +442,16 @@ class CalendarPage(QWidget):
         sp_layout.addWidget(scroll)
 
         # Bottom Button
-        btn_manage = QPushButton("Manage Day Schedule")
-        btn_manage.setStyleSheet("background-color: rgba(197,164,109,0.10); color: #c5a46d; font-weight: 700; padding: 14px; border-radius: 8px; border: 1px solid rgba(197,164,109,0.3); margin: 20px;")
-        btn_manage.setCursor(Qt.PointingHandCursor)
-        sp_layout.addWidget(btn_manage)
+        self._btn_manage = QPushButton("  Manage Day Schedule")
+        self._btn_manage.setObjectName("goldButton")
+        self._btn_manage.setCursor(Qt.PointingHandCursor)
+        self._btn_manage.clicked.connect(self._open_manage_schedule)
+        sp_layout.addWidget(self._btn_manage)
 
         split_layout.addWidget(self.side_panel, 3) 
         main_layout.addLayout(split_layout)
+
+        self._selected_day = None
 
         # Initial Render
         self.cells = []
@@ -355,6 +519,22 @@ class CalendarPage(QWidget):
         modal = BookingModal(self)
         modal.exec()
 
+    def _open_manage_schedule(self):
+        if self._selected_day is None:
+            return
+        month_name = calendar.month_name[self.current_month]
+        date_str = f"{month_name} {self._selected_day}, {self.current_year}"
+        db_key = (self.current_year, self.current_month, self._selected_day)
+        events = list(self.mock_db.get(db_key, []))
+        dlg = ManageScheduleDialog(self, date_str=date_str, events=events)
+        if dlg.exec() == QDialog.Accepted:
+            updated = dlg.get_result()
+            if updated is not None:
+                self.mock_db[db_key] = updated
+                self.render_calendar()
+                self.on_day_clicked(self._selected_day)
+                success(self, message=f"Schedule for {date_str} updated successfully.")
+
     def on_day_clicked(self, day_num):
         # Reset visual states
         for cell in self.cells:
@@ -399,4 +579,5 @@ class CalendarPage(QWidget):
             empty_lbl.setStyleSheet("color: #94A3B8; font-style: italic; font-size: 13px;")
             self.cards_container.addWidget(empty_lbl)
 
+        self._selected_day = day_num
         self.side_panel.setVisible(True)

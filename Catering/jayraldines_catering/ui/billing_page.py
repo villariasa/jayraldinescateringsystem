@@ -7,6 +7,8 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
+from components.dialogs import confirm, success
+import utils.repository as repo
 
 
 _SAMPLE_INVOICES = [
@@ -37,10 +39,7 @@ class NewInvoiceDialog(QDialog):
         outer.setContentsMargins(16, 16, 16, 16)
 
         container = QFrame()
-        container.setObjectName("modalContainer")
-        container.setStyleSheet(
-            "QFrame#modalContainer { background-color: #111827; border-radius: 14px; border: 1px solid #243244; }"
-        )
+        container.setObjectName("card")
 
         lay = QVBoxLayout(container)
         lay.setContentsMargins(24, 24, 24, 24)
@@ -153,7 +152,8 @@ class NewInvoiceDialog(QDialog):
 class BillingPage(QWidget):
     def __init__(self):
         super().__init__()
-        self._invoices = list(_SAMPLE_INVOICES)
+        db_rows = repo.get_all_invoices()
+        self._invoices = db_rows if db_rows else list(_SAMPLE_INVOICES)
         self._build_ui()
         self._populate_table()
 
@@ -230,8 +230,16 @@ class BillingPage(QWidget):
         btn = self.sender()
         for r in range(self._table.rowCount()):
             if self._table.cellWidget(r, 6) is btn:
+                inv = self._invoices[r]
+                if not confirm(self, title="Delete Invoice",
+                               message=f"Are you sure you want to delete invoice '{inv['invoice']}'? This cannot be undone.",
+                               confirm_label="Delete", danger=True):
+                    return
+                if inv.get("db_id"):
+                    repo.delete_invoice(inv["db_id"])
                 self._invoices.pop(r)
                 self._populate_table()
+                success(self, message="Invoice deleted successfully.")
                 return
 
     def _open_new_invoice(self):
@@ -239,8 +247,13 @@ class BillingPage(QWidget):
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
             if result:
+                db_result = repo.create_invoice(result)
+                if db_result:
+                    result["db_id"]  = db_result["invoice_id"]
+                    result["invoice"] = db_result["invoice_ref"]
                 self._invoices.append(result)
                 self._populate_table()
+                success(self, message="Invoice created successfully.")
 
     def filter_search(self, text):
         q = text.lower()
