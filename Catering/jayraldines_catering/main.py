@@ -29,9 +29,14 @@ def main():
 
     app.aboutToQuit.connect(db.close)
 
+    print("[BOOT] Creating MainWindow...")
     window = MainWindow()
+    print("[BOOT] MainWindow created OK")
     window.show()
-    sys.exit(app.exec())
+    print("[BOOT] Window shown, entering event loop...")
+    code = app.exec()
+    print(f"[BOOT] Event loop exited with code {code}")
+    sys.exit(code)
 
 
 if __name__ == "__main__":
