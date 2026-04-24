@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QWidget, QApplication
 )
-from PySide6.QtCore import Qt, QSize, QPoint, QEvent
+from PySide6.QtCore import Qt, QSize, QPoint, QEvent, QTimer
 from PySide6.QtGui import QColor
 
 from utils.icons import get_icon
@@ -59,23 +59,21 @@ _notifications = _load_notifications()
 
 
 class NotificationPopover(QFrame):
-    """
-    Lightweight popover anchored to a button — NOT a modal dialog.
-    Usage:
-        pop = NotificationPopover(parent=main_window)
-        pop.show_anchored(btn_global_pos, btn_width)
-    """
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self.setObjectName("card")
         self.setFixedWidth(380)
+
         self._build_ui()
         self.hide()
 
-        parent.installEventFilter(self)
+        # ===== FIX 1: safe event filter install =====
+        if parent is not None:
+            QTimer.singleShot(0, lambda: parent.installEventFilter(self))
 
     def _build_ui(self):
         lay = QVBoxLayout(self)
@@ -113,7 +111,10 @@ class NotificationPopover(QFrame):
         close_btn.setFixedSize(26, 26)
         close_btn.setStyleSheet("background: transparent; border: none;")
         close_btn.setCursor(Qt.PointingHandCursor)
-        close_btn.clicked.connect(self.hide)
+
+        # ===== FIX 2: safe hide call =====
+        close_btn.clicked.connect(lambda: QTimer.singleShot(0, self.hide))
+
         header.addWidget(close_btn)
         inner_lay.addLayout(header)
 
@@ -134,6 +135,7 @@ class NotificationPopover(QFrame):
         self._list_lay = QVBoxLayout(self._inner_w)
         self._list_lay.setSpacing(0)
         self._list_lay.setContentsMargins(0, 0, 0, 0)
+
         self._scroll.setWidget(self._inner_w)
         inner_lay.addWidget(self._scroll)
 
@@ -186,15 +188,10 @@ class NotificationPopover(QFrame):
 
         dot = QFrame()
         dot.setFixedSize(8, 8)
-        dot.setStyleSheet(
-            f"background: {notif['color']}; border-radius: 4px;"
-            " min-width: 8px; max-width: 8px; min-height: 8px; max-height: 8px;"
-        )
+        dot.setStyleSheet(f"background: {notif['color']}; border-radius: 4px;")
         lay.addWidget(dot, alignment=Qt.AlignTop | Qt.AlignHCenter)
-        lay.setAlignment(dot, Qt.AlignVCenter)
 
         text_col = QVBoxLayout()
-        text_col.setSpacing(2)
         title_lbl = QLabel(notif["title"])
         title_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
         msg_lbl = QLabel(notif["message"])
@@ -202,6 +199,7 @@ class NotificationPopover(QFrame):
         msg_lbl.setWordWrap(True)
         time_lbl = QLabel(notif["time"])
         time_lbl.setObjectName("muted")
+
         text_col.addWidget(title_lbl)
         text_col.addWidget(msg_lbl)
         text_col.addWidget(time_lbl)
@@ -213,9 +211,8 @@ class NotificationPopover(QFrame):
         dismiss_btn.setFixedSize(20, 20)
         dismiss_btn.setStyleSheet("background: transparent; border: none;")
         dismiss_btn.setCursor(Qt.PointingHandCursor)
-        dismiss_btn.setToolTip("Dismiss")
         dismiss_btn.clicked.connect(lambda _, n=notif: self._dismiss(n))
-        lay.addWidget(dismiss_btn, alignment=Qt.AlignVCenter)
+        lay.addWidget(dismiss_btn)
 
         return w
 
@@ -234,12 +231,14 @@ class NotificationPopover(QFrame):
     def show_anchored(self, anchor_btn):
         global_pos = anchor_btn.mapToGlobal(QPoint(0, anchor_btn.height() + 6))
         parent = self.parent()
+
         if parent:
             local = parent.mapFromGlobal(global_pos)
             x = min(local.x(), parent.width() - self.width() - 8)
             self.move(x, local.y())
         else:
             self.move(global_pos)
+
         self.raise_()
         self.show()
 
