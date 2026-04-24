@@ -83,7 +83,7 @@ class Sidebar(QFrame):
             if index == 0:
                 btn.setChecked(True)
                 btn.setIcon(nav_icon_active(icon_name))
-            btn.clicked.connect(lambda _, idx=index: self.handle_click(idx))
+            btn.clicked.connect(lambda _, idx=index: self._on_nav_clicked(idx))
             root.addWidget(btn)
             self.buttons.append(btn)
 
@@ -135,6 +135,9 @@ class Sidebar(QFrame):
             active = (i == index)
             btn.setChecked(active)
             btn.setIcon(nav_icon_active(icon_name) if active else nav_icon(icon_name))
+
+    def _on_nav_clicked(self, index):
+        self.handle_click(index)
         self.page_changed.emit(index)
 
     def toggle_collapse(self):

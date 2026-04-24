@@ -21,16 +21,15 @@ class FilterChip(QPushButton):
     def _update_style(self):
         if self.isChecked():
             self.setStyleSheet(
-                "QPushButton { background: rgba(225,29,72,0.15); color: #E11D48;"
+                "background: rgba(225,29,72,0.15); color: #E11D48;"
                 " border: 1px solid rgba(225,29,72,0.4); border-radius: 14px;"
-                " font-size: 12px; font-weight: 700; padding: 0 12px; }"
+                " font-size: 12px; font-weight: 700; padding: 0 12px;"
             )
         else:
             self.setStyleSheet(
-                "QPushButton { background: transparent; color: #9CA3AF;"
+                "background: transparent; color: #9CA3AF;"
                 " border: 1px solid #374151; border-radius: 14px;"
-                " font-size: 12px; font-weight: 600; padding: 0 12px; }"
-                "QPushButton:hover { border-color: #4B5563; color: #F9FAFB; }"
+                " font-size: 12px; font-weight: 600; padding: 0 12px;"
             )
 
 
