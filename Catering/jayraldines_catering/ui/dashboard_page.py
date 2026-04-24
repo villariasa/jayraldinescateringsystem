@@ -8,14 +8,14 @@ from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, ge
 
 
 class AnimatedCard(QFrame):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.setObjectName("card")
 
 
 class KPICard(AnimatedCard):
-    def __init__(self, title, value, trend_text, trend_type="success", icon_name=None):
-        super().__init__()
+    def __init__(self, title, value, trend_text, trend_type="success", icon_name=None, parent=None):
+        super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(6)
@@ -48,8 +48,8 @@ class KPICard(AnimatedCard):
 
 
 class ActivityItem(QWidget):
-    def __init__(self, title, desc, time, dot_color="#22C55E"):
-        super().__init__()
+    def __init__(self, title, desc, time, dot_color="#22C55E", parent=None):
+        super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 12, 0, 12)
         layout.setSpacing(14)
@@ -78,8 +78,8 @@ class ActivityItem(QWidget):
 
 
 class EventItem(QWidget):
-    def __init__(self, name, date, pax, status, status_type="success"):
-        super().__init__()
+    def __init__(self, name, date, pax, status, status_type="success", parent=None):
+        super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 10, 0, 10)
         layout.setSpacing(14)
@@ -102,8 +102,8 @@ class EventItem(QWidget):
 
 
 class MenuAlertItem(QWidget):
-    def __init__(self, item, issue, badge_type="badgeWarning"):
-        super().__init__()
+    def __init__(self, item, issue, badge_type="badgeWarning", parent=None):
+        super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 10, 0, 10)
         layout.setSpacing(14)
@@ -123,16 +123,19 @@ class DashboardPage(QWidget):
 
     def __init__(self):
         super().__init__()
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        
+        # ✅ Safely attach root layout to self
+        self.root_layout = QVBoxLayout(self)
+        self.root_layout.setContentsMargins(0, 0, 0, 0)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
+        # ✅ FIX: Attach QScrollArea and Content Widget to 'self' and parent them
+        self.scroll = QScrollArea(self)
+        self.scroll.setWidgetResizable(True)
 
-        content = QWidget()
-        lay = QVBoxLayout(content)
-        lay.setContentsMargins(32, 28, 32, 28)
-        lay.setSpacing(24)
+        self.content = QWidget(self.scroll)
+        self.lay = QVBoxLayout(self.content)
+        self.lay.setContentsMargins(32, 28, 32, 28)
+        self.lay.setSpacing(24)
 
         header_row = QHBoxLayout()
         v_title = QVBoxLayout()
@@ -162,7 +165,7 @@ class DashboardPage(QWidget):
         btn_layout.addWidget(btn_export)
         btn_layout.addWidget(self.btn_new)
         header_row.addLayout(btn_layout)
-        lay.addLayout(header_row)
+        self.lay.addLayout(header_row)
 
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(16)
@@ -170,13 +173,14 @@ class DashboardPage(QWidget):
         kpi_row.addWidget(KPICard("Pending Bookings",  "12",       "Requires review",         "warning", "orders"))
         kpi_row.addWidget(KPICard("Weekly Revenue",    "₱ 12,450", "↑ 8.5% from last week",  "success", "trending-up"))
         kpi_row.addWidget(KPICard("Unpaid Invoices",   "₱ 4,200",  "3 invoices overdue",      "danger",  "billing"))
-        lay.addLayout(kpi_row)
+        self.lay.addLayout(kpi_row)
 
         mid_row = QHBoxLayout()
         mid_row.setSpacing(16)
 
-        cap_card = AnimatedCard()
-        cap_lay = QVBoxLayout(cap_card)
+        # ✅ FIX: Attach cards to self
+        self.cap_card = AnimatedCard(self.content)
+        cap_lay = QVBoxLayout(self.cap_card)
         cap_lay.setContentsMargins(24, 24, 24, 24)
         cap_lay.setSpacing(14)
 
@@ -196,11 +200,11 @@ class DashboardPage(QWidget):
         cap_head.addWidget(pax_lbl)
         cap_lay.addLayout(cap_head)
 
-        prog = QProgressBar()
-        prog.setRange(0, 600)
-        prog.setValue(45)
-        prog.setFixedHeight(10)
-        cap_lay.addWidget(prog)
+        self.prog = QProgressBar()
+        self.prog.setRange(0, 600)
+        self.prog.setValue(45)
+        self.prog.setFixedHeight(10)
+        cap_lay.addWidget(self.prog)
 
         cap_foot = QHBoxLayout()
         cap_foot.addWidget(QLabel('<span style="color:#F59E0B;font-weight:700;font-size:12px;">8% Capacity</span>'))
@@ -208,8 +212,8 @@ class DashboardPage(QWidget):
         cap_foot.addWidget(QLabel('<span style="color:#6B7280;font-size:12px;">555 slots remaining</span>'))
         cap_lay.addLayout(cap_foot)
 
-        events_card = AnimatedCard()
-        ev_lay = QVBoxLayout(events_card)
+        self.events_card = AnimatedCard(self.content)
+        ev_lay = QVBoxLayout(self.events_card)
         ev_lay.setContentsMargins(24, 24, 24, 24)
         ev_lay.setSpacing(0)
 
@@ -237,15 +241,15 @@ class DashboardPage(QWidget):
 
         ev_lay.addStretch()
 
-        mid_row.addWidget(cap_card, 1)
-        mid_row.addWidget(events_card, 1)
-        lay.addLayout(mid_row)
+        mid_row.addWidget(self.cap_card, 1)
+        mid_row.addWidget(self.events_card, 1)
+        self.lay.addLayout(mid_row)
 
         bot_row = QHBoxLayout()
         bot_row.setSpacing(16)
 
-        act_card = AnimatedCard()
-        act_lay = QVBoxLayout(act_card)
+        self.act_card = AnimatedCard(self.content)
+        act_lay = QVBoxLayout(self.act_card)
         act_lay.setContentsMargins(24, 24, 24, 24)
         act_lay.setSpacing(0)
 
@@ -279,8 +283,8 @@ class DashboardPage(QWidget):
             "3 hrs ago", "#3B82F6"))
         act_lay.addStretch()
 
-        menu_card = AnimatedCard()
-        menu_lay = QVBoxLayout(menu_card)
+        self.menu_card = AnimatedCard(self.content)
+        menu_lay = QVBoxLayout(self.menu_card)
         menu_lay.setContentsMargins(24, 24, 24, 24)
         menu_lay.setSpacing(0)
 
@@ -310,9 +314,10 @@ class DashboardPage(QWidget):
 
         menu_lay.addStretch()
 
-        bot_row.addWidget(act_card, 3)
-        bot_row.addWidget(menu_card, 2)
-        lay.addLayout(bot_row)
+        bot_row.addWidget(self.act_card, 3)
+        bot_row.addWidget(self.menu_card, 2)
+        self.lay.addLayout(bot_row)
 
-        scroll.setWidget(content)
-        root.addWidget(scroll)
+        # ✅ Final assembly with safely parented widgets
+        self.scroll.setWidget(self.content)
+        self.root_layout.addWidget(self.scroll)

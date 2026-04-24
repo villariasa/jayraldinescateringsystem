@@ -12,7 +12,7 @@ import utils.repository as repo
 
 
 _SAMPLE_CUSTOMERS = [
-    {"name": "Maria Santos",    "contact": "+63 912 345 6789", "email": "maria@email.com",    "events": 3, "status": "Active"},
+    {"name": "Maria Santosasds  ",    "contact": "+63 912 345 6789", "email": "maria@email.com",    "events": 3, "status": "Active"},
     {"name": "TechCorp Inc.",   "contact": "+63 917 000 1234", "email": "events@techcorp.ph", "events": 1, "status": "Active"},
     {"name": "Cruz Family",     "contact": "+63 920 111 2222", "email": "cruz@gmail.com",     "events": 2, "status": "Active"},
     {"name": "Smith Wedding",   "contact": "+63 932 555 6666", "email": "smith@yahoo.com",    "events": 1, "status": "Pending"},
