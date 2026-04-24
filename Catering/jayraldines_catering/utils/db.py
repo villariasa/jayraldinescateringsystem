@@ -26,7 +26,7 @@ _CONFIG = {
     "port":     int(os.environ.get("DB_PORT", "5432")),
     "dbname":   os.environ.get("DB_NAME",     "jayraldines_catering"),
     "user":     os.environ.get("DB_USER",     "postgres"),
-    "password": os.environ.get("DB_PASSWORD", ""),
+    "password": os.environ.get("DB_PASSWORD", "12345678"),
 }
 
 _conn: Optional[Any] = None
