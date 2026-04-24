@@ -1,16 +1,157 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QTableWidget, QTableWidgetItem, QHeaderView
+    QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
+    QDialog, QFormLayout, QComboBox, QLineEdit, QDoubleSpinBox
 )
 from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QColor
 
-from utils.icon_manager import btn_icon_primary, btn_icon_secondary
+from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
+
+
+_SAMPLE_MENU = [
+    {"item": "Lechon de Leche",       "category": "Main Course",  "package": "Premium",  "price": 8500.0,  "status": "Available"},
+    {"item": "Kare-Kare",             "category": "Main Course",  "package": "Standard", "price": 3500.0,  "status": "Available"},
+    {"item": "Pancit Malabon",        "category": "Noodles",      "package": "Standard", "price": 1800.0,  "status": "Available"},
+    {"item": "Buko Pandan",           "category": "Dessert",      "package": "Standard", "price": 950.0,   "status": "Available"},
+    {"item": "Leche Flan",            "category": "Dessert",      "package": "Premium",  "price": 1200.0,  "status": "Available"},
+    {"item": "Chicken Inasal",        "category": "Main Course",  "package": "Budget",   "price": 2200.0,  "status": "Available"},
+    {"item": "Chopsuey",              "category": "Vegetables",   "package": "Budget",   "price": 1200.0,  "status": "Available"},
+    {"item": "Puto Bumbong",          "category": "Dessert",      "package": "Budget",   "price": 600.0,   "status": "Seasonal"},
+]
+
+_CATEGORIES = ["Main Course", "Noodles", "Soup", "Vegetables", "Dessert", "Drinks", "Bread", "Other"]
+_PACKAGES   = ["Budget", "Standard", "Premium", "Custom"]
+_STATUSES   = ["Available", "Unavailable", "Seasonal"]
+
+
+class AddMenuItemDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Menu Item")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(420)
+        self.setModal(True)
+        self._result = None
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+
+        container = QFrame()
+        container.setObjectName("modalContainer")
+        container.setStyleSheet(
+            "QFrame#modalContainer { background-color: #111827; border-radius: 14px; border: 1px solid #243244; }"
+        )
+
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        header = QHBoxLayout()
+        title = QLabel("Add Menu Item")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        lay.addWidget(div)
+
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignRight)
+
+        self.item_field = QLineEdit()
+        self.item_field.setPlaceholderText("e.g. Lechon de Leche")
+
+        self.cat_field = QComboBox()
+        self.cat_field.addItems(_CATEGORIES)
+
+        self.pkg_field = QComboBox()
+        self.pkg_field.addItems(_PACKAGES)
+
+        self.price_field = QDoubleSpinBox()
+        self.price_field.setPrefix("₱ ")
+        self.price_field.setRange(0, 999999)
+        self.price_field.setDecimals(2)
+        self.price_field.setSingleStep(100)
+
+        self.status_field = QComboBox()
+        self.status_field.addItems(_STATUSES)
+
+        for lbl, widget in [
+            ("Item Name *", self.item_field),
+            ("Category",    self.cat_field),
+            ("Package",     self.pkg_field),
+            ("Price",       self.price_field),
+            ("Status",      self.status_field),
+        ]:
+            form.addRow(QLabel(lbl), widget)
+
+        lay.addLayout(form)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.hide()
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("  Save Item")
+        save.setObjectName("primaryButton")
+        save.setIcon(btn_icon_primary("check"))
+        save.setIconSize(QSize(15, 15))
+        save.setCursor(Qt.PointingHandCursor)
+        save.clicked.connect(self._save)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(container)
+
+    def _save(self):
+        name = self.item_field.text().strip()
+        if not name:
+            self._err.setText("Item name is required.")
+            self._err.show()
+            self.item_field.setStyleSheet("border: 1px solid #E11D48;")
+            return
+        self._result = {
+            "item":     name,
+            "category": self.cat_field.currentText(),
+            "package":  self.pkg_field.currentText(),
+            "price":    self.price_field.value(),
+            "status":   self.status_field.currentText(),
+        }
+        self.accept()
+
+    def get_result(self):
+        return self._result
 
 
 class MenuPage(QWidget):
     def __init__(self):
         super().__init__()
+        self._items = list(_SAMPLE_MENU)
         self._build_ui()
+        self._populate_table()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -27,6 +168,8 @@ class MenuPage(QWidget):
         add_btn.setObjectName("primaryButton")
         add_btn.setIcon(btn_icon_primary("plus"))
         add_btn.setIconSize(QSize(15, 15))
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.clicked.connect(self._open_add_dialog)
         header.addWidget(add_btn)
 
         export_btn = QPushButton("  Export")
@@ -42,13 +185,54 @@ class MenuPage(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(0, 0, 0, 0)
 
-        table = QTableWidget(0, 5)
-        table.setHorizontalHeaderLabels(["Item", "Category", "Package", "Price", "Status"])
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.verticalHeader().setVisible(False)
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        card_layout.addWidget(table)
+        self._table = QTableWidget(0, 6)
+        self._table.setHorizontalHeaderLabels(["Item", "Category", "Package", "Price", "Status", ""])
+        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
+        self._table.setColumnWidth(5, 60)
+        self._table.setAlternatingRowColors(True)
+        self._table.setSelectionBehavior(QTableWidget.SelectRows)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
+        card_layout.addWidget(self._table)
 
         root.addWidget(card)
+
+    def _populate_table(self):
+        self._table.setRowCount(0)
+        status_colors = {"Available": "#22C55E", "Unavailable": "#EF4444", "Seasonal": "#F59E0B"}
+        for row, item in enumerate(self._items):
+            self._table.insertRow(row)
+            self._table.setItem(row, 0, QTableWidgetItem(item["item"]))
+            self._table.setItem(row, 1, QTableWidgetItem(item["category"]))
+            self._table.setItem(row, 2, QTableWidgetItem(item["package"]))
+            self._table.setItem(row, 3, QTableWidgetItem(f"₱{item['price']:,.2f}"))
+
+            status_item = QTableWidgetItem(item["status"])
+            status_item.setForeground(QColor(status_colors.get(item["status"], "#9CA3AF")))
+            self._table.setItem(row, 4, status_item)
+
+            del_btn = QPushButton()
+            del_btn.setIcon(btn_icon_red("trash"))
+            del_btn.setIconSize(QSize(15, 15))
+            del_btn.setFixedSize(32, 32)
+            del_btn.setStyleSheet("background: transparent; border: none;")
+            del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.clicked.connect(self._delete_item)
+            self._table.setCellWidget(row, 5, del_btn)
+
+    def _delete_item(self):
+        btn = self.sender()
+        for r in range(self._table.rowCount()):
+            if self._table.cellWidget(r, 5) is btn:
+                self._items.pop(r)
+                self._populate_table()
+                return
+
+    def _open_add_dialog(self):
+        dlg = AddMenuItemDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            result = dlg.get_result()
+            if result:
+                self._items.append(result)
+                self._populate_table()

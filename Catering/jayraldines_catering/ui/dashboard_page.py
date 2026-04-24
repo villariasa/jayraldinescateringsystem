@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QVariantAnimation, Signal, QSize
 from PySide6.QtGui import QColor
 
-from utils.icon_manager import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
+from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
 
 
 class AnimatedCard(QFrame):

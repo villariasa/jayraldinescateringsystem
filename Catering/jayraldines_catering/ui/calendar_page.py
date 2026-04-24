@@ -5,7 +5,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFrame,
 from PySide6.QtCore import Qt, Signal, QVariantAnimation, QSize
 from PySide6.QtGui import QColor
 
-from utils.icon_manager import btn_icon_primary, btn_icon_secondary, btn_icon_muted
+from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted
+from components.booking_modal import BookingModal
 
 def create_shadow():
     shadow = QGraphicsDropShadowEffect()
@@ -129,16 +130,16 @@ class ScheduleCard(AnimatedCard):
         top_row = QHBoxLayout()
         title = QLabel(event_name)
         title.setStyleSheet("font-weight: 700; font-size: 14px; color: #eaeaea;")
-        pax_lbl = QLabel(f"👥 {pax}")
-        pax_lbl.setStyleSheet("color: #9aa0a6; font-weight: 600; font-size: 12px; background: #20242c; padding: 4px 8px; border-radius: 4px;")
+        pax_lbl = QLabel(f"{pax} pax")
+        pax_lbl.setStyleSheet("color: #9aa0a6; font-weight: 600; font-size: 12px; background: rgba(0,0,0,0.15); padding: 4px 8px; border-radius: 4px;")
         top_row.addWidget(title)
         top_row.addStretch()
         top_row.addWidget(pax_lbl)
         layout.addLayout(top_row)
         
-        time_lbl = QLabel(f"🕒 {time}")
+        time_lbl = QLabel(f"Time: {time}")
         time_lbl.setStyleSheet("color: #9aa0a6; font-weight: 500; font-size: 12px; margin-top: 8px;")
-        loc_lbl = QLabel(f"📍 {location}")
+        loc_lbl = QLabel(f"Venue: {location}")
         loc_lbl.setStyleSheet("color: #9aa0a6; font-weight: 500; font-size: 12px;")
         layout.addWidget(time_lbl)
         layout.addWidget(loc_lbl)
@@ -173,6 +174,7 @@ class CalendarPage(QWidget):
         btn_add.setObjectName("primaryButton")
         btn_add.setIcon(btn_icon_primary("plus"))
         btn_add.setIconSize(QSize(16, 16))
+        btn_add.clicked.connect(self._open_booking_modal)
         header_row.addWidget(btn_add)
         main_layout.addLayout(header_row)
 
@@ -196,7 +198,7 @@ class CalendarPage(QWidget):
         cal_head.addWidget(self.month_lbl)
         
         cal_head.addStretch()
-        legend = QLabel("🟢 Available  |  🟡 Near Full (400+)  |  🔴 Fully Booked (600)")
+        legend = QLabel("Available  |  Near Full (400+)  |  Fully Booked (600)")
         legend.setStyleSheet("font-size: 12px; font-weight: 600; color: #9aa0a6; margin-right: 24px;")
         cal_head.addWidget(legend)
 
@@ -394,6 +396,10 @@ class CalendarPage(QWidget):
                 self.grid.addWidget(cell, row, col)
                 self.cells.append(cell)
             row += 1
+
+    def _open_booking_modal(self):
+        modal = BookingModal(self)
+        modal.exec()
 
     def on_day_clicked(self, day_num):
         # Reset visual states

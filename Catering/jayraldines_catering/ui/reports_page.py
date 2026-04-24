@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PySide6.QtCore import Qt, QPropertyAnimation, QVariantAnimation, QEasingCurve, QMargins, QPointF, QSize
 from PySide6.QtGui import QColor, QPainter, QLinearGradient, QPen, QCursor
 
-from utils.icon_manager import btn_icon_primary, btn_icon_secondary, btn_icon_muted
+from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted
 from PySide6.QtCharts import (QChart, QChartView, QLineSeries, QAreaSeries, 
                               QPieSeries, QBarCategoryAxis, QValueAxis, QLegend)
 

@@ -3,7 +3,7 @@ from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QPushButton, QLa
 from PySide6.QtCore import Signal, Qt, QSize, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QPixmap
 
-from utils.icon_manager import nav_icon, nav_icon_active, get_icon
+from utils.icons import nav_icon, nav_icon_active, get_icon
 
 BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
@@ -13,7 +13,7 @@ _NAV_ITEMS = [
     ("Orders",    "orders",    1),
     ("Customers", "customers", 2),
     ("Menu",      "menu",      3),
-    ("Inventory", "inventory", 4),
+    ("Calendar",  "calendar",  4),
     ("Kitchen",   "kitchen",   5),
     ("Billing",   "billing",   6),
     ("Reports",   "reports",   7),

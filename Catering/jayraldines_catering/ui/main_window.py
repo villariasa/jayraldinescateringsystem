@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget
 from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import Signal
 
 from components.sidebar import Sidebar
 from components.topbar import TopBar
@@ -7,12 +8,11 @@ from ui.dashboard_page import DashboardPage
 from ui.booking_page import BookingPage
 from ui.customers_page import CustomersPage
 from ui.menu_page import MenuPage
-from ui.inventory_page import InventoryPage
+from ui.calendar_page import CalendarPage
 from ui.kitchen_page import KitchenPage
 from ui.billing_page import BillingPage
 from ui.reports_page import ReportsPage
 from ui.settings_page import SettingsPage
-from ui.calendar_page import CalendarPage
 
 
 class MainWindow(QMainWindow):
@@ -50,7 +50,7 @@ class MainWindow(QMainWindow):
         self.booking_page    = BookingPage()
         self.customers_page  = CustomersPage()
         self.menu_page       = MenuPage()
-        self.inventory_page  = InventoryPage()
+        self.calendar_page   = CalendarPage()
         self.kitchen_page    = KitchenPage()
         self.billing_page    = BillingPage()
         self.reports_page    = ReportsPage()
@@ -60,7 +60,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.booking_page)     # 1
         self.stack.addWidget(self.customers_page)   # 2
         self.stack.addWidget(self.menu_page)        # 3
-        self.stack.addWidget(self.inventory_page)   # 4
+        self.stack.addWidget(self.calendar_page)    # 4
         self.stack.addWidget(self.kitchen_page)     # 5
         self.stack.addWidget(self.billing_page)     # 6
         self.stack.addWidget(self.reports_page)     # 7
@@ -70,11 +70,21 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(right)
 
         self.sidebar.page_changed.connect(self._navigate)
+
+        self.dashboard_page.new_booking_requested.connect(lambda: self._navigate(1))
+        self.topbar.notif_btn.clicked.connect(self._show_notifications)
+
         self._navigate(0)
 
     def _navigate(self, index: int):
         self.stack.setCurrentIndex(index)
         self.topbar.set_page(index)
+        self.sidebar.handle_click(index)
+
+    def _show_notifications(self):
+        from components.notifications_panel import NotificationsPanel
+        panel = NotificationsPanel(self)
+        panel.exec()
 
     def _toggle_fullscreen(self):
         if self.isFullScreen():

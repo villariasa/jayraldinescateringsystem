@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize
 
-from utils.icon_manager import btn_icon_primary, btn_icon_secondary
+from utils.icons import btn_icon_primary, btn_icon_secondary
 
 
 class InventoryPage(QWidget):
