@@ -1,6 +1,6 @@
 """
 Database connection module.
-All DB access goes through get_conn() / execute() / fetchall() / fetchone().
+All DB access goes through get_conn() / execute() / fetchall() / fetchone() / callproc_out().
 Never import psycopg2 directly outside this file.
 
 Config is read from environment variables with safe fallbacks:
@@ -37,11 +37,6 @@ def is_available() -> bool:
 
 
 def connect() -> bool:
-    """
-    Open (or re-open) the database connection.
-    Returns True on success, False on failure.
-    Call once at application startup.
-    """
     global _conn
     if not _PSYCOPG2_AVAILABLE:
         return False
@@ -73,13 +68,6 @@ def _ensure_connected() -> bool:
 
 @contextlib.contextmanager
 def transaction():
-    """
-    Context manager for an explicit transaction block.
-    Commits on clean exit, rolls back on exception.
-    Usage:
-        with db.transaction():
-            db.execute(...)
-    """
     if not _ensure_connected():
         raise RuntimeError("No database connection")
     try:
@@ -91,7 +79,6 @@ def transaction():
 
 
 def execute(sql: str, params: tuple = ()) -> None:
-    """Run a non-returning statement inside an auto-transaction."""
     if not _ensure_connected():
         raise RuntimeError("No database connection")
     with _conn.cursor() as cur:
@@ -100,7 +87,6 @@ def execute(sql: str, params: tuple = ()) -> None:
 
 
 def fetchall(sql: str, params: tuple = ()) -> list[dict]:
-    """Run a SELECT and return list of dicts (column-name keyed)."""
     if not _ensure_connected():
         return []
     with _conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -109,7 +95,6 @@ def fetchall(sql: str, params: tuple = ()) -> list[dict]:
 
 
 def fetchone(sql: str, params: tuple = ()) -> Optional[dict]:
-    """Run a SELECT and return the first row as a dict, or None."""
     if not _ensure_connected():
         return None
     with _conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -118,16 +103,58 @@ def fetchone(sql: str, params: tuple = ()) -> Optional[dict]:
         return dict(row) if row else None
 
 
-def callproc(func: str, params: tuple = ()) -> list[dict]:
+def callproc_out(proc: str, in_params: tuple = (), out_names: list = None) -> Optional[dict]:
     """
-    Call a PostgreSQL function that returns a TABLE / SETOF and return rows.
-    Uses SELECT func(...) syntax which works for both scalar and set-returning.
+    Call a stored PROCEDURE that has OUT parameters using CALL.
+    PostgreSQL returns OUT param values as a single result row.
+    out_names: list of OUT parameter names in declaration order.
+    Returns a dict keyed by out_names, or None on failure.
     """
     if not _ensure_connected():
-        return []
-    placeholders = ", ".join(["%s"] * len(params))
-    sql = f"SELECT * FROM {func}({placeholders})"
-    return fetchall(sql, params)
+        return None
+    placeholders = ", ".join(["%s"] * len(in_params))
+    if out_names:
+        out_placeholders = ", ".join(["NULL"] * len(out_names))
+        if in_params:
+            sql = f"CALL {proc}({placeholders}, {out_placeholders})"
+        else:
+            sql = f"CALL {proc}({out_placeholders})"
+    else:
+        sql = f"CALL {proc}({placeholders})" if in_params else f"CALL {proc}()"
+    try:
+        with _conn.cursor() as cur:
+            cur.execute(sql, in_params if in_params else ())
+            row = cur.fetchone()
+            _conn.commit()
+            if row is None:
+                return {}
+            if out_names:
+                return dict(zip(out_names, row))
+            return {}
+    except Exception as exc:
+        _conn.rollback()
+        print(f"[DB] callproc_out({proc}) failed: {exc}")
+        return None
+
+
+def callproc_void(proc: str, in_params: tuple = ()) -> bool:
+    """
+    Call a stored PROCEDURE that has no OUT parameters (VOID equivalent).
+    Returns True on success, False on failure.
+    """
+    if not _ensure_connected():
+        return False
+    placeholders = ", ".join(["%s"] * len(in_params))
+    sql = f"CALL {proc}({placeholders})" if in_params else f"CALL {proc}()"
+    try:
+        with _conn.cursor() as cur:
+            cur.execute(sql, in_params if in_params else ())
+        _conn.commit()
+        return True
+    except Exception as exc:
+        _conn.rollback()
+        print(f"[DB] callproc_void({proc}) failed: {exc}")
+        return False
 
 
 def close() -> None:

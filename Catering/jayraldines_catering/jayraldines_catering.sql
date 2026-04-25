@@ -21,25 +21,23 @@ CREATE DATABASE jayraldines_catering
 -- =============================================================================
 -- EXTENSIONS
 -- =============================================================================
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";   -- gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- =============================================================================
 -- ENUMERATIONS
 -- =============================================================================
-
-CREATE TYPE booking_status   AS ENUM ('PENDING', 'CONFIRMED', 'CANCELLED');
-CREATE TYPE invoice_status   AS ENUM ('Unpaid', 'Partial', 'Paid');
-CREATE TYPE customer_status  AS ENUM ('Active', 'Pending', 'Inactive');
-CREATE TYPE menu_status      AS ENUM ('Available', 'Unavailable', 'Seasonal', 'Out of Stock');
-CREATE TYPE kitchen_status   AS ENUM ('Queued', 'Preparing', 'In Progress', 'Ready', 'Delivered', 'Cancelled', 'Done');
-CREATE TYPE payment_method   AS ENUM ('Cash', 'Bank Transfer', 'GCash', 'PayMaya');
-CREATE TYPE menu_category    AS ENUM ('Main Course','Noodles','Soup','Vegetables','Dessert','Drinks','Bread','Other');
+CREATE TYPE booking_status    AS ENUM ('PENDING', 'CONFIRMED', 'CANCELLED');
+CREATE TYPE invoice_status    AS ENUM ('Unpaid', 'Partial', 'Paid');
+CREATE TYPE customer_status   AS ENUM ('Active', 'Pending', 'Inactive');
+CREATE TYPE menu_status       AS ENUM ('Available', 'Unavailable', 'Seasonal', 'Out of Stock');
+CREATE TYPE kitchen_status    AS ENUM ('Queued', 'Preparing', 'In Progress', 'Ready', 'Delivered', 'Cancelled', 'Done');
+CREATE TYPE payment_method    AS ENUM ('Cash', 'Bank Transfer', 'GCash', 'PayMaya');
+CREATE TYPE menu_category     AS ENUM ('Main Course','Noodles','Soup','Vegetables','Dessert','Drinks','Bread','Other');
 CREATE TYPE menu_package_tier AS ENUM ('Budget','Standard','Premium','Custom');
-CREATE TYPE inventory_unit   AS ENUM ('kg','g','L','mL','pcs','packs','trays','boxes');
+CREATE TYPE inventory_unit    AS ENUM ('kg','g','L','mL','pcs','packs','trays','boxes');
 
 -- =============================================================================
 -- TABLE: business_info
--- Stores the single-owner business profile (Settings page)
 -- =============================================================================
 CREATE TABLE business_info (
     id          SERIAL          PRIMARY KEY,
@@ -56,7 +54,6 @@ VALUES ('Jayraldine''s Catering', '+63 912 345 6789',
 
 -- =============================================================================
 -- TABLE: customers
--- Matches CustomersPage / AddCustomerDialog
 -- =============================================================================
 CREATE TABLE customers (
     id              SERIAL          PRIMARY KEY,
@@ -79,13 +76,12 @@ INSERT INTO customers (name, contact, email, status, total_events) VALUES
 
 -- =============================================================================
 -- TABLE: packages
--- The three hard-coded packages shown in BookingModal Step 2
 -- =============================================================================
 CREATE TABLE packages (
-    id          SERIAL          PRIMARY KEY,
-    name        VARCHAR(100)    NOT NULL UNIQUE,
-    price_per_pax NUMERIC(10,2) NOT NULL CHECK (price_per_pax > 0),
-    description TEXT
+    id              SERIAL          PRIMARY KEY,
+    name            VARCHAR(100)    NOT NULL UNIQUE,
+    price_per_pax   NUMERIC(10,2)   NOT NULL CHECK (price_per_pax > 0),
+    description     TEXT
 );
 
 INSERT INTO packages (name, price_per_pax, description) VALUES
@@ -95,17 +91,16 @@ INSERT INTO packages (name, price_per_pax, description) VALUES
 
 -- =============================================================================
 -- TABLE: menu_items
--- Matches MenuPage / menu_store.py
 -- =============================================================================
 CREATE TABLE menu_items (
-    id          SERIAL              PRIMARY KEY,
-    name        VARCHAR(120)        NOT NULL UNIQUE,
-    category    menu_category       NOT NULL DEFAULT 'Other',
-    package_tier menu_package_tier  NOT NULL DEFAULT 'Standard',
-    price       NUMERIC(10,2)       NOT NULL CHECK (price >= 0),
-    status      menu_status         NOT NULL DEFAULT 'Available',
-    created_at  TIMESTAMPTZ         NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ         NOT NULL DEFAULT NOW()
+    id           SERIAL              PRIMARY KEY,
+    name         VARCHAR(120)        NOT NULL UNIQUE,
+    category     menu_category       NOT NULL DEFAULT 'Other',
+    package_tier menu_package_tier   NOT NULL DEFAULT 'Standard',
+    price        NUMERIC(10,2)       NOT NULL CHECK (price >= 0),
+    status       menu_status         NOT NULL DEFAULT 'Available',
+    created_at   TIMESTAMPTZ         NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ         NOT NULL DEFAULT NOW()
 );
 
 INSERT INTO menu_items (name, category, package_tier, price, status) VALUES
@@ -120,13 +115,12 @@ INSERT INTO menu_items (name, category, package_tier, price, status) VALUES
 
 -- =============================================================================
 -- TABLE: bookings
--- Matches BookingPage / BookingModal (all 4 steps)
 -- =============================================================================
 CREATE TABLE bookings (
     id              SERIAL          PRIMARY KEY,
-    booking_ref     VARCHAR(12)     NOT NULL UNIQUE,   -- e.g. BKG-001
+    booking_ref     VARCHAR(12)     NOT NULL UNIQUE,
     customer_id     INT             REFERENCES customers(id) ON DELETE SET NULL,
-    customer_name   VARCHAR(150)    NOT NULL,           -- denormalised for display
+    customer_name   VARCHAR(150)    NOT NULL,
     contact         VARCHAR(30),
     email           VARCHAR(120),
     address         TEXT,
@@ -138,7 +132,7 @@ CREATE TABLE bookings (
     special_notes   TEXT,
     menu_type       VARCHAR(10)     NOT NULL DEFAULT 'package' CHECK (menu_type IN ('package','custom')),
     package_id      INT             REFERENCES packages(id) ON DELETE SET NULL,
-    custom_items    TEXT,           -- comma-separated item names when menu_type='custom'
+    custom_items    TEXT,
     total_amount    NUMERIC(12,2)   NOT NULL CHECK (total_amount >= 0),
     payment_mode    payment_method  NOT NULL DEFAULT 'Cash',
     amount_paid     NUMERIC(12,2)   NOT NULL DEFAULT 0 CHECK (amount_paid >= 0),
@@ -163,7 +157,6 @@ VALUES
 
 -- =============================================================================
 -- TABLE: booking_menu_items
--- Junction: which custom menu items were selected for a booking
 -- =============================================================================
 CREATE TABLE booking_menu_items (
     booking_id  INT NOT NULL REFERENCES bookings(id)    ON DELETE CASCADE,
@@ -173,11 +166,10 @@ CREATE TABLE booking_menu_items (
 
 -- =============================================================================
 -- TABLE: invoices
--- Matches BillingPage / NewInvoiceDialog
 -- =============================================================================
 CREATE TABLE invoices (
     id              SERIAL          PRIMARY KEY,
-    invoice_ref     VARCHAR(12)     NOT NULL UNIQUE,   -- e.g. INV-001
+    invoice_ref     VARCHAR(12)     NOT NULL UNIQUE,
     booking_id      INT             REFERENCES bookings(id) ON DELETE SET NULL,
     customer_name   VARCHAR(150)    NOT NULL,
     event_date      DATE            NOT NULL,
@@ -199,11 +191,10 @@ INSERT INTO invoices (invoice_ref, customer_name, event_date, total_amount, amou
 
 -- =============================================================================
 -- TABLE: kitchen_orders
--- Matches KitchenPage kanban board
 -- =============================================================================
 CREATE TABLE kitchen_orders (
     id          SERIAL          PRIMARY KEY,
-    order_ref   VARCHAR(12)     NOT NULL UNIQUE,   -- e.g. ORD-001
+    order_ref   VARCHAR(12)     NOT NULL UNIQUE,
     booking_id  INT             REFERENCES bookings(id) ON DELETE SET NULL,
     client_name VARCHAR(150)    NOT NULL,
     event_name  VARCHAR(150)    NOT NULL,
@@ -217,14 +208,13 @@ CREATE TABLE kitchen_orders (
 CREATE INDEX idx_kitchen_orders_status ON kitchen_orders (status);
 
 INSERT INTO kitchen_orders (order_ref, client_name, event_name, pax, items_desc, status) VALUES
-  ('ORD-001','Maria Santos',  'Birthday Party',    80,  'Lechon, Kare-Kare, Buko Pandan',   'Queued'),
-  ('ORD-002','TechCorp Inc.', 'Corporate Dinner',  150, 'Chicken Inasal, Pancit, Leche Flan','In Progress'),
-  ('ORD-003','Cruz Family',   'Debut',             200, 'Lechon, Kare-Kare, Chopsuey',       'Ready'),
-  ('ORD-004','Smith Wedding', 'Wedding Reception', 300, 'Full Package Premium',               'Queued');
+  ('ORD-001','Maria Santos',  'Birthday Party',    80,  'Lechon, Kare-Kara, Buko Pandan',    'Queued'),
+  ('ORD-002','TechCorp Inc.', 'Corporate Dinner',  150, 'Chicken Inasal, Pancit, Leche Flan', 'In Progress'),
+  ('ORD-003','Cruz Family',   'Debut',             200, 'Lechon, Kare-Kare, Chopsuey',        'Ready'),
+  ('ORD-004','Smith Wedding', 'Wedding Reception', 300, 'Full Package Premium',                'Queued');
 
 -- =============================================================================
 -- TABLE: inventory
--- Matches InventoryPage
 -- =============================================================================
 CREATE TABLE inventory (
     id          SERIAL          PRIMARY KEY,
@@ -244,7 +234,6 @@ INSERT INTO inventory (ingredient, unit, stock, min_stock) VALUES
 
 -- =============================================================================
 -- TABLE: notifications
--- Persists the notifications shown in NotificationsPanel
 -- =============================================================================
 CREATE TABLE notifications (
     id          SERIAL          PRIMARY KEY,
@@ -263,66 +252,76 @@ INSERT INTO notifications (type, title, message, color) VALUES
   ('info',    'New Booking Request','Cruz Corporate submitted an event inquiry for Apr 30, 2026.',               '#3B82F6');
 
 -- =============================================================================
--- SEQUENCE HELPERS (used by stored procedures to generate refs)
+-- SEQUENCES for reference number generation
 -- =============================================================================
 CREATE SEQUENCE IF NOT EXISTS seq_booking_ref START 5;
 CREATE SEQUENCE IF NOT EXISTS seq_invoice_ref START 5;
 CREATE SEQUENCE IF NOT EXISTS seq_order_ref   START 5;
 
 -- =============================================================================
--- FUNCTION: next_booking_ref()
+-- STORED PROCEDURE: sp_next_booking_ref
+-- Generates next booking reference number
+-- OUT p_ref TEXT
 -- =============================================================================
-CREATE OR REPLACE FUNCTION next_booking_ref()
-RETURNS TEXT LANGUAGE plpgsql AS $$
+CREATE OR REPLACE PROCEDURE sp_next_booking_ref(OUT p_ref TEXT)
+LANGUAGE plpgsql AS $$
 BEGIN
-    RETURN 'BKG-' || LPAD(nextval('seq_booking_ref')::TEXT, 3, '0');
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION next_invoice_ref()
-RETURNS TEXT LANGUAGE plpgsql AS $$
-BEGIN
-    RETURN 'INV-' || LPAD(nextval('seq_invoice_ref')::TEXT, 3, '0');
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION next_order_ref()
-RETURNS TEXT LANGUAGE plpgsql AS $$
-BEGIN
-    RETURN 'ORD-' || LPAD(nextval('seq_order_ref')::TEXT, 3, '0');
+    p_ref := 'BKG-' || LPAD(nextval('seq_booking_ref')::TEXT, 3, '0');
 END;
 $$;
 
 -- =============================================================================
--- STORED PROCEDURE: create_booking
--- Called when BookingModal emits booking_saved signal
+-- STORED PROCEDURE: sp_next_invoice_ref
+-- OUT p_ref TEXT
 -- =============================================================================
-CREATE OR REPLACE FUNCTION create_booking(
-    p_customer_name  TEXT,
-    p_contact        TEXT,
-    p_email          TEXT,
-    p_address        TEXT,
-    p_occasion       TEXT,
-    p_venue          TEXT,
-    p_event_date     DATE,
-    p_event_time     TIME,
-    p_pax            INT,
-    p_special_notes  TEXT,
-    p_menu_type      TEXT,
-    p_package_id     INT,
-    p_custom_items   TEXT,
-    p_total_amount   NUMERIC,
-    p_payment_mode   TEXT,
-    p_amount_paid    NUMERIC
+CREATE OR REPLACE PROCEDURE sp_next_invoice_ref(OUT p_ref TEXT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    p_ref := 'INV-' || LPAD(nextval('seq_invoice_ref')::TEXT, 3, '0');
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_next_order_ref
+-- OUT p_ref TEXT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_next_order_ref(OUT p_ref TEXT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    p_ref := 'ORD-' || LPAD(nextval('seq_order_ref')::TEXT, 3, '0');
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_create_booking
+-- Inserts a new booking and increments customer event count
+-- OUT p_booking_id INT, OUT p_booking_ref TEXT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_create_booking(
+    IN  p_customer_name  TEXT,
+    IN  p_contact        TEXT,
+    IN  p_email          TEXT,
+    IN  p_address        TEXT,
+    IN  p_occasion       TEXT,
+    IN  p_venue          TEXT,
+    IN  p_event_date     DATE,
+    IN  p_event_time     TIME,
+    IN  p_pax            INT,
+    IN  p_special_notes  TEXT,
+    IN  p_menu_type      TEXT,
+    IN  p_package_id     INT,
+    IN  p_custom_items   TEXT,
+    IN  p_total_amount   NUMERIC,
+    IN  p_payment_mode   TEXT,
+    IN  p_amount_paid    NUMERIC,
+    OUT p_booking_id     INT,
+    OUT p_booking_ref    TEXT
 )
-RETURNS TABLE (booking_id INT, booking_ref TEXT)
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_ref       TEXT;
-    v_bid       INT;
-    v_cid       INT;
+    v_cid INT;
 BEGIN
-    v_ref := next_booking_ref();
+    CALL sp_next_booking_ref(p_booking_ref);
 
     SELECT id INTO v_cid FROM customers WHERE name = p_customer_name LIMIT 1;
 
@@ -332,29 +331,78 @@ BEGIN
         menu_type, package_id, custom_items,
         total_amount, payment_mode, amount_paid, status
     ) VALUES (
-        v_ref, v_cid, p_customer_name, p_contact, p_email, p_address,
+        p_booking_ref, v_cid, p_customer_name, p_contact, p_email, p_address,
         p_occasion, p_venue, p_event_date, p_event_time, p_pax, p_special_notes,
         p_menu_type, p_package_id, p_custom_items,
         p_total_amount, p_payment_mode::payment_method, p_amount_paid, 'PENDING'
     )
-    RETURNING id INTO v_bid;
+    RETURNING id INTO p_booking_id;
 
-    UPDATE customers SET total_events = total_events + 1, updated_at = NOW()
-    WHERE id = v_cid;
-
-    RETURN QUERY SELECT v_bid, v_ref;
+    IF v_cid IS NOT NULL THEN
+        UPDATE customers
+        SET total_events = total_events + 1, updated_at = NOW()
+        WHERE id = v_cid;
+    END IF;
 END;
 $$;
 
 -- =============================================================================
--- STORED PROCEDURE: update_booking_status
--- Called when status badge is clicked in BookingPage
+-- STORED PROCEDURE: sp_update_booking
+-- Updates all editable fields of a booking
 -- =============================================================================
-CREATE OR REPLACE FUNCTION update_booking_status(
-    p_booking_id  INT,
-    p_new_status  TEXT
+CREATE OR REPLACE PROCEDURE sp_update_booking(
+    IN p_booking_id    INT,
+    IN p_customer_name TEXT,
+    IN p_contact       TEXT,
+    IN p_email         TEXT,
+    IN p_address       TEXT,
+    IN p_occasion      TEXT,
+    IN p_venue         TEXT,
+    IN p_event_date    DATE,
+    IN p_event_time    TIME,
+    IN p_pax           INT,
+    IN p_special_notes TEXT,
+    IN p_menu_type     TEXT,
+    IN p_package_id    INT,
+    IN p_custom_items  TEXT,
+    IN p_total_amount  NUMERIC,
+    IN p_payment_mode  TEXT,
+    IN p_amount_paid   NUMERIC
 )
-RETURNS VOID LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE bookings
+    SET
+        customer_name = p_customer_name,
+        contact       = p_contact,
+        email         = p_email,
+        address       = p_address,
+        occasion      = p_occasion,
+        venue         = p_venue,
+        event_date    = p_event_date,
+        event_time    = p_event_time,
+        pax           = p_pax,
+        special_notes = p_special_notes,
+        menu_type     = p_menu_type,
+        package_id    = p_package_id,
+        custom_items  = p_custom_items,
+        total_amount  = p_total_amount,
+        payment_mode  = p_payment_mode::payment_method,
+        amount_paid   = p_amount_paid,
+        updated_at    = NOW()
+    WHERE id = p_booking_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_update_booking_status
+-- Updates only the status field of a booking
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_update_booking_status(
+    IN p_booking_id  INT,
+    IN p_new_status  TEXT
+)
+LANGUAGE plpgsql AS $$
 BEGIN
     UPDATE bookings
     SET status = p_new_status::booking_status, updated_at = NOW()
@@ -363,51 +411,87 @@ END;
 $$;
 
 -- =============================================================================
--- STORED PROCEDURE: generate_invoice
--- Called from BillingPage "New Invoice"
+-- STORED PROCEDURE: sp_delete_booking
+-- Deletes a booking by id
 -- =============================================================================
-CREATE OR REPLACE FUNCTION generate_invoice(
-    p_booking_id    INT,
-    p_customer_name TEXT,
-    p_event_date    DATE,
-    p_total_amount  NUMERIC,
-    p_amount_paid   NUMERIC,
-    p_status        TEXT
-)
-RETURNS TABLE (invoice_id INT, invoice_ref TEXT)
+CREATE OR REPLACE PROCEDURE sp_delete_booking(IN p_booking_id INT)
 LANGUAGE plpgsql AS $$
-DECLARE
-    v_ref TEXT;
-    v_iid INT;
 BEGIN
-    v_ref := next_invoice_ref();
+    DELETE FROM bookings WHERE id = p_booking_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_create_invoice
+-- Inserts a new invoice record
+-- OUT p_invoice_id INT, OUT p_invoice_ref TEXT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_create_invoice(
+    IN  p_booking_id    INT,
+    IN  p_customer_name TEXT,
+    IN  p_event_date    DATE,
+    IN  p_total_amount  NUMERIC,
+    IN  p_amount_paid   NUMERIC,
+    IN  p_status        TEXT,
+    OUT p_invoice_id    INT,
+    OUT p_invoice_ref   TEXT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    CALL sp_next_invoice_ref(p_invoice_ref);
 
     INSERT INTO invoices (
         invoice_ref, booking_id, customer_name, event_date,
         total_amount, amount_paid, status
     ) VALUES (
-        v_ref, p_booking_id, p_customer_name, p_event_date,
+        p_invoice_ref, p_booking_id, p_customer_name, p_event_date,
         p_total_amount, p_amount_paid, p_status::invoice_status
     )
-    RETURNING id INTO v_iid;
-
-    RETURN QUERY SELECT v_iid, v_ref;
+    RETURNING id INTO p_invoice_id;
 END;
 $$;
 
 -- =============================================================================
--- STORED PROCEDURE: record_payment
--- Updates invoice paid amount and recalculates status
+-- STORED PROCEDURE: sp_update_invoice
+-- Updates all editable fields of an invoice
 -- =============================================================================
-CREATE OR REPLACE FUNCTION record_payment(
-    p_invoice_id  INT,
-    p_amount      NUMERIC
+CREATE OR REPLACE PROCEDURE sp_update_invoice(
+    IN p_invoice_id   INT,
+    IN p_customer_name TEXT,
+    IN p_event_date   DATE,
+    IN p_total_amount NUMERIC,
+    IN p_amount_paid  NUMERIC,
+    IN p_status       TEXT
 )
-RETURNS invoice_status LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE invoices
+    SET
+        customer_name = p_customer_name,
+        event_date    = p_event_date,
+        total_amount  = p_total_amount,
+        amount_paid   = p_amount_paid,
+        status        = p_status::invoice_status,
+        updated_at    = NOW()
+    WHERE id = p_invoice_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_record_payment
+-- Adds a payment amount to an invoice and recalculates its status
+-- OUT p_new_status TEXT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_record_payment(
+    IN  p_invoice_id  INT,
+    IN  p_amount      NUMERIC,
+    OUT p_new_status  TEXT
+)
+LANGUAGE plpgsql AS $$
 DECLARE
-    v_total   NUMERIC;
-    v_paid    NUMERIC;
-    v_status  invoice_status;
+    v_total  NUMERIC;
+    v_paid   NUMERIC;
+    v_status invoice_status;
 BEGIN
     SELECT total_amount, amount_paid INTO v_total, v_paid
     FROM invoices WHERE id = p_invoice_id FOR UPDATE;
@@ -427,78 +511,35 @@ BEGIN
     SET amount_paid = v_paid, status = v_status, updated_at = NOW()
     WHERE id = p_invoice_id;
 
-    RETURN v_status;
+    p_new_status := v_status::TEXT;
 END;
 $$;
 
 -- =============================================================================
--- STORED PROCEDURE: calculate_total_amount
--- Matches BookingModal _update_cost logic
+-- STORED PROCEDURE: sp_delete_invoice
+-- Deletes an invoice by id
 -- =============================================================================
-CREATE OR REPLACE FUNCTION calculate_total_amount(
-    p_pax        INT,
-    p_package_id INT
-)
-RETURNS NUMERIC LANGUAGE plpgsql AS $$
-DECLARE
-    v_rate NUMERIC;
+CREATE OR REPLACE PROCEDURE sp_delete_invoice(IN p_invoice_id INT)
+LANGUAGE plpgsql AS $$
 BEGIN
-    SELECT price_per_pax INTO v_rate FROM packages WHERE id = p_package_id;
-    RETURN p_pax * v_rate;
+    DELETE FROM invoices WHERE id = p_invoice_id;
 END;
 $$;
 
 -- =============================================================================
--- STORED PROCEDURE: update_kitchen_order_status
--- Called from KitchenPage advance/done buttons
+-- STORED PROCEDURE: sp_add_menu_item
+-- Inserts a new menu item
+-- OUT p_item_id INT
 -- =============================================================================
-CREATE OR REPLACE FUNCTION update_kitchen_order_status(
-    p_order_id   INT,
-    p_new_status TEXT
+CREATE OR REPLACE PROCEDURE sp_add_menu_item(
+    IN  p_name     TEXT,
+    IN  p_category TEXT,
+    IN  p_package  TEXT,
+    IN  p_price    NUMERIC,
+    IN  p_status   TEXT,
+    OUT p_item_id  INT
 )
-RETURNS VOID LANGUAGE plpgsql AS $$
-BEGIN
-    UPDATE kitchen_orders
-    SET status = p_new_status::kitchen_status, updated_at = NOW()
-    WHERE id = p_order_id;
-END;
-$$;
-
--- =============================================================================
--- STORED PROCEDURE: update_inventory
--- Called when inventory stock is adjusted
--- =============================================================================
-CREATE OR REPLACE FUNCTION update_inventory(
-    p_item_id   INT,
-    p_delta     NUMERIC       -- positive = restock, negative = usage
-)
-RETURNS NUMERIC LANGUAGE plpgsql AS $$
-DECLARE
-    v_new_stock NUMERIC;
-BEGIN
-    UPDATE inventory
-    SET stock = GREATEST(0, stock + p_delta), updated_at = NOW()
-    WHERE id = p_item_id
-    RETURNING stock INTO v_new_stock;
-
-    RETURN v_new_stock;
-END;
-$$;
-
--- =============================================================================
--- STORED PROCEDURE: add_menu_item
--- Called from MenuPage "Add Item" dialog
--- =============================================================================
-CREATE OR REPLACE FUNCTION add_menu_item(
-    p_name     TEXT,
-    p_category TEXT,
-    p_package  TEXT,
-    p_price    NUMERIC,
-    p_status   TEXT
-)
-RETURNS INT LANGUAGE plpgsql AS $$
-DECLARE
-    v_id INT;
+LANGUAGE plpgsql AS $$
 BEGIN
     INSERT INTO menu_items (name, category, package_tier, price, status)
     VALUES (
@@ -508,45 +549,301 @@ BEGIN
         p_price,
         p_status::menu_status
     )
-    RETURNING id INTO v_id;
-    RETURN v_id;
+    RETURNING id INTO p_item_id;
 END;
 $$;
 
 -- =============================================================================
--- STORED PROCEDURE: dismiss_notification / mark_all_read
+-- STORED PROCEDURE: sp_update_menu_item
+-- Updates an existing menu item
 -- =============================================================================
-CREATE OR REPLACE FUNCTION dismiss_notification(p_id INT)
-RETURNS VOID LANGUAGE plpgsql AS $$
+CREATE OR REPLACE PROCEDURE sp_update_menu_item(
+    IN p_item_id   INT,
+    IN p_name      TEXT,
+    IN p_category  TEXT,
+    IN p_package   TEXT,
+    IN p_price     NUMERIC,
+    IN p_status    TEXT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE menu_items
+    SET
+        name         = p_name,
+        category     = p_category::menu_category,
+        package_tier = p_package::menu_package_tier,
+        price        = p_price,
+        status       = p_status::menu_status,
+        updated_at   = NOW()
+    WHERE id = p_item_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_menu_item
+-- Deletes a menu item by id
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_menu_item(IN p_item_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM menu_items WHERE id = p_item_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_add_customer
+-- Inserts a new customer record
+-- OUT p_customer_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_add_customer(
+    IN  p_name         TEXT,
+    IN  p_contact      TEXT,
+    IN  p_email        TEXT,
+    IN  p_status       TEXT,
+    OUT p_customer_id  INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO customers (name, contact, email, status)
+    VALUES (p_name, p_contact, p_email, p_status::customer_status)
+    ON CONFLICT DO NOTHING
+    RETURNING id INTO p_customer_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_update_customer
+-- Updates an existing customer record
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_update_customer(
+    IN p_customer_id INT,
+    IN p_name        TEXT,
+    IN p_contact     TEXT,
+    IN p_email       TEXT,
+    IN p_status      TEXT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE customers
+    SET
+        name       = p_name,
+        contact    = p_contact,
+        email      = p_email,
+        status     = p_status::customer_status,
+        updated_at = NOW()
+    WHERE id = p_customer_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_customer
+-- Deletes a customer by id
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_customer(IN p_customer_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM customers WHERE id = p_customer_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_add_inventory_item
+-- Inserts a new inventory item
+-- OUT p_item_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_add_inventory_item(
+    IN  p_ingredient TEXT,
+    IN  p_unit       TEXT,
+    IN  p_stock      NUMERIC,
+    IN  p_min_stock  NUMERIC,
+    OUT p_item_id    INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO inventory (ingredient, unit, stock, min_stock)
+    VALUES (p_ingredient, p_unit::inventory_unit, p_stock, p_min_stock)
+    RETURNING id INTO p_item_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_update_inventory_item
+-- Updates ingredient name, unit and min_stock for an inventory item
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_update_inventory_item(
+    IN p_item_id    INT,
+    IN p_ingredient TEXT,
+    IN p_unit       TEXT,
+    IN p_min_stock  NUMERIC
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE inventory
+    SET
+        ingredient = p_ingredient,
+        unit       = p_unit::inventory_unit,
+        min_stock  = p_min_stock,
+        updated_at = NOW()
+    WHERE id = p_item_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_adjust_inventory_stock
+-- Adjusts stock by a delta (positive = restock, negative = usage)
+-- OUT p_new_stock NUMERIC
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_adjust_inventory_stock(
+    IN  p_item_id   INT,
+    IN  p_delta     NUMERIC,
+    OUT p_new_stock NUMERIC
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE inventory
+    SET stock = GREATEST(0, stock + p_delta), updated_at = NOW()
+    WHERE id = p_item_id
+    RETURNING stock INTO p_new_stock;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_inventory_item
+-- Deletes an inventory item by id
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_inventory_item(IN p_item_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM inventory WHERE id = p_item_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_create_kitchen_order
+-- Inserts a new kitchen order
+-- OUT p_order_id INT, OUT p_order_ref TEXT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_create_kitchen_order(
+    IN  p_booking_id  INT,
+    IN  p_client_name TEXT,
+    IN  p_event_name  TEXT,
+    IN  p_pax         INT,
+    IN  p_items_desc  TEXT,
+    OUT p_order_id    INT,
+    OUT p_order_ref   TEXT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    CALL sp_next_order_ref(p_order_ref);
+
+    INSERT INTO kitchen_orders (order_ref, booking_id, client_name, event_name, pax, items_desc, status)
+    VALUES (p_order_ref, p_booking_id, p_client_name, p_event_name, p_pax, p_items_desc, 'Queued')
+    RETURNING id INTO p_order_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_update_kitchen_order_status
+-- Updates the status of a kitchen order
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_update_kitchen_order_status(
+    IN p_order_id   INT,
+    IN p_new_status TEXT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE kitchen_orders
+    SET status = p_new_status::kitchen_status, updated_at = NOW()
+    WHERE id = p_order_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_kitchen_order
+-- Deletes a kitchen order by id
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_kitchen_order(IN p_order_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM kitchen_orders WHERE id = p_order_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_dismiss_notification
+-- Marks a single notification as read
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_dismiss_notification(IN p_id INT)
+LANGUAGE plpgsql AS $$
 BEGIN
     UPDATE notifications SET is_read = TRUE WHERE id = p_id;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION mark_all_notifications_read()
-RETURNS VOID LANGUAGE plpgsql AS $$
+-- =============================================================================
+-- STORED PROCEDURE: sp_mark_all_notifications_read
+-- Marks all unread notifications as read
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_mark_all_notifications_read()
+LANGUAGE plpgsql AS $$
 BEGIN
     UPDATE notifications SET is_read = TRUE WHERE is_read = FALSE;
 END;
 $$;
 
 -- =============================================================================
+-- STORED PROCEDURE: sp_save_business_info
+-- Updates the single business_info row
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_save_business_info(
+    IN p_name    TEXT,
+    IN p_contact TEXT,
+    IN p_email   TEXT,
+    IN p_address TEXT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE business_info
+    SET name = p_name, contact = p_contact, email = p_email,
+        address = p_address, updated_at = NOW()
+    WHERE id = 1;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_calculate_total_amount
+-- Calculates total booking cost from pax and package
+-- OUT p_total NUMERIC
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_calculate_total_amount(
+    IN  p_pax        INT,
+    IN  p_package_id INT,
+    OUT p_total      NUMERIC
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_rate NUMERIC;
+BEGIN
+    SELECT price_per_pax INTO v_rate FROM packages WHERE id = p_package_id;
+    p_total := p_pax * COALESCE(v_rate, 0);
+END;
+$$;
+
+-- =============================================================================
 -- VIEW: v_dashboard_kpis
--- Powers DashboardPage KPI cards
 -- =============================================================================
 CREATE OR REPLACE VIEW v_dashboard_kpis AS
 SELECT
-    (SELECT COUNT(*) FROM bookings WHERE event_date = CURRENT_DATE)                        AS todays_events,
-    (SELECT COUNT(*) FROM bookings WHERE status = 'PENDING')                               AS pending_bookings,
+    (SELECT COUNT(*) FROM bookings WHERE event_date = CURRENT_DATE)                         AS todays_events,
+    (SELECT COUNT(*) FROM bookings WHERE status = 'PENDING')                                AS pending_bookings,
     (SELECT COALESCE(SUM(total_amount),0) FROM bookings
      WHERE event_date BETWEEN date_trunc('week', CURRENT_DATE)
-                          AND date_trunc('week', CURRENT_DATE) + INTERVAL '6 days')        AS weekly_revenue,
+                          AND date_trunc('week', CURRENT_DATE) + INTERVAL '6 days')         AS weekly_revenue,
     (SELECT COALESCE(SUM(total_amount - amount_paid),0) FROM invoices WHERE status != 'Paid') AS unpaid_invoices,
-    (SELECT COALESCE(SUM(pax),0) FROM bookings WHERE event_date = CURRENT_DATE)            AS todays_pax;
+    (SELECT COALESCE(SUM(pax),0) FROM bookings WHERE event_date = CURRENT_DATE)             AS todays_pax;
 
 -- =============================================================================
 -- VIEW: v_upcoming_events
--- Powers DashboardPage "Upcoming Events" + CalendarPage side panel
 -- =============================================================================
 CREATE OR REPLACE VIEW v_upcoming_events AS
 SELECT
@@ -566,7 +863,6 @@ ORDER BY b.event_date, b.event_time;
 
 -- =============================================================================
 -- VIEW: v_inventory_alerts
--- Powers DashboardPage "Inventory Alerts" - items below min_stock
 -- =============================================================================
 CREATE OR REPLACE VIEW v_inventory_alerts AS
 SELECT
@@ -582,20 +878,18 @@ ORDER BY stock_pct;
 
 -- =============================================================================
 -- VIEW: v_calendar_day_summary
--- Powers CalendarPage day cells: total pax per date
 -- =============================================================================
 CREATE OR REPLACE VIEW v_calendar_day_summary AS
 SELECT
     event_date,
-    COUNT(*)        AS booking_count,
-    SUM(pax)        AS total_pax
+    COUNT(*)    AS booking_count,
+    SUM(pax)    AS total_pax
 FROM bookings
 WHERE status != 'CANCELLED'
 GROUP BY event_date;
 
 -- =============================================================================
 -- VIEW: v_reports_summary
--- Powers ReportsPage KPI + table
 -- =============================================================================
 CREATE OR REPLACE VIEW v_reports_summary AS
 SELECT
@@ -611,14 +905,14 @@ LEFT JOIN packages p ON p.id = b.package_id
 ORDER BY b.event_date DESC;
 
 -- =============================================================================
--- GRANT: single owner user (create separately, then grant)
+-- GRANT (uncomment after creating the user)
 -- psql -U postgres -c "CREATE USER catering_owner WITH PASSWORD 'change_me';"
 -- =============================================================================
 -- GRANT CONNECT ON DATABASE jayraldines_catering TO catering_owner;
 -- GRANT USAGE  ON SCHEMA public TO catering_owner;
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES    IN SCHEMA public TO catering_owner;
 -- GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA public TO catering_owner;
--- GRANT EXECUTE                        ON ALL FUNCTIONS IN SCHEMA public TO catering_owner;
+-- GRANT EXECUTE                        ON ALL ROUTINES  IN SCHEMA public TO catering_owner;
 
 -- =============================================================================
 -- END OF SCHEMA

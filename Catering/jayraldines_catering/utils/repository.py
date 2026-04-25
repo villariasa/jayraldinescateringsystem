@@ -3,9 +3,9 @@ Repository layer — the ONLY place that touches utils.db.
 All UI pages import from here, never from utils.db directly.
 
 Each function either:
+  - calls a stored procedure via db.callproc_out / db.callproc_void
   - returns data the GUI already expects (list-of-dicts with the same keys)
   - falls back to in-memory defaults when DB is unavailable
-    so the app continues to work without a database.
 """
 from __future__ import annotations
 from datetime import date, time
@@ -39,20 +39,35 @@ def get_all_customers() -> list[dict]:
 
 def add_customer(data: dict) -> Optional[int]:
     """data keys: name, contact, email, status"""
-    row = db.fetchone(
-        """
-        INSERT INTO customers (name, contact, email, status)
-        VALUES (%s, %s, %s, %s::customer_status)
-        ON CONFLICT DO NOTHING
-        RETURNING id
-        """,
-        (data["name"], data["contact"], data.get("email", ""), data.get("status", "Active")),
+    result = db.callproc_out(
+        "sp_add_customer",
+        in_params=(
+            data["name"],
+            data.get("contact", ""),
+            data.get("email", ""),
+            data.get("status", "Active"),
+        ),
+        out_names=["p_customer_id"],
     )
-    return row["id"] if row else None
+    return result["p_customer_id"] if result else None
+
+
+def update_customer(customer_id: int, data: dict) -> None:
+    """data keys: name, contact, email, status"""
+    db.callproc_void(
+        "sp_update_customer",
+        in_params=(
+            customer_id,
+            data["name"],
+            data.get("contact", ""),
+            data.get("email", ""),
+            data.get("status", "Active"),
+        ),
+    )
 
 
 def delete_customer(customer_id: int) -> None:
-    db.execute("DELETE FROM customers WHERE id = %s", (customer_id,))
+    db.callproc_void("sp_delete_customer", in_params=(customer_id,))
 
 
 def get_customer_names() -> list[str]:
@@ -61,7 +76,7 @@ def get_customer_names() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# MENU ITEMS  (synced with utils/menu_store.py in-memory list)
+# MENU ITEMS
 # ---------------------------------------------------------------------------
 
 def get_all_menu_items() -> list[dict]:
@@ -112,21 +127,38 @@ def get_available_menu_items() -> list[dict]:
 
 def add_menu_item(data: dict) -> Optional[int]:
     """data keys: item, category, package, price, status"""
-    rows = db.callproc(
-        "add_menu_item",
-        (data["item"], data["category"], data["package"],
-         data["price"], data["status"]),
+    result = db.callproc_out(
+        "sp_add_menu_item",
+        in_params=(
+            data["item"],
+            data["category"],
+            data["package"],
+            data["price"],
+            data["status"],
+        ),
+        out_names=["p_item_id"],
     )
-    if rows:
-        new_id = list(rows[0].values())[0]
-        menu_store.add_item(data)
-        return new_id
     menu_store.add_item(data)
-    return None
+    return result["p_item_id"] if result else None
 
 
-def delete_menu_item(index: int, item_name: str) -> None:
-    db.execute("DELETE FROM menu_items WHERE name = %s", (item_name,))
+def update_menu_item(item_id: int, data: dict) -> None:
+    """data keys: item, category, package, price, status"""
+    db.callproc_void(
+        "sp_update_menu_item",
+        in_params=(
+            item_id,
+            data["item"],
+            data["category"],
+            data["package"],
+            data["price"],
+            data["status"],
+        ),
+    )
+
+
+def delete_menu_item(index: int, item_id: int) -> None:
+    db.callproc_void("sp_delete_menu_item", in_params=(item_id,))
     menu_store.remove_item(index)
 
 
@@ -185,11 +217,9 @@ def get_all_bookings() -> list[dict]:
 
 def create_booking(data: dict) -> Optional[dict]:
     """
-    data keys match BookingModal._save() output:
-      name, contact, email, address, occasion, venue,
-      date (str "MMM dd, yyyy"), time (str "hh:mm AP"),
-      pax (int), notes, menu_type, menu_value,
-      payment_mode, amount_paid (str), total (int)
+    data keys: name, contact, email, address, occasion, venue,
+      date (str), time (str), pax (int), notes, menu_type, menu_value,
+      payment_mode, amount_paid, total (int)
     Returns dict with booking_id and booking_ref, or None on failure.
     """
     try:
@@ -205,40 +235,84 @@ def create_booking(data: dict) -> Optional[dict]:
             if pkg_row:
                 package_id = pkg_row["id"]
 
-        rows = db.callproc("create_booking", (
-            data["name"],
-            data.get("contact", ""),
-            data.get("email", ""),
-            data.get("address", ""),
-            data.get("occasion", ""),
-            data.get("venue", ""),
-            event_date,
-            event_time,
-            data["pax"],
-            data.get("notes", ""),
-            data.get("menu_type", "package"),
-            package_id,
-            data.get("menu_value", "") if data.get("menu_type") == "custom" else None,
-            data["total"],
-            data.get("payment_mode", "Cash"),
-            amount_paid,
-        ))
-        if rows:
-            return {"booking_id": rows[0]["booking_id"], "booking_ref": rows[0]["booking_ref"]}
+        result = db.callproc_out(
+            "sp_create_booking",
+            in_params=(
+                data["name"],
+                data.get("contact", ""),
+                data.get("email", ""),
+                data.get("address", ""),
+                data.get("occasion", ""),
+                data.get("venue", ""),
+                event_date,
+                event_time,
+                data["pax"],
+                data.get("notes", ""),
+                data.get("menu_type", "package"),
+                package_id,
+                data.get("menu_value", "") if data.get("menu_type") == "custom" else None,
+                data["total"],
+                data.get("payment_mode", "Cash"),
+                amount_paid,
+            ),
+            out_names=["p_booking_id", "p_booking_ref"],
+        )
+        if result:
+            return {"booking_id": result["p_booking_id"], "booking_ref": result["p_booking_ref"]}
     except Exception as exc:
         print(f"[repository] create_booking failed: {exc}")
     return None
 
 
-def update_booking_status(db_id: int, new_status: str) -> None:
+def update_booking(db_id: int, data: dict) -> None:
+    """data keys: name, contact, email, address, occasion, venue,
+       date (str), time (str), pax (int), notes, menu_type, menu_value,
+       payment_mode, amount_paid, total"""
     try:
-        db.execute("SELECT update_booking_status(%s, %s)", (db_id, new_status))
+        event_date = _parse_date(data["date"])
+        event_time = _parse_time(data.get("time", "6:00 PM"))
+        amount_paid = _parse_amount(data.get("amount_paid", "0"))
+
+        package_id = None
+        if data.get("menu_type") == "package":
+            pkg_row = db.fetchone(
+                "SELECT id FROM packages WHERE name = %s", (data.get("menu_value"),)
+            )
+            if pkg_row:
+                package_id = pkg_row["id"]
+
+        db.callproc_void(
+            "sp_update_booking",
+            in_params=(
+                db_id,
+                data["name"],
+                data.get("contact", ""),
+                data.get("email", ""),
+                data.get("address", ""),
+                data.get("occasion", ""),
+                data.get("venue", ""),
+                event_date,
+                event_time,
+                data["pax"],
+                data.get("notes", ""),
+                data.get("menu_type", "package"),
+                package_id,
+                data.get("menu_value", "") if data.get("menu_type") == "custom" else None,
+                data["total"],
+                data.get("payment_mode", "Cash"),
+                amount_paid,
+            ),
+        )
     except Exception as exc:
-        print(f"[repository] update_booking_status failed: {exc}")
+        print(f"[repository] update_booking failed: {exc}")
+
+
+def update_booking_status(db_id: int, new_status: str) -> None:
+    db.callproc_void("sp_update_booking_status", in_params=(db_id, new_status))
 
 
 def delete_booking(db_id: int) -> None:
-    db.execute("DELETE FROM bookings WHERE id = %s", (db_id,))
+    db.callproc_void("sp_delete_booking", in_params=(db_id,))
 
 
 # ---------------------------------------------------------------------------
@@ -270,29 +344,59 @@ def get_all_invoices() -> list[dict]:
 
 
 def create_invoice(data: dict) -> Optional[dict]:
-    """
-    data keys: customer, event_date (str), amount (float), paid (float), status (str)
-    Returns dict with invoice_id and invoice_ref.
-    """
+    """data keys: customer, event_date (str), amount (float), paid (float), status (str)"""
     try:
         event_date = _parse_date(data["event_date"])
-        rows = db.callproc("generate_invoice", (
-            None,
-            data["customer"],
-            event_date,
-            data["amount"],
-            data["paid"],
-            data["status"],
-        ))
-        if rows:
-            return {"invoice_id": rows[0]["invoice_id"], "invoice_ref": rows[0]["invoice_ref"]}
+        result = db.callproc_out(
+            "sp_create_invoice",
+            in_params=(
+                None,
+                data["customer"],
+                event_date,
+                data["amount"],
+                data["paid"],
+                data["status"],
+            ),
+            out_names=["p_invoice_id", "p_invoice_ref"],
+        )
+        if result:
+            return {"invoice_id": result["p_invoice_id"], "invoice_ref": result["p_invoice_ref"]}
     except Exception as exc:
         print(f"[repository] create_invoice failed: {exc}")
     return None
 
 
+def update_invoice(db_id: int, data: dict) -> None:
+    """data keys: customer, event_date (str), amount (float), paid (float), status (str)"""
+    try:
+        event_date = _parse_date(data["event_date"])
+        db.callproc_void(
+            "sp_update_invoice",
+            in_params=(
+                db_id,
+                data["customer"],
+                event_date,
+                data["amount"],
+                data["paid"],
+                data["status"],
+            ),
+        )
+    except Exception as exc:
+        print(f"[repository] update_invoice failed: {exc}")
+
+
+def record_payment(invoice_id: int, amount: float) -> Optional[str]:
+    """Returns new status string or None on failure."""
+    result = db.callproc_out(
+        "sp_record_payment",
+        in_params=(invoice_id, amount),
+        out_names=["p_new_status"],
+    )
+    return result["p_new_status"] if result else None
+
+
 def delete_invoice(db_id: int) -> None:
-    db.execute("DELETE FROM invoices WHERE id = %s", (db_id,))
+    db.callproc_void("sp_delete_invoice", in_params=(db_id,))
 
 
 # ---------------------------------------------------------------------------
@@ -322,15 +426,34 @@ def get_all_orders() -> list[dict]:
     ]
 
 
+def create_kitchen_order(data: dict) -> Optional[dict]:
+    """data keys: booking_id (int or None), client, event, pax, items"""
+    result = db.callproc_out(
+        "sp_create_kitchen_order",
+        in_params=(
+            data.get("booking_id"),
+            data["client"],
+            data["event"],
+            data["pax"],
+            data["items"],
+        ),
+        out_names=["p_order_id", "p_order_ref"],
+    )
+    if result:
+        return {"order_id": result["p_order_id"], "order_ref": result["p_order_ref"]}
+    return None
+
+
 def update_order_status(db_id: int, new_status: str) -> None:
-    try:
-        db.execute("SELECT update_kitchen_order_status(%s, %s)", (db_id, new_status))
-    except Exception as exc:
-        print(f"[repository] update_order_status failed: {exc}")
+    db.callproc_void("sp_update_kitchen_order_status", in_params=(db_id, new_status))
 
 
 def mark_order_done(db_id: int) -> None:
     update_order_status(db_id, "Done")
+
+
+def delete_kitchen_order(db_id: int) -> None:
+    db.callproc_void("sp_delete_kitchen_order", in_params=(db_id,))
 
 
 # ---------------------------------------------------------------------------
@@ -345,21 +468,61 @@ def get_all_inventory() -> list[dict]:
         return []
     return [
         {
-            "id":        r["id"],
+            "id":         r["id"],
             "ingredient": r["ingredient"],
-            "unit":      r["unit"],
-            "stock":     float(r["stock"]),
-            "min_stock": float(r["min_stock"]),
-            "status":    "Low Stock" if r["stock"] < r["min_stock"] else "OK",
+            "unit":       r["unit"],
+            "stock":      float(r["stock"]),
+            "min_stock":  float(r["min_stock"]),
+            "status":     "Low Stock" if r["stock"] < r["min_stock"] else "OK",
         }
         for r in rows
     ]
 
 
-def get_low_stock_items() -> list[dict]:
-    rows = db.fetchall(
-        "SELECT * FROM v_inventory_alerts"
+def add_inventory_item(data: dict) -> Optional[int]:
+    """data keys: ingredient, unit, stock, min_stock"""
+    result = db.callproc_out(
+        "sp_add_inventory_item",
+        in_params=(
+            data["ingredient"],
+            data["unit"],
+            data.get("stock", 0),
+            data.get("min_stock", 0),
+        ),
+        out_names=["p_item_id"],
     )
+    return result["p_item_id"] if result else None
+
+
+def update_inventory_item(item_id: int, data: dict) -> None:
+    """data keys: ingredient, unit, min_stock"""
+    db.callproc_void(
+        "sp_update_inventory_item",
+        in_params=(
+            item_id,
+            data["ingredient"],
+            data["unit"],
+            data.get("min_stock", 0),
+        ),
+    )
+
+
+def adjust_inventory_stock(item_id: int, delta: float) -> Optional[float]:
+    """Returns new stock level or None on failure."""
+    result = db.callproc_out(
+        "sp_adjust_inventory_stock",
+        in_params=(item_id, delta),
+        out_names=["p_new_stock"],
+    )
+    return float(result["p_new_stock"]) if result and result.get("p_new_stock") is not None else None
+
+
+def delete_inventory_item(item_id: int) -> None:
+    db.callproc_void("sp_delete_inventory_item", in_params=(item_id,))
+
+
+def get_low_stock_items() -> list[dict]:
+    rows = db.fetchall("SELECT * FROM v_inventory_alerts")
     return rows if rows else []
 
 
@@ -380,17 +543,11 @@ def get_unread_notifications() -> list[dict]:
 
 
 def dismiss_notification(notif_id: int) -> None:
-    try:
-        db.execute("SELECT dismiss_notification(%s)", (notif_id,))
-    except Exception as exc:
-        print(f"[repository] dismiss_notification failed: {exc}")
+    db.callproc_void("sp_dismiss_notification", in_params=(notif_id,))
 
 
 def mark_all_notifications_read() -> None:
-    try:
-        db.execute("SELECT mark_all_notifications_read()")
-    except Exception as exc:
-        print(f"[repository] mark_all_notifications_read failed: {exc}")
+    db.callproc_void("sp_mark_all_notifications_read")
 
 
 # ---------------------------------------------------------------------------
@@ -417,9 +574,7 @@ def get_dashboard_kpis() -> dict:
 
 
 def get_upcoming_events(limit: int = 10) -> list[dict]:
-    rows = db.fetchall(
-        "SELECT * FROM v_upcoming_events LIMIT %s", (limit,)
-    )
+    rows = db.fetchall("SELECT * FROM v_upcoming_events LIMIT %s", (limit,))
     return [dict(r) for r in rows] if rows else []
 
 
@@ -445,13 +600,9 @@ def get_business_info() -> dict:
 
 
 def save_business_info(data: dict) -> None:
-    db.execute(
-        """
-        UPDATE business_info
-        SET name = %s, contact = %s, email = %s, address = %s, updated_at = NOW()
-        WHERE id = 1
-        """,
-        (data["name"], data["contact"], data["email"], data["address"]),
+    db.callproc_void(
+        "sp_save_business_info",
+        in_params=(data["name"], data["contact"], data["email"], data["address"]),
     )
 
 

@@ -218,12 +218,14 @@ class MenuPage(QWidget):
         for r in range(self._table.rowCount()):
             if self._table.cellWidget(r, 5) is btn:
                 items = repo.get_all_menu_items() or menu_store.all_items()
-                item_name = items[r]["item"] if r < len(items) else ""
+                item = items[r] if r < len(items) else {}
+                item_name = item.get("item", "")
+                item_id = item.get("id")
                 if not confirm(self, title="Delete Menu Item",
                                message=f"Are you sure you want to delete '{item_name}'? This cannot be undone.",
                                confirm_label="Delete", danger=True):
                     return
-                repo.delete_menu_item(r, item_name)
+                repo.delete_menu_item(r, item_id)
                 self._populate_table()
                 success(self, message="Menu item deleted successfully.")
                 return
