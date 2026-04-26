@@ -925,8 +925,8 @@ CREATE OR REPLACE VIEW v_monthly_income AS
 SELECT
     TO_CHAR(event_date, 'Mon') AS month_label,
     EXTRACT(MONTH FROM event_date)::INT AS month_num,
-    COALESCE(SUM(amount), 0)::FLOAT AS total_revenue,
-    COALESCE(SUM(paid), 0)::FLOAT AS total_paid
+    COALESCE(SUM(total_amount), 0)::FLOAT AS total_revenue,
+    COALESCE(SUM(amount_paid), 0)::FLOAT AS total_paid
 FROM invoices
 WHERE EXTRACT(YEAR FROM event_date) = EXTRACT(YEAR FROM CURRENT_DATE)
 GROUP BY month_label, month_num
@@ -938,7 +938,7 @@ ORDER BY month_num;
 -- =============================================================================
 CREATE OR REPLACE VIEW v_payment_methods AS
 SELECT
-    COALESCE(payment_mode, 'Unknown') AS method,
+    payment_mode::TEXT AS method,
     COUNT(*) AS total
 FROM bookings
 GROUP BY payment_mode;
@@ -952,7 +952,7 @@ SELECT
     mi.name AS item,
     COUNT(*) AS order_count
 FROM booking_menu_items bmi
-JOIN menu_items mi ON mi.id = bmi.menu_item_id
+JOIN menu_items mi ON mi.id = bmi.item_id
 GROUP BY mi.name
 ORDER BY order_count DESC
 LIMIT 10;
@@ -985,8 +985,8 @@ CREATE OR REPLACE VIEW v_report_kpis AS
 SELECT
     COUNT(*)                                                                    AS total_bookings,
     COALESCE(SUM(b.pax), 0)::INT                                               AS total_pax,
-    COALESCE((SELECT SUM(amount) FROM invoices), 0)::FLOAT                     AS total_revenue,
-    COALESCE((SELECT SUM(amount - paid) FROM invoices WHERE status != 'Paid'), 0)::FLOAT AS unpaid_amount,
+    COALESCE((SELECT SUM(total_amount) FROM invoices), 0)::FLOAT                     AS total_revenue,
+    COALESCE((SELECT SUM(total_amount - amount_paid) FROM invoices WHERE status != 'Paid'), 0)::FLOAT AS unpaid_amount,
     COALESCE((SELECT COUNT(*) FROM bookings WHERE DATE(event_date) = CURRENT_DATE), 0)::INT AS today_bookings,
     COALESCE((SELECT COUNT(*) FROM bookings
               WHERE event_date BETWEEN date_trunc('week', CURRENT_DATE)
