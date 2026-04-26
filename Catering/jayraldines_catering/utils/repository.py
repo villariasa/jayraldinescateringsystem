@@ -82,7 +82,7 @@ def get_customer_names() -> list[str]:
 def get_all_menu_items() -> list[dict]:
     rows = db.fetchall(
         """
-        SELECT id, name, category::TEXT, package_tier::TEXT AS package,
+        SELECT id, name, description, category::TEXT, package_tier::TEXT AS package,
                price, status::TEXT
         FROM menu_items ORDER BY category, name
         """
@@ -91,12 +91,13 @@ def get_all_menu_items() -> list[dict]:
         return menu_store.all_items()
     return [
         {
-            "id":       r["id"],
-            "item":     r["name"],
-            "category": r["category"],
-            "package":  r["package"],
-            "price":    float(r["price"]),
-            "status":   r["status"],
+            "id":          r["id"],
+            "item":        r["name"],
+            "description": r["description"] or "",
+            "category":    r["category"],
+            "package":     r["package"],
+            "price":       float(r["price"]),
+            "status":      r["status"],
         }
         for r in rows
     ]
@@ -105,7 +106,7 @@ def get_all_menu_items() -> list[dict]:
 def get_available_menu_items() -> list[dict]:
     rows = db.fetchall(
         """
-        SELECT id, name, category::TEXT, package_tier::TEXT AS package,
+        SELECT id, name, description, category::TEXT, package_tier::TEXT AS package,
                price, status::TEXT
         FROM menu_items WHERE status IN ('Available','Seasonal') ORDER BY category, name
         """
@@ -114,23 +115,25 @@ def get_available_menu_items() -> list[dict]:
         return menu_store.get_available_items()
     return [
         {
-            "id":       r["id"],
-            "item":     r["name"],
-            "category": r["category"],
-            "package":  r["package"],
-            "price":    float(r["price"]),
-            "status":   r["status"],
+            "id":          r["id"],
+            "item":        r["name"],
+            "description": r["description"] or "",
+            "category":    r["category"],
+            "package":     r["package"],
+            "price":       float(r["price"]),
+            "status":      r["status"],
         }
         for r in rows
     ]
 
 
 def add_menu_item(data: dict) -> Optional[int]:
-    """data keys: item, category, package, price, status"""
+    """data keys: item, description, category, package, price, status"""
     result = db.callproc_out(
         "sp_add_menu_item",
         in_params=(
             data["item"],
+            data.get("description", ""),
             data["category"],
             data["package"],
             data["price"],
@@ -143,12 +146,13 @@ def add_menu_item(data: dict) -> Optional[int]:
 
 
 def update_menu_item(item_id: int, data: dict) -> None:
-    """data keys: item, category, package, price, status"""
+    """data keys: item, description, category, package, price, status"""
     db.callproc_void(
         "sp_update_menu_item",
         in_params=(
             item_id,
             data["item"],
+            data.get("description", ""),
             data["category"],
             data["package"],
             data["price"],

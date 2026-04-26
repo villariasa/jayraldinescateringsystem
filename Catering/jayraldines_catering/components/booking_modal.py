@@ -329,7 +329,6 @@ class BookingModal(QDialog):
         lay.addStretch()
 
         if self._edit_mode:
-            from PySide6.QtCore import QDate, QTime
             raw_date = self._booking_data.get("date", "")
             for fmt in ("MMM dd, yyyy", "yyyy-MM-dd"):
                 d = QDate.fromString(raw_date, fmt)

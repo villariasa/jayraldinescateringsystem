@@ -84,10 +84,11 @@ class TopBar(QFrame):
         self.notif_btn.setFixedSize(36, 36)
         self.notif_layout.addWidget(self.notif_btn)
         
-        self.notif_badge = QLabel("3", self.notif_wrap)
+        self.notif_badge = QLabel("0", self.notif_wrap)
         self.notif_badge.setObjectName("notifBadge")
         self.notif_badge.setFixedSize(16, 16)
         self.notif_badge.setAlignment(Qt.AlignCenter)
+        self.notif_badge.setVisible(False)
         self.notif_layout.addWidget(self.notif_badge)
         self.notif_layout.setAlignment(self.notif_badge, Qt.AlignTop)
         self.main_layout.addWidget(self.notif_wrap)

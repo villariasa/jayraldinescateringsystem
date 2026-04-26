@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QDateEdit
 )
 from PySide6.QtCore import Qt, QSize, QDate
+from PySide6.QtWidgets import QCompleter
 from datetime import date as _date_type
 from PySide6.QtGui import QColor
 
@@ -78,12 +79,20 @@ class InvoiceDialog(QDialog):
         form.setSpacing(12)
         form.setLabelAlignment(Qt.AlignRight)
 
-        customers = repo.get_all_customers() or []
+        self._customers = repo.get_all_customers() or []
         self.customer_combo = QComboBox()
         self.customer_combo.setEditable(True)
         self.customer_combo.setFixedHeight(38)
-        for c in customers:
-            self.customer_combo.addItem(c["name"])
+        self.customer_combo.setPlaceholderText("Search customer...")
+        self.customer_combo.addItem("", None)
+        for c in self._customers:
+            self.customer_combo.addItem(c["name"], c)
+        self.customer_combo.setCurrentIndex(0)
+        self.customer_combo.setEditText("")
+        completer = self.customer_combo.completer()
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setFilterMode(Qt.MatchContains)
+        self.customer_combo.currentIndexChanged.connect(self._on_customer_selected)
         if self._edit_mode:
             idx = self.customer_combo.findText(self._invoice_data.get("customer", ""))
             if idx >= 0:
@@ -165,10 +174,15 @@ class InvoiceDialog(QDialog):
 
         outer.addWidget(container)
 
+    def _on_customer_selected(self, index):
+        data = self.customer_combo.itemData(index)
+        if data and isinstance(data, dict):
+            pass
+
     def _save(self):
         customer = self.customer_combo.currentText().strip()
-        if not customer:
-            self._err.setText("Customer is required.")
+        if not customer or self.customer_combo.currentIndex() == 0:
+            self._err.setText("Please search and select a customer.")
             self._err.show()
             return
         self._result = {

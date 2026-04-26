@@ -95,6 +95,7 @@ INSERT INTO packages (name, price_per_pax, description) VALUES
 CREATE TABLE menu_items (
     id           SERIAL              PRIMARY KEY,
     name         VARCHAR(120)        NOT NULL UNIQUE,
+    description  TEXT                NOT NULL DEFAULT '',
     category     menu_category       NOT NULL DEFAULT 'Other',
     package_tier menu_package_tier   NOT NULL DEFAULT 'Standard',
     price        NUMERIC(10,2)       NOT NULL CHECK (price >= 0),
@@ -545,18 +546,20 @@ $$;
 -- OUT p_item_id INT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_add_menu_item(
-    IN  p_name     TEXT,
-    IN  p_category TEXT,
-    IN  p_package  TEXT,
-    IN  p_price    NUMERIC,
-    IN  p_status   TEXT,
-    OUT p_item_id  INT
+    IN  p_name        TEXT,
+    IN  p_description TEXT,
+    IN  p_category    TEXT,
+    IN  p_package     TEXT,
+    IN  p_price       NUMERIC,
+    IN  p_status      TEXT,
+    OUT p_item_id     INT
 )
 LANGUAGE plpgsql AS $$
 BEGIN
-    INSERT INTO menu_items (name, category, package_tier, price, status)
+    INSERT INTO menu_items (name, description, category, package_tier, price, status)
     VALUES (
         p_name,
+        p_description,
         p_category::menu_category,
         p_package::menu_package_tier,
         p_price,
@@ -571,18 +574,20 @@ $$;
 -- Updates an existing menu item
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_update_menu_item(
-    IN p_item_id   INT,
-    IN p_name      TEXT,
-    IN p_category  TEXT,
-    IN p_package   TEXT,
-    IN p_price     NUMERIC,
-    IN p_status    TEXT
+    IN p_item_id      INT,
+    IN p_name         TEXT,
+    IN p_description  TEXT,
+    IN p_category     TEXT,
+    IN p_package      TEXT,
+    IN p_price        NUMERIC,
+    IN p_status       TEXT
 )
 LANGUAGE plpgsql AS $$
 BEGIN
     UPDATE menu_items
     SET
         name         = p_name,
+        description  = p_description,
         category     = p_category::menu_category,
         package_tier = p_package::menu_package_tier,
         price        = p_price,
