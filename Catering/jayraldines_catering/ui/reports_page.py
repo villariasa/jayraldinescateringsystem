@@ -4,8 +4,9 @@ import os
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QHBoxLayout, QFrame, QLabel, QPushButton, QTableWidget,
                                QTableWidgetItem, QHeaderView, QScrollArea,
-                               QMessageBox, QToolTip, QFileDialog, QMenu, QAction)
+                               QMessageBox, QToolTip, QFileDialog, QMenu)
 from PySide6.QtCore import Qt, QMargins, QPointF, QSize
+from PySide6.QtGui import QAction
 from PySide6.QtGui import QColor, QPainter, QLinearGradient, QPen, QCursor
 
 from utils import exporter as _exporter

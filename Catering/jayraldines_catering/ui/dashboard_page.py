@@ -1,9 +1,10 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QProgressBar, QScrollArea,
-    QFileDialog, QMessageBox, QMenu, QAction
+    QFileDialog, QMessageBox, QMenu
 )
 from PySide6.QtCore import Qt, Signal, QSize, QTimer
+from PySide6.QtGui import QAction
 from datetime import datetime
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
