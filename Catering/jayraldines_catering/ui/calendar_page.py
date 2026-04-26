@@ -442,7 +442,7 @@ class CalendarPage(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet("background: transparent;")
         scroll.setWidget(sp_body)
-        sp_layout.addWidget(scroll)
+        sp_layout.addWidget(scroll, 1)
 
         # Bottom Button
         self._btn_manage = QPushButton("  Manage Day Schedule")
@@ -605,4 +605,5 @@ class CalendarPage(QWidget):
             self.cards_container.addWidget(empty_lbl)
 
         self._selected_day = day_num
+        self._btn_manage.setVisible(True)
         self.side_panel.setVisible(True)
