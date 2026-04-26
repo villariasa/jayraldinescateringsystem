@@ -24,12 +24,15 @@ except ImportError:
     OPENPYXL_OK = False
 
 
-_BRAND_RED   = colors.HexColor("#E11D48")
-_BRAND_DARK  = colors.HexColor("#0B1220")
-_BRAND_GRAY  = colors.HexColor("#374151")
-_BRAND_LIGHT = colors.HexColor("#F9FAFB")
-_ACCENT      = colors.HexColor("#1F2937")
-_MUTED       = colors.HexColor("#6B7280")
+if REPORTLAB_OK:
+    _BRAND_RED   = colors.HexColor("#E11D48")
+    _BRAND_DARK  = colors.HexColor("#0B1220")
+    _BRAND_GRAY  = colors.HexColor("#374151")
+    _BRAND_LIGHT = colors.HexColor("#F9FAFB")
+    _ACCENT      = colors.HexColor("#1F2937")
+    _MUTED       = colors.HexColor("#6B7280")
+else:
+    _BRAND_RED = _BRAND_DARK = _BRAND_GRAY = _BRAND_LIGHT = _ACCENT = _MUTED = None
 
 _LOGO_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
