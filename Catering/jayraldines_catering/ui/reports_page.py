@@ -83,8 +83,13 @@ class IncomeAreaChart(QVBoxLayout):
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
-        self._months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"]
-        values = [45, 52, 38, 65, 58, 75, 82]
+        db_data = repo.get_monthly_income()
+        if db_data:
+            self._months = [r["month"] for r in db_data]
+            values = [r["revenue"] / 1000 for r in db_data]
+        else:
+            self._months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
+            values = [0] * 6
 
         # Pin all series as instance vars — GC will NOT collect them
         self._upper = QLineSeries()
@@ -119,7 +124,7 @@ class IncomeAreaChart(QVBoxLayout):
         self._upper.attachAxis(self._ax)
 
         self._ay = QValueAxis()
-        self._ay.setRange(0, 100)
+        self._ay.setRange(0, max(values) * 1.2 if values else 100)
         self._ay.setLabelFormat("%dk")
         _axis_style(self._ay)
         self._chart.addAxis(self._ay, Qt.AlignLeft)
@@ -166,16 +171,16 @@ class PaymentDonutChart(QVBoxLayout):
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
-        data = {
-            "Cash":    (45, "#E11D48"),
-            "GCash":   (30, "#F59E0B"),
-            "Bank":    (15, "#3B82F6"),
-            "PayMaya": (10, "#22C55E"),
-        }
+        _COLORS = ["#E11D48", "#F59E0B", "#3B82F6", "#22C55E", "#8B5CF6", "#6B7280"]
+        db_data = repo.get_payment_methods()
+        if db_data:
+            data = {r["method"]: (r["total"], _COLORS[i % len(_COLORS)]) for i, r in enumerate(db_data)}
+        else:
+            data = {"No Data": (1, "#374151")}
 
         self._series = QPieSeries()
         self._series.setHoleSize(0.55)
-        self._slices = []  # keep slice refs alive
+        self._slices = []
         for label, (value, color) in data.items():
             sl = self._series.append(label, value)
             sl.setColor(QColor(color))
@@ -218,9 +223,15 @@ class MonthlyRevenueChart(QVBoxLayout):
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
-        months  = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
-        revenue = [320000, 415000, 280000, 520000, 460000, 590000]
-        target  = [400000, 400000, 400000, 400000, 400000, 400000]
+        db_data = repo.get_monthly_income()
+        if db_data:
+            months  = [r["month"] for r in db_data]
+            revenue = [r["revenue"] for r in db_data]
+            target  = [400000] * len(months)
+        else:
+            months  = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
+            revenue = [0] * 6
+            target  = [400000] * 6
 
         self._bar_rev = QBarSet("Revenue")
         self._bar_rev.setColor(QColor("#E11D48"))
@@ -248,8 +259,9 @@ class MonthlyRevenueChart(QVBoxLayout):
         self._chart.addAxis(self._ax, Qt.AlignBottom)
         self._series.attachAxis(self._ax)
 
+        max_rev = max(revenue + target) if (revenue or target) else 700000
         self._ay = QValueAxis()
-        self._ay.setRange(0, 700)
+        self._ay.setRange(0, max_rev / 1000 * 1.2)
         self._ay.setLabelFormat("%dk")
         _axis_style(self._ay)
         self._chart.addAxis(self._ay, Qt.AlignLeft)
@@ -271,8 +283,14 @@ class TopMenuItemsChart(QVBoxLayout):
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
-        items  = ["Lechon de Leche", "Kare-Kare", "Chicken Inasal", "Pancit Malabon", "Leche Flan"]
-        orders = [48, 35, 29, 22, 18]
+        db_data = repo.get_top_menu_items()
+        _MAX = 18
+        if db_data:
+            items  = [(r["item"][:_MAX] + "…") if len(r["item"]) > _MAX else r["item"] for r in db_data]
+            orders = [r["count"] for r in db_data]
+        else:
+            items  = ["No Data"]
+            orders = [0]
 
         self._bar_set = QBarSet("Orders")
         self._bar_set.setColor(QColor("#F59E0B"))
@@ -295,7 +313,7 @@ class TopMenuItemsChart(QVBoxLayout):
         self._series.attachAxis(self._ax)
 
         self._ay = QValueAxis()
-        self._ay.setRange(0, 60)
+        self._ay.setRange(0, max(orders) * 1.2 if orders else 10)
         self._ay.setLabelFormat("%d")
         _axis_style(self._ay)
         self._chart.addAxis(self._ay, Qt.AlignLeft)
@@ -317,12 +335,14 @@ class CustomerFrequencyChart(QVBoxLayout):
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
-        customers = ["Maria Santos", "TechCorp", "Cruz Family", "Smith Wedding", "Others"]
-        counts    = [3, 2, 2, 1, 8]
-        colors    = ["#E11D48", "#F59E0B", "#3B82F6", "#22C55E", "#6B7280"]
+        _COLORS = ["#E11D48", "#F59E0B", "#3B82F6", "#22C55E", "#6B7280", "#8B5CF6"]
+        db_data = repo.get_customer_order_frequency()
+        customers = [r["name"]  for r in db_data] if db_data else ["No Data"]
+        counts    = [r["count"] for r in db_data] if db_data else [1]
+        colors    = [_COLORS[i % len(_COLORS)] for i in range(len(customers))]
 
         self._series = QPieSeries()
-        self._slices = []  # keep slice refs alive
+        self._slices = []
         for label, count, color in zip(customers, counts, colors):
             sl = self._series.append(f"{label} ({count})", count)
             sl.setColor(QColor(color))
@@ -391,16 +411,19 @@ class ReportsPage(QWidget):
         self._kpi_layout = QHBoxLayout()
         self._kpi_layout.setSpacing(24)
 
-        kpis    = repo.get_dashboard_kpis()
-        weekly  = kpis.get("weekly_revenue", 12450)
-        unpaid  = kpis.get("unpaid_invoices", 4200)
+        kpis = repo.get_report_kpis()
+        total_bk  = kpis.get("total_bookings", 0)
+        total_pax = kpis.get("total_pax", 0)
+        revenue   = kpis.get("total_revenue", 0.0)
+        unpaid    = kpis.get("unpaid_amount", 0.0)
+        today_bk  = kpis.get("today_bookings", 0)
+        week_bk   = kpis.get("week_bookings", 0)
 
-        # Store card widgets so GC cannot collect them
         self._kpi_cards = [
-            self._kpi("Total Bookings",   "124",                "8 Today | 32 Week | 124 Month"),
-            self._kpi("Total Pax Booked", "3,450",              "+12% from last month", "#22C55E"),
-            self._kpi("Estimated Income", f"PHP {weekly:,.0f}", "+8.5% from last month", "#22C55E"),
-            self._kpi("Unpaid Invoices",  f"PHP {unpaid:,.0f}", "3 invoices overdue", "#EF4444"),
+            self._kpi("Total Bookings",   str(total_bk),          f"{today_bk} Today | {week_bk} This Week"),
+            self._kpi("Total Pax Booked", f"{total_pax:,}",        "All confirmed bookings", "#22C55E"),
+            self._kpi("Total Revenue",    f"PHP {revenue:,.0f}",   "All-time revenue", "#22C55E"),
+            self._kpi("Unpaid Invoices",  f"PHP {unpaid:,.0f}",    "Outstanding balance", "#EF4444"),
         ]
         for card in self._kpi_cards:
             self._kpi_layout.addWidget(card)
@@ -478,30 +501,22 @@ class ReportsPage(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setMinimumHeight(320)
 
-        rows_data = [
-            ("BKG-001", "Oct 24, 2026", "TechCorp Inc.",  "Premium Corporate", 45, "",             "Confirmed"),
-            ("BKG-002", "Oct 25, 2026", "Smith Wedding",  "Grand Banquet",     58, "NEAR LIMIT",   "Pending"),
-            ("BKG-003", "Oct 26, 2026", "Sarah's 18th",   "Standard Buffet",   60, "LIMIT REACHED","Pending"),
-            ("BKG-004", "Oct 28, 2026", "Local NGO Meet", "Basic Snack Box",   30, "",             "Confirmed"),
-            ("BKG-005", "Oct 29, 2026", "Alumni Reunion", "Premium Corporate", 55, "NEAR LIMIT",   "Pending"),
-        ]
-
-        # Store cell widgets so Python keeps them alive alongside Qt
+        db_bookings = repo.get_all_bookings() or []
+        self.table.setRowCount(len(db_bookings))
         self._table_widgets = []
-        for row, data in enumerate(rows_data):
+        for row, b in enumerate(db_bookings):
             self.table.setRowHeight(row, 64)
-
+            pax_val = int(b.get("pax", 0))
+            limit_status = "LIMIT REACHED" if pax_val >= 600 else ("NEAR LIMIT" if pax_val >= 400 else "")
             id_lbl = QLabel(
-                f"<span style='font-weight:700;font-size:13px;'>{data[0]}</span>"
-                f"<br><span style='font-size:11px;color:#9CA3AF;'>{data[1]}</span>"
+                f"<span style='font-weight:700;font-size:13px;'>{b.get('id','')}</span>"
+                f"<br><span style='font-size:11px;color:#9CA3AF;'>{b.get('date','')}</span>"
             )
-            client_lbl  = QLabel(f"<span style='font-weight:600;font-size:13px;'>{data[2]}</span>")
-            package_lbl = QLabel(f"<span style='font-size:13px;'>{data[3]}</span>")
-            pax_badge   = create_pax_limit_badge(data[4], data[5])
-            status_badge = create_status_badge(data[6])
-
+            client_lbl   = QLabel(f"<span style='font-weight:600;font-size:13px;'>{b.get('name','')}</span>")
+            package_lbl  = QLabel(f"<span style='font-size:13px;'>{b.get('package','—')}</span>")
+            pax_badge    = create_pax_limit_badge(pax_val, limit_status)
+            status_badge = create_status_badge(b.get('status','').capitalize())
             self._table_widgets.extend([id_lbl, client_lbl, package_lbl, pax_badge, status_badge])
-
             self.table.setCellWidget(row, 0, id_lbl)
             self.table.setCellWidget(row, 1, client_lbl)
             self.table.setCellWidget(row, 2, package_lbl)

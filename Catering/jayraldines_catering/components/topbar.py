@@ -1,5 +1,7 @@
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QLineEdit, QWidget
-from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtCore import Qt, QSize, Signal, QTimer
+from PySide6.QtGui import QFont
+from datetime import datetime
 
 from utils.icons import get_icon
 from utils.theme import ThemeManager
@@ -49,6 +51,17 @@ class TopBar(QFrame):
         self.search_box.textChanged.connect(self.search_changed.emit)
         self.search_inner.addWidget(self.search_box)
         self.main_layout.addWidget(self.search_wrap)
+
+        self.clock_lbl = QLabel(self)
+        self.clock_lbl.setObjectName("subtitle")
+        self.clock_lbl.setStyleSheet("font-size: 13px; font-weight: 600; color: #9CA3AF; min-width: 160px;")
+        self.clock_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.main_layout.addWidget(self.clock_lbl)
+
+        self._clock_timer = QTimer(self)
+        self._clock_timer.timeout.connect(self._tick_clock)
+        self._clock_timer.start(1000)
+        self._tick_clock()
 
         self.theme_btn = QPushButton(self)
         self.theme_btn.setObjectName("notifBtn")
@@ -114,6 +127,10 @@ class TopBar(QFrame):
                 "QPushButton { background: transparent; border: none; font-size: 16px; border-radius: 8px; }"
                 "QPushButton:hover { background: #F1F5F9; }"
             )
+
+    def _tick_clock(self):
+        now = datetime.now()
+        self.clock_lbl.setText(now.strftime("%a, %b %d  %I:%M:%S %p"))
 
     def set_page(self, index: int):
         self.page_title.setText(_PAGE_TITLES.get(index, ""))

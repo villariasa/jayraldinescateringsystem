@@ -403,7 +403,20 @@ CREATE OR REPLACE PROCEDURE sp_update_booking_status(
     IN p_new_status  TEXT
 )
 LANGUAGE plpgsql AS $$
+DECLARE
+    v_current booking_status;
 BEGIN
+    SELECT status INTO v_current FROM bookings WHERE id = p_booking_id;
+
+    IF v_current IN ('CONFIRMED', 'CANCELLED') THEN
+        RAISE EXCEPTION 'Booking status is locked. Cannot change from % to %.',
+            v_current, p_new_status;
+    END IF;
+
+    IF v_current != 'PENDING' THEN
+        RAISE EXCEPTION 'Only PENDING bookings can be transitioned.';
+    END IF;
+
     UPDATE bookings
     SET status = p_new_status::booking_status, updated_at = NOW()
     WHERE id = p_booking_id;
@@ -903,6 +916,275 @@ SELECT
 FROM bookings b
 LEFT JOIN packages p ON p.id = b.package_id
 ORDER BY b.event_date DESC;
+
+-- =============================================================================
+-- VIEW: v_monthly_income
+-- Returns monthly total revenue and total paid per month for the current year
+-- =============================================================================
+CREATE OR REPLACE VIEW v_monthly_income AS
+SELECT
+    TO_CHAR(event_date, 'Mon') AS month_label,
+    EXTRACT(MONTH FROM event_date)::INT AS month_num,
+    COALESCE(SUM(amount), 0)::FLOAT AS total_revenue,
+    COALESCE(SUM(paid), 0)::FLOAT AS total_paid
+FROM invoices
+WHERE EXTRACT(YEAR FROM event_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+GROUP BY month_label, month_num
+ORDER BY month_num;
+
+-- =============================================================================
+-- VIEW: v_payment_methods
+-- Returns count of payments grouped by mode of payment
+-- =============================================================================
+CREATE OR REPLACE VIEW v_payment_methods AS
+SELECT
+    COALESCE(payment_mode, 'Unknown') AS method,
+    COUNT(*) AS total
+FROM bookings
+GROUP BY payment_mode;
+
+-- =============================================================================
+-- VIEW: v_top_menu_items
+-- Returns top 10 most ordered menu items by count in bookings
+-- =============================================================================
+CREATE OR REPLACE VIEW v_top_menu_items AS
+SELECT
+    mi.name AS item,
+    COUNT(*) AS order_count
+FROM booking_menu_items bmi
+JOIN menu_items mi ON mi.id = bmi.menu_item_id
+GROUP BY mi.name
+ORDER BY order_count DESC
+LIMIT 10;
+
+-- =============================================================================
+-- VIEW: v_customer_order_frequency
+-- Returns top 5 customers by booking count + an "Others" group
+-- =============================================================================
+CREATE OR REPLACE VIEW v_customer_order_frequency AS
+SELECT name, booking_count FROM (
+    SELECT customer_name AS name, COUNT(*) AS booking_count
+    FROM bookings
+    GROUP BY customer_name
+    ORDER BY booking_count DESC
+    LIMIT 5
+) top5
+UNION ALL
+SELECT 'Others', COUNT(*) FROM (
+    SELECT customer_name FROM (
+        SELECT customer_name, RANK() OVER (ORDER BY COUNT(*) DESC) AS rnk
+        FROM bookings GROUP BY customer_name
+    ) ranked WHERE rnk > 5
+) rest;
+
+-- =============================================================================
+-- VIEW: v_report_kpis
+-- Returns report KPI totals: total bookings, total pax, total revenue, unpaid
+-- =============================================================================
+CREATE OR REPLACE VIEW v_report_kpis AS
+SELECT
+    COUNT(*)                                                                    AS total_bookings,
+    COALESCE(SUM(b.pax), 0)::INT                                               AS total_pax,
+    COALESCE((SELECT SUM(amount) FROM invoices), 0)::FLOAT                     AS total_revenue,
+    COALESCE((SELECT SUM(amount - paid) FROM invoices WHERE status != 'Paid'), 0)::FLOAT AS unpaid_amount,
+    COALESCE((SELECT COUNT(*) FROM bookings WHERE DATE(event_date) = CURRENT_DATE), 0)::INT AS today_bookings,
+    COALESCE((SELECT COUNT(*) FROM bookings
+              WHERE event_date BETWEEN date_trunc('week', CURRENT_DATE)
+                                   AND date_trunc('week', CURRENT_DATE) + INTERVAL '6 days'), 0)::INT AS week_bookings
+FROM bookings b;
+
+-- =============================================================================
+-- VIEW: v_recent_activity
+-- Returns the 10 most recent booking/invoice events as activity feed items
+-- =============================================================================
+CREATE OR REPLACE VIEW v_recent_activity AS
+SELECT
+    title,
+    description,
+    color,
+    created_at
+FROM (
+    SELECT
+        CASE status
+            WHEN 'CONFIRMED' THEN 'Booking Confirmed'
+            WHEN 'CANCELLED' THEN 'Booking Cancelled'
+            ELSE 'New Booking Request'
+        END AS title,
+        customer_name || ' — ' || occasion || ' (' || pax || ' pax)' AS description,
+        CASE status
+            WHEN 'CONFIRMED' THEN '#22C55E'
+            WHEN 'CANCELLED' THEN '#EF4444'
+            ELSE '#3B82F6'
+        END AS color,
+        created_at
+    FROM bookings
+    UNION ALL
+    SELECT
+        CASE status
+            WHEN 'Paid'    THEN 'Payment Received'
+            WHEN 'Partial' THEN 'Partial Payment'
+            ELSE 'Invoice Unpaid'
+        END AS title,
+        customer_name || ' — Invoice ' || invoice_ref AS description,
+        CASE status
+            WHEN 'Paid'    THEN '#22C55E'
+            WHEN 'Partial' THEN '#F59E0B'
+            ELSE '#EF4444'
+        END AS color,
+        created_at
+    FROM invoices
+) combined
+ORDER BY created_at DESC
+LIMIT 10;
+
+-- =============================================================================
+-- VIEW: v_menu_alerts
+-- Returns menu items that are Seasonal, Out of Stock, or have low inventory
+-- =============================================================================
+CREATE OR REPLACE VIEW v_menu_alerts AS
+SELECT
+    mi.name AS item,
+    CASE mi.status
+        WHEN 'Seasonal'     THEN 'Seasonal / Limited'
+        WHEN 'Out of Stock' THEN 'Out of stock'
+        ELSE 'Unavailable'
+    END AS issue,
+    CASE mi.status
+        WHEN 'Seasonal' THEN 'warning'
+        ELSE 'danger'
+    END AS badge_type
+FROM menu_items mi
+WHERE mi.status IN ('Seasonal', 'Out of Stock', 'Unavailable')
+UNION ALL
+SELECT
+    mi.name AS item,
+    'Ingredient near low stock' AS issue,
+    'danger' AS badge_type
+FROM inventory inv
+JOIN menu_items mi ON LOWER(mi.name) LIKE '%' || LOWER(inv.ingredient) || '%'
+WHERE inv.stock < inv.min_stock
+ORDER BY badge_type DESC, item
+LIMIT 10;
+
+-- =============================================================================
+-- TABLE: calendar_events  (for Calendar persistence)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS calendar_events (
+    id          SERIAL          PRIMARY KEY,
+    event_date  DATE            NOT NULL,
+    name        VARCHAR(200)    NOT NULL,
+    pax         INT             NOT NULL DEFAULT 0,
+    event_time  VARCHAR(20)     NOT NULL DEFAULT '06:00 PM',
+    location    VARCHAR(200)    NOT NULL DEFAULT 'TBD',
+    created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendar_events_date ON calendar_events (event_date);
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_push_notification
+-- Inserts a new notification row
+-- OUT p_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_push_notification(
+    IN  p_type    TEXT,
+    IN  p_title   TEXT,
+    IN  p_message TEXT,
+    IN  p_color   TEXT,
+    OUT p_id      INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO notifications (type, title, message, color, is_read)
+    VALUES (p_type, p_title, p_message, p_color, FALSE)
+    RETURNING id INTO p_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_get_event_alert_candidates
+-- Returns bookings that are exactly 1 day or 1 minute away and have no
+-- existing unread notification for that booking+window combination.
+-- Uses a REFCURSOR OUT parameter to return a result set.
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_get_event_alert_candidates(
+    INOUT p_cursor REFCURSOR DEFAULT 'event_alert_cursor'
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    OPEN p_cursor FOR
+    SELECT
+        b.id          AS booking_id,
+        b.booking_ref::TEXT,
+        b.customer_name,
+        b.event_date,
+        b.event_time,
+        w.window_label
+    FROM bookings b
+    CROSS JOIN (
+        VALUES ('1_day'), ('1_min')
+    ) AS w(window_label)
+    WHERE b.status != 'CANCELLED'
+      AND (
+          (w.window_label = '1_day' AND
+           (b.event_date + b.event_time) BETWEEN NOW() + INTERVAL '23 hours 59 minutes'
+                                              AND NOW() + INTERVAL '24 hours 1 minute')
+          OR
+          (w.window_label = '1_min' AND
+           (b.event_date + b.event_time) BETWEEN NOW() + INTERVAL '59 seconds'
+                                              AND NOW() + INTERVAL '61 seconds')
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM notifications n
+          WHERE n.title LIKE '%' || b.booking_ref || '%'
+            AND n.title LIKE '%' || CASE w.window_label WHEN '1_day' THEN '1 Day' ELSE '1 Minute' END || '%'
+            AND n.created_at >= NOW() - INTERVAL '2 hours'
+      );
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_save_calendar_event
+-- Upserts a calendar event entry
+-- OUT p_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_save_calendar_event(
+    IN  p_event_date DATE,
+    IN  p_name       TEXT,
+    IN  p_pax        INT,
+    IN  p_event_time VARCHAR(20),
+    IN  p_location   TEXT,
+    OUT p_id         INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO calendar_events (event_date, name, pax, event_time, location)
+    VALUES (p_event_date, p_name, p_pax, p_event_time, p_location)
+    RETURNING id INTO p_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_calendar_event
+-- Deletes a calendar event by id
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_calendar_event(IN p_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM calendar_events WHERE id = p_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_calendar_events_for_date
+-- Deletes all calendar events for a given date (used when saving full day)
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_calendar_events_for_date(IN p_event_date DATE)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM calendar_events WHERE event_date = p_event_date;
+END;
+$$;
 
 -- =============================================================================
 -- GRANT (uncomment after creating the user)

@@ -16,6 +16,149 @@ _PACKAGES   = ["Budget", "Standard", "Premium", "Custom"]
 _STATUSES   = ["Available", "Unavailable", "Out of Stock", "Seasonal"]
 
 
+class MenuItemDialog(QDialog):
+    def __init__(self, parent=None, item_data=None):
+        super().__init__(parent)
+        self._edit_mode = item_data is not None
+        self._item_data = item_data or {}
+        self.setWindowTitle("Edit Menu Item" if self._edit_mode else "Add Menu Item")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(420)
+        self.setModal(True)
+        self._result = None
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+
+        container = QFrame()
+        container.setObjectName("card")
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        header = QHBoxLayout()
+        title = QLabel("Edit Menu Item" if self._edit_mode else "Add Menu Item")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        lay.addWidget(div)
+
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignRight)
+
+        self.item_field = QLineEdit()
+        self.item_field.setPlaceholderText("e.g. Lechon de Leche")
+        if self._edit_mode:
+            self.item_field.setText(self._item_data.get("item", ""))
+
+        self.desc_field = QLineEdit()
+        self.desc_field.setPlaceholderText("Short description")
+        if self._edit_mode:
+            self.desc_field.setText(self._item_data.get("description", ""))
+
+        self.cat_field = QComboBox()
+        self.cat_field.addItems(_CATEGORIES)
+        if self._edit_mode:
+            idx = self.cat_field.findText(self._item_data.get("category", ""))
+            if idx >= 0:
+                self.cat_field.setCurrentIndex(idx)
+
+        self.pkg_field = QComboBox()
+        self.pkg_field.addItems(_PACKAGES)
+        if self._edit_mode:
+            idx = self.pkg_field.findText(self._item_data.get("package", ""))
+            if idx >= 0:
+                self.pkg_field.setCurrentIndex(idx)
+
+        self.price_field = QDoubleSpinBox()
+        self.price_field.setPrefix("₱ ")
+        self.price_field.setRange(0, 999999)
+        self.price_field.setDecimals(2)
+        self.price_field.setSingleStep(100)
+        if self._edit_mode:
+            self.price_field.setValue(float(self._item_data.get("price", 0)))
+
+        self.status_field = QComboBox()
+        self.status_field.addItems(_STATUSES)
+        if self._edit_mode:
+            idx = self.status_field.findText(self._item_data.get("status", "Available"))
+            if idx >= 0:
+                self.status_field.setCurrentIndex(idx)
+
+        for lbl, widget in [
+            ("Item Name *",  self.item_field),
+            ("Description",  self.desc_field),
+            ("Category",     self.cat_field),
+            ("Package",      self.pkg_field),
+            ("Price",        self.price_field),
+            ("Status",       self.status_field),
+        ]:
+            form.addRow(QLabel(lbl), widget)
+
+        lay.addLayout(form)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.hide()
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        label = "Save Changes" if self._edit_mode else "  Save Item"
+        save = QPushButton(label)
+        save.setObjectName("primaryButton")
+        save.setIcon(btn_icon_primary("check"))
+        save.setIconSize(QSize(15, 15))
+        save.setCursor(Qt.PointingHandCursor)
+        save.clicked.connect(self._save)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(container)
+
+    def _save(self):
+        name = self.item_field.text().strip()
+        if not name:
+            self._err.setText("Item name is required.")
+            self._err.show()
+            self.item_field.setStyleSheet("border: 1px solid #E11D48;")
+            return
+        self._result = {
+            "item":        name,
+            "description": self.desc_field.text().strip(),
+            "category":    self.cat_field.currentText(),
+            "package":     self.pkg_field.currentText(),
+            "price":       self.price_field.value(),
+            "status":      self.status_field.currentText(),
+        }
+        self.accept()
+
+    def get_result(self):
+        return self._result
+
+
 class AddMenuItemDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -172,11 +315,13 @@ class MenuPage(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._table = QTableWidget(0, 6)
-        self._table.setHorizontalHeaderLabels(["Item", "Category", "Package", "Price", "Status", ""])
+        self._table = QTableWidget(0, 7)
+        self._table.setHorizontalHeaderLabels(["Item", "Category", "Package", "Price", "Status", "", ""])
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
-        self._table.setColumnWidth(5, 60)
+        self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
+        self._table.setColumnWidth(5, 36)
+        self._table.setColumnWidth(6, 36)
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.verticalHeader().setVisible(False)
@@ -204,6 +349,16 @@ class MenuPage(QWidget):
             status_item.setForeground(QColor(status_colors.get(item["status"], "#9CA3AF")))
             self._table.setItem(row, 4, status_item)
 
+            edit_btn = QPushButton()
+            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(14, 14)))
+            edit_btn.setIconSize(QSize(14, 14))
+            edit_btn.setFixedSize(32, 32)
+            edit_btn.setStyleSheet("background: transparent; border: none;")
+            edit_btn.setCursor(Qt.PointingHandCursor)
+            edit_btn.setToolTip("Edit item")
+            edit_btn.clicked.connect(self._edit_item)
+            self._table.setCellWidget(row, 5, edit_btn)
+
             del_btn = QPushButton()
             del_btn.setIcon(btn_icon_red("trash"))
             del_btn.setIconSize(QSize(15, 15))
@@ -211,12 +366,27 @@ class MenuPage(QWidget):
             del_btn.setStyleSheet("background: transparent; border: none;")
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.clicked.connect(self._delete_item)
-            self._table.setCellWidget(row, 5, del_btn)
+            self._table.setCellWidget(row, 6, del_btn)
+
+    def _edit_item(self):
+        btn = self.sender()
+        for r in range(self._table.rowCount()):
+            if self._table.cellWidget(r, 5) is btn:
+                items = repo.get_all_menu_items() or menu_store.all_items()
+                item = items[r] if r < len(items) else {}
+                dlg = MenuItemDialog(self, item_data=item)
+                if dlg.exec() == QDialog.Accepted:
+                    result = dlg.get_result()
+                    if result and item.get("id"):
+                        repo.update_menu_item(item["id"], result)
+                        self._populate_table()
+                        success(self, message="Menu item updated successfully.")
+                return
 
     def _delete_item(self):
         btn = self.sender()
         for r in range(self._table.rowCount()):
-            if self._table.cellWidget(r, 5) is btn:
+            if self._table.cellWidget(r, 6) is btn:
                 items = repo.get_all_menu_items() or menu_store.all_items()
                 item = items[r] if r < len(items) else {}
                 item_name = item.get("item", "")
@@ -231,7 +401,7 @@ class MenuPage(QWidget):
                 return
 
     def _open_add_dialog(self):
-        dlg = AddMenuItemDialog(self)
+        dlg = MenuItemDialog(self)
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
             if result:

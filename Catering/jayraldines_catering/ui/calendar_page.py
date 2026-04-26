@@ -1,5 +1,5 @@
 import calendar
-from datetime import datetime
+from datetime import datetime, date as date_type
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFrame,
                                QLabel, QPushButton, QGridLayout, QScrollArea,
                                QSizePolicy, QDialog, QLineEdit, QFormLayout, QTimeEdit)
@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, Signal, QSize, QTime
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
 from components.booking_modal import BookingModal
 from components.dialogs import confirm, success
+import utils.repository as repo
 
 
 class AnimatedCard(QFrame):
@@ -357,16 +358,7 @@ class CalendarPage(QWidget):
             lbl.setStyleSheet("font-weight: 800; color: #64748B; font-size: 12px; padding: 10px 0px;")
             self.grid.addWidget(lbl, 0, col)
 
-        # Mock DB structured by (Year, Month, Day)
-        self.mock_db = {
-            (self.current_year, self.current_month, 5): [{"name": "Private Party", "pax": 150, "time": "07:00 PM", "loc": "Resort Villa"}],
-            (self.current_year, self.current_month, 12): [{"name": "Corporate Lunch", "pax": 300, "time": "12:00 PM", "loc": "Tech Park"}],
-            (self.current_year, self.current_month, 18): [
-                {"name": "Wedding Reception", "pax": 350, "time": "10:00 AM", "loc": "Grand Hall"},
-                {"name": "Birthday Bash", "pax": 250, "time": "04:00 PM", "loc": "Beach Club"}
-            ],
-            (self.current_year, self.current_month, 25): [{"name": "Gala Dinner", "pax": 500, "time": "07:00 PM", "loc": "City Convention Center"}]
-        }
+        self._db_cache: dict = {}
 
         cal_layout.addLayout(self.grid)
         split_layout.addWidget(cal_container, 7) # Takes 70% space
@@ -453,18 +445,32 @@ class CalendarPage(QWidget):
 
         self._selected_day = None
 
-        # Initial Render
         self.cells = []
+        self._load_month_data()
         self.render_calendar()
 
     # ==========================================
     # CALENDAR LOGIC
     # ==========================================
+    def _load_month_data(self):
+        self._db_cache.clear()
+        import calendar as _cal
+        days_in_month = _cal.monthrange(self.current_year, self.current_month)[1]
+        for day in range(1, days_in_month + 1):
+            d = date_type(self.current_year, self.current_month, day)
+            try:
+                events = repo.get_calendar_events_for_date(d)
+            except Exception:
+                events = []
+            if events:
+                self._db_cache[(self.current_year, self.current_month, day)] = events
+
     def go_prev_month(self):
         self.current_month -= 1
         if self.current_month < 1:
             self.current_month = 12
             self.current_year -= 1
+        self._load_month_data()
         self.render_calendar()
 
     def go_next_month(self):
@@ -472,6 +478,7 @@ class CalendarPage(QWidget):
         if self.current_month > 12:
             self.current_month = 1
             self.current_year += 1
+        self._load_month_data()
         self.render_calendar()
 
     def go_today(self):
@@ -503,10 +510,9 @@ class CalendarPage(QWidget):
             for col, day_num in enumerate(week):
                 cell = DayCell(day_num, is_current_month=(day_num != 0))
                 
-                # Check for mock data
                 db_key = (self.current_year, self.current_month, day_num)
-                if db_key in self.mock_db:
-                    events = self.mock_db[db_key]
+                if db_key in self._db_cache:
+                    events = self._db_cache[db_key]
                     total_pax = sum(e["pax"] for e in events)
                     cell.set_data(total_pax, len(events))
 
@@ -525,12 +531,20 @@ class CalendarPage(QWidget):
         month_name = calendar.month_name[self.current_month]
         date_str = f"{month_name} {self._selected_day}, {self.current_year}"
         db_key = (self.current_year, self.current_month, self._selected_day)
-        events = list(self.mock_db.get(db_key, []))
+        events = list(self._db_cache.get(db_key, []))
         dlg = ManageScheduleDialog(self, date_str=date_str, events=events)
         if dlg.exec() == QDialog.Accepted:
             updated = dlg.get_result()
             if updated is not None:
-                self.mock_db[db_key] = updated
+                event_date = date_type(self.current_year, self.current_month, self._selected_day)
+                try:
+                    repo.save_calendar_day(event_date, updated)
+                except Exception:
+                    pass
+                if updated:
+                    self._db_cache[db_key] = updated
+                elif db_key in self._db_cache:
+                    del self._db_cache[db_key]
                 self.render_calendar()
                 self.on_day_clicked(self._selected_day)
                 success(self, message=f"Schedule for {date_str} updated successfully.")
@@ -562,8 +576,8 @@ class CalendarPage(QWidget):
 
         # Load events
         db_key = (self.current_year, self.current_month, day_num)
-        if db_key in self.mock_db:
-            events = self.mock_db[db_key]
+        if db_key in self._db_cache:
+            events = self._db_cache[db_key]
             total_pax = sum(e["pax"] for e in events)
             
             # --- THE FIX: Force RichText and use <br> here too ---

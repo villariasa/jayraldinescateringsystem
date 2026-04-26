@@ -8,7 +8,7 @@ Each function either:
   - falls back to in-memory defaults when DB is unavailable
 """
 from __future__ import annotations
-from datetime import date, time
+from datetime import date, time, datetime
 from typing import Optional
 import utils.db as db
 import utils.menu_store as menu_store
@@ -530,6 +530,14 @@ def get_low_stock_items() -> list[dict]:
 # NOTIFICATIONS
 # ---------------------------------------------------------------------------
 
+def push_notification(type_: str, title: str, message: str, color: str = "#3B82F6") -> None:
+    db.callproc_void("sp_push_notification", in_params=(type_, title, message, color))
+
+
+def get_event_alert_candidates() -> list[dict]:
+    return db.callproc_cursor("sp_get_event_alert_candidates", "event_alert_cursor")
+
+
 def get_unread_notifications() -> list[dict]:
     rows = db.fetchall(
         """
@@ -578,6 +586,91 @@ def get_upcoming_events(limit: int = 10) -> list[dict]:
     return [dict(r) for r in rows] if rows else []
 
 
+def get_report_kpis() -> dict:
+    row = db.fetchone("SELECT * FROM v_report_kpis")
+    if not row:
+        return {"total_bookings": 0, "total_pax": 0, "total_revenue": 0.0,
+                "unpaid_amount": 0.0, "today_bookings": 0, "week_bookings": 0}
+    return {
+        "total_bookings":  int(row["total_bookings"]),
+        "total_pax":       int(row["total_pax"]),
+        "total_revenue":   float(row["total_revenue"]),
+        "unpaid_amount":   float(row["unpaid_amount"]),
+        "today_bookings":  int(row["today_bookings"]),
+        "week_bookings":   int(row["week_bookings"]),
+    }
+
+
+def get_monthly_income() -> list[dict]:
+    rows = db.fetchall("SELECT month_label, month_num, total_revenue, total_paid FROM v_monthly_income")
+    if not rows:
+        return []
+    return [{"month": r["month_label"], "month_num": r["month_num"],
+             "revenue": float(r["total_revenue"]), "paid": float(r["total_paid"])} for r in rows]
+
+
+def get_payment_methods() -> list[dict]:
+    rows = db.fetchall("SELECT method, total FROM v_payment_methods")
+    if not rows:
+        return []
+    return [{"method": r["method"], "total": int(r["total"])} for r in rows]
+
+
+def get_top_menu_items() -> list[dict]:
+    rows = db.fetchall("SELECT item, order_count FROM v_top_menu_items")
+    if not rows:
+        return []
+    return [{"item": r["item"], "count": int(r["order_count"])} for r in rows]
+
+
+def get_customer_order_frequency() -> list[dict]:
+    rows = db.fetchall("SELECT name, booking_count FROM v_customer_order_frequency")
+    if not rows:
+        return []
+    return [{"name": r["name"], "count": int(r["booking_count"])} for r in rows]
+
+
+def get_recent_activity(limit: int = 5) -> list[dict]:
+    rows = db.fetchall(
+        "SELECT title, description, color, created_at FROM v_recent_activity LIMIT %s",
+        (limit,)
+    )
+    if not rows:
+        return []
+    from datetime import timezone
+    now = datetime.now(timezone.utc)
+    result = []
+    for r in rows:
+        ts = r["created_at"]
+        if hasattr(ts, "tzinfo") and ts.tzinfo is not None:
+            delta = now - ts
+        else:
+            delta = datetime.utcnow() - ts.replace(tzinfo=None)
+        secs = int(delta.total_seconds())
+        if secs < 60:
+            time_str = "just now"
+        elif secs < 3600:
+            time_str = f"{secs // 60} min ago"
+        elif secs < 86400:
+            time_str = f"{secs // 3600} hr ago"
+        else:
+            time_str = f"{secs // 86400}d ago"
+        result.append({
+            "title":       r["title"],
+            "description": r["description"],
+            "color":       r["color"],
+            "time":        time_str,
+        })
+    return result
+
+
+def get_menu_alerts() -> list[dict]:
+    rows = db.fetchall("SELECT item, issue, badge_type FROM v_menu_alerts")
+    if not rows:
+        return []
+    return [{"item": r["item"], "issue": r["issue"], "badge_type": r["badge_type"]} for r in rows]
+
+
 def get_calendar_summary() -> list[dict]:
     rows = db.fetchall("SELECT * FROM v_calendar_day_summary")
     return [dict(r) for r in rows] if rows else []
@@ -586,6 +679,26 @@ def get_calendar_summary() -> list[dict]:
 # ---------------------------------------------------------------------------
 # BUSINESS INFO (Settings page)
 # ---------------------------------------------------------------------------
+
+def get_calendar_events_for_date(event_date: date) -> list[dict]:
+    rows = db.fetchall(
+        "SELECT id, name, pax, event_time, location FROM calendar_events WHERE event_date = %s ORDER BY id",
+        (event_date,)
+    )
+    if not rows:
+        return []
+    return [{"id": r["id"], "name": r["name"], "pax": r["pax"],
+             "time": r["event_time"], "loc": r["location"]} for r in rows]
+
+
+def save_calendar_day(event_date: date, events: list[dict]) -> None:
+    db.callproc_void("sp_delete_calendar_events_for_date", in_params=(event_date,))
+    for ev in events:
+        db.callproc_void(
+            "sp_save_calendar_event",
+            in_params=(event_date, ev["name"], ev["pax"], ev["time"], ev["loc"]),
+        )
+
 
 def get_business_info() -> dict:
     row = db.fetchone("SELECT name, contact, email, address FROM business_info LIMIT 1")

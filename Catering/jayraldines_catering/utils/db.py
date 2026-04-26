@@ -157,6 +157,29 @@ def callproc_void(proc: str, in_params: tuple = ()) -> bool:
         return False
 
 
+def callproc_cursor(proc: str, cursor_name: str = "ref_cursor") -> list[dict]:
+    """
+    Call a stored PROCEDURE that opens a REFCURSOR OUT parameter.
+    Wraps the call in a transaction, fetches all rows from the cursor,
+    and returns them as a list of dicts.
+    """
+    if not _ensure_connected():
+        return []
+    try:
+        _conn.autocommit = False
+        with _conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(f"CALL {proc}(%s)", (cursor_name,))
+            cur.execute(f'FETCH ALL FROM "{cursor_name}"')
+            rows = [dict(r) for r in cur.fetchall()]
+        _conn.commit()
+        _conn.autocommit = False
+        return rows
+    except Exception as exc:
+        _conn.rollback()
+        print(f"[DB] callproc_cursor({proc}) failed: {exc}")
+        return []
+
+
 def close() -> None:
     global _conn
     if _conn is not None:

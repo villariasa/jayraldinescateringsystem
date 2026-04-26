@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QWidget, QApplication
 )
-from PySide6.QtCore import Qt, QSize, QPoint, QEvent, QTimer
+from PySide6.QtCore import Qt, QSize, QPoint, QEvent, QTimer, Signal
 from PySide6.QtGui import QColor
 
 from utils.icons import get_icon
@@ -58,7 +58,16 @@ def _load_notifications():
 _notifications = _load_notifications()
 
 
+def reload_notifications() -> int:
+    global _notifications
+    fresh = _load_notifications()
+    _notifications.clear()
+    _notifications.extend(fresh)
+    return len(_notifications)
+
+
 class NotificationPopover(QFrame):
+    all_read = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
@@ -227,6 +236,7 @@ class NotificationPopover(QFrame):
         _notifications.clear()
         repo.mark_all_notifications_read()
         self._refresh_list()
+        self.all_read.emit()
 
     def show_anchored(self, anchor_btn):
         global_pos = anchor_btn.mapToGlobal(QPoint(0, anchor_btn.height() + 6))

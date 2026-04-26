@@ -14,7 +14,6 @@ from components.filter_popover import FilterPopover
 import utils.repository as repo
 
 
-_STATUS_CYCLE = {"PENDING": "CONFIRMED", "CONFIRMED": "CANCELLED", "CANCELLED": "PENDING"}
 _STATUS_COLORS = {
     "CONFIRMED": ("#22C55E", "rgba(34,197,94,.15)", "rgba(34,197,94,.3)"),
     "PENDING":   ("#F59E0B", "rgba(245,158,11,.15)", "rgba(245,158,11,.3)"),
@@ -28,19 +27,48 @@ class AnimatedCard(QFrame):
         self.setObjectName("card")
 
 
-def _status_badge(text, on_click=None):
+def _status_badge(text):
     color, bg, border = _STATUS_COLORS.get(text, ("#9CA3AF", "rgba(156,163,175,.15)", "rgba(156,163,175,.3)"))
-    btn = QPushButton(text)
-    btn.setStyleSheet(
-        f"QPushButton {{font-weight:700;font-size:11px;padding:4px 10px;border-radius:12px;"
-        f"background:{bg};color:{color};border:1px solid {border};}}"
-        f"QPushButton:hover {{background:{border};}}"
+    lbl = QLabel(text)
+    lbl.setStyleSheet(
+        f"font-weight:700;font-size:11px;padding:4px 10px;border-radius:12px;"
+        f"background:{bg};color:{color};border:1px solid {border};"
     )
-    btn.setCursor(Qt.PointingHandCursor)
-    btn.setToolTip("Click to change status")
-    if on_click:
-        btn.clicked.connect(on_click)
-    return btn
+    lbl.setAlignment(Qt.AlignCenter)
+    return lbl
+
+
+def _action_buttons(status, on_approve, on_decline):
+    widget = QWidget()
+    row = QHBoxLayout(widget)
+    row.setContentsMargins(4, 0, 4, 0)
+    row.setSpacing(6)
+    if status == "PENDING":
+        approve_btn = QPushButton("Approve")
+        approve_btn.setStyleSheet(
+            "font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px;"
+            "background:rgba(34,197,94,.15);color:#22C55E;border:1px solid rgba(34,197,94,.3);"
+            "QPushButton:hover{background:rgba(34,197,94,.3);}"
+        )
+        approve_btn.setCursor(Qt.PointingHandCursor)
+        approve_btn.clicked.connect(on_approve)
+        row.addWidget(approve_btn)
+
+        decline_btn = QPushButton("Decline")
+        decline_btn.setStyleSheet(
+            "font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px;"
+            "background:rgba(239,68,68,.15);color:#EF4444;border:1px solid rgba(239,68,68,.3);"
+            "QPushButton:hover{background:rgba(239,68,68,.3);}"
+        )
+        decline_btn.setCursor(Qt.PointingHandCursor)
+        decline_btn.clicked.connect(on_decline)
+        row.addWidget(decline_btn)
+    else:
+        locked_lbl = QLabel("Locked")
+        locked_lbl.setStyleSheet("font-size:11px;color:#6B7280;")
+        row.addWidget(locked_lbl)
+    row.addStretch()
+    return widget
 
 
 class BookingPage(QWidget):
@@ -109,10 +137,11 @@ class BookingPage(QWidget):
         t_head.addWidget(btn_export)
         table_layout.addLayout(t_head)
 
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["DATE", "CLIENT NAME", "PAX", "TOTAL AMOUNT", "STATUS", ""])
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["DATE", "CLIENT NAME", "PAX", "TOTAL AMOUNT", "STATUS", "ACTIONS", ""])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setFocusPolicy(Qt.NoFocus)
         self.table.setSelectionMode(QTableWidget.NoSelection)
@@ -159,8 +188,15 @@ class BookingPage(QWidget):
             self.table.setCellWidget(row, 3, amt_lbl)
 
             bname = b["name"]
-            status_btn = _status_badge(b["status"], on_click=lambda _, n=bname: self._cycle_status(n))
-            self.table.setCellWidget(row, 4, status_btn)
+            bid = b.get("db_id")
+            self.table.setCellWidget(row, 4, _status_badge(b["status"]))
+
+            actions = _action_buttons(
+                b["status"],
+                on_approve=lambda _, n=bname: self._approve_booking(n),
+                on_decline=lambda _, n=bname: self._decline_booking(n),
+            )
+            self.table.setCellWidget(row, 5, actions)
 
             del_btn = QPushButton()
             del_btn.setIcon(btn_icon_red("trash"))
@@ -169,22 +205,39 @@ class BookingPage(QWidget):
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.setToolTip("Delete booking")
             del_btn.clicked.connect(lambda _, n=bname: self._delete_booking(n))
-            self.table.setCellWidget(row, 5, del_btn)
+            self.table.setCellWidget(row, 6, del_btn)
 
-    def _cycle_status(self, name):
+    def _approve_booking(self, name):
         for b in self._bookings:
             if b["name"] == name:
-                next_s = _STATUS_CYCLE.get(b["status"], "PENDING")
-                if not confirm(self, title="Update Status",
-                               message=f"Change status of '{name}' to {next_s}?",
-                               confirm_label="Update"):
+                if b["status"] != "PENDING":
                     return
-                b["status"] = next_s
+                if not confirm(self, title="Approve Booking",
+                               message=f"Approve booking for '{name}'?",
+                               confirm_label="Approve"):
+                    return
+                b["status"] = "CONFIRMED"
                 if b.get("db_id"):
-                    repo.update_booking_status(b["db_id"], b["status"])
+                    repo.update_booking_status(b["db_id"], "CONFIRMED")
                 break
         self._populate_table()
-        success(self, message="Booking status updated successfully.")
+        success(self, message="Booking approved successfully.")
+
+    def _decline_booking(self, name):
+        for b in self._bookings:
+            if b["name"] == name:
+                if b["status"] != "PENDING":
+                    return
+                if not confirm(self, title="Decline Booking",
+                               message=f"Decline booking for '{name}'? This will mark it as Cancelled.",
+                               confirm_label="Decline", danger=True):
+                    return
+                b["status"] = "CANCELLED"
+                if b.get("db_id"):
+                    repo.update_booking_status(b["db_id"], "CANCELLED")
+                break
+        self._populate_table()
+        success(self, message="Booking declined.")
 
     def _delete_booking(self, name):
         if not confirm(self, title="Delete Booking",
@@ -231,11 +284,8 @@ class BookingPage(QWidget):
         self._filter_popover.toggle_anchored(self._btn_filter)
 
     def _on_filter_applied(self, result):
-        statuses = result.get("statuses", [])
-        if not statuses or "All" in statuses:
-            self._active_filter = "All"
-        else:
-            self._active_filter = statuses[0] if len(statuses) == 1 else statuses
+        status = result.get("statuses", ["All"])[0]
+        self._active_filter = "All" if not status or status == "All" else status
         self._populate_table()
 
     def _export_csv(self):

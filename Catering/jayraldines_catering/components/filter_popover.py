@@ -102,11 +102,14 @@ class FilterPopover(QFrame):
             chips_row.setSpacing(6)
             chips_row.setAlignment(Qt.AlignLeft)
             self._status_chips = []
+            self._status_group = QButtonGroup(self)
+            self._status_group.setExclusive(True)
             for s in self._statuses:
                 chip = FilterChip(s, s)
                 if s == "All":
                     chip.setChecked(True)
                 self._status_chips.append(chip)
+                self._status_group.addButton(chip)
                 chips_row.addWidget(chip)
             chips_row.addStretch()
             inner_lay.addLayout(chips_row)
@@ -162,10 +165,10 @@ class FilterPopover(QFrame):
             chip.setChecked(False)
 
     def _apply(self):
-        selected_statuses = [c.value for c in self._status_chips if c.isChecked()]
-        selected_cats     = [c.value for c in self._cat_chips if c.isChecked()]
+        checked = next((c.value for c in self._status_chips if c.isChecked()), "All")
+        selected_cats = [c.value for c in self._cat_chips if c.isChecked()]
         result = {
-            "statuses":   selected_statuses,
+            "statuses":   [checked],
             "categories": selected_cats,
         }
         self.filter_applied.emit(result)

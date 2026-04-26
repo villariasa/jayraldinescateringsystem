@@ -2,9 +2,11 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QProgressBar, QScrollArea
 )
-from PySide6.QtCore import Qt, Signal, QSize
+from PySide6.QtCore import Qt, Signal, QSize, QTimer
+from datetime import datetime
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
+import utils.repository as repo
 
 
 class AnimatedCard(QFrame):
@@ -31,20 +33,26 @@ class KPICard(AnimatedCard):
             top_row.addWidget(ico)
         layout.addLayout(top_row)
 
-        lbl_val = QLabel(value)
-        lbl_val.setObjectName("kpiValue")
-        layout.addWidget(lbl_val)
+        self._val_lbl = QLabel(value)
+        self._val_lbl.setObjectName("kpiValue")
+        layout.addWidget(self._val_lbl)
 
-        lbl_trend = QLabel(trend_text)
+        self._trend_lbl = QLabel(trend_text)
         badge_map = {
             "success": "badgeSuccess",
             "danger":  "badgeDanger",
             "warning": "badgeWarning",
             "gold":    "badgeGold",
         }
-        lbl_trend.setObjectName(badge_map.get(trend_type, "badgeInfo"))
-        layout.addWidget(lbl_trend)
+        self._trend_lbl.setObjectName(badge_map.get(trend_type, "badgeInfo"))
+        layout.addWidget(self._trend_lbl)
         layout.addStretch()
+
+    def update_value(self, value: str):
+        self._val_lbl.setText(value)
+
+    def update_trend(self, text: str):
+        self._trend_lbl.setText(text)
 
 
 class ActivityItem(QWidget):
@@ -78,7 +86,7 @@ class ActivityItem(QWidget):
 
 
 class EventItem(QWidget):
-    def __init__(self, name, date, pax, status, status_type="success", parent=None):
+    def __init__(self, name, date_str, pax, status, status_type="success", event_dt=None, parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 10, 0, 10)
@@ -88,10 +96,22 @@ class EventItem(QWidget):
         left.setSpacing(3)
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 13px; color: #F9FAFB;")
-        date_lbl = QLabel(f"{date}  ·  {pax} pax")
+        date_lbl = QLabel(f"{date_str}  ·  {pax} pax")
         date_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px;")
         left.addWidget(name_lbl)
         left.addWidget(date_lbl)
+
+        self._event_dt = event_dt
+        self._countdown_lbl = None
+        if event_dt is not None:
+            self._countdown_lbl = QLabel()
+            self._countdown_lbl.setStyleSheet("color: #F59E0B; font-size: 11px; font-weight: 700;")
+            left.addWidget(self._countdown_lbl)
+            self._tick_countdown()
+            self._timer = QTimer(self)
+            self._timer.timeout.connect(self._tick_countdown)
+            self._timer.start(1000)
+
         layout.addLayout(left)
         layout.addStretch()
 
@@ -99,6 +119,18 @@ class EventItem(QWidget):
         badge_map = {"success": "badgeSuccess", "warning": "badgeWarning", "danger": "badgeDanger"}
         badge.setObjectName(badge_map.get(status_type, "badgeInfo"))
         layout.addWidget(badge)
+
+    def _tick_countdown(self):
+        delta = self._event_dt - datetime.now()
+        total = int(delta.total_seconds())
+        if total <= 0:
+            self._countdown_lbl.setText("Event started")
+            if hasattr(self, "_timer"):
+                self._timer.stop()
+            return
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        self._countdown_lbl.setText(f"Starts in {h:02d}:{m:02d}:{s:02d}")
 
 
 class MenuAlertItem(QWidget):
@@ -123,12 +155,10 @@ class DashboardPage(QWidget):
 
     def __init__(self):
         super().__init__()
-        
-        # ✅ Safely attach root layout to self
+
         self.root_layout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
 
-        # ✅ FIX: Attach QScrollArea and Content Widget to 'self' and parent them
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
 
@@ -169,16 +199,17 @@ class DashboardPage(QWidget):
 
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(16)
-        kpi_row.addWidget(KPICard("Today's Events",    "4",        "↑ 2 from yesterday",     "success", "calendar"))
-        kpi_row.addWidget(KPICard("Pending Bookings",  "12",       "Requires review",         "warning", "orders"))
-        kpi_row.addWidget(KPICard("Weekly Revenue",    "₱ 12,450", "↑ 8.5% from last week",  "success", "trending-up"))
-        kpi_row.addWidget(KPICard("Unpaid Invoices",   "₱ 4,200",  "3 invoices overdue",      "danger",  "billing"))
+        self._kpi_today    = KPICard("Today's Events",   "—", "Loading...",  "success", "calendar")
+        self._kpi_pending  = KPICard("Pending Bookings", "—", "Loading...",  "warning", "orders")
+        self._kpi_revenue  = KPICard("Weekly Revenue",   "—", "Loading...",  "success", "trending-up")
+        self._kpi_unpaid   = KPICard("Unpaid Invoices",  "—", "Loading...",  "danger",  "billing")
+        for card in [self._kpi_today, self._kpi_pending, self._kpi_revenue, self._kpi_unpaid]:
+            kpi_row.addWidget(card)
         self.lay.addLayout(kpi_row)
 
         mid_row = QHBoxLayout()
         mid_row.setSpacing(16)
 
-        # ✅ FIX: Attach cards to self
         self.cap_card = AnimatedCard(self.content)
         cap_lay = QVBoxLayout(self.cap_card)
         cap_lay.setContentsMargins(24, 24, 24, 24)
@@ -195,51 +226,45 @@ class DashboardPage(QWidget):
         cap_v.addWidget(cap_sub)
         cap_head.addLayout(cap_v)
         cap_head.addStretch()
-        pax_lbl = QLabel('<span style="font-size:28px;font-weight:800;color:#F9FAFB;">45</span>'
-                         '<span style="color:#6B7280;font-size:16px;"> / 600</span>')
-        cap_head.addWidget(pax_lbl)
+        self._pax_lbl = QLabel('—')
+        self._pax_lbl.setStyleSheet("font-size:28px;font-weight:800;color:#F9FAFB;")
+        cap_head.addWidget(self._pax_lbl)
         cap_lay.addLayout(cap_head)
 
         self.prog = QProgressBar()
         self.prog.setRange(0, 600)
-        self.prog.setValue(45)
+        self.prog.setValue(0)
         self.prog.setFixedHeight(10)
         cap_lay.addWidget(self.prog)
 
+        self._cap_pct_lbl = QLabel("")
+        self._cap_pct_lbl.setStyleSheet("color:#F59E0B;font-weight:700;font-size:12px;")
+        self._cap_rem_lbl = QLabel("")
+        self._cap_rem_lbl.setStyleSheet("color:#6B7280;font-size:12px;")
         cap_foot = QHBoxLayout()
-        cap_foot.addWidget(QLabel('<span style="color:#F59E0B;font-weight:700;font-size:12px;">8% Capacity</span>'))
+        cap_foot.addWidget(self._cap_pct_lbl)
         cap_foot.addStretch()
-        cap_foot.addWidget(QLabel('<span style="color:#6B7280;font-size:12px;">555 slots remaining</span>'))
+        cap_foot.addWidget(self._cap_rem_lbl)
         cap_lay.addLayout(cap_foot)
 
         self.events_card = AnimatedCard(self.content)
-        ev_lay = QVBoxLayout(self.events_card)
-        ev_lay.setContentsMargins(24, 24, 24, 24)
-        ev_lay.setSpacing(0)
+        self._ev_lay = QVBoxLayout(self.events_card)
+        self._ev_lay.setContentsMargins(24, 24, 24, 24)
+        self._ev_lay.setSpacing(0)
 
         ev_head = QHBoxLayout()
         ev_title = QLabel("Upcoming Events")
         ev_title.setObjectName("h3")
         ev_head.addWidget(ev_title)
         ev_head.addStretch()
-        ev_lay.addLayout(ev_head)
+        self._ev_lay.addLayout(ev_head)
 
         ev_div = QFrame()
         ev_div.setObjectName("divider")
-        ev_lay.addWidget(ev_div)
-        ev_lay.addSpacing(4)
+        self._ev_lay.addWidget(ev_div)
+        self._ev_lay.addSpacing(4)
 
-        for name, date, pax, status, stype in [
-            ("Santos Wedding",       "Apr 26, 2026", "200", "Confirmed", "success"),
-            ("Reyes Birthday Party", "Apr 27, 2026", "80",  "Pending",   "warning"),
-            ("Cruz Corporate",       "Apr 30, 2026", "150", "Confirmed", "success"),
-        ]:
-            ev_lay.addWidget(EventItem(name, date, pax, status, stype))
-            sep = QFrame()
-            sep.setObjectName("divider")
-            ev_lay.addWidget(sep)
-
-        ev_lay.addStretch()
+        self._ev_items_start = self._ev_lay.count()
 
         mid_row.addWidget(self.cap_card, 1)
         mid_row.addWidget(self.events_card, 1)
@@ -249,9 +274,9 @@ class DashboardPage(QWidget):
         bot_row.setSpacing(16)
 
         self.act_card = AnimatedCard(self.content)
-        act_lay = QVBoxLayout(self.act_card)
-        act_lay.setContentsMargins(24, 24, 24, 24)
-        act_lay.setSpacing(0)
+        self._act_lay = QVBoxLayout(self.act_card)
+        self._act_lay.setContentsMargins(24, 24, 24, 24)
+        self._act_lay.setSpacing(0)
 
         act_head = QHBoxLayout()
         act_title = QLabel("Recent Activity")
@@ -263,61 +288,172 @@ class DashboardPage(QWidget):
         btn_view.setIcon(btn_icon_muted("eye"))
         btn_view.setIconSize(QSize(13, 13))
         act_head.addWidget(btn_view)
-        act_lay.addLayout(act_head)
+        self._act_lay.addLayout(act_head)
 
         act_div = QFrame()
         act_div.setObjectName("divider")
-        act_lay.addWidget(act_div)
+        self._act_lay.addWidget(act_div)
 
-        act_lay.addWidget(ActivityItem(
-            "Wedding Reception Confirmed",
-            "Mr. & Mrs. Santos finalized menu for 200 pax.",
-            "10 mins ago", "#22C55E"))
-        act_lay.addWidget(ActivityItem(
-            "Payment Pending",
-            "Invoice #BKG-002 requires 50% downpayment.",
-            "1 hr ago", "#EF4444"))
-        act_lay.addWidget(ActivityItem(
-            "New Booking Request",
-            "Cruz Corporate event inquiry submitted.",
-            "3 hrs ago", "#3B82F6"))
-        act_lay.addStretch()
+        self._act_items_start = self._act_lay.count()
 
         self.menu_card = AnimatedCard(self.content)
-        menu_lay = QVBoxLayout(self.menu_card)
-        menu_lay.setContentsMargins(24, 24, 24, 24)
-        menu_lay.setSpacing(0)
+        self._menu_lay = QVBoxLayout(self.menu_card)
+        self._menu_lay.setContentsMargins(24, 24, 24, 24)
+        self._menu_lay.setSpacing(0)
 
         menu_head = QHBoxLayout()
         menu_title = QLabel("Menu Alerts")
         menu_title.setObjectName("h3")
         menu_head.addWidget(menu_title)
         menu_head.addStretch()
-        menu_badge = QLabel("2 Issues")
-        menu_badge.setObjectName("badgeWarning")
-        menu_head.addWidget(menu_badge)
-        menu_lay.addLayout(menu_head)
+        self._menu_badge = QLabel("—")
+        self._menu_badge.setObjectName("badgeWarning")
+        menu_head.addWidget(self._menu_badge)
+        self._menu_lay.addLayout(menu_head)
 
         menu_div = QFrame()
         menu_div.setObjectName("divider")
-        menu_lay.addWidget(menu_div)
+        self._menu_lay.addWidget(menu_div)
 
-        for item, issue, badge_type in [
-            ("Puto Bumbong",   "Seasonal / Limited",  "badgeWarning"),
-            ("Lechon de Leche","High demand — monitor stock", "badgeDanger"),
-            ("Chopsuey",       "Ingredient near low stock",   "badgeDanger"),
-        ]:
-            menu_lay.addWidget(MenuAlertItem(item, issue, badge_type))
-            sep = QFrame()
-            sep.setObjectName("divider")
-            menu_lay.addWidget(sep)
-
-        menu_lay.addStretch()
+        self._menu_items_start = self._menu_lay.count()
 
         bot_row.addWidget(self.act_card, 3)
         bot_row.addWidget(self.menu_card, 2)
         self.lay.addLayout(bot_row)
 
-        # ✅ Final assembly with safely parented widgets
         self.scroll.setWidget(self.content)
         self.root_layout.addWidget(self.scroll)
+
+        self._load_data()
+
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self._load_data)
+        self._refresh_timer.start(60_000)
+
+    def _load_data(self):
+        kpis = repo.get_dashboard_kpis()
+
+        todays = kpis.get("todays_events", 0)
+        pending = kpis.get("pending_bookings", 0)
+        revenue = kpis.get("weekly_revenue", 0.0)
+        unpaid = kpis.get("unpaid_invoices", 0.0)
+        pax = kpis.get("todays_pax", 0)
+
+        self._kpi_today.update_value(str(todays))
+        self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} today")
+
+        self._kpi_pending.update_value(str(pending))
+        self._kpi_pending.update_trend("Requires review" if pending > 0 else "All clear")
+
+        self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
+        self._kpi_revenue.update_trend("This week's revenue")
+
+        self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
+        self._kpi_unpaid.update_trend("Outstanding balance")
+
+        self._pax_lbl.setText(
+            f'<span style="font-size:28px;font-weight:800;color:#F9FAFB;">{pax}</span>'
+            f'<span style="color:#6B7280;font-size:16px;"> / 600</span>'
+        )
+        self.prog.setValue(min(pax, 600))
+        pct = round((pax / 600) * 100, 1)
+        self._cap_pct_lbl.setText(f"{pct}% Capacity")
+        self._cap_rem_lbl.setText(f"{max(0, 600 - pax)} slots remaining")
+
+        self._rebuild_events()
+        self._rebuild_activity()
+        self._rebuild_menu_alerts()
+
+    def _clear_layout_from(self, layout, from_index: int):
+        while layout.count() > from_index:
+            item = layout.takeAt(from_index)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _rebuild_events(self):
+        self._clear_layout_from(self._ev_lay, self._ev_items_start)
+        events = repo.get_upcoming_events(limit=5)
+        if not events:
+            empty = QLabel("No upcoming events.")
+            empty.setObjectName("subtitle")
+            empty.setContentsMargins(0, 8, 0, 8)
+            self._ev_lay.addWidget(empty)
+        else:
+            for ev in events:
+                raw_date = ev.get("event_date")
+                raw_time = ev.get("event_time")
+                if raw_date:
+                    try:
+                        from datetime import date as date_type, time as time_type
+                        if isinstance(raw_date, date_type):
+                            if isinstance(raw_time, time_type):
+                                event_dt = datetime.combine(raw_date, raw_time)
+                            else:
+                                event_dt = datetime(raw_date.year, raw_date.month, raw_date.day, 18, 0)
+                            date_str = raw_date.strftime("%b %d, %Y")
+                        else:
+                            event_dt = None
+                            date_str = str(raw_date)
+                    except Exception:
+                        event_dt = None
+                        date_str = str(raw_date)
+                else:
+                    event_dt = None
+                    date_str = "—"
+
+                status_raw = ev.get("status", "PENDING")
+                stype_map = {"CONFIRMED": "success", "PENDING": "warning", "CANCELLED": "danger"}
+                stype = stype_map.get(status_raw.upper(), "warning")
+
+                self._ev_lay.addWidget(EventItem(
+                    ev.get("customer_name", ""),
+                    date_str,
+                    str(ev.get("pax", 0)),
+                    status_raw.capitalize(),
+                    stype,
+                    event_dt=event_dt,
+                ))
+                sep = QFrame()
+                sep.setObjectName("divider")
+                self._ev_lay.addWidget(sep)
+        self._ev_lay.addStretch()
+
+    def _rebuild_activity(self):
+        self._clear_layout_from(self._act_lay, self._act_items_start)
+        activities = repo.get_recent_activity(limit=5)
+        if not activities:
+            empty = QLabel("No recent activity.")
+            empty.setObjectName("subtitle")
+            empty.setContentsMargins(0, 8, 0, 8)
+            self._act_lay.addWidget(empty)
+        else:
+            for act in activities:
+                self._act_lay.addWidget(ActivityItem(
+                    act["title"],
+                    act["description"],
+                    act["time"],
+                    act.get("color", "#9CA3AF"),
+                ))
+        self._act_lay.addStretch()
+
+    def _rebuild_menu_alerts(self):
+        self._clear_layout_from(self._menu_lay, self._menu_items_start)
+        alerts = repo.get_menu_alerts()
+        badge_map = {"warning": "badgeWarning", "danger": "badgeDanger"}
+        if not alerts:
+            self._menu_badge.setText("No Issues")
+            self._menu_badge.setObjectName("badgeSuccess")
+            empty = QLabel("All menu items are fine.")
+            empty.setObjectName("subtitle")
+            empty.setContentsMargins(0, 8, 0, 8)
+            self._menu_lay.addWidget(empty)
+        else:
+            self._menu_badge.setText(f"{len(alerts)} Issue{'s' if len(alerts) != 1 else ''}")
+            self._menu_badge.setObjectName("badgeWarning")
+            for a in alerts:
+                bt = badge_map.get(a.get("badge_type", "warning"), "badgeWarning")
+                self._menu_lay.addWidget(MenuAlertItem(a["item"], a["issue"], bt))
+                sep = QFrame()
+                sep.setObjectName("divider")
+                self._menu_lay.addWidget(sep)
+        self._menu_lay.addStretch()

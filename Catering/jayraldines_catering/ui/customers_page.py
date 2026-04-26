@@ -158,6 +158,7 @@ class CustomersPage(QWidget):
         export_btn.setObjectName("secondaryButton")
         export_btn.setIcon(btn_icon_secondary("export"))
         export_btn.setIconSize(QSize(15, 15))
+        export_btn.clicked.connect(self._export_csv)
         header.addWidget(export_btn)
 
         root.addLayout(header)
@@ -253,3 +254,19 @@ class CustomersPage(QWidget):
 
     def filter_search(self, text):
         self._search.setText(text)
+
+    def _export_csv(self):
+        import csv
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        path, _ = QFileDialog.getSaveFileName(self, "Export Customers", "customers.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Name", "Contact", "Email", "Total Events", "Status"])
+            for c in self._customers:
+                writer.writerow([
+                    c.get("name", ""), c.get("contact", ""),
+                    c.get("email", ""), c.get("events", 0), c.get("status", ""),
+                ])
+        QMessageBox.information(self, "Export", f"Exported to:\n{path}")

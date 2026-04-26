@@ -4,7 +4,7 @@ from PySide6.QtCore import Signal, QTimer
 
 from components.sidebar import Sidebar
 from components.topbar import TopBar
-from components.notifications_panel import NotificationPopover
+from components.notifications_panel import NotificationPopover, reload_notifications
 from ui.dashboard_page import DashboardPage
 from ui.booking_page import BookingPage
 from ui.customers_page import CustomersPage
@@ -95,6 +95,16 @@ class MainWindow(QMainWindow):
             lambda: self._notif_popover.toggle_anchored(self.topbar.notif_btn)
         )
 
+        self._notif_popover.all_read.connect(self._on_all_read)
+
+        from utils.notif_scheduler import NotifScheduler
+        self._scheduler = NotifScheduler(self)
+        self._scheduler.new_notification.connect(self._on_new_notification)
+
+        self._poll_timer = QTimer(self)
+        self._poll_timer.timeout.connect(self._poll_notifications)
+        self._poll_timer.start(60_000)
+
         self.topbar.search_changed.connect(self._on_search)
 
         print("[MW] Navigating to dashboard...")
@@ -117,6 +127,20 @@ class MainWindow(QMainWindow):
             self.showMaximized()
         else:
             self.showFullScreen()
+
+    def _poll_notifications(self):
+        count = reload_notifications()
+        self.topbar.notif_badge.setText(str(count))
+        self.topbar.notif_badge.setVisible(count > 0)
+        if self._notif_popover.isVisible():
+            self._notif_popover._refresh_list()
+
+    def _on_new_notification(self):
+        self._poll_notifications()
+
+    def _on_all_read(self):
+        self.topbar.notif_badge.setText("0")
+        self.topbar.notif_badge.setVisible(False)
 
     def _exit_fullscreen(self):
         if self.isFullScreen():

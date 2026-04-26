@@ -2,12 +2,13 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QDateEdit, QTimeEdit, QSpinBox,
     QFrame, QWidget, QStackedWidget, QTextEdit, QCheckBox,
-    QScrollArea, QSizePolicy
+    QScrollArea, QSizePolicy, QCompleter
 )
 from PySide6.QtCore import Qt, QDate, QTime, QSize, Signal
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
 import utils.menu_store as menu_store
+import utils.repository as repo
 
 
 _STEPS = ["Customer", "Event", "Menu", "Payment"]
@@ -197,20 +198,38 @@ class BookingModal(QDialog):
 
         lay.addWidget(_section_label("Customer Information"))
 
-        lay.addWidget(_field_label("Full Name *"))
-        self.f_name = _input("e.g. Juan dela Cruz")
-        lay.addWidget(self.f_name)
+        note = QLabel("Select an existing customer. To add a new customer, go to the Customers module first.")
+        note.setStyleSheet("color:#F59E0B;font-size:11px;")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+
+        lay.addWidget(_field_label("Select Customer *"))
+        self._customers = repo.get_all_customers() or []
+        self.f_customer_combo = QComboBox()
+        self.f_customer_combo.setFixedHeight(38)
+        self.f_customer_combo.setEditable(True)
+        self.f_customer_combo.addItem("-- Select Customer --", None)
+        for c in self._customers:
+            self.f_customer_combo.addItem(c["name"], c)
+        self.f_customer_combo.completer().setCompletionMode(QCompleter.PopupCompletion)
+        self.f_customer_combo.completer().setFilterMode(Qt.MatchContains)
+        self.f_customer_combo.currentIndexChanged.connect(self._on_customer_selected)
+        lay.addWidget(self.f_customer_combo)
 
         row = QHBoxLayout()
         row.setSpacing(16)
         left = QVBoxLayout()
-        left.addWidget(_field_label("Contact Number *"))
+        left.addWidget(_field_label("Contact Number"))
         self.f_contact = _input("+63 9XX XXX XXXX")
+        self.f_contact.setReadOnly(True)
+        self.f_contact.setStyleSheet("background:#111827;color:#9CA3AF;")
         left.addWidget(self.f_contact)
 
         right = QVBoxLayout()
         right.addWidget(_field_label("Email"))
         self.f_email = _input("email@example.com")
+        self.f_email.setReadOnly(True)
+        self.f_email.setStyleSheet("background:#111827;color:#9CA3AF;")
         right.addWidget(self.f_email)
 
         row.addLayout(left)
@@ -219,9 +238,22 @@ class BookingModal(QDialog):
 
         lay.addWidget(_field_label("Address"))
         self.f_address = _input("Street, Barangay, City")
+        self.f_address.setReadOnly(True)
+        self.f_address.setStyleSheet("background:#111827;color:#9CA3AF;")
         lay.addWidget(self.f_address)
         lay.addStretch()
         return w
+
+    def _on_customer_selected(self, index):
+        data = self.f_customer_combo.itemData(index)
+        if data and isinstance(data, dict):
+            self.f_contact.setText(data.get("contact", ""))
+            self.f_email.setText(data.get("email", ""))
+            self.f_address.setText(data.get("address", ""))
+        else:
+            self.f_contact.clear()
+            self.f_email.clear()
+            self.f_address.clear()
 
     def _build_step1(self):
         w = QWidget()
@@ -476,16 +508,10 @@ class BookingModal(QDialog):
 
     def _validate_current(self):
         if self._step == 0:
-            if not self.f_name.text().strip():
-                self.f_name.setFocus()
-                self.f_name.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px; background: #1F2937; color: #F9FAFB; padding: 8px 14px;")
+            if self.f_customer_combo.currentIndex() <= 0 or self.f_customer_combo.itemData(self.f_customer_combo.currentIndex()) is None:
+                self.f_customer_combo.setStyleSheet("border: 1px solid #EF4444;")
                 return False
-            self.f_name.setStyleSheet("")
-            if not self.f_contact.text().strip():
-                self.f_contact.setFocus()
-                self.f_contact.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px; background: #1F2937; color: #F9FAFB; padding: 8px 14px;")
-                return False
-            self.f_contact.setStyleSheet("")
+            self.f_customer_combo.setStyleSheet("")
         if self._step == 1:
             if not self.f_occasion.text().strip():
                 self.f_occasion.setFocus()
@@ -528,8 +554,9 @@ class BookingModal(QDialog):
         rate = _PACKAGES[self._selected_pkg][3]
         total = pax * rate
 
+        selected_customer = self.f_customer_combo.itemData(self.f_customer_combo.currentIndex()) or {}
         data = {
-            "name":         self.f_name.text().strip(),
+            "name":         selected_customer.get("name", ""),
             "contact":      self.f_contact.text().strip(),
             "email":        self.f_email.text().strip(),
             "address":      self.f_address.text().strip(),
