@@ -582,6 +582,37 @@ def get_event_alert_candidates() -> list[dict]:
     return db.callproc_cursor("sp_get_event_alert_candidates", "event_alert_cursor")
 
 
+def get_upcoming_bookings_for_alerts() -> list[dict]:
+    from datetime import datetime, date as date_type, time as time_type
+    rows = db.fetchall(
+        """
+        SELECT booking_ref, customer_name, event_date, event_time
+        FROM bookings
+        WHERE status != 'CANCELLED'
+          AND (event_date + event_time) >= NOW() - INTERVAL '10 minutes'
+          AND (event_date + event_time) <= NOW() + INTERVAL '25 hours'
+        ORDER BY event_date, event_time
+        """
+    )
+    result = []
+    for r in rows:
+        try:
+            ed = r["event_date"]
+            et = r["event_time"]
+            if isinstance(ed, date_type) and isinstance(et, time_type):
+                event_dt = datetime.combine(ed, et)
+            else:
+                continue
+            result.append({
+                "booking_ref":   r["booking_ref"],
+                "customer_name": r["customer_name"],
+                "event_dt":      event_dt,
+            })
+        except Exception:
+            continue
+    return result
+
+
 def get_unread_notifications() -> list[dict]:
     rows = db.fetchall(
         """

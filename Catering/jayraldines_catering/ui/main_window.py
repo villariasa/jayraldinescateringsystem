@@ -5,6 +5,7 @@ from PySide6.QtCore import Signal, QTimer
 from components.sidebar import Sidebar
 from components.topbar import TopBar
 from components.notifications_panel import NotificationPopover, reload_notifications
+from components.toast import ToastManager
 from ui.dashboard_page import DashboardPage
 from ui.booking_page import BookingPage
 from ui.customers_page import CustomersPage
@@ -97,6 +98,8 @@ class MainWindow(QMainWindow):
 
         self._notif_popover.all_read.connect(self._on_all_read)
 
+        self._toast_manager = ToastManager(self)
+
         from utils.notif_scheduler import NotifScheduler
         self._scheduler = NotifScheduler(self)
         self._scheduler.new_notification.connect(self._on_new_notification)
@@ -136,8 +139,9 @@ class MainWindow(QMainWindow):
         if self._notif_popover.isVisible():
             self._notif_popover._refresh_list()
 
-    def _on_new_notification(self):
+    def _on_new_notification(self, title: str, message: str, color: str):
         self._poll_notifications()
+        self._toast_manager.show(title, message, color, duration_ms=7000)
 
     def _on_all_read(self):
         self.topbar.notif_badge.setText("0")
