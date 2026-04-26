@@ -39,7 +39,7 @@ class NotifScheduler(QObject):
                 fired = True
             elif window == "1_min":
                 repo.push_notification(
-                    "danger",
+                    "error",
                     f"Event Starting Now: {ref}",
                     f"{name}'s event is starting now. All hands on deck!",
                     "#EF4444",

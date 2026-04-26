@@ -37,7 +37,7 @@ _TYPE_GROUPS = {
     "warning": "Payments",
     "success": "Orders",
     "info":    "System",
-    "danger":  "System",
+    "error":   "System",
 }
 
 
