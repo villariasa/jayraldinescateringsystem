@@ -29,12 +29,20 @@ class NotifScheduler(QObject):
                     "#F59E0B",
                 )
                 fired = True
+            elif window == "30_min":
+                repo.push_notification(
+                    "warning",
+                    f"Event in 30 Minutes: {ref}",
+                    f"{name}'s event starts in 30 minutes. Last-minute preparations needed.",
+                    "#F97316",
+                )
+                fired = True
             elif window == "1_min":
                 repo.push_notification(
-                    "info",
+                    "danger",
                     f"Event Starting Now: {ref}",
-                    f"{name}'s event starts in 1 minute. Final checks needed.",
-                    "#3B82F6",
+                    f"{name}'s event is starting now. All hands on deck!",
+                    "#EF4444",
                 )
                 fired = True
         if fired:

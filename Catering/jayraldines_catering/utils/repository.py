@@ -571,7 +571,11 @@ def get_low_stock_items() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def push_notification(type_: str, title: str, message: str, color: str = "#3B82F6") -> None:
-    db.callproc_void("sp_push_notification", in_params=(type_, title, message, color))
+    db.callproc_out(
+        "sp_push_notification",
+        in_params=(type_, title, message, color),
+        out_names=["p_id"],
+    )
 
 
 def get_event_alert_candidates() -> list[dict]:

@@ -1127,22 +1127,30 @@ BEGIN
         w.window_label
     FROM bookings b
     CROSS JOIN (
-        VALUES ('1_day'), ('1_min')
+        VALUES ('1_day'), ('30_min'), ('1_min')
     ) AS w(window_label)
     WHERE b.status != 'CANCELLED'
       AND (
           (w.window_label = '1_day' AND
-           (b.event_date + b.event_time) BETWEEN NOW() + INTERVAL '23 hours 59 minutes'
-                                              AND NOW() + INTERVAL '24 hours 1 minute')
+           (b.event_date + b.event_time) BETWEEN NOW() + INTERVAL '23 hours'
+                                              AND NOW() + INTERVAL '25 hours')
+          OR
+          (w.window_label = '30_min' AND
+           (b.event_date + b.event_time) BETWEEN NOW() + INTERVAL '28 minutes'
+                                              AND NOW() + INTERVAL '32 minutes')
           OR
           (w.window_label = '1_min' AND
-           (b.event_date + b.event_time) BETWEEN NOW() + INTERVAL '59 seconds'
-                                              AND NOW() + INTERVAL '61 seconds')
+           (b.event_date + b.event_time) BETWEEN NOW()
+                                              AND NOW() + INTERVAL '5 minutes')
       )
       AND NOT EXISTS (
           SELECT 1 FROM notifications n
           WHERE n.title LIKE '%' || b.booking_ref || '%'
-            AND n.title LIKE '%' || CASE w.window_label WHEN '1_day' THEN '1 Day' ELSE '1 Minute' END || '%'
+            AND n.title LIKE CASE w.window_label
+                               WHEN '1_day'  THEN '%Tomorrow%'
+                               WHEN '30_min' THEN '%30 Minutes%'
+                               ELSE '%Starting Now%'
+                             END
             AND n.created_at >= NOW() - INTERVAL '2 hours'
       );
 END;
