@@ -4,11 +4,11 @@ import utils.repository as repo
 
 
 _WINDOWS = [
-    ("1_day",  timedelta(hours=24),  timedelta(hours=1),   "warning", "Reminder: {ref} Tomorrow",
+    ("1_day",  timedelta(hours=24),  timedelta(hours=1),    "warning", "Reminder: {ref} Tomorrow",
      "{name}'s event is happening tomorrow. Ensure all preparations are ready.", "#F59E0B"),
-    ("30_min", timedelta(minutes=30), timedelta(minutes=2), "warning", "Event in 30 Minutes: {ref}",
+    ("30_min", timedelta(minutes=30), timedelta(minutes=3), "warning", "Event in 30 Minutes: {ref}",
      "{name}'s event starts in 30 minutes. Last-minute preparations needed.", "#F97316"),
-    ("1_min",  timedelta(minutes=0),  timedelta(minutes=5), "error",   "Event Starting Now: {ref}",
+    ("now",    timedelta(minutes=0),  timedelta(minutes=6), "error",   "Event Starting Now: {ref}",
      "{name}'s event is starting now. All hands on deck!", "#EF4444"),
 ]
 

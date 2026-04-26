@@ -1,37 +1,14 @@
+from datetime import datetime, timezone
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QWidget, QApplication
 )
 from PySide6.QtCore import Qt, QSize, QPoint, QEvent, QTimer, Signal
-from PySide6.QtGui import QColor
 
 from utils.icons import get_icon
 import utils.repository as repo
 
 
-_DEFAULT_NOTIFICATIONS = [
-    {
-        "type":    "warning",
-        "title":   "Payment Pending",
-        "message": "Invoice #BKG-002 (Smith Wedding) requires a 50% downpayment of ₱60,000.",
-        "time":    "1 hour ago",
-        "color":   "#F59E0B",
-    },
-    {
-        "type":    "success",
-        "title":   "Booking Confirmed",
-        "message": "TechCorp Inc. booking for Oct 24 has been confirmed. 150 pax.",
-        "time":    "3 hours ago",
-        "color":   "#22C55E",
-    },
-    {
-        "type":    "info",
-        "title":   "New Booking Request",
-        "message": "Cruz Corporate submitted an event inquiry for Apr 30, 2026.",
-        "time":    "5 hours ago",
-        "color":   "#3B82F6",
-    },
-]
 
 _TYPE_GROUPS = {
     "warning": "Payments",
@@ -41,21 +18,45 @@ _TYPE_GROUPS = {
 }
 
 
+def _relative_time(created_at) -> str:
+    try:
+        if created_at is None:
+            return "just now"
+        now = datetime.now(timezone.utc)
+        if hasattr(created_at, 'tzinfo') and created_at.tzinfo is not None:
+            diff = now - created_at
+        else:
+            diff = datetime.now() - created_at
+        secs = int(diff.total_seconds())
+        if secs < 60:
+            return "just now"
+        if secs < 3600:
+            return f"{secs // 60}m ago"
+        if secs < 86400:
+            return f"{secs // 3600}h ago"
+        return f"{secs // 86400}d ago"
+    except Exception:
+        return "just now"
+
+
 def _load_notifications():
-    db_rows = repo.get_unread_notifications()
-    if db_rows:
-        return [{
-            "type":    r["type"],
-            "title":   r["title"],
-            "message": r["message"],
-            "time":    "just now",
-            "color":   r.get("color", "#9CA3AF"),
-            "db_id":   r["id"],
-        } for r in db_rows]
-    return []
+    try:
+        db_rows = repo.get_unread_notifications()
+    except Exception:
+        return []
+    if not db_rows:
+        return []
+    return [{
+        "type":       r["type"],
+        "title":      r["title"],
+        "message":    r["message"],
+        "time":       _relative_time(r.get("created_at")),
+        "color":      r.get("color") or "#9CA3AF",
+        "db_id":      r["id"],
+    } for r in db_rows]
 
 
-_notifications = _load_notifications()
+_notifications: list = []
 
 
 def reload_notifications() -> int:

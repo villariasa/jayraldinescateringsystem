@@ -196,14 +196,13 @@ class BookingPage(QWidget):
             amt_lbl.setContentsMargins(8, 0, 0, 0)
             self.table.setCellWidget(row, 3, amt_lbl)
 
-            bname = b["name"]
-            bid = b.get("db_id")
+            bref = b["id"]
             self.table.setCellWidget(row, 4, _status_badge(b["status"]))
 
             actions = _action_buttons(
                 b["status"],
-                on_approve=lambda _, n=bname: self._approve_booking(n),
-                on_decline=lambda _, n=bname: self._decline_booking(n),
+                on_approve=lambda _, r=bref: self._approve_booking(r),
+                on_decline=lambda _, r=bref: self._decline_booking(r),
             )
             self.table.setCellWidget(row, 5, actions)
 
@@ -217,7 +216,7 @@ class BookingPage(QWidget):
             edit_btn.setEnabled(b["status"] == "PENDING")
             if b["status"] != "PENDING":
                 edit_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
-            edit_btn.clicked.connect(lambda _, n=bname: self._edit_booking(n))
+            edit_btn.clicked.connect(lambda _, r=bref: self._edit_booking(r))
             self.table.setCellWidget(row, 6, edit_btn)
 
             del_btn = QPushButton()
@@ -227,56 +226,53 @@ class BookingPage(QWidget):
             del_btn.setStyleSheet("border:none;background:transparent;")
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.setToolTip("Delete booking")
-            del_btn.clicked.connect(lambda _, n=bname: self._delete_booking(n))
+            del_btn.clicked.connect(lambda _, r=bref: self._delete_booking(r))
             self.table.setCellWidget(row, 7, del_btn)
 
-    def _approve_booking(self, name):
-        for b in self._bookings:
-            if b["name"] == name:
-                if b["status"] != "PENDING":
-                    return
-                if not confirm(self, title="Approve Booking",
-                               message=f"Approve booking for '{name}'?",
-                               confirm_label="Approve"):
-                    return
-                b["status"] = "CONFIRMED"
-                if b.get("db_id"):
-                    repo.update_booking_status(b["db_id"], "CONFIRMED")
-                break
+    def _approve_booking(self, ref):
+        b = next((x for x in self._bookings if x["id"] == ref), None)
+        if not b or b["status"] != "PENDING":
+            return
+        if not confirm(self, title="Approve Booking",
+                       message=f"Approve booking for '{b['name']}'?",
+                       confirm_label="Approve"):
+            return
+        b["status"] = "CONFIRMED"
+        if b.get("db_id"):
+            repo.update_booking_status(b["db_id"], "CONFIRMED")
         self._populate_table()
         success(self, message="Booking approved successfully.")
 
-    def _decline_booking(self, name):
-        for b in self._bookings:
-            if b["name"] == name:
-                if b["status"] != "PENDING":
-                    return
-                if not confirm(self, title="Decline Booking",
-                               message=f"Decline booking for '{name}'? This will mark it as Cancelled.",
-                               confirm_label="Decline", danger=True):
-                    return
-                b["status"] = "CANCELLED"
-                if b.get("db_id"):
-                    repo.update_booking_status(b["db_id"], "CANCELLED")
-                break
+    def _decline_booking(self, ref):
+        b = next((x for x in self._bookings if x["id"] == ref), None)
+        if not b or b["status"] != "PENDING":
+            return
+        if not confirm(self, title="Decline Booking",
+                       message=f"Decline booking for '{b['name']}'? This will mark it as Cancelled.",
+                       confirm_label="Decline", danger=True):
+            return
+        b["status"] = "CANCELLED"
+        if b.get("db_id"):
+            repo.update_booking_status(b["db_id"], "CANCELLED")
         self._populate_table()
         success(self, message="Booking declined.")
 
-    def _delete_booking(self, name):
+    def _delete_booking(self, ref):
+        b = next((x for x in self._bookings if x["id"] == ref), None)
+        if not b:
+            return
         if not confirm(self, title="Delete Booking",
-                       message=f"Are you sure you want to delete booking for '{name}'? This cannot be undone.",
+                       message=f"Are you sure you want to delete booking for '{b['name']}'? This cannot be undone.",
                        confirm_label="Delete", danger=True):
             return
-        for b in self._bookings:
-            if b["name"] == name and b.get("db_id"):
-                repo.delete_booking(b["db_id"])
-                break
-        self._bookings = [b for b in self._bookings if b["name"] != name]
+        if b.get("db_id"):
+            repo.delete_booking(b["db_id"])
+        self._bookings = [x for x in self._bookings if x["id"] != ref]
         self._populate_table()
         success(self, message="Booking deleted successfully.")
 
-    def _edit_booking(self, name):
-        b = next((x for x in self._bookings if x["name"] == name), None)
+    def _edit_booking(self, ref):
+        b = next((x for x in self._bookings if x["id"] == ref), None)
         if not b or b["status"] != "PENDING":
             return
         modal = BookingModal(self, booking_data=b)

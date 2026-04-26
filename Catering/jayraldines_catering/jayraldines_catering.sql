@@ -247,10 +247,10 @@ CREATE TABLE notifications (
     created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO notifications (type, title, message, color) VALUES
-  ('warning', 'Payment Pending',    'Invoice #BKG-002 (Smith Wedding) requires a 50% downpayment of ₱60,000.',  '#F59E0B'),
-  ('success', 'Booking Confirmed',  'TechCorp Inc. booking for Oct 24 has been confirmed. 150 pax.',             '#22C55E'),
-  ('info',    'New Booking Request','Cruz Corporate submitted an event inquiry for Apr 30, 2026.',               '#3B82F6');
+INSERT INTO notifications (type, title, message, color, is_read) VALUES
+  ('warning', 'Payment Pending',    'Invoice #BKG-002 (Smith Wedding) requires a 50% downpayment of ₱60,000.',  '#F59E0B', TRUE),
+  ('success', 'Booking Confirmed',  'TechCorp Inc. booking for Oct 24 has been confirmed. 150 pax.',             '#22C55E', TRUE),
+  ('info',    'New Booking Request','Cruz Corporate submitted an event inquiry for Apr 30, 2026.',               '#3B82F6', TRUE);
 
 -- =============================================================================
 -- SEQUENCES for reference number generation
@@ -876,7 +876,7 @@ SELECT
     b.status
 FROM bookings b
 WHERE b.event_date >= CURRENT_DATE
-  AND b.status != 'CANCELLED'
+  AND b.status = 'CONFIRMED'
 ORDER BY b.event_date, b.event_time;
 
 -- =============================================================================

@@ -589,8 +589,8 @@ def get_upcoming_bookings_for_alerts() -> list[dict]:
         SELECT booking_ref, customer_name, event_date, event_time
         FROM bookings
         WHERE status != 'CANCELLED'
-          AND (event_date + event_time) >= NOW() - INTERVAL '10 minutes'
-          AND (event_date + event_time) <= NOW() + INTERVAL '25 hours'
+          AND event_date >= CURRENT_DATE - INTERVAL '1 day'
+          AND event_date <= CURRENT_DATE + INTERVAL '2 days'
         ORDER BY event_date, event_time
         """
     )
@@ -600,7 +600,7 @@ def get_upcoming_bookings_for_alerts() -> list[dict]:
             ed = r["event_date"]
             et = r["event_time"]
             if isinstance(ed, date_type) and isinstance(et, time_type):
-                event_dt = datetime.combine(ed, et)
+                event_dt = datetime.combine(ed, et.replace(tzinfo=None) if hasattr(et, 'tzinfo') else et)
             else:
                 continue
             result.append({
@@ -608,7 +608,8 @@ def get_upcoming_bookings_for_alerts() -> list[dict]:
                 "customer_name": r["customer_name"],
                 "event_dt":      event_dt,
             })
-        except Exception:
+        except Exception as e:
+            print(f"[alerts] skip row: {e}")
             continue
     return result
 
@@ -616,7 +617,7 @@ def get_upcoming_bookings_for_alerts() -> list[dict]:
 def get_unread_notifications() -> list[dict]:
     rows = db.fetchall(
         """
-        SELECT id, type, title, message, color
+        SELECT id, type, title, message, color, created_at
         FROM notifications WHERE is_read = FALSE ORDER BY created_at DESC
         """
     )
