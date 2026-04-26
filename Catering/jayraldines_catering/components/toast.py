@@ -1,25 +1,25 @@
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, Property, QRect
-from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QApplication
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
 
 
 _COLOR_MAP = {
-    "#F59E0B": ("#F59E0B", "rgba(245,158,11,0.12)"),
-    "#F97316": ("#F97316", "rgba(249,115,22,0.12)"),
-    "#EF4444": ("#EF4444", "rgba(239,68,68,0.12)"),
-    "#22C55E": ("#22C55E", "rgba(34,197,94,0.12)"),
-    "#3B82F6": ("#3B82F6", "rgba(59,130,246,0.12)"),
+    "#F59E0B": "#F59E0B",
+    "#F97316": "#F97316",
+    "#EF4444": "#EF4444",
+    "#22C55E": "#22C55E",
+    "#3B82F6": "#3B82F6",
 }
 
 
 class Toast(QWidget):
-    def __init__(self, title: str, message: str, color: str = "#3B82F6", parent=None):
-        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+    def __init__(self, title: str, message: str, color: str = "#3B82F6"):
+        super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.setFixedWidth(360)
 
-        accent, bg = _COLOR_MAP.get(color, (color, "rgba(59,130,246,0.12)"))
+        accent = _COLOR_MAP.get(color, color)
 
         container = QWidget(self)
         container.setObjectName("toastContainer")
@@ -68,9 +68,9 @@ class Toast(QWidget):
         self._auto_timer.setSingleShot(True)
         self._auto_timer.timeout.connect(self._dismiss)
 
-    def show_toast(self, duration_ms: int = 6000):
+    def show_toast(self, x: int, y: int, duration_ms: int = 7000):
         self.adjustSize()
-        self._position()
+        self.move(x, y)
         self.setWindowOpacity(0.0)
         self.show()
         self.raise_()
@@ -84,19 +84,6 @@ class Toast(QWidget):
 
         self._auto_timer.start(duration_ms)
 
-    def _position(self):
-        parent = self.parent()
-        if parent and parent.isVisible():
-            pr = parent.geometry()
-            x = pr.right() - self.width() - 20
-            y = pr.top() + 72
-        else:
-            from PySide6.QtWidgets import QApplication
-            screen = QApplication.primaryScreen().availableGeometry()
-            x = screen.right() - self.width() - 20
-            y = screen.top() + 72
-        self.move(x, y)
-
     def _dismiss(self):
         self._auto_timer.stop()
         self._anim_out = QPropertyAnimation(self, b"windowOpacity")
@@ -109,35 +96,57 @@ class Toast(QWidget):
 
 
 class ToastManager:
-    def __init__(self, parent=None):
-        self._parent = parent
+    _MARGIN_RIGHT = 20
+    _MARGIN_TOP   = 72
+    _GAP          = 10
+
+    def __init__(self):
         self._stack: list[Toast] = []
 
-    def show(self, title: str, message: str, color: str = "#3B82F6", duration_ms: int = 6000):
-        toast = Toast(title, message, color, self._parent)
-        toast.destroyed.connect(lambda: self._on_closed(toast))
+    def show(self, title: str, message: str, color: str = "#3B82F6", duration_ms: int = 7000):
+        toast = Toast(title, message, color)
         self._stack.append(toast)
         self._reposition()
-        toast.show_toast(duration_ms)
+        x, y = self._pos_for(len(self._stack) - 1)
+        toast.show_toast(x, y, duration_ms)
+        toast.destroyed.connect(lambda: self._remove(toast))
 
-    def _on_closed(self, toast):
-        if toast in self._stack:
+    def _remove(self, toast: Toast):
+        try:
             self._stack.remove(toast)
+        except ValueError:
+            pass
         self._reposition()
 
-    def _reposition(self):
-        parent = self._parent
-        if parent and parent.isVisible():
-            pr = parent.geometry()
-            base_x = pr.right() - 380
-            base_y = pr.top() + 72
-        else:
-            from PySide6.QtWidgets import QApplication
-            screen = QApplication.primaryScreen().availableGeometry()
-            base_x = screen.right() - 380
-            base_y = screen.top() + 72
+    def _screen_rect(self):
+        screen = QApplication.primaryScreen()
+        if screen:
+            return screen.availableGeometry()
+        return None
 
+    def _pos_for(self, idx: int):
+        rect = self._screen_rect()
+        if rect is None:
+            return 100, 100
+        base_x = rect.right() - 360 - self._MARGIN_RIGHT
+        base_y = rect.top() + self._MARGIN_TOP
+        offset = 0
+        for i, t in enumerate(self._stack):
+            if i == idx:
+                break
+            offset += t.height() + self._GAP
+        return base_x, base_y + offset
+
+    def _reposition(self):
+        rect = self._screen_rect()
+        if rect is None:
+            return
+        base_x = rect.right() - 360 - self._MARGIN_RIGHT
+        base_y = rect.top() + self._MARGIN_TOP
         offset = 0
         for t in self._stack:
-            t.move(base_x, base_y + offset)
-            offset += t.height() + 10
+            try:
+                t.move(base_x, base_y + offset)
+                offset += t.height() + self._GAP
+            except RuntimeError:
+                pass

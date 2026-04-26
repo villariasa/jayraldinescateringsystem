@@ -92,13 +92,11 @@ class MainWindow(QMainWindow):
         self.dashboard_page.new_booking_requested.connect(lambda: self._navigate(1))
 
         self._notif_popover = NotificationPopover(parent=self)
-        self.topbar.notif_btn.clicked.connect(
-            lambda: self._notif_popover.toggle_anchored(self.topbar.notif_btn)
-        )
+        self.topbar.notif_btn.clicked.connect(self._open_notif_popover)
 
         self._notif_popover.all_read.connect(self._on_all_read)
 
-        self._toast_manager = ToastManager(self)
+        self._toast_manager = ToastManager()
 
         from utils.notif_scheduler import NotifScheduler
         self._scheduler = NotifScheduler(self)
@@ -131,6 +129,10 @@ class MainWindow(QMainWindow):
             self.showMaximized()
         else:
             self.showFullScreen()
+
+    def _open_notif_popover(self):
+        self._poll_notifications()
+        self._notif_popover.toggle_anchored(self.topbar.notif_btn)
 
     def _poll_notifications(self):
         count = reload_notifications()
