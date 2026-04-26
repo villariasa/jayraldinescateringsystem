@@ -52,7 +52,7 @@ def _load_notifications():
             "color":   r.get("color", "#9CA3AF"),
             "db_id":   r["id"],
         } for r in db_rows]
-    return list(_DEFAULT_NOTIFICATIONS)
+    return []
 
 
 _notifications = _load_notifications()

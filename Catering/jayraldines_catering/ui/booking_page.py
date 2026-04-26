@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
-from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red
+from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red, get_icon
 from components.booking_modal import BookingModal
 from components.dialogs import confirm, success
 from components.filter_popover import FilterPopover
@@ -44,28 +44,30 @@ def _action_buttons(status, on_approve, on_decline):
     row.setContentsMargins(4, 0, 4, 0)
     row.setSpacing(6)
     if status == "PENDING":
-        approve_btn = QPushButton("Approve")
+        approve_btn = QPushButton("✓")
+        approve_btn.setFixedSize(28, 28)
         approve_btn.setStyleSheet(
-            "font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px;"
+            "font-size:14px;font-weight:700;border-radius:14px;"
             "background:rgba(34,197,94,.15);color:#22C55E;border:1px solid rgba(34,197,94,.3);"
-            "QPushButton:hover{background:rgba(34,197,94,.3);}"
         )
         approve_btn.setCursor(Qt.PointingHandCursor)
+        approve_btn.setToolTip("Approve")
         approve_btn.clicked.connect(on_approve)
         row.addWidget(approve_btn)
 
-        decline_btn = QPushButton("Decline")
+        decline_btn = QPushButton("✕")
+        decline_btn.setFixedSize(28, 28)
         decline_btn.setStyleSheet(
-            "font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px;"
+            "font-size:13px;font-weight:700;border-radius:14px;"
             "background:rgba(239,68,68,.15);color:#EF4444;border:1px solid rgba(239,68,68,.3);"
-            "QPushButton:hover{background:rgba(239,68,68,.3);}"
         )
         decline_btn.setCursor(Qt.PointingHandCursor)
+        decline_btn.setToolTip("Decline")
         decline_btn.clicked.connect(on_decline)
         row.addWidget(decline_btn)
     else:
-        locked_lbl = QLabel("Locked")
-        locked_lbl.setStyleSheet("font-size:11px;color:#6B7280;")
+        locked_lbl = QLabel("—")
+        locked_lbl.setStyleSheet("font-size:13px;color:#374151;")
         row.addWidget(locked_lbl)
     row.addStretch()
     return widget
@@ -137,11 +139,14 @@ class BookingPage(QWidget):
         t_head.addWidget(btn_export)
         table_layout.addLayout(t_head)
 
-        self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["DATE", "CLIENT NAME", "PAX", "TOTAL AMOUNT", "STATUS", "ACTIONS", ""])
+        self.table = QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels(["DATE", "CLIENT NAME", "PAX", "TOTAL AMOUNT", "STATUS", "ACTIONS", "", ""])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Fixed)
+        self.table.setColumnWidth(6, 36)
+        self.table.setColumnWidth(7, 36)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setFocusPolicy(Qt.NoFocus)
         self.table.setSelectionMode(QTableWidget.NoSelection)
@@ -198,14 +203,28 @@ class BookingPage(QWidget):
             )
             self.table.setCellWidget(row, 5, actions)
 
+            edit_btn = QPushButton()
+            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(14, 14)))
+            edit_btn.setIconSize(QSize(14, 14))
+            edit_btn.setFixedSize(32, 32)
+            edit_btn.setStyleSheet("background:transparent;border:none;")
+            edit_btn.setCursor(Qt.PointingHandCursor)
+            edit_btn.setToolTip("Edit booking")
+            edit_btn.setEnabled(b["status"] == "PENDING")
+            if b["status"] != "PENDING":
+                edit_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
+            edit_btn.clicked.connect(lambda _, n=bname: self._edit_booking(n))
+            self.table.setCellWidget(row, 6, edit_btn)
+
             del_btn = QPushButton()
             del_btn.setIcon(btn_icon_red("trash"))
-            del_btn.setIconSize(QSize(15, 15))
+            del_btn.setIconSize(QSize(14, 14))
+            del_btn.setFixedSize(32, 32)
             del_btn.setStyleSheet("border:none;background:transparent;")
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.setToolTip("Delete booking")
             del_btn.clicked.connect(lambda _, n=bname: self._delete_booking(n))
-            self.table.setCellWidget(row, 6, del_btn)
+            self.table.setCellWidget(row, 7, del_btn)
 
     def _approve_booking(self, name):
         for b in self._bookings:
@@ -251,6 +270,26 @@ class BookingPage(QWidget):
         self._bookings = [b for b in self._bookings if b["name"] != name]
         self._populate_table()
         success(self, message="Booking deleted successfully.")
+
+    def _edit_booking(self, name):
+        b = next((x for x in self._bookings if x["name"] == name), None)
+        if not b or b["status"] != "PENDING":
+            return
+        modal = BookingModal(self, booking_data=b)
+        modal.booking_saved.connect(lambda data, orig=b: self._update_booking(orig, data))
+        modal.exec()
+
+    def _update_booking(self, orig, data):
+        if orig.get("db_id"):
+            repo.update_booking(orig["db_id"], data)
+        orig.update({
+            "name":  data["name"],
+            "date":  data["date"],
+            "pax":   str(data["pax"]),
+            "total": f"₱ {data['total']:,}",
+        })
+        self._populate_table()
+        success(self, message="Booking updated successfully.")
 
     def _open_modal(self):
         modal = BookingModal(self)

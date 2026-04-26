@@ -363,10 +363,14 @@ class CustomerFrequencyChart(QVBoxLayout):
 # ─────────────────────────────────────────────
 # MAIN REPORTS PAGE
 # ─────────────────────────────────────────────
+_PERIOD_LABELS = ["Today", "This Week", "This Month", "This Year", "All Time"]
+
+
 class ReportsPage(QWidget):
     def __init__(self):
         super().__init__()
         self.setObjectName("mainBackground")
+        self._period = "All Time"
 
         self.root_layout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
@@ -406,6 +410,30 @@ class ReportsPage(QWidget):
         self._btn_export.clicked.connect(self._export_csv)
         self._header_row.addWidget(self._btn_export)
         self.main_layout.addLayout(self._header_row)
+
+        # ── PERIOD FILTER CHIPS ───────────────────────────────────────────────
+        self._period_row = QHBoxLayout()
+        self._period_row.setSpacing(8)
+        self._period_btns = []
+        from PySide6.QtWidgets import QButtonGroup
+        self._period_group = QButtonGroup(self)
+        self._period_group.setExclusive(True)
+        for lbl in _PERIOD_LABELS:
+            btn = QPushButton(lbl)
+            btn.setCheckable(True)
+            btn.setFixedHeight(28)
+            btn.setChecked(lbl == "All Time")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(
+                "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
+                "background:transparent;color:#9CA3AF;border:1px solid #374151;"
+            )
+            self._period_group.addButton(btn)
+            self._period_btns.append(btn)
+            btn.toggled.connect(lambda checked, b=btn, p=lbl: self._on_period(b, p, checked))
+            self._period_row.addWidget(btn)
+        self._period_row.addStretch()
+        self.main_layout.addLayout(self._period_row)
 
         # ── KPI CARDS ────────────────────────────────────────────────────────
         self._kpi_layout = QHBoxLayout()
@@ -529,6 +557,83 @@ class ReportsPage(QWidget):
         # ── Final assembly ────────────────────────────────────────────────────
         self.scroll_area.setWidget(self.scroll_content)
         self.root_layout.addWidget(self.scroll_area)
+
+    # ── Period filter ─────────────────────────────────────────────────────────
+
+    def _on_period(self, btn, period, checked):
+        if not checked:
+            return
+        self._period = period
+        btn.setStyleSheet(
+            "border-radius:14px;font-size:12px;font-weight:700;padding:0 14px;"
+            "background:rgba(225,29,72,.15);color:#E11D48;border:1px solid rgba(225,29,72,.4);"
+        )
+        for b in self._period_btns:
+            if b is not btn:
+                b.setStyleSheet(
+                    "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
+                    "background:transparent;color:#9CA3AF;border:1px solid #374151;"
+                )
+        self._reload_kpis()
+        self._reload_table()
+
+    def _period_sql_filter(self) -> str:
+        p = self._period
+        if p == "Today":
+            return "AND DATE(event_date) = CURRENT_DATE"
+        if p == "This Week":
+            return "AND event_date >= date_trunc('week', CURRENT_DATE) AND event_date < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'"
+        if p == "This Month":
+            return "AND date_trunc('month', event_date) = date_trunc('month', CURRENT_DATE)"
+        if p == "This Year":
+            return "AND EXTRACT(YEAR FROM event_date) = EXTRACT(YEAR FROM CURRENT_DATE)"
+        return ""
+
+    def _reload_kpis(self):
+        fltr = self._period_sql_filter()
+        kpis = repo.get_report_kpis(period_filter=fltr)
+        vals = [
+            str(kpis.get("total_bookings", 0)),
+            f"{int(kpis.get('total_pax', 0)):,}",
+            f"PHP {float(kpis.get('total_revenue', 0)):,.0f}",
+            f"PHP {float(kpis.get('unpaid_amount', 0)):,.0f}",
+        ]
+        subs = [
+            f"{kpis.get('today_bookings',0)} Today | {kpis.get('week_bookings',0)} This Week",
+            "All confirmed bookings",
+            "All-time revenue",
+            "Outstanding balance",
+        ]
+        for card, val, sub in zip(self._kpi_cards, vals, subs):
+            lay = card.layout()
+            for i in range(lay.count()):
+                w = lay.itemAt(i).widget()
+                if w and w.objectName() == "kpiValue":
+                    w.setText(val)
+                if w and w.objectName() == "subtitle":
+                    w.setText(sub)
+
+    def _reload_table(self):
+        fltr = self._period_sql_filter()
+        db_bookings = repo.get_all_bookings(period_filter=fltr) or []
+        self.table.setRowCount(len(db_bookings))
+        for row, b in enumerate(db_bookings):
+            self.table.setRowHeight(row, 64)
+            pax_val = int(b.get("pax", 0))
+            limit_status = "LIMIT REACHED" if pax_val >= 600 else ("NEAR LIMIT" if pax_val >= 400 else "")
+            id_lbl       = QLabel(
+                f"<span style='font-weight:700;font-size:13px;'>{b.get('id','')}</span>"
+                f"<br><span style='font-size:11px;color:#9CA3AF;'>{b.get('date','')}</span>"
+            )
+            client_lbl   = QLabel(f"<span style='font-weight:600;font-size:13px;'>{b.get('name','')}</span>")
+            package_lbl  = QLabel(f"<span style='font-size:13px;'>{b.get('package','—')}</span>")
+            pax_badge    = create_pax_limit_badge(pax_val, limit_status)
+            status_badge = create_status_badge(b.get("status", "").capitalize())
+            self.table.setCellWidget(row, 0, id_lbl)
+            self.table.setCellWidget(row, 1, client_lbl)
+            self.table.setCellWidget(row, 2, package_lbl)
+            self.table.setCellWidget(row, 3, pax_badge)
+            self.table.setCellWidget(row, 4, status_badge)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

@@ -110,6 +110,7 @@ class FilterPopover(QFrame):
                     chip.setChecked(True)
                 self._status_chips.append(chip)
                 self._status_group.addButton(chip)
+                chip.toggled.connect(lambda checked, c=chip: self._on_chip_toggled(c, checked))
                 chips_row.addWidget(chip)
             chips_row.addStretch()
             inner_lay.addLayout(chips_row)
@@ -130,49 +131,21 @@ class FilterPopover(QFrame):
             for c in self._categories:
                 chip = FilterChip(c, c)
                 self._cat_chips.append(chip)
+                chip.toggled.connect(lambda _: self._emit())
                 cat_lay.addWidget(chip)
             cat_lay.addStretch()
             inner_lay.addWidget(cat_wrap)
 
-        div2 = QFrame()
-        div2.setObjectName("divider")
-        inner_lay.addWidget(div2)
-
-        btn_row = QHBoxLayout()
-        reset_btn = QPushButton("Reset")
-        reset_btn.setObjectName("secondaryButton")
-        reset_btn.setFixedHeight(32)
-        reset_btn.setCursor(Qt.PointingHandCursor)
-        reset_btn.clicked.connect(self._reset)
-
-        apply_btn = QPushButton("Apply")
-        apply_btn.setObjectName("primaryButton")
-        apply_btn.setFixedHeight(32)
-        apply_btn.setCursor(Qt.PointingHandCursor)
-        apply_btn.clicked.connect(self._apply)
-
-        btn_row.addWidget(reset_btn)
-        btn_row.addStretch()
-        btn_row.addWidget(apply_btn)
-        inner_lay.addLayout(btn_row)
-
         lay.addWidget(inner)
 
-    def _reset(self):
-        for chip in self._status_chips:
-            chip.setChecked(chip.value == "All")
-        for chip in self._cat_chips:
-            chip.setChecked(False)
+    def _on_chip_toggled(self, chip, checked):
+        if checked:
+            self._emit()
 
-    def _apply(self):
+    def _emit(self):
         checked = next((c.value for c in self._status_chips if c.isChecked()), "All")
         selected_cats = [c.value for c in self._cat_chips if c.isChecked()]
-        result = {
-            "statuses":   [checked],
-            "categories": selected_cats,
-        }
-        self.filter_applied.emit(result)
-        self.hide()
+        self.filter_applied.emit({"statuses": [checked], "categories": selected_cats})
 
     def show_anchored(self, anchor_btn):
         global_pos = anchor_btn.mapToGlobal(QPoint(0, anchor_btn.height() + 6))

@@ -191,12 +191,14 @@ def get_all_packages() -> list[dict]:
 # BOOKINGS
 # ---------------------------------------------------------------------------
 
-def get_all_bookings() -> list[dict]:
+def get_all_bookings(period_filter: str = "") -> list[dict]:
     rows = db.fetchall(
-        """
+        f"""
         SELECT id, booking_ref, customer_name, event_date, pax,
                total_amount, status::TEXT
-        FROM bookings ORDER BY event_date DESC
+        FROM bookings
+        WHERE 1=1 {period_filter}
+        ORDER BY event_date DESC
         """
     )
     if not rows:
@@ -586,8 +588,22 @@ def get_upcoming_events(limit: int = 10) -> list[dict]:
     return [dict(r) for r in rows] if rows else []
 
 
-def get_report_kpis() -> dict:
-    row = db.fetchone("SELECT * FROM v_report_kpis")
+def get_report_kpis(period_filter: str = "") -> dict:
+    if period_filter:
+        row = db.fetchone(
+            f"""
+            SELECT
+                COUNT(*)::INT                               AS total_bookings,
+                COALESCE(SUM(pax),0)::INT                   AS total_pax,
+                COALESCE(SUM(total_amount),0)::FLOAT        AS total_revenue,
+                0::FLOAT                                    AS unpaid_amount,
+                COALESCE((SELECT COUNT(*) FROM bookings WHERE DATE(event_date)=CURRENT_DATE),0)::INT AS today_bookings,
+                COALESCE((SELECT COUNT(*) FROM bookings WHERE event_date BETWEEN date_trunc('week',CURRENT_DATE) AND date_trunc('week',CURRENT_DATE)+INTERVAL '6 days'),0)::INT AS week_bookings
+            FROM bookings WHERE 1=1 {period_filter}
+            """
+        )
+    else:
+        row = db.fetchone("SELECT * FROM v_report_kpis")
     if not row:
         return {"total_bookings": 0, "total_pax": 0, "total_revenue": 0.0,
                 "unpaid_amount": 0.0, "today_bookings": 0, "week_bookings": 0}
@@ -694,9 +710,10 @@ def get_calendar_events_for_date(event_date: date) -> list[dict]:
 def save_calendar_day(event_date: date, events: list[dict]) -> None:
     db.callproc_void("sp_delete_calendar_events_for_date", in_params=(event_date,))
     for ev in events:
-        db.callproc_void(
+        db.callproc_out(
             "sp_save_calendar_event",
-            in_params=(event_date, ev["name"], ev["pax"], ev["time"], ev["loc"]),
+            in_params=(event_date, ev["name"], int(ev.get("pax", 0)), str(ev.get("time", "06:00 PM")), str(ev.get("loc", "TBD"))),
+            out_names=["p_id"],
         )
 
 

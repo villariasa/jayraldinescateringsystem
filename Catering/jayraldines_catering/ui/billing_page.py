@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QDateEdit
 )
 from PySide6.QtCore import Qt, QSize, QDate
+from datetime import date as _date_type
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
@@ -15,6 +16,19 @@ import utils.repository as repo
 
 _STATUS_COLORS = {"Paid": "#22C55E", "Partial": "#F59E0B", "Unpaid": "#EF4444"}
 _STATUSES = ["Unpaid", "Partial", "Paid"]
+
+
+def _fmt_date(val) -> str:
+    if isinstance(val, _date_type):
+        return val.strftime("%b %d, %Y")
+    s = str(val)
+    q = QDate.fromString(s, "yyyy-MM-dd")
+    if q.isValid():
+        return q.toString("MMM dd, yyyy")
+    q2 = QDate.fromString(s, "MMM dd, yyyy")
+    if q2.isValid():
+        return q2.toString("MMM dd, yyyy")
+    return s
 
 
 class InvoiceDialog(QDialog):
@@ -234,7 +248,7 @@ class BillingPage(QWidget):
             self._table.insertRow(row)
             self._table.setItem(row, 0, QTableWidgetItem(inv.get("invoice", "")))
             self._table.setItem(row, 1, QTableWidgetItem(inv.get("customer", "")))
-            self._table.setItem(row, 2, QTableWidgetItem(str(inv.get("event_date", ""))))
+            self._table.setItem(row, 2, QTableWidgetItem(_fmt_date(inv.get("event_date", ""))))
             self._table.setItem(row, 3, QTableWidgetItem(f"₱{float(inv.get('amount', 0)):,.2f}"))
             self._table.setItem(row, 4, QTableWidgetItem(f"₱{float(inv.get('paid', 0)):,.2f}"))
 
@@ -286,7 +300,13 @@ class BillingPage(QWidget):
                         "paid":       result["paid"],
                         "status":     result["status"],
                     })
-                inv.update(result)
+                inv.update({
+                    "customer":   result["customer"],
+                    "event_date": _fmt_date(result["event_date"]),
+                    "amount":     result["amount"],
+                    "paid":       result["paid"],
+                    "status":     result["status"],
+                })
                 self._populate_table()
                 success(self, message="Invoice updated successfully.")
 
@@ -310,10 +330,13 @@ class BillingPage(QWidget):
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
             if result:
+                result["event_date"] = _fmt_date(result["event_date"])
                 db_result = repo.create_invoice(result)
                 if db_result:
                     result["db_id"]   = db_result.get("invoice_id")
                     result["invoice"] = db_result.get("invoice_ref", f"INV-{len(self._invoices)+1:03d}")
+                else:
+                    result["invoice"] = f"INV-{len(self._invoices)+1:03d}"
                 self._invoices.append(result)
                 self._populate_table()
                 success(self, message="Invoice created successfully.")

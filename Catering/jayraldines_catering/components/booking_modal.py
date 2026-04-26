@@ -107,9 +107,11 @@ class StepIndicator(QWidget):
 class BookingModal(QDialog):
     booking_saved = Signal(dict)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, booking_data=None):
         super().__init__(parent)
-        self.setWindowTitle("New Booking")
+        self._booking_data = booking_data or {}
+        self._edit_mode = bool(booking_data)
+        self.setWindowTitle("Edit Booking" if self._edit_mode else "New Booking")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMinimumSize(680, 620)
@@ -130,7 +132,7 @@ class BookingModal(QDialog):
         container_layout.setSpacing(24)
 
         title_row = QHBoxLayout()
-        self._title_lbl = QLabel("New Booking")
+        self._title_lbl = QLabel("Edit Booking" if self._edit_mode else "New Booking")
         self._title_lbl.setObjectName("h2")
         title_row.addWidget(self._title_lbl)
         title_row.addStretch()
@@ -208,9 +210,12 @@ class BookingModal(QDialog):
         self.f_customer_combo = QComboBox()
         self.f_customer_combo.setFixedHeight(38)
         self.f_customer_combo.setEditable(True)
-        self.f_customer_combo.addItem("-- Select Customer --", None)
+        self.f_customer_combo.setPlaceholderText("Search customer...")
+        self.f_customer_combo.addItem("", None)
         for c in self._customers:
             self.f_customer_combo.addItem(c["name"], c)
+        self.f_customer_combo.setCurrentIndex(0)
+        self.f_customer_combo.setEditText("")
         self.f_customer_combo.completer().setCompletionMode(QCompleter.PopupCompletion)
         self.f_customer_combo.completer().setFilterMode(Qt.MatchContains)
         self.f_customer_combo.currentIndexChanged.connect(self._on_customer_selected)
@@ -242,6 +247,15 @@ class BookingModal(QDialog):
         self.f_address.setStyleSheet("background:#111827;color:#9CA3AF;")
         lay.addWidget(self.f_address)
         lay.addStretch()
+
+        if self._edit_mode:
+            name = self._booking_data.get("name", "")
+            idx = self.f_customer_combo.findText(name)
+            if idx >= 0:
+                self.f_customer_combo.setCurrentIndex(idx)
+            else:
+                self.f_customer_combo.setEditText(name)
+
         return w
 
     def _on_customer_selected(self, index):
@@ -313,6 +327,29 @@ class BookingModal(QDialog):
         )
         lay.addWidget(self.f_notes)
         lay.addStretch()
+
+        if self._edit_mode:
+            from PySide6.QtCore import QDate, QTime
+            raw_date = self._booking_data.get("date", "")
+            for fmt in ("MMM dd, yyyy", "yyyy-MM-dd"):
+                d = QDate.fromString(raw_date, fmt)
+                if d.isValid():
+                    self.f_date.setDate(d)
+                    break
+            raw_time = self._booking_data.get("time", "")
+            for fmt in ("hh:mm AP", "HH:mm"):
+                t = QTime.fromString(raw_time, fmt)
+                if t.isValid():
+                    self.f_time.setTime(t)
+                    break
+            try:
+                self.f_pax.setValue(int(self._booking_data.get("pax", 100)))
+            except (ValueError, TypeError):
+                pass
+            self.f_notes.setPlainText(self._booking_data.get("notes", ""))
+            self.f_occasion.setText(self._booking_data.get("occasion", ""))
+            self.f_venue.setText(self._booking_data.get("venue", ""))
+
         return w
 
     def _build_step2(self):

@@ -18,6 +18,7 @@ _SAMPLE_ORDERS = [
 
 _STATUSES    = ["Queued", "Preparing", "In Progress", "Ready", "Delivered", "Cancelled"]
 _NEXT_STATUS = {"Queued": "Preparing", "Preparing": "In Progress", "In Progress": "Ready", "Ready": "Delivered"}
+_PREV_STATUS = {"Preparing": "Queued", "In Progress": "Preparing", "Ready": "In Progress", "Delivered": "Ready"}
 _COL_COLORS  = {
     "Queued":      "#F59E0B",
     "Preparing":   "#A855F7",
@@ -133,18 +134,29 @@ class KitchenPage(QWidget):
         lay.addWidget(items_lbl)
 
         next_s = _NEXT_STATUS.get(order["status"])
+        prev_s = _PREV_STATUS.get(order["status"])
         status = order["status"]
+
         if next_s:
-            if next_s == "Delivered":
-                btn = QPushButton("  Mark Delivered")
-                btn.setObjectName("primaryButton")
-            else:
-                btn = QPushButton(f"  Move to {next_s}")
-                btn.setObjectName("primaryButton")
+            fwd_label = "  Mark Delivered" if next_s == "Delivered" else f"  → {next_s}"
+            btn = QPushButton(fwd_label)
+            btn.setObjectName("primaryButton")
             btn.setFixedHeight(30)
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda checked=False, o=order: self._advance_order(o))
             lay.addWidget(btn)
+
+        if prev_s:
+            ret_btn = QPushButton(f"  ← Back to {prev_s}")
+            ret_btn.setFixedHeight(30)
+            ret_btn.setCursor(Qt.PointingHandCursor)
+            ret_btn.setStyleSheet(
+                "background:rgba(245,158,11,.12);color:#F59E0B;"
+                "border:1px solid rgba(245,158,11,.3);border-radius:6px;"
+                "font-size:11px;font-weight:600;"
+            )
+            ret_btn.clicked.connect(lambda checked=False, o=order: self._return_order(o))
+            lay.addWidget(ret_btn)
 
         if status not in ("Delivered", "Cancelled", "Done"):
             cancel_btn = QPushButton("  Cancel")
@@ -173,6 +185,15 @@ class KitchenPage(QWidget):
             self._refresh_columns()
             if next_s == "Delivered":
                 success(self, message=f"Order '{order['id']}' marked as Delivered.")
+
+    def _return_order(self, order):
+        prev_s = _PREV_STATUS.get(order["status"])
+        if not prev_s:
+            return
+        order["status"] = prev_s
+        if order.get("db_id"):
+            repo.update_order_status(order["db_id"], prev_s)
+        self._refresh_columns()
 
     def _cancel_order(self, order):
         if not confirm(self, title="Cancel Order",
