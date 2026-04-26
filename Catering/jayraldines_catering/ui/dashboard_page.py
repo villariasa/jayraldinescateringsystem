@@ -1,12 +1,14 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
-    QLabel, QPushButton, QProgressBar, QScrollArea
+    QLabel, QPushButton, QProgressBar, QScrollArea,
+    QFileDialog, QMessageBox, QMenu, QAction
 )
 from PySide6.QtCore import Qt, Signal, QSize, QTimer
 from datetime import datetime
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
 import utils.repository as repo
+from utils import exporter as _exporter
 
 
 class AnimatedCard(QFrame):
@@ -185,6 +187,7 @@ class DashboardPage(QWidget):
         btn_export.setObjectName("secondaryButton")
         btn_export.setIcon(btn_icon_secondary("export"))
         btn_export.setIconSize(QSize(15, 15))
+        btn_export.setMenu(self._build_export_menu())
 
         self.btn_new = QPushButton("  New Booking")
         self.btn_new.setObjectName("primaryButton")
@@ -329,6 +332,51 @@ class DashboardPage(QWidget):
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._load_data)
         self._refresh_timer.start(60_000)
+
+    def _build_export_menu(self):
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu{background:#1F2937;border:1px solid #374151;border-radius:8px;padding:4px;}"
+            "QMenu::item{color:#F9FAFB;padding:8px 20px;font-size:13px;border-radius:6px;}"
+            "QMenu::item:selected{background:#374151;}"
+        )
+        pdf_act = QAction("Export as PDF", self)
+        pdf_act.triggered.connect(self._export_pdf)
+        xlsx_act = QAction("Export as Excel (.xlsx)", self)
+        xlsx_act.triggered.connect(self._export_excel)
+        menu.addAction(pdf_act)
+        menu.addAction(xlsx_act)
+        return menu
+
+    def _export_pdf(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export PDF", "jayraldines_dashboard.pdf", "PDF Files (*.pdf)"
+        )
+        if not path:
+            return
+        kpis = repo.get_report_kpis()
+        bookings = repo.get_all_bookings() or []
+        ok = _exporter.export_pdf(path, kpis, bookings, "Dashboard Report", "All Time")
+        if ok:
+            QMessageBox.information(self, "Export", f"PDF exported to:\n{path}")
+        else:
+            QMessageBox.warning(self, "Export Failed",
+                "PDF export failed. Make sure reportlab is installed:\npip install reportlab")
+
+    def _export_excel(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Excel", "jayraldines_dashboard.xlsx", "Excel Files (*.xlsx)"
+        )
+        if not path:
+            return
+        kpis = repo.get_report_kpis()
+        bookings = repo.get_all_bookings() or []
+        ok = _exporter.export_excel(path, kpis, bookings, "Dashboard Report", "All Time")
+        if ok:
+            QMessageBox.information(self, "Export", f"Excel exported to:\n{path}")
+        else:
+            QMessageBox.warning(self, "Export Failed",
+                "Excel export failed. Make sure openpyxl is installed:\npip install openpyxl")
 
     def _load_data(self):
         kpis = repo.get_dashboard_kpis()

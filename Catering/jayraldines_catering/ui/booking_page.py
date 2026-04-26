@@ -44,22 +44,26 @@ def _action_buttons(status, on_approve, on_decline):
     row.setContentsMargins(4, 0, 4, 0)
     row.setSpacing(6)
     if status == "PENDING":
-        approve_btn = QPushButton("✓")
+        approve_btn = QPushButton()
+        approve_btn.setIcon(get_icon("check", color="#22C55E", size=QSize(16, 16)))
+        approve_btn.setIconSize(QSize(16, 16))
         approve_btn.setFixedSize(28, 28)
         approve_btn.setStyleSheet(
-            "font-size:14px;font-weight:700;border-radius:14px;"
-            "background:rgba(34,197,94,.15);color:#22C55E;border:1px solid rgba(34,197,94,.3);"
+            "border-radius:14px;"
+            "background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);"
         )
         approve_btn.setCursor(Qt.PointingHandCursor)
         approve_btn.setToolTip("Approve")
         approve_btn.clicked.connect(on_approve)
         row.addWidget(approve_btn)
 
-        decline_btn = QPushButton("✕")
+        decline_btn = QPushButton()
+        decline_btn.setIcon(get_icon("x-circle", color="#EF4444", size=QSize(16, 16)))
+        decline_btn.setIconSize(QSize(16, 16))
         decline_btn.setFixedSize(28, 28)
         decline_btn.setStyleSheet(
-            "font-size:13px;font-weight:700;border-radius:14px;"
-            "background:rgba(239,68,68,.15);color:#EF4444;border:1px solid rgba(239,68,68,.3);"
+            "border-radius:14px;"
+            "background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);"
         )
         decline_btn.setCursor(Qt.PointingHandCursor)
         decline_btn.setToolTip("Decline")

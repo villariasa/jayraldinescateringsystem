@@ -462,6 +462,40 @@ def delete_kitchen_order(db_id: int) -> None:
     db.callproc_void("sp_delete_kitchen_order", in_params=(db_id,))
 
 
+def sync_kitchen_from_bookings() -> int:
+    """Auto-add CONFIRMED bookings that have no kitchen_order yet. Returns count added."""
+    try:
+        rows = db.fetchall(
+            """
+            SELECT b.id, b.booking_ref, b.customer_name, b.occasion, b.pax, b.event_date
+            FROM bookings b
+            WHERE b.status = 'CONFIRMED'
+              AND NOT EXISTS (
+                  SELECT 1 FROM kitchen_orders ko WHERE ko.booking_id = b.id
+              )
+            ORDER BY b.event_date
+            """
+        )
+        if not rows:
+            return 0
+        count = 0
+        for r in rows:
+            occasion = r["occasion"] or "Catering Event"
+            items_desc = f"Event on {r['event_date']} — {int(r['pax'])} pax"
+            create_kitchen_order({
+                "booking_id": r["id"],
+                "client":     r["customer_name"],
+                "event":      occasion,
+                "pax":        int(r["pax"]),
+                "items":      items_desc,
+            })
+            count += 1
+        return count
+    except Exception as exc:
+        print(f"[repo] sync_kitchen_from_bookings: {exc}")
+        return 0
+
+
 # ---------------------------------------------------------------------------
 # INVENTORY
 # ---------------------------------------------------------------------------
@@ -701,14 +735,51 @@ def get_calendar_summary() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def get_calendar_events_for_date(event_date: date) -> list[dict]:
-    rows = db.fetchall(
+    result = []
+
+    booking_rows = db.fetchall(
+        """
+        SELECT booking_ref, customer_name, pax, event_time, venue, occasion, status::TEXT
+        FROM bookings
+        WHERE event_date = %s AND status NOT IN ('CANCELLED')
+        ORDER BY event_time
+        """,
+        (event_date,)
+    )
+    if booking_rows:
+        for r in booking_rows:
+            t = r["event_time"]
+            time_str = t.strftime("%I:%M %p").lstrip("0") if hasattr(t, "strftime") else str(t)
+            label = r["customer_name"]
+            if r["occasion"]:
+                label = f"{r['customer_name']} — {r['occasion']}"
+            result.append({
+                "id":     None,
+                "name":   label,
+                "pax":    int(r["pax"]),
+                "time":   time_str,
+                "loc":    r["venue"] or "TBD",
+                "source": "booking",
+                "ref":    r["booking_ref"],
+                "status": r["status"],
+            })
+
+    cal_rows = db.fetchall(
         "SELECT id, name, pax, event_time, location FROM calendar_events WHERE event_date = %s ORDER BY id",
         (event_date,)
     )
-    if not rows:
-        return []
-    return [{"id": r["id"], "name": r["name"], "pax": r["pax"],
-             "time": r["event_time"], "loc": r["location"]} for r in rows]
+    if cal_rows:
+        for r in cal_rows:
+            result.append({
+                "id":     r["id"],
+                "name":   r["name"],
+                "pax":    int(r["pax"]),
+                "time":   r["event_time"],
+                "loc":    r["location"],
+                "source": "manual",
+            })
+
+    return result
 
 
 def save_calendar_day(event_date: date, events: list[dict]) -> None:

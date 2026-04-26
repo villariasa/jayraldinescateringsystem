@@ -32,8 +32,9 @@ _COL_COLORS  = {
 class KitchenPage(QWidget):
     def __init__(self):
         super().__init__()
+        repo.sync_kitchen_from_bookings()
         db_rows = repo.get_all_orders()
-        self._orders = db_rows if db_rows else list(_SAMPLE_ORDERS)
+        self._orders = db_rows if db_rows else []
         self._build_ui()
         self._refresh_columns()
 

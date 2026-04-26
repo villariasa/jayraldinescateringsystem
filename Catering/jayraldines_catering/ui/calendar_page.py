@@ -78,23 +78,34 @@ class DayCell(QFrame):
 
 # --- HELPER: Schedule Item Card ---
 class ScheduleCard(AnimatedCard):
-    def __init__(self, event_name, pax, time, location):
+    def __init__(self, event_name, pax, time, location, source="manual", ref=None, status=None):
         super().__init__()
-        self.setStyleSheet("QFrame#card { border-left: 4px solid #E11D48; border-radius: 8px; }")
-        
+        border_color = "#3B82F6" if source == "booking" else "#E11D48"
+        self.setStyleSheet(f"QFrame#card {{ border-left: 4px solid {border_color}; border-radius: 8px; }}")
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
-        
+
         top_row = QHBoxLayout()
         title = QLabel(event_name)
         title.setObjectName("h3")
+        title.setWordWrap(True)
         pax_lbl = QLabel(f"{pax} pax")
         pax_lbl.setObjectName("badgeInfo")
-        top_row.addWidget(title)
-        top_row.addStretch()
+        top_row.addWidget(title, 1)
         top_row.addWidget(pax_lbl)
         layout.addLayout(top_row)
-        
+
+        if source == "booking" and ref:
+            ref_lbl = QLabel(f"Booking: {ref}")
+            ref_lbl.setStyleSheet("font-size:11px;color:#3B82F6;font-weight:600;")
+            layout.addWidget(ref_lbl)
+            if status:
+                st_colors = {"CONFIRMED": "#22C55E", "PENDING": "#F59E0B"}
+                st_lbl = QLabel(status.capitalize())
+                st_lbl.setStyleSheet(f"font-size:10px;font-weight:700;color:{st_colors.get(status,'#9CA3AF')};")
+                layout.addWidget(st_lbl)
+
         time_lbl = QLabel(f"Time: {time}")
         time_lbl.setObjectName("subtitle")
         loc_lbl = QLabel(f"Venue: {location}")
@@ -537,14 +548,12 @@ class CalendarPage(QWidget):
             updated = dlg.get_result()
             if updated is not None:
                 event_date = date_type(self.current_year, self.current_month, self._selected_day)
+                manual_only = [e for e in updated if e.get("source", "manual") == "manual"]
                 try:
-                    repo.save_calendar_day(event_date, updated)
+                    repo.save_calendar_day(event_date, manual_only)
                 except Exception:
                     pass
-                if updated:
-                    self._db_cache[db_key] = updated
-                elif db_key in self._db_cache:
-                    del self._db_cache[db_key]
+                self._load_month_data()
                 self.render_calendar()
                 self.on_day_clicked(self._selected_day)
                 success(self, message=f"Schedule for {date_str} updated successfully.")
@@ -579,12 +588,14 @@ class CalendarPage(QWidget):
         if db_key in self._db_cache:
             events = self._db_cache[db_key]
             total_pax = sum(e["pax"] for e in events)
-            
-            # --- THE FIX: Force RichText and use <br> here too ---
             self.lbl_capacity.setText(f"TOTAL CAPACITY<br><span style='font-size: 28px; font-weight: 800;'>{total_pax}</span> / 600 Pax")
-            
             for event in events:
-                card = ScheduleCard(event["name"], event["pax"], event["time"], event["loc"])
+                card = ScheduleCard(
+                    event["name"], event["pax"], event["time"], event["loc"],
+                    source=event.get("source", "manual"),
+                    ref=event.get("ref"),
+                    status=event.get("status"),
+                )
                 self.cards_container.addWidget(card)
         else:
             # --- THE FIX: Empty State ---

@@ -35,6 +35,7 @@ ICON_MAP = {
     "menu-collapse": "menu-collapse.svg",
     "trending-up":   "trending-up.svg",
     "edit":          "edit.svg",
+    "x-circle":      "x-circle.svg",
 }
 
 DEFAULT_SIZE  = QSize(20, 20)

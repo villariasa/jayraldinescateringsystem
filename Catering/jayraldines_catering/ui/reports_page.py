@@ -4,9 +4,11 @@ import os
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QHBoxLayout, QFrame, QLabel, QPushButton, QTableWidget,
                                QTableWidgetItem, QHeaderView, QScrollArea,
-                               QMessageBox, QToolTip, QFileDialog)
+                               QMessageBox, QToolTip, QFileDialog, QMenu, QAction)
 from PySide6.QtCore import Qt, QMargins, QPointF, QSize
 from PySide6.QtGui import QColor, QPainter, QLinearGradient, QPen, QCursor
+
+from utils import exporter as _exporter
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted
 import utils.repository as repo
@@ -403,11 +405,11 @@ class ReportsPage(QWidget):
         self._header_row.addLayout(self._v_title)
         self._header_row.addStretch()
 
-        self._btn_export = QPushButton("  Export CSV", self.scroll_content)
+        self._btn_export = QPushButton("  Export", self.scroll_content)
         self._btn_export.setObjectName("secondaryButton")
         self._btn_export.setIcon(btn_icon_secondary("export"))
         self._btn_export.setIconSize(QSize(16, 16))
-        self._btn_export.clicked.connect(self._export_csv)
+        self._btn_export.setMenu(self._build_export_menu())
         self._header_row.addWidget(self._btn_export)
         self.main_layout.addLayout(self._header_row)
 
@@ -662,27 +664,73 @@ class ReportsPage(QWidget):
         lay.addStretch()
         return card
 
-    def _export_csv(self):
+    def _build_export_menu(self):
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu{background:#1F2937;border:1px solid #374151;border-radius:8px;padding:4px;}"
+            "QMenu::item{color:#F9FAFB;padding:8px 20px;font-size:13px;border-radius:6px;}"
+            "QMenu::item:selected{background:#374151;}"
+        )
+        pdf_act = QAction("Export as PDF", self)
+        pdf_act.triggered.connect(self._export_pdf)
+        xlsx_act = QAction("Export as Excel (.xlsx)", self)
+        xlsx_act.triggered.connect(self._export_excel)
+        csv_act = QAction("Export as CSV", self)
+        csv_act.triggered.connect(self._export_csv)
+        menu.addAction(pdf_act)
+        menu.addAction(xlsx_act)
+        menu.addSeparator()
+        menu.addAction(csv_act)
+        return menu
+
+    def _get_export_data(self):
+        fltr = self._period_sql_filter()
+        kpis = repo.get_report_kpis(period_filter=fltr)
+        bookings = repo.get_all_bookings(period_filter=fltr) or []
+        return kpis, bookings, self._period
+
+    def _export_pdf(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export Reports", "reports.csv", "CSV Files (*.csv)"
+            self, "Export PDF", "jayraldines_report.pdf", "PDF Files (*.pdf)"
         )
         if not path:
             return
+        kpis, bookings, period = self._get_export_data()
+        ok = _exporter.export_pdf(path, kpis, bookings, "Business Report", period)
+        if ok:
+            QMessageBox.information(self, "Export", f"PDF exported to:\n{path}")
+        else:
+            QMessageBox.warning(self, "Export Failed",
+                "PDF export failed. Make sure reportlab is installed:\npip install reportlab")
 
-        rows = repo.get_all_bookings() or [
-            {"id": "BKG-001", "date": "Oct 24, 2026", "name": "TechCorp Inc.",
-             "pax": "45",  "total": "PHP 45,000",  "status": "CONFIRMED"},
-            {"id": "BKG-002", "date": "Oct 25, 2026", "name": "Smith Wedding",
-             "pax": "58",  "total": "PHP 120,000", "status": "PENDING"},
-        ]
+    def _export_excel(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Excel", "jayraldines_report.xlsx", "Excel Files (*.xlsx)"
+        )
+        if not path:
+            return
+        kpis, bookings, period = self._get_export_data()
+        ok = _exporter.export_excel(path, kpis, bookings, "Business Report", period)
+        if ok:
+            QMessageBox.information(self, "Export", f"Excel exported to:\n{path}")
+        else:
+            QMessageBox.warning(self, "Export Failed",
+                "Excel export failed. Make sure openpyxl is installed:\npip install openpyxl")
 
+    def _export_csv(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export CSV", "jayraldines_report.csv", "CSV Files (*.csv)"
+        )
+        if not path:
+            return
+        fltr = self._period_sql_filter()
+        rows = repo.get_all_bookings(period_filter=fltr) or []
         with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["ID", "Date", "Client", "Pax", "Total", "Status"])
             for b in rows:
                 writer.writerow([
-                    b.get("id"),   b.get("date"), b.get("name"),
-                    b.get("pax"),  b.get("total"), b.get("status"),
+                    b.get("id"), b.get("date"), b.get("name"),
+                    b.get("pax"), b.get("total"), b.get("status"),
                 ])
-
-        QMessageBox.information(self, "Export", f"Exported to:\n{path}")
+        QMessageBox.information(self, "Export", f"CSV exported to:\n{path}")
