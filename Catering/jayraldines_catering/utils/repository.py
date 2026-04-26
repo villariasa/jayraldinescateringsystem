@@ -588,7 +588,7 @@ def get_upcoming_bookings_for_alerts() -> list[dict]:
         """
         SELECT booking_ref, customer_name, event_date, event_time
         FROM bookings
-        WHERE status != 'CANCELLED'
+        WHERE status = 'CONFIRMED'
           AND event_date >= CURRENT_DATE - INTERVAL '1 day'
           AND event_date <= CURRENT_DATE + INTERVAL '2 days'
         ORDER BY event_date, event_time

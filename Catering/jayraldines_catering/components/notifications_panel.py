@@ -240,6 +240,7 @@ class NotificationPopover(QFrame):
         self.all_read.emit()
 
     def show_anchored(self, anchor_btn):
+        self._refresh_list()
         global_pos = anchor_btn.mapToGlobal(QPoint(0, anchor_btn.height() + 6))
         parent = self.parent()
 

@@ -380,6 +380,7 @@ class CalendarPage(QWidget):
         self.side_panel = QFrame()
         self.side_panel.setObjectName("sidePanel")
         self.side_panel.setFixedWidth(340)
+        self.side_panel.setMinimumHeight(300)
         self.side_panel.setVisible(False) 
         
         sp_layout = QVBoxLayout(self.side_panel)
@@ -442,11 +443,14 @@ class CalendarPage(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet("background: transparent;")
         scroll.setWidget(sp_body)
+        scroll.setMaximumHeight(400)
         sp_layout.addWidget(scroll, 1)
+        sp_layout.addStretch(0)
 
         # Bottom Button
         self._btn_manage = QPushButton("  Manage Day Schedule")
         self._btn_manage.setObjectName("goldButton")
+        self._btn_manage.setMinimumHeight(40)
         self._btn_manage.setCursor(Qt.PointingHandCursor)
         self._btn_manage.clicked.connect(self._open_manage_schedule)
         sp_layout.addWidget(self._btn_manage)
@@ -496,6 +500,7 @@ class CalendarPage(QWidget):
         today = datetime.now()
         self.current_year = today.year
         self.current_month = today.month
+        self._load_month_data()
         self.render_calendar()
 
     def render_calendar(self):

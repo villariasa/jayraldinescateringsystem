@@ -131,7 +131,7 @@ class MainWindow(QMainWindow):
             self.showFullScreen()
 
     def _open_notif_popover(self):
-        self._poll_notifications()
+        reload_notifications()
         self._notif_popover.toggle_anchored(self.topbar.notif_btn)
 
     def _poll_notifications(self):
