@@ -568,7 +568,7 @@ def get_all_inventory() -> list[dict]:
 
 
 def add_inventory_item(data: dict) -> Optional[int]:
-    """data keys: ingredient, unit, stock, min_stock"""
+    """data keys: ingredient, unit, stock, min_stock, expiry_date (optional)"""
     result = db.callproc_out(
         "sp_add_inventory_item",
         in_params=(
@@ -576,6 +576,7 @@ def add_inventory_item(data: dict) -> Optional[int]:
             data["unit"],
             data.get("stock", 0),
             data.get("min_stock", 0),
+            data.get("expiry_date", None),
         ),
         out_names=["p_item_id"],
     )
@@ -583,7 +584,7 @@ def add_inventory_item(data: dict) -> Optional[int]:
 
 
 def update_inventory_item(item_id: int, data: dict) -> None:
-    """data keys: ingredient, unit, min_stock"""
+    """data keys: ingredient, unit, min_stock, expiry_date (optional)"""
     db.callproc_void(
         "sp_update_inventory_item",
         in_params=(
@@ -591,6 +592,7 @@ def update_inventory_item(item_id: int, data: dict) -> None:
             data["ingredient"],
             data["unit"],
             data.get("min_stock", 0),
+            data.get("expiry_date", None),
         ),
     )
 

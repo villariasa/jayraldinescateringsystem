@@ -249,12 +249,13 @@ CREATE INDEX idx_kitchen_tasks_order ON kitchen_tasks (order_id);
 -- TABLE: inventory
 -- =============================================================================
 CREATE TABLE inventory (
-    id          SERIAL          PRIMARY KEY,
-    ingredient  VARCHAR(120)    NOT NULL UNIQUE,
-    unit        inventory_unit  NOT NULL,
-    stock       NUMERIC(10,2)   NOT NULL DEFAULT 0 CHECK (stock >= 0),
-    min_stock   NUMERIC(10,2)   NOT NULL DEFAULT 0 CHECK (min_stock >= 0),
-    updated_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    id           SERIAL          PRIMARY KEY,
+    ingredient   VARCHAR(120)    NOT NULL UNIQUE,
+    unit         inventory_unit  NOT NULL,
+    stock        NUMERIC(10,2)   NOT NULL DEFAULT 0 CHECK (stock >= 0),
+    min_stock    NUMERIC(10,2)   NOT NULL DEFAULT 0 CHECK (min_stock >= 0),
+    expiry_date  DATE,
+    updated_at   TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
 INSERT INTO inventory (ingredient, unit, stock, min_stock) VALUES
@@ -889,16 +890,17 @@ $$;
 -- OUT p_item_id INT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_add_inventory_item(
-    IN  p_ingredient TEXT,
-    IN  p_unit       TEXT,
-    IN  p_stock      NUMERIC,
-    IN  p_min_stock  NUMERIC,
-    OUT p_item_id    INT
+    IN  p_ingredient   TEXT,
+    IN  p_unit         TEXT,
+    IN  p_stock        NUMERIC,
+    IN  p_min_stock    NUMERIC,
+    IN  p_expiry_date  DATE,
+    OUT p_item_id      INT
 )
 LANGUAGE plpgsql AS $$
 BEGIN
-    INSERT INTO inventory (ingredient, unit, stock, min_stock)
-    VALUES (p_ingredient, p_unit::inventory_unit, p_stock, p_min_stock)
+    INSERT INTO inventory (ingredient, unit, stock, min_stock, expiry_date)
+    VALUES (p_ingredient, p_unit::inventory_unit, p_stock, p_min_stock, p_expiry_date)
     RETURNING id INTO p_item_id;
 END;
 $$;
@@ -907,19 +909,21 @@ $$;
 -- STORED PROCEDURE: sp_update_inventory_item
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_update_inventory_item(
-    IN p_item_id    INT,
-    IN p_ingredient TEXT,
-    IN p_unit       TEXT,
-    IN p_min_stock  NUMERIC
+    IN p_item_id      INT,
+    IN p_ingredient   TEXT,
+    IN p_unit         TEXT,
+    IN p_min_stock    NUMERIC,
+    IN p_expiry_date  DATE
 )
 LANGUAGE plpgsql AS $$
 BEGIN
     UPDATE inventory
     SET
-        ingredient = p_ingredient,
-        unit       = p_unit::inventory_unit,
-        min_stock  = p_min_stock,
-        updated_at = NOW()
+        ingredient  = p_ingredient,
+        unit        = p_unit::inventory_unit,
+        min_stock   = p_min_stock,
+        expiry_date = p_expiry_date,
+        updated_at  = NOW()
     WHERE id = p_item_id;
 END;
 $$;
@@ -937,8 +941,9 @@ LANGUAGE plpgsql AS $$
 BEGIN
     UPDATE inventory
     SET stock = GREATEST(0, stock + p_delta), updated_at = NOW()
-    WHERE id = p_item_id
-    RETURNING stock INTO p_new_stock;
+    WHERE id = p_item_id;
+
+    SELECT stock INTO p_new_stock FROM inventory WHERE id = p_item_id;
 END;
 $$;
 
@@ -1329,7 +1334,7 @@ $$;
 -- Returns bookings near their event time for notification scheduling
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_get_event_alert_candidates(
-    INOUT p_cursor REFCURSOR DEFAULT 'event_alert_cursor'
+    INOUT p_cursor REFCURSOR
 )
 LANGUAGE plpgsql AS $$
 BEGIN
