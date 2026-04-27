@@ -22,10 +22,9 @@ def send_sms(api_key: str, to_number: str, message: str) -> tuple[bool, str]:
 
     try:
         payload = urllib.parse.urlencode({
-            "apikey":      api_key,
-            "number":      cleaned,
-            "message":     message,
-            "sendername":  "JayrCater",
+            "apikey":   api_key,
+            "number":   cleaned,
+            "message":  message,
         }).encode("utf-8")
         req = urllib.request.Request(
             _SEMAPHORE_API_URL,
