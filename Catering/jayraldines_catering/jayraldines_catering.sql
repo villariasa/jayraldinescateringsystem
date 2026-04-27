@@ -343,8 +343,8 @@ CREATE TABLE notifications (
 
 INSERT INTO notifications (type, title, message, color, is_read) VALUES
   ('warning', 'Payment Pending',    'Invoice #BKG-002 (Smith Wedding) requires a 50% downpayment of ₱60,000.',  '#F59E0B', TRUE),
-  ('success', 'Booking Confirmed',  'TechCorp Inc. booking for Oct 24 has been confirmed. 150 pax.',            '#22C55E', TRUE),
-  ('info',    'New Booking Request','Cruz Corporate submitted an event inquiry for Apr 30, 2026.',              '#3B82F6', TRUE);
+  ('success', 'Booking Confirmed',  'TechCorp Inc. booking for Oct 24 has been confirmed. 150 pax.',             '#22C55E', TRUE),
+  ('info',    'New Booking Request','Cruz Corporate submitted an event inquiry for Apr 30, 2026.',               '#3B82F6', TRUE);
 
 -- =============================================================================
 -- TABLE: calendar_events
@@ -537,13 +537,12 @@ BEGIN
         INTO v_min_pct, v_allow_zero
         FROM business_info WHERE id = 1;
 
-        v_min_pct    := COALESCE(v_min_pct, 30);
+        v_min_pct   := COALESCE(v_min_pct, 30);
         v_allow_zero := COALESCE(v_allow_zero, FALSE);
 
-        -- FIX: Removed the extra '%' parameter from the RAISE EXCEPTION arguments below
         IF NOT v_allow_zero AND v_amount_paid < (v_total * v_min_pct / 100) THEN
             RAISE EXCEPTION 'Downpayment insufficient. Required: ₱% (% %%). Paid: ₱%.',
-                ROUND(v_total * v_min_pct / 100, 2), v_min_pct, v_amount_paid;
+                ROUND(v_total * v_min_pct / 100, 2), v_min_pct, '%', v_amount_paid;
         END IF;
     END IF;
 
@@ -1378,8 +1377,8 @@ $$;
 -- =============================================================================
 CREATE OR REPLACE VIEW v_dashboard_kpis AS
 SELECT
-    (SELECT COUNT(*) FROM bookings WHERE event_date = CURRENT_DATE)                          AS todays_events,
-    (SELECT COUNT(*) FROM bookings WHERE status = 'PENDING')                                 AS pending_bookings,
+    (SELECT COUNT(*) FROM bookings WHERE event_date = CURRENT_DATE)                         AS todays_events,
+    (SELECT COUNT(*) FROM bookings WHERE status = 'PENDING')                                AS pending_bookings,
     (SELECT COALESCE(SUM(total_amount),0) FROM bookings
      WHERE event_date BETWEEN date_trunc('week', CURRENT_DATE)
                           AND date_trunc('week', CURRENT_DATE) + INTERVAL '6 days')         AS weekly_revenue,
@@ -1427,13 +1426,13 @@ CREATE OR REPLACE VIEW v_calendar_day_summary AS
 SELECT
     b.event_date,
     COUNT(*)                            AS booking_count,
-    SUM(b.pax)                          AS total_pax,
+    SUM(b.pax)                         AS total_pax,
     bi.max_daily_pax,
     CASE
         WHEN SUM(b.pax) >= bi.max_daily_pax            THEN 'Full'
         WHEN SUM(b.pax) >= bi.max_daily_pax * 0.67     THEN 'Near Full'
-        ELSE                                           'Available'
-    END                                 AS capacity_status
+        ELSE                                                 'Available'
+    END                                AS capacity_status
 FROM bookings b
 CROSS JOIN (SELECT max_daily_pax FROM business_info LIMIT 1) bi
 WHERE b.status != 'CANCELLED'
@@ -1516,9 +1515,9 @@ SELECT 'Others', COUNT(*) FROM (
 -- =============================================================================
 CREATE OR REPLACE VIEW v_report_kpis AS
 SELECT
-    COUNT(*)                                                                        AS total_bookings,
-    COALESCE(SUM(b.pax), 0)::INT                                                    AS total_pax,
-    COALESCE((SELECT SUM(total_amount) FROM invoices), 0)::FLOAT                    AS total_revenue,
+    COUNT(*)                                                                    AS total_bookings,
+    COALESCE(SUM(b.pax), 0)::INT                                               AS total_pax,
+    COALESCE((SELECT SUM(total_amount) FROM invoices), 0)::FLOAT               AS total_revenue,
     COALESCE((SELECT SUM(total_amount - amount_paid) FROM invoices WHERE status != 'Paid'), 0)::FLOAT AS unpaid_amount,
     COALESCE((SELECT COUNT(*) FROM bookings WHERE DATE(event_date) = CURRENT_DATE), 0)::INT AS today_bookings,
     COALESCE((SELECT COUNT(*) FROM bookings
@@ -1603,11 +1602,11 @@ LIMIT 10;
 -- =============================================================================
 CREATE OR REPLACE VIEW v_profit_summary AS
 SELECT
-    COALESCE(m.month_num, e.month_num)                                          AS month_num,
+    COALESCE(m.month_num, e.month_num)                                  AS month_num,
     COALESCE(m.month_label, TO_CHAR(TO_DATE(e.month_num::TEXT, 'MM'), 'Mon')) AS month_label,
-    COALESCE(m.revenue, 0)::FLOAT                                               AS revenue,
-    COALESCE(e.total_expense, 0)::FLOAT                                         AS total_expense,
-    (COALESCE(m.revenue, 0) - COALESCE(e.total_expense, 0))::FLOAT              AS net_profit
+    COALESCE(m.revenue, 0)::FLOAT                                       AS revenue,
+    COALESCE(e.total_expense, 0)::FLOAT                                 AS total_expense,
+    (COALESCE(m.revenue, 0) - COALESCE(e.total_expense, 0))::FLOAT     AS net_profit
 FROM (
     SELECT
         EXTRACT(MONTH FROM event_date)::INT AS month_num,

@@ -7,6 +7,17 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
 
+def _format_phone_input(text: str) -> str:
+    digits = "".join(c for c in text if c.isdigit())
+    if len(digits) <= 3:
+        return digits
+    elif len(digits) <= 6:
+        return f"{digits[:3]} {digits[3:]}"
+    elif len(digits) <= 10:
+        return f"{digits[:3]} {digits[3:6]} {digits[6:]}"
+    return f"{digits[:3]} {digits[3:6]} {digits[6:10]}"
+
+
 _COUNTRY_CODES = [
     ("+63", "PH  +63"),
     ("+1",  "US  +1"),
@@ -110,6 +121,7 @@ class AddCustomerDialog(QDialog):
         self.contact_field = QLineEdit()
         self.contact_field.setPlaceholderText("9XX XXX XXXX")
         self.contact_field.setFixedHeight(38)
+        self.contact_field.textChanged.connect(self._auto_format_contact)
         contact_row.addWidget(self.country_code_combo)
         contact_row.addWidget(self.contact_field)
         contact_widget = QWidget()
@@ -162,8 +174,8 @@ class AddCustomerDialog(QDialog):
         outer.addWidget(container)
 
     def _save(self):
-        name    = self.name_field.text().strip()
-        number  = self.contact_field.text().strip()
+        name   = self.name_field.text().strip()
+        number = self.contact_field.text().strip()
         if not name or not number:
             self._err.setText("Name and Contact are required.")
             self._err.show()
@@ -180,6 +192,179 @@ class AddCustomerDialog(QDialog):
             "email":   self.email_field.text().strip(),
             "address": self.address_field.toPlainText().strip(),
             "events":  0,
+            "status":  self.status_field.currentText(),
+        }
+        self.accept()
+
+    def _auto_format_contact(self, text):
+        formatted = _format_phone_input(text)
+        if formatted != text:
+            self.contact_field.blockSignals(True)
+            self.contact_field.setText(formatted)
+            self.contact_field.setCursorPosition(len(formatted))
+            self.contact_field.blockSignals(False)
+
+    def get_result(self):
+        return self._result
+
+
+class EditCustomerDialog(QDialog):
+    def __init__(self, parent=None, customer=None):
+        super().__init__(parent)
+        self._customer = customer or {}
+        self.setWindowTitle("Edit Customer")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(480)
+        self.setModal(True)
+        self._result = None
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+
+        container = QFrame()
+        container.setObjectName("card")
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        header = QHBoxLayout()
+        title = QLabel("Edit Customer")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        lay.addWidget(div)
+
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignRight)
+
+        self.name_field = QLineEdit(self._customer.get("name", ""))
+        self.name_field.setPlaceholderText("Full name / Company name")
+        self.name_field.setFixedHeight(38)
+
+        existing_contact = self._customer.get("contact", "")
+        matched_code = "+63"
+        number_part = existing_contact
+        for code, _label in _COUNTRY_CODES:
+            if existing_contact.startswith(code + " "):
+                matched_code = code
+                number_part = existing_contact[len(code) + 1:]
+                break
+            elif existing_contact.startswith(code):
+                matched_code = code
+                number_part = existing_contact[len(code):].lstrip()
+                break
+
+        contact_row = QHBoxLayout()
+        contact_row.setSpacing(6)
+        self.country_code_combo = QComboBox()
+        self.country_code_combo.setFixedHeight(38)
+        self.country_code_combo.setFixedWidth(110)
+        for code, label in _COUNTRY_CODES:
+            self.country_code_combo.addItem(label, code)
+            if code == matched_code:
+                self.country_code_combo.setCurrentIndex(self.country_code_combo.count() - 1)
+        self.contact_field = QLineEdit(_format_phone_input(number_part))
+        self.contact_field.setPlaceholderText("9XX XXX XXXX")
+        self.contact_field.setFixedHeight(38)
+        self.contact_field.textChanged.connect(self._auto_format_contact)
+        contact_row.addWidget(self.country_code_combo)
+        contact_row.addWidget(self.contact_field)
+        contact_widget = QWidget()
+        contact_widget.setLayout(contact_row)
+
+        self.email_field = QLineEdit(self._customer.get("email", ""))
+        self.email_field.setPlaceholderText("email@example.com")
+        self.email_field.setFixedHeight(38)
+
+        self.address_field = QTextEdit()
+        self.address_field.setPlaceholderText("Street, Barangay, City, Province")
+        self.address_field.setFixedHeight(72)
+        self.address_field.setPlainText(self._customer.get("address", ""))
+
+        self.status_field = QComboBox()
+        self.status_field.setFixedHeight(38)
+        self.status_field.addItems(["Active", "Pending", "Inactive"])
+        idx = self.status_field.findText(self._customer.get("status", "Active"))
+        if idx >= 0:
+            self.status_field.setCurrentIndex(idx)
+
+        for lbl, widget in [
+            ("Name *",    self.name_field),
+            ("Contact *", contact_widget),
+            ("Email",     self.email_field),
+            ("Address",   self.address_field),
+            ("Status",    self.status_field),
+        ]:
+            form.addRow(QLabel(lbl), widget)
+
+        lay.addLayout(form)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.hide()
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("  Save Changes")
+        save.setObjectName("primaryButton")
+        save.setIcon(btn_icon_primary("check"))
+        save.setIconSize(QSize(15, 15))
+        save.setCursor(Qt.PointingHandCursor)
+        save.clicked.connect(self._save)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(container)
+
+    def _auto_format_contact(self, text):
+        formatted = _format_phone_input(text)
+        if formatted != text:
+            self.contact_field.blockSignals(True)
+            self.contact_field.setText(formatted)
+            self.contact_field.setCursorPosition(len(formatted))
+            self.contact_field.blockSignals(False)
+
+    def _save(self):
+        name   = self.name_field.text().strip()
+        number = self.contact_field.text().strip()
+        if not name or not number:
+            self._err.setText("Name and Contact are required.")
+            self._err.show()
+            if not name:
+                self.name_field.setStyleSheet("border: 1px solid #E11D48;")
+            if not number:
+                self.contact_field.setStyleSheet("border: 1px solid #E11D48;")
+            return
+        code    = self.country_code_combo.currentData()
+        contact = f"{code} {number}"
+        self._result = {
+            "name":    name,
+            "contact": contact,
+            "email":   self.email_field.text().strip(),
+            "address": self.address_field.toPlainText().strip(),
             "status":  self.status_field.currentText(),
         }
         self.accept()
@@ -258,13 +443,15 @@ class CustomersPage(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._table = QTableWidget(0, 7)
-        self._table.setHorizontalHeaderLabels(["Name", "Contact", "Email", "Events", "Tier", "Status", ""])
+        self._table = QTableWidget(0, 8)
+        self._table.setHorizontalHeaderLabels(["Name", "Contact", "Email", "Events", "Tier", "Status", "", ""])
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
         self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
+        self._table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Fixed)
         self._table.setColumnWidth(4, 72)
-        self._table.setColumnWidth(6, 100)
+        self._table.setColumnWidth(6, 68)
+        self._table.setColumnWidth(7, 68)
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.verticalHeader().setVisible(False)
@@ -297,11 +484,19 @@ class CustomersPage(QWidget):
             status_item.setForeground(QColor(color_map.get(c["status"], "#9CA3AF")))
             self._table.setItem(row, 5, status_item)
 
-            action_w = QWidget()
-            action_l = QHBoxLayout(action_w)
-            action_l.setContentsMargins(2, 0, 2, 0)
-            action_l.setSpacing(4)
-
+            edit_w = QWidget()
+            edit_l = QHBoxLayout(edit_w)
+            edit_l.setContentsMargins(2, 0, 2, 0)
+            edit_l.setSpacing(4)
+            edit_btn = QPushButton()
+            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
+            edit_btn.setIconSize(QSize(13, 13))
+            edit_btn.setFixedSize(28, 28)
+            edit_btn.setToolTip("Edit customer")
+            edit_btn.setStyleSheet("background: transparent; border: none;")
+            edit_btn.setCursor(Qt.PointingHandCursor)
+            edit_btn.clicked.connect(lambda _, cust=c: self._open_edit_dialog(cust))
+            edit_l.addWidget(edit_btn)
             fu_btn = QPushButton()
             fu_btn.setIcon(get_icon("bell", color="#F59E0B", size=QSize(13, 13)))
             fu_btn.setIconSize(QSize(13, 13))
@@ -310,8 +505,13 @@ class CustomersPage(QWidget):
             fu_btn.setStyleSheet("background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:6px;")
             fu_btn.setCursor(Qt.PointingHandCursor)
             fu_btn.clicked.connect(lambda _, cust=c: self._open_follow_ups(cust))
-            action_l.addWidget(fu_btn)
+            edit_l.addWidget(fu_btn)
+            edit_l.addStretch()
+            self._table.setCellWidget(row, 6, edit_w)
 
+            del_w = QWidget()
+            del_l = QHBoxLayout(del_w)
+            del_l.setContentsMargins(2, 0, 2, 0)
             del_btn = QPushButton()
             del_btn.setIcon(btn_icon_red("trash"))
             del_btn.setIconSize(QSize(13, 13))
@@ -319,9 +519,9 @@ class CustomersPage(QWidget):
             del_btn.setStyleSheet("background: transparent; border: none;")
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.clicked.connect(lambda _, cust=c: self._delete_customer_by_ref(cust))
-            action_l.addWidget(del_btn)
-            action_l.addStretch()
-            self._table.setCellWidget(row, 6, action_w)
+            del_l.addWidget(del_btn)
+            del_l.addStretch()
+            self._table.setCellWidget(row, 7, del_w)
 
     def _delete_customer_by_ref(self, c):
         if not confirm(self, title="Delete Customer",
@@ -429,6 +629,20 @@ class CustomersPage(QWidget):
         lay.addLayout(add_row)
 
         dlg.exec()
+
+    def _open_edit_dialog(self, c):
+        dlg = EditCustomerDialog(self, customer=c)
+        if dlg.exec() == QDialog.Accepted:
+            result = dlg.get_result()
+            if result and c.get("id"):
+                repo.update_customer(c["id"], result)
+                c["name"]    = result["name"]
+                c["contact"] = result["contact"]
+                c["email"]   = result["email"]
+                c["address"] = result["address"]
+                c["status"]  = result["status"]
+                self._populate_table()
+                success(self, message="Customer updated successfully.")
 
     def _open_add_dialog(self):
         dlg = AddCustomerDialog(self)
