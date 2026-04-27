@@ -199,7 +199,7 @@ def get_all_bookings(period_filter: str = "") -> list[dict]:
     rows = db.fetchall(
         f"""
         SELECT id, booking_ref, customer_name, event_date, pax,
-               total_amount, status::TEXT
+               total_amount, status::TEXT, cancellation_reason
         FROM bookings
         WHERE 1=1 {period_filter}
         ORDER BY event_date DESC
@@ -209,13 +209,14 @@ def get_all_bookings(period_filter: str = "") -> list[dict]:
         return []
     return [
         {
-            "db_id":  r["id"],
-            "id":     r["booking_ref"],
-            "date":   r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], date) else str(r["event_date"]),
-            "name":   r["customer_name"],
-            "pax":    str(r["pax"]),
-            "total":  f"₱ {int(r['total_amount']):,}",
-            "status": r["status"],
+            "db_id":               r["id"],
+            "id":                  r["booking_ref"],
+            "date":                r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], date) else str(r["event_date"]),
+            "name":                r["customer_name"],
+            "pax":                 str(r["pax"]),
+            "total":               f"₱ {int(r['total_amount']):,}",
+            "status":              r["status"],
+            "cancellation_reason": r["cancellation_reason"] or "",
         }
         for r in rows
     ]
@@ -313,8 +314,24 @@ def update_booking(db_id: int, data: dict) -> None:
         print(f"[repository] update_booking failed: {exc}")
 
 
-def update_booking_status(db_id: int, new_status: str) -> None:
-    db.callproc_void("sp_update_booking_status", in_params=(db_id, new_status))
+def update_booking_status(db_id: int, new_status: str, cancellation_reason: str = None) -> None:
+    db.callproc_void("sp_update_booking_status", in_params=(db_id, new_status, cancellation_reason))
+
+
+def check_date_capacity(event_date, exclude_id: int = 0) -> dict:
+    """Returns {booked_pax, max_pax, is_over}."""
+    result = db.callproc_out(
+        "sp_check_date_capacity",
+        in_params=(event_date, exclude_id or 0),
+        out_names=["p_booked_pax", "p_max_pax", "p_is_over"],
+    )
+    if not result:
+        return {"booked_pax": 0, "max_pax": 600, "is_over": False}
+    return {
+        "booked_pax": int(result["p_booked_pax"]),
+        "max_pax":    int(result["p_max_pax"]),
+        "is_over":    bool(result["p_is_over"]),
+    }
 
 
 def delete_booking(db_id: int) -> None:
@@ -462,6 +479,21 @@ def delete_kitchen_order(db_id: int) -> None:
     db.callproc_void("sp_delete_kitchen_order", in_params=(db_id,))
 
 
+def _auto_generate_kitchen_tasks(order_id: int, items_desc: str) -> None:
+    """Split items_desc by comma and create one kitchen task per item."""
+    try:
+        existing = db.fetchone(
+            "SELECT COUNT(*) AS cnt FROM kitchen_tasks WHERE order_id = %s", (order_id,)
+        )
+        if existing and existing["cnt"] > 0:
+            return
+        items = [item.strip() for item in items_desc.split(",") if item.strip()]
+        for idx, item in enumerate(items):
+            add_kitchen_task(order_id, f"Prepare: {item}", sort_order=idx)
+    except Exception as exc:
+        print(f"[repo] _auto_generate_kitchen_tasks: {exc}")
+
+
 def sync_kitchen_from_bookings() -> int:
     """Auto-add CONFIRMED bookings that have no kitchen_order yet. Returns count added."""
     try:
@@ -481,14 +513,27 @@ def sync_kitchen_from_bookings() -> int:
         count = 0
         for r in rows:
             occasion = r["occasion"] or "Catering Event"
-            items_desc = f"Event on {r['event_date']} — {int(r['pax'])} pax"
-            create_kitchen_order({
+            # Fetch menu items for this booking to use as task labels
+            booking_detail = db.fetchone(
+                "SELECT menu_type, custom_items, package_id FROM bookings WHERE id = %s",
+                (r["id"],),
+            )
+            if booking_detail and booking_detail["menu_type"] == "custom" and booking_detail["custom_items"]:
+                items_desc = booking_detail["custom_items"]
+            elif booking_detail and booking_detail["package_id"]:
+                pkg = db.fetchone("SELECT name FROM packages WHERE id = %s", (booking_detail["package_id"],))
+                items_desc = pkg["name"] if pkg else f"Package for {int(r['pax'])} pax"
+            else:
+                items_desc = f"Event on {r['event_date']} — {int(r['pax'])} pax"
+            result = create_kitchen_order({
                 "booking_id": r["id"],
                 "client":     r["customer_name"],
                 "event":      occasion,
                 "pax":        int(r["pax"]),
                 "items":      items_desc,
             })
+            if result and result.get("order_id"):
+                _auto_generate_kitchen_tasks(result["order_id"], items_desc)
             count += 1
         return count
     except Exception as exc:
@@ -770,6 +815,237 @@ def get_calendar_summary() -> list[dict]:
 # BUSINESS INFO (Settings page)
 # ---------------------------------------------------------------------------
 
+def get_business_policy() -> dict:
+    row = db.fetchone(
+        "SELECT min_downpayment_pct, allow_zero_downpayment, max_daily_pax FROM business_info LIMIT 1"
+    )
+    if not row:
+        return {"min_downpayment_pct": 30.0, "allow_zero_downpayment": False, "max_daily_pax": 600}
+    return {
+        "min_downpayment_pct":    float(row["min_downpayment_pct"]),
+        "allow_zero_downpayment": bool(row["allow_zero_downpayment"]),
+        "max_daily_pax":          int(row["max_daily_pax"]),
+    }
+
+
+def save_booking_policy(min_pct: float, allow_zero: bool) -> None:
+    db.callproc_void("sp_save_booking_policy", in_params=(min_pct, allow_zero))
+
+
+def save_capacity_policy(max_pax: int) -> None:
+    db.callproc_void("sp_save_capacity_policy", in_params=(max_pax,))
+
+
+# ---------------------------------------------------------------------------
+# EXPENSES
+# ---------------------------------------------------------------------------
+
+def get_all_expenses() -> list[dict]:
+    rows = db.fetchall(
+        "SELECT id, category::TEXT, description, amount, expense_date FROM expenses ORDER BY expense_date DESC"
+    )
+    if not rows:
+        return []
+    return [
+        {
+            "id":          r["id"],
+            "category":    r["category"],
+            "description": r["description"],
+            "amount":      float(r["amount"]),
+            "date":        r["expense_date"].strftime("%b %d, %Y") if hasattr(r["expense_date"], "strftime") else str(r["expense_date"]),
+        }
+        for r in rows
+    ]
+
+
+def add_expense(data: dict) -> Optional[int]:
+    result = db.callproc_out(
+        "sp_add_expense",
+        in_params=(data["category"], data["description"], data["amount"], _parse_date(data["date"])),
+        out_names=["p_expense_id"],
+    )
+    return result["p_expense_id"] if result else None
+
+
+def update_expense(expense_id: int, data: dict) -> None:
+    db.callproc_void(
+        "sp_update_expense",
+        in_params=(expense_id, data["category"], data["description"], data["amount"], _parse_date(data["date"])),
+    )
+
+
+def delete_expense(expense_id: int) -> None:
+    db.callproc_void("sp_delete_expense", in_params=(expense_id,))
+
+
+def get_profit_summary() -> list[dict]:
+    rows = db.fetchall("SELECT month_num, month_label, revenue, total_expense, net_profit FROM v_profit_summary")
+    if not rows:
+        return []
+    return [
+        {
+            "month":    r["month_label"],
+            "month_num": int(r["month_num"]),
+            "revenue":  float(r["revenue"]),
+            "expense":  float(r["total_expense"]),
+            "profit":   float(r["net_profit"]),
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# CUSTOMER LOYALTY & FOLLOW-UPS
+# ---------------------------------------------------------------------------
+
+def get_all_customers_with_loyalty() -> list[dict]:
+    rows = db.fetchall(
+        "SELECT id, name, contact, email, total_events, status::TEXT, loyalty_tier::TEXT FROM customers ORDER BY name"
+    )
+    if rows is None:
+        return []
+    return [
+        {
+            "id":           r["id"],
+            "name":         r["name"],
+            "contact":      r["contact"],
+            "email":        r["email"] or "",
+            "events":       r["total_events"],
+            "status":       r["status"],
+            "loyalty_tier": r["loyalty_tier"],
+        }
+        for r in rows
+    ]
+
+
+def recalculate_loyalty(customer_id: int) -> None:
+    db.callproc_void("sp_recalculate_loyalty", in_params=(customer_id,))
+
+
+def get_follow_ups(customer_id: int) -> list[dict]:
+    rows = db.fetchall(
+        "SELECT id, follow_up_date, note, is_done FROM customer_follow_ups WHERE customer_id = %s ORDER BY follow_up_date",
+        (customer_id,),
+    )
+    if not rows:
+        return []
+    return [
+        {
+            "id":      r["id"],
+            "date":    r["follow_up_date"].strftime("%b %d, %Y") if hasattr(r["follow_up_date"], "strftime") else str(r["follow_up_date"]),
+            "note":    r["note"],
+            "is_done": bool(r["is_done"]),
+        }
+        for r in rows
+    ]
+
+
+def get_todays_follow_ups() -> list[dict]:
+    rows = db.fetchall(
+        """
+        SELECT cf.id, c.name AS customer_name, cf.note, cf.follow_up_date
+        FROM customer_follow_ups cf
+        JOIN customers c ON c.id = cf.customer_id
+        WHERE cf.follow_up_date = CURRENT_DATE AND cf.is_done = FALSE
+        ORDER BY c.name
+        """
+    )
+    return [dict(r) for r in rows] if rows else []
+
+
+def add_follow_up(customer_id: int, date_str: str, note: str) -> Optional[int]:
+    result = db.callproc_out(
+        "sp_add_follow_up",
+        in_params=(customer_id, _parse_date(date_str), note),
+        out_names=["p_follow_up_id"],
+    )
+    return result["p_follow_up_id"] if result else None
+
+
+def complete_follow_up(follow_up_id: int) -> None:
+    db.callproc_void("sp_complete_follow_up", in_params=(follow_up_id,))
+
+
+def delete_follow_up(follow_up_id: int) -> None:
+    db.callproc_void("sp_delete_follow_up", in_params=(follow_up_id,))
+
+
+# ---------------------------------------------------------------------------
+# AUDIT LOG
+# ---------------------------------------------------------------------------
+
+def write_audit_log(actor: str, action: str, table_name: str, record_id: int,
+                    old_value: dict = None, new_value: dict = None) -> None:
+    import json
+    old_json = json.dumps(old_value) if old_value else None
+    new_json = json.dumps(new_value) if new_value else None
+    try:
+        db.callproc_out(
+            "sp_write_audit_log",
+            in_params=(actor, action, table_name, record_id, old_json, new_json),
+            out_names=["p_log_id"],
+        )
+    except Exception as exc:
+        print(f"[audit] write failed: {exc}")
+
+
+def get_audit_log(limit: int = 50) -> list[dict]:
+    rows = db.fetchall(
+        "SELECT id, actor, action, table_name, record_id, description, created_at FROM v_audit_log_recent LIMIT %s",
+        (limit,),
+    )
+    if not rows:
+        return []
+    return [
+        {
+            "id":          r["id"],
+            "actor":       r["actor"],
+            "action":      r["action"],
+            "table":       r["table_name"],
+            "record_id":   r["record_id"],
+            "description": r["description"],
+            "created_at":  r["created_at"].strftime("%b %d, %Y %I:%M %p") if hasattr(r["created_at"], "strftime") else str(r["created_at"]),
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# KITCHEN TASKS
+# ---------------------------------------------------------------------------
+
+def get_kitchen_tasks(order_id: int) -> list[dict]:
+    rows = db.fetchall(
+        "SELECT id, task_label, is_done, sort_order FROM kitchen_tasks WHERE order_id = %s ORDER BY sort_order, id",
+        (order_id,),
+    )
+    if not rows:
+        return []
+    return [{"id": r["id"], "label": r["task_label"], "is_done": bool(r["is_done"])} for r in rows]
+
+
+def add_kitchen_task(order_id: int, label: str, sort_order: int = 0) -> Optional[int]:
+    result = db.callproc_out(
+        "sp_add_kitchen_task",
+        in_params=(order_id, label, sort_order),
+        out_names=["p_task_id"],
+    )
+    return result["p_task_id"] if result else None
+
+
+def toggle_kitchen_task(task_id: int) -> Optional[bool]:
+    result = db.callproc_out(
+        "sp_toggle_kitchen_task",
+        in_params=(task_id,),
+        out_names=["p_new_state"],
+    )
+    return bool(result["p_new_state"]) if result else None
+
+
+def delete_kitchen_task(task_id: int) -> None:
+    db.callproc_void("sp_delete_kitchen_task", in_params=(task_id,))
+
+
 def get_calendar_events_for_date(event_date: date) -> list[dict]:
     result = []
 
@@ -845,6 +1121,112 @@ def save_business_info(data: dict) -> None:
         "sp_save_business_info",
         in_params=(data["name"], data["contact"], data["email"], data["address"]),
     )
+
+
+def get_sms_config() -> dict:
+    row = db.fetchone("SELECT sms_api_key FROM business_info LIMIT 1")
+    if not row:
+        return {"sms_api_key": ""}
+    return {"sms_api_key": row["sms_api_key"] or ""}
+
+
+def save_sms_config(api_key: str) -> None:
+    db.execute("UPDATE business_info SET sms_api_key=%s", (api_key,))
+
+
+def log_confirmation_sent(booking_id: int, method: str) -> None:
+    try:
+        db.execute(
+            """
+            INSERT INTO confirmation_log (booking_id, method, sent_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT DO NOTHING
+            """,
+            (booking_id, method),
+        )
+    except Exception:
+        pass
+
+
+def get_booking_detail(db_id: int) -> Optional[dict]:
+    row = db.fetchone(
+        """
+        SELECT id, booking_ref, customer_name, contact, email, occasion,
+               venue, event_date, pax, status::TEXT
+        FROM bookings WHERE id = %s
+        """,
+        (db_id,),
+    )
+    if not row:
+        return None
+    from datetime import date as _d
+    return {
+        "db_id":        row["id"],
+        "booking_ref":  row["booking_ref"],
+        "customer_name": row["customer_name"],
+        "contact":      row["contact"] or "",
+        "email":        row["email"] or "",
+        "occasion":     row["occasion"],
+        "venue":        row["venue"],
+        "event_date":   row["event_date"].strftime("%b %d, %Y") if isinstance(row["event_date"], _d) else str(row["event_date"]),
+        "pax":          row["pax"],
+        "status":       row["status"],
+    }
+
+
+def get_smtp_config() -> dict:
+    row = db.fetchone("SELECT smtp_host, smtp_port, smtp_user, smtp_pass FROM business_info LIMIT 1")
+    if not row:
+        return {"smtp_host": "", "smtp_port": 587, "smtp_user": "", "smtp_pass": ""}
+    return {
+        "smtp_host": row["smtp_host"] or "",
+        "smtp_port": int(row["smtp_port"] or 587),
+        "smtp_user": row["smtp_user"] or "",
+        "smtp_pass": row["smtp_pass"] or "",
+    }
+
+
+def save_smtp_config(host: str, port: int, user: str, password: str) -> None:
+    db.execute(
+        "UPDATE business_info SET smtp_host=%s, smtp_port=%s, smtp_user=%s, smtp_pass=%s",
+        (host, port, user, password),
+    )
+
+
+def log_receipt_sent(invoice_id: int, method: str) -> None:
+    try:
+        db.execute(
+            """
+            INSERT INTO receipt_log (invoice_id, method, sent_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT DO NOTHING
+            """,
+            (invoice_id, method),
+        )
+    except Exception:
+        pass
+
+
+def get_invoice_by_ref(invoice_ref: str) -> Optional[dict]:
+    row = db.fetchone(
+        """
+        SELECT id, invoice_ref, customer_name, event_date,
+               total_amount, amount_paid, status::TEXT
+        FROM invoices WHERE invoice_ref = %s
+        """,
+        (invoice_ref,),
+    )
+    if not row:
+        return None
+    return {
+        "db_id":      row["id"],
+        "invoice":    row["invoice_ref"],
+        "customer":   row["customer_name"],
+        "event_date": row["event_date"].strftime("%b %d, %Y") if isinstance(row["event_date"], date) else str(row["event_date"]),
+        "amount":     float(row["total_amount"]),
+        "paid":       float(row["amount_paid"]),
+        "status":     row["status"],
+    }
 
 
 # ---------------------------------------------------------------------------

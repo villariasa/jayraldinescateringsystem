@@ -593,7 +593,21 @@ class CalendarPage(QWidget):
         if db_key in self._db_cache:
             events = self._db_cache[db_key]
             total_pax = sum(e["pax"] for e in events)
-            self.lbl_capacity.setText(f"TOTAL CAPACITY<br><span style='font-size: 28px; font-weight: 800;'>{total_pax}</span> / 600 Pax")
+            try:
+                max_pax = repo.get_business_policy().get("max_daily_pax", 600)
+            except Exception:
+                max_pax = 600
+            if total_pax >= max_pax:
+                cap_color = "#EF4444"
+            elif total_pax >= int(max_pax * 0.67):
+                cap_color = "#F59E0B"
+            else:
+                cap_color = "#22C55E"
+            self.lbl_capacity.setText(
+                f"TOTAL CAPACITY<br>"
+                f"<span style='font-size: 28px; font-weight: 800; color: {cap_color};'>{total_pax}</span>"
+                f" / {max_pax} Pax"
+            )
             for event in events:
                 card = ScheduleCard(
                     event["name"], event["pax"], event["time"], event["loc"],
@@ -604,7 +618,15 @@ class CalendarPage(QWidget):
                 self.cards_container.addWidget(card)
         else:
             # --- THE FIX: Empty State ---
-            self.lbl_capacity.setText("TOTAL CAPACITY<br><span style='font-size: 28px; font-weight: 800;'>0</span> / 600 Pax")
+            try:
+                max_pax = repo.get_business_policy().get("max_daily_pax", 600)
+            except Exception:
+                max_pax = 600
+            self.lbl_capacity.setText(
+                f"TOTAL CAPACITY<br>"
+                f"<span style='font-size: 28px; font-weight: 800; color: #22C55E;'>0</span>"
+                f" / {max_pax} Pax"
+            )
             empty_lbl = QLabel("No events scheduled for this day.")
             empty_lbl.setStyleSheet("color: #94A3B8; font-style: italic; font-size: 13px;")
             self.cards_container.addWidget(empty_lbl)

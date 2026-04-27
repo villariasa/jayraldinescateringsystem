@@ -127,11 +127,32 @@ class AddCustomerDialog(QDialog):
         return self._result
 
 
+_TIER_COLORS = {
+    "Bronze": ("#CD7F32", "rgba(205,127,50,.15)"),
+    "Silver": ("#C0C0C0", "rgba(192,192,192,.15)"),
+    "Gold":   ("#F59E0B", "rgba(245,158,11,.15)"),
+    "VIP":    ("#A855F7", "rgba(168,85,247,.15)"),
+}
+
+
+def _tier_badge(tier: str) -> QLabel:
+    color, bg = _TIER_COLORS.get(tier, ("#9CA3AF", "rgba(156,163,175,.15)"))
+    lbl = QLabel(tier)
+    lbl.setStyleSheet(
+        f"font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;"
+        f"background:{bg};color:{color};border:1px solid {color};"
+    )
+    lbl.setAlignment(Qt.AlignCenter)
+    return lbl
+
+
 class CustomersPage(QWidget):
     def __init__(self):
         super().__init__()
-        db_rows = repo.get_all_customers()
-        self._customers = db_rows if db_rows else list(_SAMPLE_CUSTOMERS)
+        db_rows = repo.get_all_customers_with_loyalty()
+        if not db_rows:
+            db_rows = repo.get_all_customers() or list(_SAMPLE_CUSTOMERS)
+        self._customers = db_rows
         self._build_ui()
         self._populate_table()
 
@@ -176,11 +197,13 @@ class CustomersPage(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._table = QTableWidget(0, 6)
-        self._table.setHorizontalHeaderLabels(["Name", "Contact", "Email", "Total Events", "Status", ""])
+        self._table = QTableWidget(0, 7)
+        self._table.setHorizontalHeaderLabels(["Name", "Contact", "Email", "Events", "Tier", "Status", ""])
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
-        self._table.setColumnWidth(5, 60)
+        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
+        self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
+        self._table.setColumnWidth(4, 72)
+        self._table.setColumnWidth(6, 100)
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.verticalHeader().setVisible(False)
@@ -194,46 +217,153 @@ class CustomersPage(QWidget):
         self._table.setRowCount(0)
         for row, c in enumerate(data):
             self._table.insertRow(row)
+            self._table.setRowHeight(row, 48)
             self._table.setItem(row, 0, QTableWidgetItem(c["name"]))
             self._table.setItem(row, 1, QTableWidgetItem(c["contact"]))
             self._table.setItem(row, 2, QTableWidgetItem(c["email"]))
-            self._table.setItem(row, 3, QTableWidgetItem(str(c["events"])))
+            self._table.setItem(row, 3, QTableWidgetItem(str(c.get("events", 0))))
+
+            tier = c.get("loyalty_tier", "Bronze")
+            tier_w = QWidget()
+            tier_l = QHBoxLayout(tier_w)
+            tier_l.setContentsMargins(4, 0, 4, 0)
+            tier_l.addWidget(_tier_badge(tier))
+            tier_l.addStretch()
+            self._table.setCellWidget(row, 4, tier_w)
 
             status_item = QTableWidgetItem(c["status"])
             color_map = {"Active": "#22C55E", "Pending": "#F59E0B", "Inactive": "#6B7280"}
             status_item.setForeground(QColor(color_map.get(c["status"], "#9CA3AF")))
-            self._table.setItem(row, 4, status_item)
+            self._table.setItem(row, 5, status_item)
+
+            action_w = QWidget()
+            action_l = QHBoxLayout(action_w)
+            action_l.setContentsMargins(2, 0, 2, 0)
+            action_l.setSpacing(4)
+
+            fu_btn = QPushButton()
+            fu_btn.setIcon(get_icon("bell", color="#F59E0B", size=QSize(13, 13)))
+            fu_btn.setIconSize(QSize(13, 13))
+            fu_btn.setFixedSize(28, 28)
+            fu_btn.setToolTip("Follow-up reminders")
+            fu_btn.setStyleSheet("background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:6px;")
+            fu_btn.setCursor(Qt.PointingHandCursor)
+            fu_btn.clicked.connect(lambda _, cust=c: self._open_follow_ups(cust))
+            action_l.addWidget(fu_btn)
 
             del_btn = QPushButton()
             del_btn.setIcon(btn_icon_red("trash"))
-            del_btn.setIconSize(QSize(15, 15))
-            del_btn.setFixedSize(32, 32)
+            del_btn.setIconSize(QSize(13, 13))
+            del_btn.setFixedSize(28, 28)
             del_btn.setStyleSheet("background: transparent; border: none;")
             del_btn.setCursor(Qt.PointingHandCursor)
-            del_btn.setProperty("row_index", row)
-            del_btn.clicked.connect(self._delete_customer)
-            self._table.setCellWidget(row, 5, del_btn)
+            del_btn.clicked.connect(lambda _, cust=c: self._delete_customer_by_ref(cust))
+            action_l.addWidget(del_btn)
+            action_l.addStretch()
+            self._table.setCellWidget(row, 6, action_w)
 
-    def _delete_customer(self):
-        btn = self.sender()
-        row = self._table.indexAt(btn.pos()).row()
-        if row < 0:
-            for r in range(self._table.rowCount()):
-                w = self._table.cellWidget(r, 5)
-                if w is btn:
-                    row = r
-                    break
-        if 0 <= row < len(self._customers):
-            c = self._customers[row]
-            if not confirm(self, title="Delete Customer",
-                           message=f"Are you sure you want to delete '{c['name']}'? This cannot be undone.",
-                           confirm_label="Delete", danger=True):
+    def _delete_customer_by_ref(self, c):
+        if not confirm(self, title="Delete Customer",
+                       message=f"Are you sure you want to delete '{c['name']}'? This cannot be undone.",
+                       confirm_label="Delete", danger=True):
+            return
+        if c.get("id"):
+            repo.delete_customer(c["id"])
+        self._customers = [x for x in self._customers if x is not c]
+        self._populate_table()
+        success(self, message="Customer deleted successfully.")
+
+    def _open_follow_ups(self, c):
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                        QPushButton, QLineEdit, QDateEdit, QScrollArea, QFrame)
+        from PySide6.QtCore import QDate
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Follow-ups — {c['name']}")
+        dlg.setMinimumWidth(460)
+        dlg.setMinimumHeight(400)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(14)
+        lay.setContentsMargins(20, 20, 20, 20)
+
+        tier = c.get("loyalty_tier", "Bronze")
+        head = QHBoxLayout()
+        head.addWidget(QLabel(f"<b>{c['name']}</b> — {c.get('events', 0)} events"))
+        head.addStretch()
+        head.addWidget(_tier_badge(tier))
+        lay.addLayout(head)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        inner = QWidget()
+        inner_lay = QVBoxLayout(inner)
+        inner_lay.setSpacing(8)
+        inner_lay.setContentsMargins(0, 0, 0, 0)
+        scroll.setWidget(inner)
+        lay.addWidget(scroll)
+
+        def _reload():
+            while inner_lay.count():
+                item = inner_lay.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            fups = repo.get_follow_ups(c["id"]) if c.get("id") else []
+            for fu in fups:
+                fu_row = QHBoxLayout()
+                done_cb_lbl = QLabel(("✓ " if fu["is_done"] else "○ ") + fu["date"] + " — " + fu["note"])
+                done_cb_lbl.setStyleSheet("color:#9CA3AF;" if fu["is_done"] else "color:#F9FAFB;")
+                done_cb_lbl.setWordWrap(True)
+                fu_row.addWidget(done_cb_lbl, 1)
+                if not fu["is_done"]:
+                    done_btn = QPushButton("Done")
+                    done_btn.setFixedHeight(26)
+                    done_btn.setStyleSheet("background:#22C55E;color:white;border:none;border-radius:5px;font-size:11px;padding:0 8px;")
+                    done_btn.clicked.connect(lambda _, fid=fu["id"]: (repo.complete_follow_up(fid), _reload()))
+                    fu_row.addWidget(done_btn)
+                del_btn2 = QPushButton("✕")
+                del_btn2.setFixedSize(24, 24)
+                del_btn2.setStyleSheet("background:transparent;border:none;color:#6B7280;font-weight:700;")
+                del_btn2.clicked.connect(lambda _, fid=fu["id"]: (repo.delete_follow_up(fid), _reload()))
+                fu_row.addWidget(del_btn2)
+                row_w = QWidget()
+                row_w.setLayout(fu_row)
+                inner_lay.addWidget(row_w)
+            if not fups:
+                empty = QLabel("No follow-ups yet.")
+                empty.setStyleSheet("color:#6B7280;")
+                inner_lay.addWidget(empty)
+            inner_lay.addStretch()
+
+        _reload()
+
+        add_row = QHBoxLayout()
+        date_edit = QDateEdit(QDate.currentDate())
+        date_edit.setCalendarPopup(True)
+        date_edit.setDisplayFormat("MMM dd, yyyy")
+        date_edit.setFixedWidth(140)
+        note_edit = QLineEdit()
+        note_edit.setPlaceholderText("Note / reminder...")
+        add_fu_btn = QPushButton("Add")
+        add_fu_btn.setFixedHeight(30)
+        add_fu_btn.setObjectName("primaryButton")
+
+        def _add_fu():
+            note = note_edit.text().strip()
+            if not note or not c.get("id"):
                 return
-            if c.get("id"):
-                repo.delete_customer(c["id"])
-            self._customers.pop(row)
-            self._populate_table()
-            success(self, message="Customer deleted successfully.")
+            date_str = date_edit.date().toString("MMM dd, yyyy")
+            repo.add_follow_up(c["id"], date_str, note)
+            note_edit.clear()
+            _reload()
+
+        add_fu_btn.clicked.connect(_add_fu)
+        note_edit.returnPressed.connect(_add_fu)
+        add_row.addWidget(date_edit)
+        add_row.addWidget(note_edit)
+        add_row.addWidget(add_fu_btn)
+        lay.addLayout(add_row)
+
+        dlg.exec()
 
     def _open_add_dialog(self):
         dlg = AddCustomerDialog(self)
@@ -243,6 +373,8 @@ class CustomersPage(QWidget):
                 new_id = repo.add_customer(result)
                 if new_id:
                     result["id"] = new_id
+                    result["loyalty_tier"] = "Bronze"
+                    repo.recalculate_loyalty(new_id)
                 self._customers.append(result)
                 self._populate_table()
                 success(self, message="Customer added successfully.")

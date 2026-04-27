@@ -1,12 +1,13 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QScrollArea
+    QFrame, QScrollArea, QLineEdit, QCheckBox, QSizePolicy
 )
 from PySide6.QtCore import Qt, QSize
 
 from utils.icons import btn_icon_primary, get_icon
 from components.dialogs import confirm, success
 import utils.repository as repo
+from utils.session import get_actor
 
 
 _SAMPLE_ORDERS = [
@@ -134,6 +135,49 @@ class KitchenPage(QWidget):
         items_lbl.setWordWrap(True)
         lay.addWidget(items_lbl)
 
+        if order.get("db_id"):
+            divider = QFrame()
+            divider.setFrameShape(QFrame.HLine)
+            divider.setStyleSheet("color: #374151;")
+            lay.addWidget(divider)
+
+            tasks_lbl = QLabel("Tasks")
+            tasks_lbl.setStyleSheet("color: #6B7280; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
+            lay.addWidget(tasks_lbl)
+
+            tasks = repo.get_kitchen_tasks(order["db_id"])
+            tasks_container = QWidget()
+            tasks_container.setStyleSheet("background: transparent;")
+            tasks_lay = QVBoxLayout(tasks_container)
+            tasks_lay.setContentsMargins(0, 0, 0, 0)
+            tasks_lay.setSpacing(4)
+
+            for task in tasks:
+                self._add_task_row(tasks_lay, order, task)
+
+            lay.addWidget(tasks_container)
+
+            add_row = QHBoxLayout()
+            add_row.setSpacing(6)
+            task_input = QLineEdit()
+            task_input.setPlaceholderText("Add task…")
+            task_input.setStyleSheet(
+                "background:#111827;color:#F9FAFB;border:1px solid #374151;"
+                "border-radius:5px;padding:4px 8px;font-size:11px;"
+            )
+            task_input.setFixedHeight(26)
+            add_btn = QPushButton("+")
+            add_btn.setFixedSize(26, 26)
+            add_btn.setCursor(Qt.PointingHandCursor)
+            add_btn.setStyleSheet(
+                "background:#3B82F6;color:white;border-radius:5px;font-weight:700;font-size:13px;border:none;"
+            )
+            add_btn.clicked.connect(lambda _, o=order, inp=task_input, tl=tasks_lay: self._add_task(o, inp, tl))
+            task_input.returnPressed.connect(lambda o=order, inp=task_input, tl=tasks_lay: self._add_task(o, inp, tl))
+            add_row.addWidget(task_input)
+            add_row.addWidget(add_btn)
+            lay.addLayout(add_row)
+
         next_s = _NEXT_STATUS.get(order["status"])
         prev_s = _PREV_STATUS.get(order["status"])
         status = order["status"]
@@ -177,12 +221,58 @@ class KitchenPage(QWidget):
 
         return card
 
+    def _add_task_row(self, tasks_lay, order, task):
+        row_w = QWidget()
+        row_w.setStyleSheet("background: transparent;")
+        row = QHBoxLayout(row_w)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        cb = QCheckBox(task["label"])
+        cb.setChecked(task["is_done"])
+        cb.setStyleSheet(
+            "QCheckBox { color: #9CA3AF; font-size: 11px; background: transparent; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #374151; background: #111827; }"
+            "QCheckBox::indicator:checked { background: #22C55E; border-color: #22C55E; }"
+        )
+        cb.stateChanged.connect(lambda _, tid=task["id"]: repo.toggle_kitchen_task(tid))
+        row.addWidget(cb, 1)
+
+        del_btn = QPushButton("×")
+        del_btn.setFixedSize(18, 18)
+        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.setStyleSheet(
+            "background: transparent; color: #6B7280; border: none; font-size: 13px; font-weight: 700;"
+        )
+        del_btn.clicked.connect(lambda _, tid=task["id"], rw=row_w: self._delete_task_row(tid, rw))
+        row.addWidget(del_btn)
+
+        tasks_lay.addWidget(row_w)
+
+    def _add_task(self, order, task_input, tasks_lay):
+        label = task_input.text().strip()
+        if not label:
+            return
+        task_id = repo.add_kitchen_task(order["db_id"], label, tasks_lay.count())
+        if task_id:
+            task = {"id": task_id, "label": label, "is_done": False}
+            self._add_task_row(tasks_lay, order, task)
+        task_input.clear()
+
+    def _delete_task_row(self, task_id, row_widget):
+        repo.delete_kitchen_task(task_id)
+        row_widget.setParent(None)
+        row_widget.deleteLater()
+
     def _advance_order(self, order):
         next_s = _NEXT_STATUS.get(order["status"])
         if next_s:
+            prev_s = order["status"]
             order["status"] = next_s
             if order.get("db_id"):
                 repo.update_order_status(order["db_id"], next_s)
+                repo.write_audit_log(get_actor(), "STATUS_CHANGE", "kitchen_orders", order["db_id"],
+                    {"status": prev_s}, {"status": next_s})
             self._refresh_columns()
             if next_s == "Delivered":
                 success(self, message=f"Order '{order['id']}' marked as Delivered.")
@@ -191,9 +281,12 @@ class KitchenPage(QWidget):
         prev_s = _PREV_STATUS.get(order["status"])
         if not prev_s:
             return
+        old_s = order["status"]
         order["status"] = prev_s
         if order.get("db_id"):
             repo.update_order_status(order["db_id"], prev_s)
+            repo.write_audit_log(get_actor(), "STATUS_CHANGE", "kitchen_orders", order["db_id"],
+                {"status": old_s}, {"status": prev_s})
         self._refresh_columns()
 
     def _cancel_order(self, order):
@@ -201,9 +294,12 @@ class KitchenPage(QWidget):
                        message=f"Are you sure you want to cancel order '{order['id']}' for {order['client']}?",
                        confirm_label="Cancel Order", danger=True):
             return
+        old_s = order["status"]
         order["status"] = "Cancelled"
         if order.get("db_id"):
             repo.update_order_status(order["db_id"], "Cancelled")
+            repo.write_audit_log(get_actor(), "CANCEL", "kitchen_orders", order["db_id"],
+                {"status": old_s}, {"status": "Cancelled"})
         self._refresh_columns()
         success(self, message=f"Order '{order['id']}' has been cancelled.")
 

@@ -207,7 +207,8 @@ class DashboardPage(QWidget):
         self._kpi_pending  = KPICard("Pending Bookings", "—", "Loading...",  "warning", "orders")
         self._kpi_revenue  = KPICard("Weekly Revenue",   "—", "Loading...",  "success", "trending-up")
         self._kpi_unpaid   = KPICard("Unpaid Invoices",  "—", "Loading...",  "danger",  "billing")
-        for card in [self._kpi_today, self._kpi_pending, self._kpi_revenue, self._kpi_unpaid]:
+        self._kpi_profit   = KPICard("Net Profit (YTD)", "—", "Loading...",  "success", "trending-up")
+        for card in [self._kpi_today, self._kpi_pending, self._kpi_revenue, self._kpi_unpaid, self._kpi_profit]:
             kpi_row.addWidget(card)
         self.lay.addLayout(kpi_row)
 
@@ -321,8 +322,30 @@ class DashboardPage(QWidget):
 
         self._menu_items_start = self._menu_lay.count()
 
+        self.followup_card = AnimatedCard(self.content)
+        self._followup_lay = QVBoxLayout(self.followup_card)
+        self._followup_lay.setContentsMargins(24, 24, 24, 24)
+        self._followup_lay.setSpacing(0)
+
+        fu_head = QHBoxLayout()
+        fu_title = QLabel("Follow-ups Due Today")
+        fu_title.setObjectName("h3")
+        fu_head.addWidget(fu_title)
+        fu_head.addStretch()
+        self._fu_badge = QLabel("—")
+        self._fu_badge.setObjectName("badgeWarning")
+        fu_head.addWidget(self._fu_badge)
+        self._followup_lay.addLayout(fu_head)
+
+        fu_div = QFrame()
+        fu_div.setObjectName("divider")
+        self._followup_lay.addWidget(fu_div)
+
+        self._fu_items_start = self._followup_lay.count()
+
         bot_row.addWidget(self.act_card, 3)
         bot_row.addWidget(self.menu_card, 2)
+        bot_row.addWidget(self.followup_card, 2)
         self.lay.addLayout(bot_row)
 
         self.scroll.setWidget(self.content)
@@ -400,6 +423,18 @@ class DashboardPage(QWidget):
         self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
         self._kpi_unpaid.update_trend("Outstanding balance")
 
+        try:
+            profit_data = repo.get_profit_summary()
+            total_rev = sum(r["revenue"] for r in profit_data)
+            total_exp = sum(r["expense"] for r in profit_data)
+            net = total_rev - total_exp
+            profit_color = "success" if net >= 0 else "danger"
+            self._kpi_profit.update_value(f"₱ {net:,.0f}")
+            self._kpi_profit.update_trend(f"Rev ₱{total_rev:,.0f} − Exp ₱{total_exp:,.0f}")
+        except Exception:
+            self._kpi_profit.update_value("—")
+            self._kpi_profit.update_trend("No expense data")
+
         self._pax_lbl.setText(
             f'<span style="font-size:28px;font-weight:800;color:#F9FAFB;">{pax}</span>'
             f'<span style="color:#6B7280;font-size:16px;"> / 600</span>'
@@ -412,6 +447,7 @@ class DashboardPage(QWidget):
         self._rebuild_events()
         self._rebuild_activity()
         self._rebuild_menu_alerts()
+        self._rebuild_followup_alerts()
 
     def _clear_layout_from(self, layout, from_index: int):
         while layout.count() > from_index:
@@ -506,3 +542,44 @@ class DashboardPage(QWidget):
                 sep.setObjectName("divider")
                 self._menu_lay.addWidget(sep)
         self._menu_lay.addStretch()
+
+    def _rebuild_followup_alerts(self):
+        self._clear_layout_from(self._followup_lay, self._fu_items_start)
+        try:
+            followups = repo.get_todays_follow_ups()
+        except Exception:
+            followups = []
+        if not followups:
+            self._fu_badge.setText("None due")
+            self._fu_badge.setObjectName("badgeSuccess")
+            empty = QLabel("No follow-ups due today.")
+            empty.setObjectName("subtitle")
+            empty.setContentsMargins(0, 8, 0, 8)
+            self._followup_lay.addWidget(empty)
+        else:
+            self._fu_badge.setText(f"{len(followups)} Due")
+            self._fu_badge.setObjectName("badgeDanger")
+            for fu in followups:
+                item_w = QWidget()
+                item_lay = QHBoxLayout(item_w)
+                item_lay.setContentsMargins(0, 8, 0, 8)
+                item_lay.setSpacing(10)
+                dot = QFrame()
+                dot.setFixedSize(8, 8)
+                dot.setStyleSheet("background:#F59E0B;border-radius:4px;")
+                item_lay.addWidget(dot, alignment=Qt.AlignVCenter)
+                text_lay = QVBoxLayout()
+                text_lay.setSpacing(2)
+                name_lbl = QLabel(fu.get("customer_name", "Customer"))
+                name_lbl.setStyleSheet("font-weight:700;font-size:13px;")
+                note_lbl = QLabel(fu.get("note") or "Follow-up due")
+                note_lbl.setStyleSheet("color:#9CA3AF;font-size:12px;")
+                note_lbl.setWordWrap(True)
+                text_lay.addWidget(name_lbl)
+                text_lay.addWidget(note_lbl)
+                item_lay.addLayout(text_lay)
+                self._followup_lay.addWidget(item_w)
+                sep = QFrame()
+                sep.setObjectName("divider")
+                self._followup_lay.addWidget(sep)
+        self._followup_lay.addStretch()

@@ -2,7 +2,7 @@ import csv
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QTableWidget, QHeaderView,
-    QDialog, QFileDialog, QMessageBox
+    QDialog, QFileDialog, QMessageBox, QInputDialog
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
@@ -12,6 +12,7 @@ from components.booking_modal import BookingModal
 from components.dialogs import confirm, success
 from components.filter_popover import FilterPopover
 import utils.repository as repo
+from utils.session import get_actor
 
 
 _STATUS_COLORS = {
@@ -143,14 +144,16 @@ class BookingPage(QWidget):
         t_head.addWidget(btn_export)
         table_layout.addLayout(t_head)
 
-        self.table = QTableWidget(0, 8)
-        self.table.setHorizontalHeaderLabels(["DATE", "CLIENT NAME", "PAX", "TOTAL AMOUNT", "STATUS", "ACTIONS", "", ""])
+        self.table = QTableWidget(0, 9)
+        self.table.setHorizontalHeaderLabels(["DATE", "CLIENT NAME", "PAX", "TOTAL AMOUNT", "STATUS", "ACTIONS", "", "", ""])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
         self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(8, QHeaderView.Fixed)
         self.table.setColumnWidth(6, 36)
         self.table.setColumnWidth(7, 36)
+        self.table.setColumnWidth(8, 36)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setFocusPolicy(Qt.NoFocus)
         self.table.setSelectionMode(QTableWidget.NoSelection)
@@ -197,7 +200,19 @@ class BookingPage(QWidget):
             self.table.setCellWidget(row, 3, amt_lbl)
 
             bref = b["id"]
-            self.table.setCellWidget(row, 4, _status_badge(b["status"]))
+            if b["status"] == "CANCELLED" and b.get("cancellation_reason"):
+                status_col = QWidget()
+                sc_lay = QVBoxLayout(status_col)
+                sc_lay.setContentsMargins(4, 2, 4, 2)
+                sc_lay.setSpacing(2)
+                sc_lay.addWidget(_status_badge(b["status"]))
+                reason_lbl = QLabel(b["cancellation_reason"])
+                reason_lbl.setStyleSheet("color:#EF4444;font-size:10px;font-style:italic;")
+                reason_lbl.setWordWrap(True)
+                sc_lay.addWidget(reason_lbl)
+                self.table.setCellWidget(row, 4, status_col)
+            else:
+                self.table.setCellWidget(row, 4, _status_badge(b["status"]))
 
             actions = _action_buttons(
                 b["status"],
@@ -229,23 +244,61 @@ class BookingPage(QWidget):
             del_btn.clicked.connect(lambda _, r=bref: self._delete_booking(r))
             self.table.setCellWidget(row, 7, del_btn)
 
+            confirm_btn = QPushButton()
+            confirm_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(14, 14)))
+            confirm_btn.setIconSize(QSize(14, 14))
+            confirm_btn.setFixedSize(32, 32)
+            confirm_btn.setStyleSheet("background:transparent;border:none;")
+            confirm_btn.setCursor(Qt.PointingHandCursor)
+            confirm_btn.setToolTip("Send Confirmation (Email/SMS)")
+            confirm_btn.setEnabled(b["status"] == "CONFIRMED")
+            confirm_btn.clicked.connect(lambda _, r=bref: self._send_confirmation(r))
+            self.table.setCellWidget(row, 8, confirm_btn)
+
     def _approve_booking(self, ref):
         b = next((x for x in self._bookings if x["id"] == ref), None)
         if not b or b["status"] != "PENDING":
             return
+        if b.get("db_id"):
+            try:
+                from datetime import datetime
+                event_date = datetime.strptime(b["date"].strip(), "%b %d, %Y").date()
+                cap = repo.check_date_capacity(event_date, exclude_id=b["db_id"])
+                pax = int(b["pax"])
+                if cap["booked_pax"] + pax > cap["max_pax"]:
+                    QMessageBox.warning(
+                        self, "Capacity Exceeded",
+                        f"Cannot approve: this would put {cap['booked_pax'] + pax} pax on {b['date']}.\n"
+                        f"Maximum daily capacity is {cap['max_pax']} pax."
+                    )
+                    return
+            except Exception as exc:
+                print(f"[capacity check] {exc}")
         if not confirm(self, title="Approve Booking",
                        message=f"Approve booking for '{b['name']}'?",
                        confirm_label="Approve"):
             return
-        b["status"] = "CONFIRMED"
-        if b.get("db_id"):
-            repo.update_booking_status(b["db_id"], "CONFIRMED")
-        self._populate_table()
-        success(self, message="Booking approved successfully.")
+        try:
+            if b.get("db_id"):
+                repo.update_booking_status(b["db_id"], "CONFIRMED")
+            b["status"] = "CONFIRMED"
+            self._populate_table()
+            success(self, message="Booking approved successfully.")
+            repo.write_audit_log(get_actor(), "APPROVE", "bookings", b.get("db_id"), None, {"status": "CONFIRMED"})
+            if b.get("db_id"):
+                self._send_confirmation_auto(b)
+        except Exception as exc:
+            QMessageBox.warning(self, "Cannot Approve", str(exc))
 
     def _decline_booking(self, ref):
         b = next((x for x in self._bookings if x["id"] == ref), None)
         if not b or b["status"] != "PENDING":
+            return
+        reason, ok = QInputDialog.getText(
+            self, "Cancellation Reason",
+            f"Enter reason for declining booking for '{b['name']}' (optional):"
+        )
+        if not ok:
             return
         if not confirm(self, title="Decline Booking",
                        message=f"Decline booking for '{b['name']}'? This will mark it as Cancelled.",
@@ -253,9 +306,79 @@ class BookingPage(QWidget):
             return
         b["status"] = "CANCELLED"
         if b.get("db_id"):
-            repo.update_booking_status(b["db_id"], "CANCELLED")
+            repo.update_booking_status(b["db_id"], "CANCELLED", reason.strip() or None)
+            repo.write_audit_log(get_actor(), "CANCEL", "bookings", b["db_id"], None, {"status": "CANCELLED", "reason": reason.strip()})
         self._populate_table()
         success(self, message="Booking declined.")
+
+    def _send_confirmation_auto(self, b: dict) -> None:
+        """Auto-trigger email + SMS on approval (best-effort, silent on failure)."""
+        try:
+            detail = repo.get_booking_detail(b["db_id"]) if b.get("db_id") else None
+            if not detail:
+                return
+            biz = repo.get_business_info()
+            booking_data = {**detail, "business_contact": biz.get("contact", "")}
+            smtp = repo.get_smtp_config()
+            if detail.get("email") and smtp.get("smtp_host"):
+                from utils.mailer import send_booking_confirmation_email
+                ok, _ = send_booking_confirmation_email(smtp, detail["email"], booking_data)
+                if ok and detail.get("db_id"):
+                    repo.log_confirmation_sent(detail["db_id"], "email")
+            sms_cfg = repo.get_sms_config()
+            if detail.get("contact") and sms_cfg.get("sms_api_key"):
+                from utils.sms_sender import send_booking_confirmation_sms
+                ok, _ = send_booking_confirmation_sms(sms_cfg["sms_api_key"], booking_data)
+                if ok and detail.get("db_id"):
+                    repo.log_confirmation_sent(detail["db_id"], "sms")
+        except Exception as exc:
+            print(f"[booking] auto-confirm send failed: {exc}")
+
+    def _send_confirmation(self, ref: str) -> None:
+        """Manual resend of confirmation for a CONFIRMED booking."""
+        b = next((x for x in self._bookings if x["id"] == ref), None)
+        if not b or b["status"] != "CONFIRMED" or not b.get("db_id"):
+            QMessageBox.information(self, "Not Available",
+                "Confirmation can only be resent for confirmed bookings with a database record.")
+            return
+        detail = repo.get_booking_detail(b["db_id"])
+        if not detail:
+            return
+        biz = repo.get_business_info()
+        booking_data = {**detail, "business_contact": biz.get("contact", "")}
+        smtp = repo.get_smtp_config()
+        sms_cfg = repo.get_sms_config()
+        sent_email = sent_sms = False
+        errors = []
+        if detail.get("email") and smtp.get("smtp_host"):
+            from utils.mailer import send_booking_confirmation_email
+            ok, err = send_booking_confirmation_email(smtp, detail["email"], booking_data)
+            if ok:
+                repo.log_confirmation_sent(detail["db_id"], "email")
+                sent_email = True
+            else:
+                errors.append(f"Email: {err}")
+        if detail.get("contact") and sms_cfg.get("sms_api_key"):
+            from utils.sms_sender import send_booking_confirmation_sms
+            ok, err = send_booking_confirmation_sms(sms_cfg["sms_api_key"], booking_data)
+            if ok:
+                repo.log_confirmation_sent(detail["db_id"], "sms")
+                sent_sms = True
+            else:
+                errors.append(f"SMS: {err}")
+        if sent_email or sent_sms:
+            parts = []
+            if sent_email:
+                parts.append(f"email to {detail['email']}")
+            if sent_sms:
+                parts.append(f"SMS to {detail['contact']}")
+            success(self, message=f"Confirmation sent via {' and '.join(parts)}.")
+        elif errors:
+            QMessageBox.warning(self, "Send Failed", "\n".join(errors))
+        else:
+            QMessageBox.information(self, "No Channels",
+                "No email or SMS configured for this booking.\n"
+                "Ensure customer has an email/contact and SMTP/SMS is configured in Settings.")
 
     def _delete_booking(self, ref):
         b = next((x for x in self._bookings if x["id"] == ref), None)

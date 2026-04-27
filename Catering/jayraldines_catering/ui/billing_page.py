@@ -1,9 +1,11 @@
 import csv
+import os
+import tempfile
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
     QDialog, QFormLayout, QComboBox, QLineEdit, QDoubleSpinBox,
-    QFileDialog, QMessageBox, QDateEdit
+    QFileDialog, QMessageBox, QDateEdit, QInputDialog
 )
 from PySide6.QtCore import Qt, QSize, QDate
 from PySide6.QtWidgets import QCompleter
@@ -13,6 +15,8 @@ from PySide6.QtGui import QColor
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
 from components.dialogs import confirm, success
 import utils.repository as repo
+import utils.exporter as exporter
+from utils.session import get_actor
 
 
 _STATUS_COLORS = {"Paid": "#22C55E", "Partial": "#F59E0B", "Unpaid": "#EF4444"}
@@ -239,15 +243,19 @@ class BillingPage(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._table = QTableWidget(0, 8)
+        self._table = QTableWidget(0, 10)
         self._table.setHorizontalHeaderLabels(
-            ["Invoice #", "Customer", "Event Date", "Amount", "Paid", "Status", "", ""]
+            ["Invoice #", "Customer", "Event Date", "Amount", "Paid", "Status", "", "", "", ""]
         )
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
         self._table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Fixed)
+        self._table.horizontalHeader().setSectionResizeMode(8, QHeaderView.Fixed)
+        self._table.horizontalHeader().setSectionResizeMode(9, QHeaderView.Fixed)
         self._table.setColumnWidth(6, 36)
         self._table.setColumnWidth(7, 36)
+        self._table.setColumnWidth(8, 36)
+        self._table.setColumnWidth(9, 36)
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.verticalHeader().setVisible(False)
@@ -290,6 +298,26 @@ class BillingPage(QWidget):
             del_btn.clicked.connect(self._delete_invoice)
             self._table.setCellWidget(row, 7, del_btn)
 
+            print_btn = QPushButton()
+            print_btn.setIcon(get_icon("export", color="#9CA3AF", size=QSize(14, 14)))
+            print_btn.setIconSize(QSize(14, 14))
+            print_btn.setFixedSize(32, 32)
+            print_btn.setStyleSheet("background: transparent; border: none;")
+            print_btn.setCursor(Qt.PointingHandCursor)
+            print_btn.setToolTip("Print / Save Receipt PDF")
+            print_btn.clicked.connect(self._print_receipt)
+            self._table.setCellWidget(row, 8, print_btn)
+
+            email_btn = QPushButton()
+            email_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(14, 14)))
+            email_btn.setIconSize(QSize(14, 14))
+            email_btn.setFixedSize(32, 32)
+            email_btn.setStyleSheet("background: transparent; border: none;")
+            email_btn.setCursor(Qt.PointingHandCursor)
+            email_btn.setToolTip("Email Receipt to Customer")
+            email_btn.clicked.connect(self._email_receipt)
+            self._table.setCellWidget(row, 9, email_btn)
+
     def _row_from_sender(self, col):
         btn = self.sender()
         for r in range(self._table.rowCount()):
@@ -322,6 +350,9 @@ class BillingPage(QWidget):
                     "status":     result["status"],
                 })
                 self._populate_table()
+                repo.write_audit_log(get_actor(), "UPDATE", "invoices", inv.get("db_id"),
+                    {"status": inv.get("status"), "paid": inv.get("paid")},
+                    {"status": result["status"], "paid": result["paid"]})
                 success(self, message="Invoice updated successfully.")
 
     def _delete_invoice(self):
@@ -339,6 +370,64 @@ class BillingPage(QWidget):
         self._populate_table()
         success(self, message="Invoice deleted successfully.")
 
+    def _print_receipt(self):
+        row = self._row_from_sender(8)
+        if row < 0:
+            return
+        inv = self._invoices[row]
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Receipt PDF",
+            f"receipt_{inv.get('invoice', 'receipt')}.pdf",
+            "PDF Files (*.pdf)",
+        )
+        if not path:
+            return
+        business = repo.get_business_info()
+        ok = exporter.export_receipt_pdf(path, inv, business)
+        if ok:
+            if inv.get("db_id"):
+                repo.log_receipt_sent(inv["db_id"], "print")
+            success(self, message=f"Receipt saved to:\n{path}")
+        else:
+            QMessageBox.warning(self, "Export Failed",
+                "Could not generate PDF. Make sure reportlab is installed.")
+
+    def _email_receipt(self):
+        row = self._row_from_sender(9)
+        if row < 0:
+            return
+        inv = self._invoices[row]
+        to_email, ok = QInputDialog.getText(
+            self, "Email Receipt",
+            f"Enter email address for {inv.get('customer', 'customer')}:",
+        )
+        if not ok or not to_email.strip():
+            return
+        to_email = to_email.strip()
+        business = repo.get_business_info()
+        smtp = repo.get_smtp_config()
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            ok = exporter.export_receipt_pdf(tmp_path, inv, business)
+            if not ok:
+                QMessageBox.warning(self, "PDF Error",
+                    "Could not generate receipt PDF. Make sure reportlab is installed.")
+                return
+            from utils.mailer import send_receipt_email
+            sent, err = send_receipt_email(smtp, to_email, inv, tmp_path)
+            if sent:
+                if inv.get("db_id"):
+                    repo.log_receipt_sent(inv["db_id"], "email")
+                success(self, message=f"Receipt emailed to {to_email}.")
+            else:
+                QMessageBox.warning(self, "Email Failed", err)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
     def _open_new_invoice(self):
         dlg = InvoiceDialog(self)
         if dlg.exec() == QDialog.Accepted:
@@ -353,6 +442,8 @@ class BillingPage(QWidget):
                     result["invoice"] = f"INV-{len(self._invoices)+1:03d}"
                 self._invoices.append(result)
                 self._populate_table()
+                repo.write_audit_log(get_actor(), "CREATE", "invoices", result.get("db_id"),
+                    None, {"invoice": result.get("invoice"), "customer": result.get("customer")})
                 success(self, message="Invoice created successfully.")
 
     def filter_search(self, text):

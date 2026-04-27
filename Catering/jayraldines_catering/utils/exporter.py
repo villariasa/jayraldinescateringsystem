@@ -333,3 +333,70 @@ def export_excel(path: str, kpis: dict, bookings: list,
     except Exception as exc:
         print(f"[exporter] Excel failed: {exc}")
         return False
+
+
+def export_receipt_pdf(path: str, inv: dict, business: dict) -> bool:
+    """Generate a PDF receipt for a single invoice."""
+    if not REPORTLAB_OK:
+        return False
+    try:
+        doc = SimpleDocTemplate(
+            path, pagesize=A4,
+            leftMargin=2*cm, rightMargin=2*cm,
+            topMargin=2*cm, bottomMargin=2*cm,
+            title=f"Receipt — {inv.get('invoice', '')}",
+        )
+        styles = _styles()
+        story = []
+
+        if os.path.exists(_LOGO_PATH):
+            story.append(Image(_LOGO_PATH, width=3.5*cm, height=1.5*cm, hAlign="LEFT"))
+            story.append(Spacer(1, 0.3*cm))
+
+        story.append(Paragraph(business.get("name", "Jayraldine's Catering"), styles["BrandTitle"]))
+        story.append(Paragraph(business.get("address", ""), styles["BrandSub"]))
+        story.append(Paragraph(f'Tel: {business.get("contact", "")}  ·  Email: {business.get("email", "")}', styles["BrandSub"]))
+        story.append(Spacer(1, 0.5*cm))
+        story.append(HRFlowable(width="100%", thickness=1.5, color=_BRAND_RED))
+        story.append(Spacer(1, 0.4*cm))
+
+        story.append(Paragraph("OFFICIAL RECEIPT", styles["SectionHead"]))
+
+        balance = inv.get("amount", 0.0) - inv.get("paid", 0.0)
+        detail_data = [
+            ["Receipt #", inv.get("invoice", "—")],
+            ["Customer", inv.get("customer", "—")],
+            ["Event Date", inv.get("event_date", "—")],
+            ["Total Amount", f"₱ {inv.get('amount', 0.0):,.2f}"],
+            ["Amount Paid", f"₱ {inv.get('paid', 0.0):,.2f}"],
+            ["Balance", f"₱ {balance:,.2f}"],
+            ["Status", inv.get("status", "—")],
+        ]
+        tbl = Table(detail_data, colWidths=[5*cm, 10*cm])
+        tbl.setStyle(TableStyle([
+            ("FONTNAME",    (0, 0), (0, -1), "Helvetica-Bold"),
+            ("FONTNAME",    (1, 0), (1, -1), "Helvetica"),
+            ("FONTSIZE",    (0, 0), (-1, -1), 10),
+            ("TEXTCOLOR",   (0, 0), (0, -1), _BRAND_GRAY),
+            ("ROWBACKGROUNDS", (0, 0), (-1, -1), [_BRAND_LIGHT, colors.white]),
+            ("GRID",        (0, 0), (-1, -1), 0.3, colors.HexColor("#E5E7EB")),
+            ("TOPPADDING",  (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(tbl)
+        story.append(Spacer(1, 1*cm))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=_BRAND_GRAY))
+        story.append(Spacer(1, 0.3*cm))
+
+        from datetime import datetime as _dt
+        story.append(Paragraph(
+            f"Printed: {_dt.now().strftime('%B %d, %Y %I:%M %p')}  ·  Thank you for choosing {business.get('name', 'Jayraldine''s Catering')}!",
+            styles["BrandSub"],
+        ))
+
+        doc.build(story)
+        return True
+    except Exception as exc:
+        print(f"[exporter] Receipt PDF failed: {exc}")
+        return False

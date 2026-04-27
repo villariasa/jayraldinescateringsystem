@@ -557,6 +557,43 @@ class ReportsPage(QWidget):
         self._t_layout.addWidget(self.table)
         self.main_layout.addWidget(self.table_card)
 
+        # ── EXPENSES SECTION ──────────────────────────────────────────────────
+        self._expense_card = HoverCard(self.scroll_content)
+        exp_lay = QVBoxLayout(self._expense_card)
+        exp_lay.setContentsMargins(24, 24, 24, 24)
+        exp_lay.setSpacing(16)
+
+        exp_head = QHBoxLayout()
+        exp_title = QLabel("Expenses", self._expense_card)
+        exp_title.setObjectName("h2")
+        exp_head.addWidget(exp_title)
+        exp_head.addStretch()
+        btn_add_exp = QPushButton("  + Add Expense")
+        btn_add_exp.setObjectName("primaryButton")
+        btn_add_exp.setFixedHeight(32)
+        btn_add_exp.clicked.connect(self._open_add_expense)
+        exp_head.addWidget(btn_add_exp)
+        exp_lay.addLayout(exp_head)
+
+        self._exp_table = QTableWidget(0, 5, self._expense_card)
+        self._exp_table.setHorizontalHeaderLabels(["DATE", "CATEGORY", "DESCRIPTION", "AMOUNT", ""])
+        self._exp_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self._exp_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
+        self._exp_table.setColumnWidth(4, 40)
+        self._exp_table.verticalHeader().setVisible(False)
+        self._exp_table.setShowGrid(False)
+        self._exp_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._exp_table.setFocusPolicy(Qt.NoFocus)
+        self._exp_table.setSelectionMode(QTableWidget.NoSelection)
+        exp_lay.addWidget(self._exp_table)
+
+        self._profit_lbl = QLabel("", self._expense_card)
+        self._profit_lbl.setStyleSheet("font-size:14px;font-weight:700;color:#22C55E;")
+        exp_lay.addWidget(self._profit_lbl)
+
+        self.main_layout.addWidget(self._expense_card)
+        self._load_expenses()
+
         # ── Final assembly ────────────────────────────────────────────────────
         self.scroll_area.setWidget(self.scroll_content)
         self.root_layout.addWidget(self.scroll_area)
@@ -664,6 +701,88 @@ class ReportsPage(QWidget):
         lay.addWidget(lbl_s)
         lay.addStretch()
         return card
+
+    def _load_expenses(self):
+        expenses = repo.get_all_expenses()
+        self._expenses = expenses
+        self._exp_table.setRowCount(0)
+        total_exp = 0.0
+        for exp in expenses:
+            row = self._exp_table.rowCount()
+            self._exp_table.insertRow(row)
+            self._exp_table.setRowHeight(row, 44)
+            self._exp_table.setCellWidget(row, 0, QLabel(f"  {exp['date']}"))
+            self._exp_table.setCellWidget(row, 1, QLabel(f"  {exp['category']}"))
+            self._exp_table.setCellWidget(row, 2, QLabel(f"  {exp['description']}"))
+            amt_lbl = QLabel(f"  ₱ {exp['amount']:,.2f}")
+            amt_lbl.setStyleSheet("color:#EF4444;font-weight:600;")
+            self._exp_table.setCellWidget(row, 3, amt_lbl)
+            del_btn = QPushButton("✕")
+            del_btn.setFixedSize(28, 28)
+            del_btn.setStyleSheet("background:transparent;border:none;color:#6B7280;font-weight:700;")
+            del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.clicked.connect(lambda _, eid=exp["id"]: self._delete_expense(eid))
+            self._exp_table.setCellWidget(row, 4, del_btn)
+            total_exp += exp["amount"]
+
+        profit_data = repo.get_profit_summary()
+        total_rev = sum(r["revenue"] for r in profit_data)
+        net = total_rev - total_exp
+        color = "#22C55E" if net >= 0 else "#EF4444"
+        self._profit_lbl.setStyleSheet(f"font-size:14px;font-weight:700;color:{color};")
+        self._profit_lbl.setText(
+            f"Total Expenses: ₱ {total_exp:,.2f}   |   "
+            f"Total Revenue (YTD): ₱ {total_rev:,.2f}   |   "
+            f"Net Profit: ₱ {net:,.2f}"
+        )
+
+    def _open_add_expense(self):
+        from PySide6.QtWidgets import QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox, QDateEdit
+        from PySide6.QtCore import QDate
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add Expense")
+        dlg.setMinimumWidth(380)
+        form = QFormLayout(dlg)
+        form.setSpacing(12)
+
+        date_edit = QDateEdit(QDate.currentDate())
+        date_edit.setCalendarPopup(True)
+        date_edit.setDisplayFormat("MMM dd, yyyy")
+        form.addRow("Date:", date_edit)
+
+        cat_cb = QComboBox()
+        for c in ["Food Cost", "Labor", "Transport", "Utilities", "Equipment", "Other"]:
+            cat_cb.addItem(c)
+        form.addRow("Category:", cat_cb)
+
+        desc_edit = QLineEdit()
+        desc_edit.setPlaceholderText("Description")
+        form.addRow("Description:", desc_edit)
+
+        amt_edit = QLineEdit()
+        amt_edit.setPlaceholderText("0.00")
+        form.addRow("Amount (₱):", amt_edit)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        form.addRow(btns)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+        try:
+            amt = float(amt_edit.text().replace(",", "").strip())
+        except ValueError:
+            QMessageBox.warning(self, "Invalid", "Enter a valid amount.")
+            return
+        date_str = date_edit.date().toString("MMM dd, yyyy")
+        repo.add_expense({"category": cat_cb.currentText(), "description": desc_edit.text().strip() or "—",
+                          "amount": amt, "date": date_str})
+        self._load_expenses()
+
+    def _delete_expense(self, expense_id):
+        repo.delete_expense(expense_id)
+        self._load_expenses()
 
     def _build_export_menu(self):
         menu = QMenu(self)

@@ -29,23 +29,37 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TYPE booking_status    AS ENUM ('PENDING', 'CONFIRMED', 'CANCELLED');
 CREATE TYPE invoice_status    AS ENUM ('Unpaid', 'Partial', 'Paid');
 CREATE TYPE customer_status   AS ENUM ('Active', 'Pending', 'Inactive');
+CREATE TYPE loyalty_tier      AS ENUM ('Bronze', 'Silver', 'Gold', 'VIP');
 CREATE TYPE menu_status       AS ENUM ('Available', 'Unavailable', 'Seasonal', 'Out of Stock');
 CREATE TYPE kitchen_status    AS ENUM ('Queued', 'Preparing', 'In Progress', 'Ready', 'Delivered', 'Cancelled', 'Done');
 CREATE TYPE payment_method    AS ENUM ('Cash', 'Bank Transfer', 'GCash', 'PayMaya');
 CREATE TYPE menu_category     AS ENUM ('Main Course','Noodles','Soup','Vegetables','Dessert','Drinks','Bread','Other');
 CREATE TYPE menu_package_tier AS ENUM ('Budget','Standard','Premium','Custom');
 CREATE TYPE inventory_unit    AS ENUM ('kg','g','L','mL','pcs','packs','trays','boxes');
+CREATE TYPE expense_category  AS ENUM ('Food Cost','Labor','Transport','Utilities','Equipment','Other');
 
 -- =============================================================================
 -- TABLE: business_info
 -- =============================================================================
 CREATE TABLE business_info (
-    id          SERIAL          PRIMARY KEY,
-    name        VARCHAR(120)    NOT NULL DEFAULT 'Jayraldine''s Catering',
-    contact     VARCHAR(30)     NOT NULL,
-    email       VARCHAR(120),
-    address     TEXT,
-    updated_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    id                      SERIAL          PRIMARY KEY,
+    name                    VARCHAR(120)    NOT NULL DEFAULT 'Jayraldine''s Catering',
+    contact                 VARCHAR(30)     NOT NULL,
+    email                   VARCHAR(120),
+    address                 TEXT,
+    -- SMTP email config (Feature 2)
+    smtp_host               VARCHAR(120),
+    smtp_port               INT             DEFAULT 587,
+    smtp_user               VARCHAR(120),
+    smtp_pass               TEXT,
+    -- SMS config (Feature 3)
+    sms_api_key             TEXT,
+    -- Booking policy (Feature 4)
+    min_downpayment_pct     NUMERIC(5,2)    NOT NULL DEFAULT 30.00,
+    allow_zero_downpayment  BOOLEAN         NOT NULL DEFAULT FALSE,
+    -- Capacity policy (Feature 5)
+    max_daily_pax           INT             NOT NULL DEFAULT 600,
+    updated_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
 INSERT INTO business_info (name, contact, email, address)
@@ -61,6 +75,7 @@ CREATE TABLE customers (
     contact         VARCHAR(30)     NOT NULL,
     email           VARCHAR(120),
     status          customer_status NOT NULL DEFAULT 'Active',
+    loyalty_tier    loyalty_tier    NOT NULL DEFAULT 'Bronze',
     total_events    INT             NOT NULL DEFAULT 0 CHECK (total_events >= 0),
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
@@ -68,11 +83,11 @@ CREATE TABLE customers (
 
 CREATE UNIQUE INDEX uq_customers_name_contact ON customers (name, contact);
 
-INSERT INTO customers (name, contact, email, status, total_events) VALUES
-  ('Maria Santos',   '+63 912 345 6789', 'maria@email.com',    'Active',  3),
-  ('TechCorp Inc.',  '+63 917 000 1234', 'events@techcorp.ph', 'Active',  1),
-  ('Cruz Family',    '+63 920 111 2222', 'cruz@gmail.com',     'Active',  2),
-  ('Smith Wedding',  '+63 932 555 6666', 'smith@yahoo.com',    'Pending', 1);
+INSERT INTO customers (name, contact, email, status, loyalty_tier, total_events) VALUES
+  ('Maria Santos',   '+63 912 345 6789', 'maria@email.com',    'Active',  'Silver', 3),
+  ('TechCorp Inc.',  '+63 917 000 1234', 'events@techcorp.ph', 'Active',  'Bronze', 1),
+  ('Cruz Family',    '+63 920 111 2222', 'cruz@gmail.com',     'Active',  'Silver', 2),
+  ('Smith Wedding',  '+63 932 555 6666', 'smith@yahoo.com',    'Pending', 'Bronze', 1);
 
 -- =============================================================================
 -- TABLE: packages
@@ -118,28 +133,29 @@ INSERT INTO menu_items (name, category, package_tier, price, status) VALUES
 -- TABLE: bookings
 -- =============================================================================
 CREATE TABLE bookings (
-    id              SERIAL          PRIMARY KEY,
-    booking_ref     VARCHAR(12)     NOT NULL UNIQUE,
-    customer_id     INT             REFERENCES customers(id) ON DELETE SET NULL,
-    customer_name   VARCHAR(150)    NOT NULL,
-    contact         VARCHAR(30),
-    email           VARCHAR(120),
-    address         TEXT,
-    occasion        VARCHAR(120)    NOT NULL,
-    venue           VARCHAR(200)    NOT NULL,
-    event_date      DATE            NOT NULL,
-    event_time      TIME            NOT NULL DEFAULT '18:00:00',
-    pax             INT             NOT NULL CHECK (pax >= 1),
-    special_notes   TEXT,
-    menu_type       VARCHAR(10)     NOT NULL DEFAULT 'package' CHECK (menu_type IN ('package','custom')),
-    package_id      INT             REFERENCES packages(id) ON DELETE SET NULL,
-    custom_items    TEXT,
-    total_amount    NUMERIC(12,2)   NOT NULL CHECK (total_amount >= 0),
-    payment_mode    payment_method  NOT NULL DEFAULT 'Cash',
-    amount_paid     NUMERIC(12,2)   NOT NULL DEFAULT 0 CHECK (amount_paid >= 0),
-    status          booking_status  NOT NULL DEFAULT 'PENDING',
-    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    id                  SERIAL          PRIMARY KEY,
+    booking_ref         VARCHAR(12)     NOT NULL UNIQUE,
+    customer_id         INT             REFERENCES customers(id) ON DELETE SET NULL,
+    customer_name       VARCHAR(150)    NOT NULL,
+    contact             VARCHAR(30),
+    email               VARCHAR(120),
+    address             TEXT,
+    occasion            VARCHAR(120)    NOT NULL,
+    venue               VARCHAR(200)    NOT NULL,
+    event_date          DATE            NOT NULL,
+    event_time          TIME            NOT NULL DEFAULT '18:00:00',
+    pax                 INT             NOT NULL CHECK (pax >= 1),
+    special_notes       TEXT,
+    menu_type           VARCHAR(10)     NOT NULL DEFAULT 'package' CHECK (menu_type IN ('package','custom')),
+    package_id          INT             REFERENCES packages(id) ON DELETE SET NULL,
+    custom_items        TEXT,
+    total_amount        NUMERIC(12,2)   NOT NULL CHECK (total_amount >= 0),
+    payment_mode        payment_method  NOT NULL DEFAULT 'Cash',
+    amount_paid         NUMERIC(12,2)   NOT NULL DEFAULT 0 CHECK (amount_paid >= 0),
+    status              booking_status  NOT NULL DEFAULT 'PENDING',
+    cancellation_reason TEXT,
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     CONSTRAINT chk_paid_lte_total CHECK (amount_paid <= total_amount)
 );
 
@@ -215,6 +231,20 @@ INSERT INTO kitchen_orders (order_ref, client_name, event_name, pax, items_desc,
   ('ORD-004','Smith Wedding', 'Wedding Reception', 300, 'Full Package Premium',                'Queued');
 
 -- =============================================================================
+-- TABLE: kitchen_tasks  (Feature 6 — per-dish checklist)
+-- =============================================================================
+CREATE TABLE kitchen_tasks (
+    id          SERIAL          PRIMARY KEY,
+    order_id    INT             NOT NULL REFERENCES kitchen_orders(id) ON DELETE CASCADE,
+    task_label  VARCHAR(200)    NOT NULL,
+    is_done     BOOLEAN         NOT NULL DEFAULT FALSE,
+    sort_order  INT             NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_kitchen_tasks_order ON kitchen_tasks (order_id);
+
+-- =============================================================================
 -- TABLE: inventory
 -- =============================================================================
 CREATE TABLE inventory (
@@ -232,6 +262,69 @@ INSERT INTO inventory (ingredient, unit, stock, min_stock) VALUES
   ('Cooking Oil', 'L',  4,  10),
   ('Pork',        'kg', 25, 15),
   ('Flour',       'kg', 40, 10);
+
+-- =============================================================================
+-- TABLE: expenses  (Feature 8 — profit/expense tracking)
+-- =============================================================================
+CREATE TABLE expenses (
+    id              SERIAL              PRIMARY KEY,
+    category        expense_category    NOT NULL DEFAULT 'Other',
+    description     TEXT                NOT NULL,
+    amount          NUMERIC(12,2)       NOT NULL CHECK (amount >= 0),
+    expense_date    DATE                NOT NULL DEFAULT CURRENT_DATE,
+    created_at      TIMESTAMPTZ         NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ         NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_expenses_date ON expenses (expense_date);
+
+-- =============================================================================
+-- TABLE: customer_follow_ups  (Feature 9 — loyalty / follow-up reminders)
+-- =============================================================================
+CREATE TABLE customer_follow_ups (
+    id              SERIAL          PRIMARY KEY,
+    customer_id     INT             NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    follow_up_date  DATE            NOT NULL,
+    note            TEXT            NOT NULL DEFAULT '',
+    is_done         BOOLEAN         NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_follow_ups_customer ON customer_follow_ups (customer_id);
+CREATE INDEX idx_follow_ups_date     ON customer_follow_ups (follow_up_date);
+
+-- =============================================================================
+-- TABLE: communication_logs  (Feature 2 & 3 — receipt/confirmation sends)
+-- =============================================================================
+CREATE TABLE communication_logs (
+    id          SERIAL          PRIMARY KEY,
+    log_type    VARCHAR(30)     NOT NULL CHECK (log_type IN ('receipt','booking_confirm','follow_up')),
+    method      VARCHAR(10)     NOT NULL CHECK (method IN ('email','sms','print')),
+    recipient   VARCHAR(150)    NOT NULL,
+    booking_id  INT             REFERENCES bookings(id)  ON DELETE SET NULL,
+    invoice_id  INT             REFERENCES invoices(id)  ON DELETE SET NULL,
+    status      VARCHAR(20)     NOT NULL DEFAULT 'sent' CHECK (status IN ('sent','failed')),
+    note        TEXT,
+    created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+-- =============================================================================
+-- TABLE: audit_logs  (Feature 10 — audit trail)
+-- =============================================================================
+CREATE TABLE audit_logs (
+    id          SERIAL          PRIMARY KEY,
+    actor       VARCHAR(100)    NOT NULL DEFAULT 'system',
+    action      VARCHAR(60)     NOT NULL,
+    table_name  VARCHAR(60)     NOT NULL,
+    record_id   INT,
+    old_value   JSONB,
+    new_value   JSONB,
+    created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_audit_logs_table   ON audit_logs (table_name);
+CREATE INDEX idx_audit_logs_created ON audit_logs (created_at DESC);
 
 -- =============================================================================
 -- TABLE: notifications
@@ -253,6 +346,21 @@ INSERT INTO notifications (type, title, message, color, is_read) VALUES
   ('info',    'New Booking Request','Cruz Corporate submitted an event inquiry for Apr 30, 2026.',               '#3B82F6', TRUE);
 
 -- =============================================================================
+-- TABLE: calendar_events
+-- =============================================================================
+CREATE TABLE calendar_events (
+    id          SERIAL          PRIMARY KEY,
+    event_date  DATE            NOT NULL,
+    name        VARCHAR(200)    NOT NULL,
+    pax         INT             NOT NULL DEFAULT 0,
+    event_time  VARCHAR(20)     NOT NULL DEFAULT '06:00 PM',
+    location    VARCHAR(200)    NOT NULL DEFAULT 'TBD',
+    created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_calendar_events_date ON calendar_events (event_date);
+
+-- =============================================================================
 -- SEQUENCES for reference number generation
 -- =============================================================================
 CREATE SEQUENCE IF NOT EXISTS seq_booking_ref START 5;
@@ -261,8 +369,6 @@ CREATE SEQUENCE IF NOT EXISTS seq_order_ref   START 5;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_next_booking_ref
--- Generates next booking reference number
--- OUT p_ref TEXT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_next_booking_ref(OUT p_ref TEXT)
 LANGUAGE plpgsql AS $$
@@ -273,7 +379,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_next_invoice_ref
--- OUT p_ref TEXT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_next_invoice_ref(OUT p_ref TEXT)
 LANGUAGE plpgsql AS $$
@@ -284,7 +389,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_next_order_ref
--- OUT p_ref TEXT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_next_order_ref(OUT p_ref TEXT)
 LANGUAGE plpgsql AS $$
@@ -349,7 +453,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_update_booking
--- Updates all editable fields of a booking
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_update_booking(
     IN p_booking_id    INT,
@@ -397,17 +500,27 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_update_booking_status
--- Updates only the status field of a booking
+-- Transitions a PENDING booking to CONFIRMED or CANCELLED.
+-- Feature 4: enforces minimum downpayment before confirming.
+-- Feature 7: stores cancellation_reason when cancelling.
+-- OUT p_booking_id INT, OUT p_new_status TEXT, OUT p_cancellation_reason TEXT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_update_booking_status(
-    IN p_booking_id  INT,
-    IN p_new_status  TEXT
+    IN  p_booking_id            INT,
+    IN  p_new_status            TEXT,
+    IN  p_cancellation_reason   TEXT DEFAULT NULL
 )
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_current booking_status;
+    v_current       booking_status;
+    v_amount_paid   NUMERIC;
+    v_total         NUMERIC;
+    v_min_pct       NUMERIC;
+    v_allow_zero    BOOLEAN;
 BEGIN
-    SELECT status INTO v_current FROM bookings WHERE id = p_booking_id;
+    SELECT status, amount_paid, total_amount
+    INTO v_current, v_amount_paid, v_total
+    FROM bookings WHERE id = p_booking_id;
 
     IF v_current IN ('CONFIRMED', 'CANCELLED') THEN
         RAISE EXCEPTION 'Booking status is locked. Cannot change from % to %.',
@@ -418,15 +531,32 @@ BEGIN
         RAISE EXCEPTION 'Only PENDING bookings can be transitioned.';
     END IF;
 
+    IF p_new_status = 'CONFIRMED' THEN
+        SELECT min_downpayment_pct, allow_zero_downpayment
+        INTO v_min_pct, v_allow_zero
+        FROM business_info WHERE id = 1;
+
+        v_min_pct   := COALESCE(v_min_pct, 30);
+        v_allow_zero := COALESCE(v_allow_zero, FALSE);
+
+        IF NOT v_allow_zero AND v_amount_paid < (v_total * v_min_pct / 100) THEN
+            RAISE EXCEPTION 'Downpayment insufficient. Required: ₱% (% %%). Paid: ₱%.',
+                ROUND(v_total * v_min_pct / 100, 2), v_min_pct, '%', v_amount_paid;
+        END IF;
+    END IF;
+
     UPDATE bookings
-    SET status = p_new_status::booking_status, updated_at = NOW()
+    SET status              = p_new_status::booking_status,
+        cancellation_reason = CASE WHEN p_new_status = 'CANCELLED'
+                                   THEN p_cancellation_reason
+                                   ELSE cancellation_reason END,
+        updated_at          = NOW()
     WHERE id = p_booking_id;
 END;
 $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_delete_booking
--- Deletes a booking by id
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_delete_booking(IN p_booking_id INT)
 LANGUAGE plpgsql AS $$
@@ -436,8 +566,35 @@ END;
 $$;
 
 -- =============================================================================
+-- STORED PROCEDURE: sp_check_date_capacity
+-- Feature 5: returns pax booked on a date vs max capacity.
+-- Pass p_exclude_id = 0 when creating; pass booking id when editing.
+-- OUT p_booked_pax INT, OUT p_max_pax INT, OUT p_is_over BOOLEAN
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_check_date_capacity(
+    IN  p_event_date    DATE,
+    IN  p_exclude_id    INT,
+    OUT p_booked_pax    INT,
+    OUT p_max_pax       INT,
+    OUT p_is_over       BOOLEAN
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    SELECT COALESCE(SUM(pax), 0)
+    INTO p_booked_pax
+    FROM bookings
+    WHERE event_date = p_event_date
+      AND status != 'CANCELLED'
+      AND id != COALESCE(p_exclude_id, 0);
+
+    SELECT max_daily_pax INTO p_max_pax FROM business_info WHERE id = 1;
+    p_max_pax := COALESCE(p_max_pax, 600);
+    p_is_over := p_booked_pax >= p_max_pax;
+END;
+$$;
+
+-- =============================================================================
 -- STORED PROCEDURE: sp_create_invoice
--- Inserts a new invoice record
 -- OUT p_invoice_id INT, OUT p_invoice_ref TEXT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_create_invoice(
@@ -467,15 +624,14 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_update_invoice
--- Updates all editable fields of an invoice
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_update_invoice(
-    IN p_invoice_id   INT,
+    IN p_invoice_id    INT,
     IN p_customer_name TEXT,
-    IN p_event_date   DATE,
-    IN p_total_amount NUMERIC,
-    IN p_amount_paid  NUMERIC,
-    IN p_status       TEXT
+    IN p_event_date    DATE,
+    IN p_total_amount  NUMERIC,
+    IN p_amount_paid   NUMERIC,
+    IN p_status        TEXT
 )
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -531,7 +687,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_delete_invoice
--- Deletes an invoice by id
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_delete_invoice(IN p_invoice_id INT)
 LANGUAGE plpgsql AS $$
@@ -542,7 +697,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_add_menu_item
--- Inserts a new menu item
 -- OUT p_item_id INT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_add_menu_item(
@@ -571,7 +725,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_update_menu_item
--- Updates an existing menu item
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_update_menu_item(
     IN p_item_id      INT,
@@ -599,7 +752,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_delete_menu_item
--- Deletes a menu item by id
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_delete_menu_item(IN p_item_id INT)
 LANGUAGE plpgsql AS $$
@@ -610,7 +762,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_add_customer
--- Inserts a new customer record
 -- OUT p_customer_id INT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_add_customer(
@@ -631,7 +782,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_update_customer
--- Updates an existing customer record
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_update_customer(
     IN p_customer_id INT,
@@ -655,7 +805,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_delete_customer
--- Deletes a customer by id
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_delete_customer(IN p_customer_id INT)
 LANGUAGE plpgsql AS $$
@@ -665,8 +814,74 @@ END;
 $$;
 
 -- =============================================================================
+-- STORED PROCEDURE: sp_recalculate_loyalty
+-- Feature 9: updates a customer's loyalty_tier based on total_events
+-- Bronze: 1-2, Silver: 3-5, Gold: 6-9, VIP: 10+
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_recalculate_loyalty(IN p_customer_id INT)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_events INT;
+    v_tier   loyalty_tier;
+BEGIN
+    SELECT total_events INTO v_events FROM customers WHERE id = p_customer_id;
+
+    v_tier := CASE
+        WHEN v_events >= 10 THEN 'VIP'::loyalty_tier
+        WHEN v_events >= 6  THEN 'Gold'::loyalty_tier
+        WHEN v_events >= 3  THEN 'Silver'::loyalty_tier
+        ELSE                     'Bronze'::loyalty_tier
+    END;
+
+    UPDATE customers
+    SET loyalty_tier = v_tier, updated_at = NOW()
+    WHERE id = p_customer_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_add_follow_up
+-- Feature 9: insert a customer follow-up reminder
+-- OUT p_follow_up_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_add_follow_up(
+    IN  p_customer_id   INT,
+    IN  p_date          DATE,
+    IN  p_note          TEXT,
+    OUT p_follow_up_id  INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO customer_follow_ups (customer_id, follow_up_date, note)
+    VALUES (p_customer_id, p_date, p_note)
+    RETURNING id INTO p_follow_up_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_complete_follow_up
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_complete_follow_up(IN p_follow_up_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE customer_follow_ups
+    SET is_done = TRUE, updated_at = NOW()
+    WHERE id = p_follow_up_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_follow_up
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_follow_up(IN p_follow_up_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM customer_follow_ups WHERE id = p_follow_up_id;
+END;
+$$;
+
+-- =============================================================================
 -- STORED PROCEDURE: sp_add_inventory_item
--- Inserts a new inventory item
 -- OUT p_item_id INT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_add_inventory_item(
@@ -686,7 +901,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_update_inventory_item
--- Updates ingredient name, unit and min_stock for an inventory item
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_update_inventory_item(
     IN p_item_id    INT,
@@ -708,7 +922,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_adjust_inventory_stock
--- Adjusts stock by a delta (positive = restock, negative = usage)
 -- OUT p_new_stock NUMERIC
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_adjust_inventory_stock(
@@ -727,7 +940,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_delete_inventory_item
--- Deletes an inventory item by id
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_delete_inventory_item(IN p_item_id INT)
 LANGUAGE plpgsql AS $$
@@ -738,7 +950,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_create_kitchen_order
--- Inserts a new kitchen order
 -- OUT p_order_id INT, OUT p_order_ref TEXT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_create_kitchen_order(
@@ -762,7 +973,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_update_kitchen_order_status
--- Updates the status of a kitchen order
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_update_kitchen_order_status(
     IN p_order_id   INT,
@@ -778,7 +988,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_delete_kitchen_order
--- Deletes a kitchen order by id
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_delete_kitchen_order(IN p_order_id INT)
 LANGUAGE plpgsql AS $$
@@ -788,8 +997,105 @@ END;
 $$;
 
 -- =============================================================================
+-- STORED PROCEDURE: sp_add_kitchen_task
+-- Feature 6: insert a per-dish task for a kitchen order
+-- OUT p_task_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_add_kitchen_task(
+    IN  p_order_id    INT,
+    IN  p_task_label  TEXT,
+    IN  p_sort_order  INT,
+    OUT p_task_id     INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO kitchen_tasks (order_id, task_label, sort_order)
+    VALUES (p_order_id, p_task_label, p_sort_order)
+    RETURNING id INTO p_task_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_toggle_kitchen_task
+-- OUT p_new_state BOOLEAN
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_toggle_kitchen_task(
+    IN  p_task_id   INT,
+    OUT p_new_state BOOLEAN
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE kitchen_tasks
+    SET is_done = NOT is_done, updated_at = NOW()
+    WHERE id = p_task_id
+    RETURNING is_done INTO p_new_state;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_kitchen_task
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_kitchen_task(IN p_task_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM kitchen_tasks WHERE id = p_task_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_add_expense
+-- Feature 8: insert a new expense record
+-- OUT p_expense_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_add_expense(
+    IN  p_category     TEXT,
+    IN  p_description  TEXT,
+    IN  p_amount       NUMERIC,
+    IN  p_date         DATE,
+    OUT p_expense_id   INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO expenses (category, description, amount, expense_date)
+    VALUES (p_category::expense_category, p_description, p_amount, p_date)
+    RETURNING id INTO p_expense_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_update_expense
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_update_expense(
+    IN p_expense_id   INT,
+    IN p_category     TEXT,
+    IN p_description  TEXT,
+    IN p_amount       NUMERIC,
+    IN p_date         DATE
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE expenses
+    SET category     = p_category::expense_category,
+        description  = p_description,
+        amount       = p_amount,
+        expense_date = p_date,
+        updated_at   = NOW()
+    WHERE id = p_expense_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_expense
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_expense(IN p_expense_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM expenses WHERE id = p_expense_id;
+END;
+$$;
+
+-- =============================================================================
 -- STORED PROCEDURE: sp_dismiss_notification
--- Marks a single notification as read
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_dismiss_notification(IN p_id INT)
 LANGUAGE plpgsql AS $$
@@ -800,7 +1106,6 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_mark_all_notifications_read
--- Marks all unread notifications as read
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_mark_all_notifications_read()
 LANGUAGE plpgsql AS $$
@@ -810,8 +1115,26 @@ END;
 $$;
 
 -- =============================================================================
+-- STORED PROCEDURE: sp_push_notification
+-- OUT p_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_push_notification(
+    IN  p_type    TEXT,
+    IN  p_title   TEXT,
+    IN  p_message TEXT,
+    IN  p_color   TEXT,
+    OUT p_id      INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO notifications (type, title, message, color, is_read)
+    VALUES (p_type, p_title, p_message, p_color, FALSE)
+    RETURNING id INTO p_id;
+END;
+$$;
+
+-- =============================================================================
 -- STORED PROCEDURE: sp_save_business_info
--- Updates the single business_info row
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_save_business_info(
     IN p_name    TEXT,
@@ -829,8 +1152,118 @@ END;
 $$;
 
 -- =============================================================================
+-- STORED PROCEDURE: sp_save_smtp_config
+-- Feature 2: updates SMTP email settings
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_save_smtp_config(
+    IN p_smtp_host TEXT,
+    IN p_smtp_port INT,
+    IN p_smtp_user TEXT,
+    IN p_smtp_pass TEXT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE business_info
+    SET smtp_host  = p_smtp_host,
+        smtp_port  = p_smtp_port,
+        smtp_user  = p_smtp_user,
+        smtp_pass  = p_smtp_pass,
+        updated_at = NOW()
+    WHERE id = 1;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_save_sms_config
+-- Feature 3: updates SMS API key
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_save_sms_config(IN p_sms_api_key TEXT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE business_info
+    SET sms_api_key = p_sms_api_key, updated_at = NOW()
+    WHERE id = 1;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_save_booking_policy
+-- Feature 4: updates downpayment enforcement settings
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_save_booking_policy(
+    IN p_min_downpayment_pct    NUMERIC,
+    IN p_allow_zero_downpayment BOOLEAN
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE business_info
+    SET min_downpayment_pct    = p_min_downpayment_pct,
+        allow_zero_downpayment = p_allow_zero_downpayment,
+        updated_at             = NOW()
+    WHERE id = 1;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_save_capacity_policy
+-- Feature 5: updates max daily pax
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_save_capacity_policy(IN p_max_daily_pax INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE business_info
+    SET max_daily_pax = p_max_daily_pax, updated_at = NOW()
+    WHERE id = 1;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_log_communication
+-- Feature 2 & 3: records receipt or booking confirmation send
+-- OUT p_log_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_log_communication(
+    IN  p_log_type   TEXT,
+    IN  p_method     TEXT,
+    IN  p_recipient  TEXT,
+    IN  p_booking_id INT,
+    IN  p_invoice_id INT,
+    IN  p_status     TEXT,
+    IN  p_note       TEXT,
+    OUT p_log_id     INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO communication_logs (log_type, method, recipient, booking_id, invoice_id, status, note)
+    VALUES (p_log_type, p_method, p_recipient, p_booking_id, p_invoice_id, p_status, p_note)
+    RETURNING id INTO p_log_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_write_audit_log
+-- Feature 10: inserts one audit log entry
+-- OUT p_log_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_write_audit_log(
+    IN  p_actor       TEXT,
+    IN  p_action      TEXT,
+    IN  p_table_name  TEXT,
+    IN  p_record_id   INT,
+    IN  p_old_value   JSONB,
+    IN  p_new_value   JSONB,
+    OUT p_log_id      INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO audit_logs (actor, action, table_name, record_id, old_value, new_value)
+    VALUES (p_actor, p_action, p_table_name, p_record_id, p_old_value, p_new_value)
+    RETURNING id INTO p_log_id;
+END;
+$$;
+
+-- =============================================================================
 -- STORED PROCEDURE: sp_calculate_total_amount
--- Calculates total booking cost from pax and package
 -- OUT p_total NUMERIC
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_calculate_total_amount(
@@ -844,6 +1277,94 @@ DECLARE
 BEGIN
     SELECT price_per_pax INTO v_rate FROM packages WHERE id = p_package_id;
     p_total := p_pax * COALESCE(v_rate, 0);
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_save_calendar_event
+-- OUT p_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_save_calendar_event(
+    IN  p_event_date DATE,
+    IN  p_name       TEXT,
+    IN  p_pax        INT,
+    IN  p_event_time VARCHAR(20),
+    IN  p_location   TEXT,
+    OUT p_id         INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO calendar_events (event_date, name, pax, event_time, location)
+    VALUES (p_event_date, p_name, p_pax, p_event_time, p_location)
+    RETURNING id INTO p_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_calendar_event
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_calendar_event(IN p_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM calendar_events WHERE id = p_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_calendar_events_for_date
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_calendar_events_for_date(IN p_event_date DATE)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM calendar_events WHERE event_date = p_event_date;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_get_event_alert_candidates
+-- Returns bookings near their event time for notification scheduling
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_get_event_alert_candidates(
+    INOUT p_cursor REFCURSOR DEFAULT 'event_alert_cursor'
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    OPEN p_cursor FOR
+    SELECT
+        b.id          AS booking_id,
+        b.booking_ref::TEXT,
+        b.customer_name,
+        b.event_date,
+        b.event_time,
+        w.window_label
+    FROM bookings b
+    CROSS JOIN (
+        VALUES ('1_day'), ('30_min'), ('1_min')
+    ) AS w(window_label)
+    WHERE b.status = 'CONFIRMED'
+      AND (
+          (w.window_label = '1_day' AND
+           (b.event_date + b.event_time) BETWEEN NOW() + INTERVAL '23 hours'
+                                              AND NOW() + INTERVAL '25 hours')
+          OR
+          (w.window_label = '30_min' AND
+           (b.event_date + b.event_time) BETWEEN NOW() + INTERVAL '28 minutes'
+                                              AND NOW() + INTERVAL '32 minutes')
+          OR
+          (w.window_label = '1_min' AND
+           (b.event_date + b.event_time) BETWEEN NOW()
+                                              AND NOW() + INTERVAL '5 minutes')
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM notifications n
+          WHERE n.title LIKE '%' || b.booking_ref || '%'
+            AND n.title LIKE CASE w.window_label
+                               WHEN '1_day'  THEN '%Tomorrow%'
+                               WHEN '30_min' THEN '%30 Minutes%'
+                               ELSE '%Starting Now%'
+                             END
+            AND n.created_at >= NOW() - INTERVAL '2 hours'
+      );
 END;
 $$;
 
@@ -899,12 +1420,19 @@ ORDER BY stock_pct;
 -- =============================================================================
 CREATE OR REPLACE VIEW v_calendar_day_summary AS
 SELECT
-    event_date,
-    COUNT(*)    AS booking_count,
-    SUM(pax)    AS total_pax
-FROM bookings
-WHERE status != 'CANCELLED'
-GROUP BY event_date;
+    b.event_date,
+    COUNT(*)                            AS booking_count,
+    SUM(b.pax)                         AS total_pax,
+    bi.max_daily_pax,
+    CASE
+        WHEN SUM(b.pax) >= bi.max_daily_pax            THEN 'Full'
+        WHEN SUM(b.pax) >= bi.max_daily_pax * 0.67     THEN 'Near Full'
+        ELSE                                                 'Available'
+    END                                AS capacity_status
+FROM bookings b
+CROSS JOIN (SELECT max_daily_pax FROM business_info LIMIT 1) bi
+WHERE b.status != 'CANCELLED'
+GROUP BY b.event_date, bi.max_daily_pax;
 
 -- =============================================================================
 -- VIEW: v_reports_summary
@@ -924,7 +1452,6 @@ ORDER BY b.event_date DESC;
 
 -- =============================================================================
 -- VIEW: v_monthly_income
--- Returns monthly total revenue and total paid per month for the current year
 -- =============================================================================
 CREATE OR REPLACE VIEW v_monthly_income AS
 SELECT
@@ -939,7 +1466,6 @@ ORDER BY month_num;
 
 -- =============================================================================
 -- VIEW: v_payment_methods
--- Returns count of payments grouped by mode of payment
 -- =============================================================================
 CREATE OR REPLACE VIEW v_payment_methods AS
 SELECT
@@ -950,7 +1476,6 @@ GROUP BY payment_mode;
 
 -- =============================================================================
 -- VIEW: v_top_menu_items
--- Returns top 10 most ordered menu items by count in bookings
 -- =============================================================================
 CREATE OR REPLACE VIEW v_top_menu_items AS
 SELECT
@@ -964,7 +1489,6 @@ LIMIT 10;
 
 -- =============================================================================
 -- VIEW: v_customer_order_frequency
--- Returns top 5 customers by booking count + an "Others" group
 -- =============================================================================
 CREATE OR REPLACE VIEW v_customer_order_frequency AS
 SELECT name, booking_count FROM (
@@ -984,13 +1508,12 @@ SELECT 'Others', COUNT(*) FROM (
 
 -- =============================================================================
 -- VIEW: v_report_kpis
--- Returns report KPI totals: total bookings, total pax, total revenue, unpaid
 -- =============================================================================
 CREATE OR REPLACE VIEW v_report_kpis AS
 SELECT
     COUNT(*)                                                                    AS total_bookings,
     COALESCE(SUM(b.pax), 0)::INT                                               AS total_pax,
-    COALESCE((SELECT SUM(total_amount) FROM invoices), 0)::FLOAT                     AS total_revenue,
+    COALESCE((SELECT SUM(total_amount) FROM invoices), 0)::FLOAT               AS total_revenue,
     COALESCE((SELECT SUM(total_amount - amount_paid) FROM invoices WHERE status != 'Paid'), 0)::FLOAT AS unpaid_amount,
     COALESCE((SELECT COUNT(*) FROM bookings WHERE DATE(event_date) = CURRENT_DATE), 0)::INT AS today_bookings,
     COALESCE((SELECT COUNT(*) FROM bookings
@@ -1000,7 +1523,6 @@ FROM bookings b;
 
 -- =============================================================================
 -- VIEW: v_recent_activity
--- Returns the 10 most recent booking/invoice events as activity feed items
 -- =============================================================================
 CREATE OR REPLACE VIEW v_recent_activity AS
 SELECT
@@ -1044,7 +1566,6 @@ LIMIT 10;
 
 -- =============================================================================
 -- VIEW: v_menu_alerts
--- Returns menu items that are Seasonal, Out of Stock, or have low inventory
 -- =============================================================================
 CREATE OR REPLACE VIEW v_menu_alerts AS
 SELECT
@@ -1072,132 +1593,54 @@ ORDER BY badge_type DESC, item
 LIMIT 10;
 
 -- =============================================================================
--- TABLE: calendar_events  (for Calendar persistence)
+-- VIEW: v_profit_summary
+-- Feature 8: monthly revenue vs expenses vs net profit (current year)
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS calendar_events (
-    id          SERIAL          PRIMARY KEY,
-    event_date  DATE            NOT NULL,
-    name        VARCHAR(200)    NOT NULL,
-    pax         INT             NOT NULL DEFAULT 0,
-    event_time  VARCHAR(20)     NOT NULL DEFAULT '06:00 PM',
-    location    VARCHAR(200)    NOT NULL DEFAULT 'TBD',
-    created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_calendar_events_date ON calendar_events (event_date);
-
--- =============================================================================
--- STORED PROCEDURE: sp_push_notification
--- Inserts a new notification row
--- OUT p_id INT
--- =============================================================================
-CREATE OR REPLACE PROCEDURE sp_push_notification(
-    IN  p_type    TEXT,
-    IN  p_title   TEXT,
-    IN  p_message TEXT,
-    IN  p_color   TEXT,
-    OUT p_id      INT
-)
-LANGUAGE plpgsql AS $$
-BEGIN
-    INSERT INTO notifications (type, title, message, color, is_read)
-    VALUES (p_type, p_title, p_message, p_color, FALSE)
-    RETURNING id INTO p_id;
-END;
-$$;
-
--- =============================================================================
--- STORED PROCEDURE: sp_get_event_alert_candidates
--- Returns bookings that are exactly 1 day or 1 minute away and have no
--- existing unread notification for that booking+window combination.
--- Uses a REFCURSOR OUT parameter to return a result set.
--- =============================================================================
-CREATE OR REPLACE PROCEDURE sp_get_event_alert_candidates(
-    INOUT p_cursor REFCURSOR DEFAULT 'event_alert_cursor'
-)
-LANGUAGE plpgsql AS $$
-BEGIN
-    OPEN p_cursor FOR
+CREATE OR REPLACE VIEW v_profit_summary AS
+SELECT
+    COALESCE(m.month_num, e.month_num)                                  AS month_num,
+    COALESCE(m.month_label, TO_CHAR(TO_DATE(e.month_num::TEXT, 'MM'), 'Mon')) AS month_label,
+    COALESCE(m.revenue, 0)::FLOAT                                       AS revenue,
+    COALESCE(e.total_expense, 0)::FLOAT                                 AS total_expense,
+    (COALESCE(m.revenue, 0) - COALESCE(e.total_expense, 0))::FLOAT     AS net_profit
+FROM (
     SELECT
-        b.id          AS booking_id,
-        b.booking_ref::TEXT,
-        b.customer_name,
-        b.event_date,
-        b.event_time,
-        w.window_label
-    FROM bookings b
-    CROSS JOIN (
-        VALUES ('1_day'), ('30_min'), ('1_min')
-    ) AS w(window_label)
-    WHERE b.status != 'CANCELLED'
-      AND (
-          (w.window_label = '1_day' AND
-           (b.event_date + b.event_time) BETWEEN NOW() + INTERVAL '23 hours'
-                                              AND NOW() + INTERVAL '25 hours')
-          OR
-          (w.window_label = '30_min' AND
-           (b.event_date + b.event_time) BETWEEN NOW() + INTERVAL '28 minutes'
-                                              AND NOW() + INTERVAL '32 minutes')
-          OR
-          (w.window_label = '1_min' AND
-           (b.event_date + b.event_time) BETWEEN NOW()
-                                              AND NOW() + INTERVAL '5 minutes')
-      )
-      AND NOT EXISTS (
-          SELECT 1 FROM notifications n
-          WHERE n.title LIKE '%' || b.booking_ref || '%'
-            AND n.title LIKE CASE w.window_label
-                               WHEN '1_day'  THEN '%Tomorrow%'
-                               WHEN '30_min' THEN '%30 Minutes%'
-                               ELSE '%Starting Now%'
-                             END
-            AND n.created_at >= NOW() - INTERVAL '2 hours'
-      );
-END;
-$$;
+        EXTRACT(MONTH FROM event_date)::INT AS month_num,
+        TO_CHAR(event_date, 'Mon')          AS month_label,
+        SUM(total_amount)                   AS revenue
+    FROM invoices
+    WHERE EXTRACT(YEAR FROM event_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+    GROUP BY month_num, month_label
+) m
+FULL OUTER JOIN (
+    SELECT
+        EXTRACT(MONTH FROM expense_date)::INT AS month_num,
+        SUM(amount)                           AS total_expense
+    FROM expenses
+    WHERE EXTRACT(YEAR FROM expense_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+    GROUP BY month_num
+) e ON m.month_num = e.month_num
+ORDER BY COALESCE(m.month_num, e.month_num);
 
 -- =============================================================================
--- STORED PROCEDURE: sp_save_calendar_event
--- Upserts a calendar event entry
--- OUT p_id INT
+-- VIEW: v_audit_log_recent
+-- Feature 10: last 50 audit entries with human-readable description
 -- =============================================================================
-CREATE OR REPLACE PROCEDURE sp_save_calendar_event(
-    IN  p_event_date DATE,
-    IN  p_name       TEXT,
-    IN  p_pax        INT,
-    IN  p_event_time VARCHAR(20),
-    IN  p_location   TEXT,
-    OUT p_id         INT
-)
-LANGUAGE plpgsql AS $$
-BEGIN
-    INSERT INTO calendar_events (event_date, name, pax, event_time, location)
-    VALUES (p_event_date, p_name, p_pax, p_event_time, p_location)
-    RETURNING id INTO p_id;
-END;
-$$;
-
--- =============================================================================
--- STORED PROCEDURE: sp_delete_calendar_event
--- Deletes a calendar event by id
--- =============================================================================
-CREATE OR REPLACE PROCEDURE sp_delete_calendar_event(IN p_id INT)
-LANGUAGE plpgsql AS $$
-BEGIN
-    DELETE FROM calendar_events WHERE id = p_id;
-END;
-$$;
-
--- =============================================================================
--- STORED PROCEDURE: sp_delete_calendar_events_for_date
--- Deletes all calendar events for a given date (used when saving full day)
--- =============================================================================
-CREATE OR REPLACE PROCEDURE sp_delete_calendar_events_for_date(IN p_event_date DATE)
-LANGUAGE plpgsql AS $$
-BEGIN
-    DELETE FROM calendar_events WHERE event_date = p_event_date;
-END;
-$$;
+CREATE OR REPLACE VIEW v_audit_log_recent AS
+SELECT
+    id,
+    actor,
+    action,
+    table_name,
+    record_id,
+    old_value,
+    new_value,
+    created_at,
+    actor || ' — ' || action || ' on ' || table_name
+        || COALESCE(' #' || record_id::TEXT, '') AS description
+FROM audit_logs
+ORDER BY created_at DESC
+LIMIT 50;
 
 -- =============================================================================
 -- GRANT (uncomment after creating the user)
