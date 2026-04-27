@@ -52,8 +52,6 @@ CREATE TABLE business_info (
     smtp_port               INT             DEFAULT 587,
     smtp_user               VARCHAR(120),
     smtp_pass               TEXT,
-    -- SMS config (Feature 3)
-    sms_api_key             TEXT,
     -- Booking policy (Feature 4)
     min_downpayment_pct     NUMERIC(5,2)    NOT NULL DEFAULT 30.00,
     allow_zero_downpayment  BOOLEAN         NOT NULL DEFAULT FALSE,
@@ -1183,19 +1181,6 @@ END;
 $$;
 
 -- =============================================================================
--- STORED PROCEDURE: sp_save_sms_config
--- Feature 3: updates SMS API key
--- =============================================================================
-CREATE OR REPLACE PROCEDURE sp_save_sms_config(IN p_sms_api_key TEXT)
-LANGUAGE plpgsql AS $$
-BEGIN
-    UPDATE business_info
-    SET sms_api_key = p_sms_api_key, updated_at = NOW()
-    WHERE id = 1;
-END;
-$$;
-
--- =============================================================================
 -- STORED PROCEDURE: sp_save_booking_policy
 -- Feature 4: updates downpayment enforcement settings
 -- =============================================================================
@@ -1650,6 +1635,92 @@ SELECT
 FROM audit_logs
 ORDER BY created_at DESC
 LIMIT 50;
+
+-- =============================================================================
+-- TABLE: payment_records
+-- Tracks individual payment transactions per invoice
+-- =============================================================================
+CREATE TABLE payment_records (
+    id              SERIAL          PRIMARY KEY,
+    invoice_id      INT             NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+    amount          NUMERIC(12,2)   NOT NULL CHECK (amount > 0),
+    payment_date    DATE            NOT NULL DEFAULT CURRENT_DATE,
+    method          VARCHAR(50)     NOT NULL DEFAULT 'Cash',
+    note            TEXT,
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_payment_records_invoice ON payment_records (invoice_id);
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_add_payment_record
+-- Inserts a payment record and updates invoice amount_paid / status
+-- OUT p_new_status TEXT, OUT p_new_paid NUMERIC
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_add_payment_record(
+    IN  p_invoice_id    INT,
+    IN  p_amount        NUMERIC,
+    IN  p_payment_date  DATE,
+    IN  p_method        TEXT,
+    IN  p_note          TEXT,
+    OUT p_record_id     INT,
+    OUT p_new_status    TEXT,
+    OUT p_new_paid      NUMERIC
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_total  NUMERIC;
+    v_paid   NUMERIC;
+    v_status invoice_status;
+BEGIN
+    SELECT total_amount, amount_paid INTO v_total, v_paid
+    FROM invoices WHERE id = p_invoice_id FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Invoice not found: %', p_invoice_id;
+    END IF;
+
+    IF v_paid + p_amount > v_total THEN
+        RAISE EXCEPTION 'Payment of % exceeds remaining balance of %.', p_amount, (v_total - v_paid);
+    END IF;
+
+    INSERT INTO payment_records (invoice_id, amount, payment_date, method, note)
+    VALUES (p_invoice_id, p_amount, p_payment_date, p_method, p_note)
+    RETURNING id INTO p_record_id;
+
+    p_new_paid := v_paid + p_amount;
+
+    v_status := CASE
+        WHEN p_new_paid = 0       THEN 'Unpaid'::invoice_status
+        WHEN p_new_paid < v_total THEN 'Partial'::invoice_status
+        ELSE                           'Paid'::invoice_status
+    END;
+
+    UPDATE invoices
+    SET amount_paid = p_new_paid, status = v_status, updated_at = NOW()
+    WHERE id = p_invoice_id;
+
+    p_new_status := v_status::TEXT;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_get_payment_records
+-- Returns all payment records for an invoice (via cursor)
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_get_payment_records(
+    IN  p_invoice_id INT,
+    OUT p_cursor     REFCURSOR
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    OPEN p_cursor FOR
+        SELECT id, amount, payment_date, method, note, created_at
+        FROM payment_records
+        WHERE invoice_id = p_invoice_id
+        ORDER BY payment_date DESC, created_at DESC;
+END;
+$$;
 
 -- =============================================================================
 -- GRANT (uncomment after creating the user)

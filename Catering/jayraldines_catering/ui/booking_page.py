@@ -148,14 +148,16 @@ class BookingPage(QWidget):
 
         self.table = QTableWidget(0, 9)
         self.table.setHorizontalHeaderLabels(["DATE", "CLIENT NAME", "PAX", "TOTAL AMOUNT", "STATUS", "ACTIONS", "", "", ""])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
-        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Fixed)
-        self.table.horizontalHeader().setSectionResizeMode(8, QHeaderView.Fixed)
-        self.table.setColumnWidth(6, 36)
-        self.table.setColumnWidth(7, 36)
-        self.table.setColumnWidth(8, 36)
+        _bk_hdr = self.table.horizontalHeader()
+        _bk_hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
+        _bk_hdr.setSectionResizeMode(1, QHeaderView.Stretch)
+        _bk_hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        _bk_hdr.setSectionResizeMode(6, QHeaderView.Fixed)
+        _bk_hdr.setSectionResizeMode(7, QHeaderView.Fixed)
+        _bk_hdr.setSectionResizeMode(8, QHeaderView.Fixed)
+        self.table.setColumnWidth(6, 40)
+        self.table.setColumnWidth(7, 40)
+        self.table.setColumnWidth(8, 40)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setFocusPolicy(Qt.NoFocus)
         self.table.setSelectionMode(QTableWidget.NoSelection)
@@ -254,7 +256,7 @@ class BookingPage(QWidget):
             confirm_btn.setFixedSize(32, 32)
             confirm_btn.setStyleSheet("background:transparent;border:none;")
             confirm_btn.setCursor(Qt.PointingHandCursor)
-            confirm_btn.setToolTip("Send Confirmation (Email/SMS)")
+            confirm_btn.setToolTip("Send Confirmation Email")
             confirm_btn.setEnabled(b["status"] == "CONFIRMED")
             confirm_btn.clicked.connect(lambda _, r=bref: self._send_confirmation(r))
             self.table.setCellWidget(row, 8, confirm_btn)
@@ -316,7 +318,7 @@ class BookingPage(QWidget):
         success(self, message="Booking declined.")
 
     def _send_confirmation_auto(self, b: dict) -> None:
-        """Auto-trigger email + SMS on approval (best-effort, silent on failure)."""
+        """Auto-trigger confirmation email on approval (best-effort, silent on failure)."""
         try:
             detail = repo.get_booking_detail(b["db_id"]) if b.get("db_id") else None
             if not detail:
@@ -329,12 +331,6 @@ class BookingPage(QWidget):
                 ok, _ = send_booking_confirmation_email(smtp, detail["email"], booking_data)
                 if ok and detail.get("db_id"):
                     repo.log_confirmation_sent(detail["db_id"], "email")
-            sms_cfg = repo.get_sms_config()
-            if detail.get("contact") and sms_cfg.get("sms_api_key"):
-                from utils.sms_sender import send_booking_confirmation_sms
-                ok, _ = send_booking_confirmation_sms(sms_cfg["sms_api_key"], booking_data)
-                if ok and detail.get("db_id"):
-                    repo.log_confirmation_sent(detail["db_id"], "sms")
         except Exception as exc:
             print(f"[booking] auto-confirm send failed: {exc}")
 
@@ -351,9 +347,8 @@ class BookingPage(QWidget):
         biz = repo.get_business_info()
         booking_data = {**detail, "business_contact": biz.get("contact", "")}
         smtp = repo.get_smtp_config()
-        sms_cfg = repo.get_sms_config()
-        sent_email = sent_sms = False
         errors = []
+        sent_email = False
         if detail.get("email") and smtp.get("smtp_host"):
             from utils.mailer import send_booking_confirmation_email
             ok, err = send_booking_confirmation_email(smtp, detail["email"], booking_data)
@@ -362,27 +357,14 @@ class BookingPage(QWidget):
                 sent_email = True
             else:
                 errors.append(f"Email: {err}")
-        if detail.get("contact") and sms_cfg.get("sms_api_key"):
-            from utils.sms_sender import send_booking_confirmation_sms
-            ok, err = send_booking_confirmation_sms(sms_cfg["sms_api_key"], booking_data)
-            if ok:
-                repo.log_confirmation_sent(detail["db_id"], "sms")
-                sent_sms = True
-            else:
-                errors.append(f"SMS: {err}")
-        if sent_email or sent_sms:
-            parts = []
-            if sent_email:
-                parts.append(f"email to {detail['email']}")
-            if sent_sms:
-                parts.append(f"SMS to {detail['contact']}")
-            success(self, message=f"Confirmation sent via {' and '.join(parts)}.")
+        if sent_email:
+            success(self, message=f"Confirmation sent via email to {detail['email']}.")
         elif errors:
             QMessageBox.warning(self, "Send Failed", "\n".join(errors))
         else:
-            QMessageBox.information(self, "No Channels",
-                "No email or SMS configured for this booking.\n"
-                "Ensure customer has an email/contact and SMTP/SMS is configured in Settings.")
+            QMessageBox.information(self, "No Channel",
+                "No email configured for this booking.\n"
+                "Ensure customer has an email and SMTP is configured in Settings.")
 
     def _delete_booking(self, ref):
         b = next((x for x in self._bookings if x["id"] == ref), None)
@@ -438,6 +420,27 @@ class BookingPage(QWidget):
         })
         self._populate_table()
         success(self, message="Booking created successfully.")
+        self._send_approval_request(data, bkg_id)
+
+    def _send_approval_request(self, data: dict, bkg_ref: str) -> None:
+        """Send a booking approval request email to the customer."""
+        try:
+            email = data.get("email", "")
+            if not email or "@" not in email:
+                return
+            smtp = repo.get_smtp_config()
+            if not smtp.get("smtp_host"):
+                return
+            biz = repo.get_business_info()
+            booking_data = {**data, "booking_ref": bkg_ref, "business_contact": biz.get("contact", ""), "business_name": biz.get("name", "Jayraldine's Catering")}
+            from utils.mailer import send_booking_approval_request_email
+            ok, err = send_booking_approval_request_email(smtp, email, booking_data)
+            if ok:
+                print(f"[booking] Approval request email sent to {email}")
+            else:
+                print(f"[booking] Approval request email failed: {err}")
+        except Exception as exc:
+            print(f"[booking] send_approval_request failed: {exc}")
 
     def _open_filter(self):
         if self._filter_popover is None:

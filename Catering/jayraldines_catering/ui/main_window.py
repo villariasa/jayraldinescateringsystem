@@ -90,6 +90,7 @@ class MainWindow(QMainWindow):
 
         self.sidebar.page_changed.connect(self._navigate)
         self.dashboard_page.new_booking_requested.connect(lambda: self._navigate(1))
+        self.dashboard_page.view_all_activity_requested.connect(lambda: self._navigate(1))
 
         self._notif_popover = NotificationPopover(parent=self)
         self.topbar.notif_btn.clicked.connect(self._open_notif_popover)

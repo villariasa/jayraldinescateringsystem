@@ -4,7 +4,7 @@ import os
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QHBoxLayout, QFrame, QLabel, QPushButton, QTableWidget,
                                QTableWidgetItem, QHeaderView, QScrollArea,
-                               QMessageBox, QToolTip, QFileDialog, QMenu)
+                               QMessageBox, QToolTip, QFileDialog, QMenu, QSizePolicy)
 from PySide6.QtCore import Qt, QMargins, QPointF, QSize
 from PySide6.QtGui import QAction
 from PySide6.QtGui import QColor, QPainter, QLinearGradient, QPen, QCursor
@@ -241,6 +241,10 @@ class MonthlyRevenueChart(QVBoxLayout):
             revenue = [0] * 6
             target  = [400000] * 6
 
+        self._months  = months
+        self._revenue = revenue
+        self._target  = target
+
         self._bar_rev = QBarSet("Revenue")
         self._bar_rev.setColor(QColor("#E11D48"))
         _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
@@ -256,9 +260,13 @@ class MonthlyRevenueChart(QVBoxLayout):
             self._bar_rev.append(v / 1000)
             self._bar_tgt.append(t / 1000)
 
+        self._bar_rev.hovered.connect(self._on_hover_rev)
+        self._bar_tgt.hovered.connect(self._on_hover_tgt)
+
         self._series = QBarSeries()
         self._series.append(self._bar_rev)
         self._series.append(self._bar_tgt)
+        self._series.setLabelsVisible(False)
 
         self._chart = QChart()
         self._chart.addSeries(self._series)
@@ -280,7 +288,45 @@ class MonthlyRevenueChart(QVBoxLayout):
 
         self._view = _chart_view(self._chart)
         self._view.setMinimumHeight(260)
+        self._view.setRubberBand(QChartView.RubberBand.RectangleRubberBand)
         self.addWidget(self._view)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self._reset_btn = QPushButton("Reset Zoom")
+        self._reset_btn.setObjectName("secondaryButton")
+        self._reset_btn.clicked.connect(self._chart.zoomReset)
+        btn_row.addWidget(self._reset_btn)
+        self.addLayout(btn_row)
+
+    def _on_hover_rev(self, state, index):
+        if state and 0 <= index < len(self._months):
+            rev = self._revenue[index]
+            tgt = self._target[index]
+            pct = (rev / tgt * 100) if tgt else 0
+            hit = "✅ Target hit!" if rev >= tgt else f"⚠ {pct:.0f}% of target"
+            QToolTip.showText(
+                QCursor.pos(),
+                f"<b style='color:#E11D48;'>{self._months[index]}</b><br>"
+                f"Revenue: <b>₱ {rev:,.0f}</b><br>"
+                f"Target: ₱ {tgt:,.0f}<br>{hit}"
+            )
+        else:
+            QToolTip.hideText()
+
+    def _on_hover_tgt(self, state, index):
+        if state and 0 <= index < len(self._months):
+            tgt = self._target[index]
+            rev = self._revenue[index]
+            gap = tgt - rev
+            QToolTip.showText(
+                QCursor.pos(),
+                f"<b>{self._months[index]}</b> — Target<br>"
+                f"Target: <b>₱ {tgt:,.0f}</b><br>"
+                f"{'Gap: ₱ ' + f'{gap:,.0f}' if gap > 0 else '✅ Achieved'}"
+            )
+        else:
+            QToolTip.hideText()
 
 
 # ─────────────────────────────────────────────
@@ -354,12 +400,18 @@ class CustomerFrequencyChart(QVBoxLayout):
         colors    = [_COLORS[i % len(_COLORS)] for i in range(len(customers))]
 
         self._series = QPieSeries()
+        self._series.setHoleSize(0.0)
         self._slices = []
+        total = sum(counts) or 1
+        _lbl_c3 = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
         for label, count, color in zip(customers, counts, colors):
             sl = self._series.append(f"{label} ({count})", count)
             sl.setColor(QColor(color))
-            _lbl_c3 = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
             sl.setLabelColor(QColor(_lbl_c3))
+            sl.setBorderColor(Qt.transparent)
+            sl.hovered.connect(
+                lambda state, s=sl, c=color, n=label, v=count: self._on_hover(s, state, c, n, v, total)
+            )
             self._slices.append(sl)
 
         self._chart = QChart()
@@ -368,10 +420,25 @@ class CustomerFrequencyChart(QVBoxLayout):
         self._chart.legend().setAlignment(Qt.AlignRight)
         _leg_c2 = "#64748B" if not ThemeManager().is_dark() else "#9CA3AF"
         self._chart.legend().setLabelColor(QColor(_leg_c2))
+        self._chart.legend().setMarkerShape(QLegend.MarkerShapeCircle)
 
         self._view = _chart_view(self._chart)
-        self._view.setMinimumHeight(220)
+        self._view.setMinimumHeight(260)
         self.addWidget(self._view)
+
+    def _on_hover(self, sl, state, color, name, count, total):
+        sl.setExploded(state)
+        sl.setLabelVisible(state)
+        if state:
+            pct = (count / total * 100) if total else 0
+            QToolTip.showText(
+                QCursor.pos(),
+                f"<b style='color:{color};'>{name}</b><br>"
+                f"Orders: <b>{count}</b><br>"
+                f"Share: <b>{pct:.1f}%</b>"
+            )
+        else:
+            QToolTip.hideText()
 
 
 # ─────────────────────────────────────────────
@@ -592,15 +659,20 @@ class ReportsPage(QWidget):
 
         self._exp_table = QTableWidget(0, 5, self._expense_card)
         self._exp_table.setHorizontalHeaderLabels(["DATE", "CATEGORY", "DESCRIPTION", "AMOUNT", ""])
-        self._exp_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self._exp_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
+        _exp_hdr = self._exp_table.horizontalHeader()
+        _exp_hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
+        _exp_hdr.setSectionResizeMode(2, QHeaderView.Stretch)
+        _exp_hdr.setSectionResizeMode(4, QHeaderView.Fixed)
         self._exp_table.setColumnWidth(4, 40)
         self._exp_table.verticalHeader().setVisible(False)
         self._exp_table.setShowGrid(False)
         self._exp_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self._exp_table.setFocusPolicy(Qt.NoFocus)
         self._exp_table.setSelectionMode(QTableWidget.NoSelection)
-        exp_lay.addWidget(self._exp_table)
+        self._exp_table.setAlternatingRowColors(True)
+        self._exp_table.setMinimumHeight(200)
+        self._exp_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.MinimumExpanding)
+        exp_lay.addWidget(self._exp_table, 1)
 
         self._profit_lbl = QLabel("", self._expense_card)
         self._profit_lbl.setStyleSheet("font-size:14px;font-weight:700;color:#22C55E;")
@@ -608,6 +680,7 @@ class ReportsPage(QWidget):
 
         self.main_layout.addWidget(self._expense_card)
         self._load_expenses()
+        self.main_layout.addStretch(1)
 
         # ── Final assembly ────────────────────────────────────────────────────
         self.scroll_area.setWidget(self.scroll_content)

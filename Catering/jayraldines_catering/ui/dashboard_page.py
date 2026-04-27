@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QProgressBar, QScrollArea,
-    QFileDialog, QMessageBox, QMenu
+    QFileDialog, QMessageBox, QMenu, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal, QSize, QTimer
 from PySide6.QtGui import QAction
@@ -136,9 +136,13 @@ class EventItem(QWidget):
             if hasattr(self, "_timer"):
                 self._timer.stop()
             return
-        h, rem = divmod(total, 3600)
-        m, s = divmod(rem, 60)
-        self._countdown_lbl.setText(f"Starts in {h:02d}:{m:02d}:{s:02d}")
+        days, rem = divmod(total, 86400)
+        h, rem2 = divmod(rem, 3600)
+        m, s = divmod(rem2, 60)
+        if days > 0:
+            self._countdown_lbl.setText(f"Starts in {days}d {h:02d}:{m:02d}:{s:02d}")
+        else:
+            self._countdown_lbl.setText(f"Starts in {h:02d}:{m:02d}:{s:02d}")
 
 
 class MenuAlertItem(QWidget):
@@ -160,6 +164,7 @@ class MenuAlertItem(QWidget):
 
 class DashboardPage(QWidget):
     new_booking_requested = Signal()
+    view_all_activity_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -169,8 +174,12 @@ class DashboardPage(QWidget):
 
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
         self.content = QWidget(self.scroll)
+        self.content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.lay = QVBoxLayout(self.content)
         self.lay.setContentsMargins(32, 28, 32, 28)
         self.lay.setSpacing(24)
@@ -299,6 +308,7 @@ class DashboardPage(QWidget):
         btn_view.setObjectName("ghostButton")
         btn_view.setIcon(btn_icon_muted("eye"))
         btn_view.setIconSize(QSize(13, 13))
+        btn_view.clicked.connect(self.view_all_activity_requested.emit)
         act_head.addWidget(btn_view)
         self._act_lay.addLayout(act_head)
 

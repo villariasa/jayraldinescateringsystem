@@ -50,7 +50,6 @@ class SettingsPage(QWidget):
         lay.addWidget(self._build_business_card())
         lay.addWidget(self._build_policy_card())
         lay.addWidget(self._build_smtp_card())
-        lay.addWidget(self._build_sms_card())
         lay.addWidget(self._build_theme_card())
         lay.addWidget(self._build_backup_card())
         lay.addWidget(self._build_audit_card())
@@ -211,48 +210,6 @@ class SettingsPage(QWidget):
 
         return card
 
-    def _build_sms_card(self):
-        card = QFrame()
-        card.setObjectName("card")
-        lay = QVBoxLayout(card)
-        lay.setContentsMargins(24, 24, 24, 24)
-        lay.setSpacing(20)
-
-        sec_title = QLabel("SMS Configuration (Semaphore)")
-        sec_title.setObjectName("h3")
-        lay.addWidget(sec_title)
-
-        sub = QLabel("Used for sending booking confirmation SMS. Get your API key at semaphore.co.")
-        sub.setObjectName("subtitle")
-        sub.setWordWrap(True)
-        lay.addWidget(sub)
-
-        try:
-            sms_cfg = repo.get_sms_config()
-        except Exception:
-            sms_cfg = {"sms_api_key": ""}
-
-        form = QFormLayout()
-        form.setSpacing(14)
-        form.setLabelAlignment(Qt.AlignRight)
-
-        self._sms_key_f = QLineEdit(sms_cfg["sms_api_key"])
-        self._sms_key_f.setPlaceholderText("Your Semaphore API key")
-        form.addRow(QLabel("API Key"), self._sms_key_f)
-
-        lay.addLayout(form)
-
-        save_btn = QPushButton("  Save SMS Config")
-        save_btn.setObjectName("primaryButton")
-        save_btn.setIcon(btn_icon_primary("check"))
-        save_btn.setIconSize(QSize(15, 15))
-        save_btn.setFixedWidth(180)
-        save_btn.setCursor(Qt.PointingHandCursor)
-        save_btn.clicked.connect(self._save_sms)
-        lay.addWidget(save_btn, alignment=Qt.AlignRight)
-
-        return card
-
     def _build_theme_card(self):
         card = QFrame()
         card.setObjectName("card")
@@ -405,13 +362,6 @@ class SettingsPage(QWidget):
                 self._smtp_pass_f.text(),
             )
             success(self, message="SMTP configuration saved successfully.")
-        except Exception as exc:
-            QMessageBox.warning(self, "Error", str(exc))
-
-    def _save_sms(self):
-        try:
-            repo.save_sms_config(self._sms_key_f.text().strip())
-            success(self, message="SMS configuration saved successfully.")
         except Exception as exc:
             QMessageBox.warning(self, "Error", str(exc))
 

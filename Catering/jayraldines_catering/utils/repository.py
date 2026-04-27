@@ -78,6 +78,31 @@ def get_customer_names() -> list[str]:
     return [r["name"] for r in rows] if rows else []
 
 
+def get_customer_email_by_name(name: str) -> str:
+    row = db.fetchone("SELECT email FROM customers WHERE name = %s LIMIT 1", (name,))
+    return (row["email"] or "") if row else ""
+
+
+def get_customer_event_dates(name: str) -> list[str]:
+    """Return list of event date strings (MMM dd, yyyy) from confirmed/pending bookings for a customer."""
+    rows = db.fetchall(
+        """
+        SELECT DISTINCT event_date
+        FROM bookings
+        WHERE customer_name = %s AND status NOT IN ('CANCELLED')
+        ORDER BY event_date DESC
+        """,
+        (name,),
+    )
+    if not rows:
+        return []
+    from datetime import date as _d
+    return [
+        r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], _d) else str(r["event_date"])
+        for r in rows
+    ]
+
+
 # ---------------------------------------------------------------------------
 # MENU ITEMS
 # ---------------------------------------------------------------------------
@@ -348,22 +373,26 @@ def delete_booking(db_id: int) -> None:
 def get_all_invoices() -> list[dict]:
     rows = db.fetchall(
         """
-        SELECT id, invoice_ref, customer_name, event_date,
-               total_amount, amount_paid, status::TEXT
-        FROM invoices ORDER BY created_at DESC
+        SELECT i.id, i.invoice_ref, i.customer_name, i.event_date,
+               i.total_amount, i.amount_paid, i.status::TEXT,
+               COALESCE(c.email, '') AS customer_email
+        FROM invoices i
+        LEFT JOIN customers c ON c.name = i.customer_name
+        ORDER BY i.created_at DESC
         """
     )
     if not rows:
         return []
     return [
         {
-            "db_id":      r["id"],
-            "invoice":    r["invoice_ref"],
-            "customer":   r["customer_name"],
-            "event_date": r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], date) else str(r["event_date"]),
-            "amount":     float(r["total_amount"]),
-            "paid":       float(r["amount_paid"]),
-            "status":     r["status"],
+            "db_id":          r["id"],
+            "invoice":        r["invoice_ref"],
+            "customer":       r["customer_name"],
+            "customer_email": r["customer_email"],
+            "event_date":     r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], date) else str(r["event_date"]),
+            "amount":         float(r["total_amount"]),
+            "paid":           float(r["amount_paid"]),
+            "status":         r["status"],
         }
         for r in rows
     ]
@@ -423,6 +452,54 @@ def record_payment(invoice_id: int, amount: float) -> Optional[str]:
 
 def delete_invoice(db_id: int) -> None:
     db.callproc_void("sp_delete_invoice", in_params=(db_id,))
+
+
+def add_payment_record(invoice_id: int, amount: float,
+                       payment_date, method: str = "Cash", note: str = "") -> Optional[dict]:
+    """Returns {record_id, new_status, new_paid} or None on failure."""
+    try:
+        from datetime import date as _d
+        if isinstance(payment_date, str):
+            payment_date = _parse_date(payment_date)
+        result = db.callproc_out(
+            "sp_add_payment_record",
+            in_params=(invoice_id, amount, payment_date, method, note or None),
+            out_names=["p_record_id", "p_new_status", "p_new_paid"],
+        )
+        if result:
+            return {
+                "record_id":  result["p_record_id"],
+                "new_status": result["p_new_status"],
+                "new_paid":   float(result["p_new_paid"]),
+            }
+    except Exception as exc:
+        print(f"[repository] add_payment_record failed: {exc}")
+        raise
+    return None
+
+
+def get_payment_records(invoice_id: int) -> list[dict]:
+    rows = db.fetchall(
+        """
+        SELECT id, amount, payment_date, method, note, created_at
+        FROM payment_records
+        WHERE invoice_id = %s
+        ORDER BY payment_date DESC, created_at DESC
+        """,
+        (invoice_id,),
+    )
+    if not rows:
+        return []
+    return [
+        {
+            "id":           r["id"],
+            "amount":       float(r["amount"]),
+            "payment_date": r["payment_date"].strftime("%b %d, %Y") if hasattr(r["payment_date"], "strftime") else str(r["payment_date"]),
+            "method":       r["method"],
+            "note":         r["note"] or "",
+        }
+        for r in rows
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1129,15 +1206,6 @@ def save_business_info(data: dict) -> None:
     )
 
 
-def get_sms_config() -> dict:
-    row = db.fetchone("SELECT sms_api_key FROM business_info LIMIT 1")
-    if not row:
-        return {"sms_api_key": ""}
-    return {"sms_api_key": row["sms_api_key"] or ""}
-
-
-def save_sms_config(api_key: str) -> None:
-    db.execute("UPDATE business_info SET sms_api_key=%s", (api_key,))
 
 
 def log_confirmation_sent(booking_id: int, method: str) -> None:
