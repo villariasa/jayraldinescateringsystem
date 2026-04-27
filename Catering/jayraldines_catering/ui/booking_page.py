@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red, get_icon
+from utils.theme import ThemeManager
 from components.booking_modal import BookingModal
 from components.dialogs import confirm, success
 from components.filter_popover import FilterPopover
@@ -72,7 +73,7 @@ def _action_buttons(status, on_approve, on_decline):
         row.addWidget(decline_btn)
     else:
         locked_lbl = QLabel("—")
-        locked_lbl.setStyleSheet("font-size:13px;color:#374151;")
+        locked_lbl.setStyleSheet("font-size:13px;"
         row.addWidget(locked_lbl)
     row.addStretch()
     return widget
@@ -182,7 +183,7 @@ class BookingPage(QWidget):
 
             date_lbl = QLabel(
                 f"<span style='font-weight:700;font-size:13px;'>{b['date']}</span>"
-                f"<br><span style='color:#6B7280;font-size:11px;'>{b['id']}</span>"
+                f"<br><span style='font-size:11px;'>{b['id']}</span>"
             )
             date_lbl.setContentsMargins(8, 0, 0, 0)
             self.table.setCellWidget(row, 0, date_lbl)
@@ -191,7 +192,7 @@ class BookingPage(QWidget):
             name_lbl.setContentsMargins(8, 0, 0, 0)
             self.table.setCellWidget(row, 1, name_lbl)
 
-            pax_lbl = QLabel(f"<span style='font-weight:600;color:#9CA3AF;font-size:13px;'>{b['pax']}</span>")
+            pax_lbl = QLabel(f"<span style='font-weight:600;font-size:13px;'>{b['pax']}</span>"
             pax_lbl.setContentsMargins(8, 0, 0, 0)
             self.table.setCellWidget(row, 2, pax_lbl)
 
@@ -207,7 +208,7 @@ class BookingPage(QWidget):
                 sc_lay.setSpacing(2)
                 sc_lay.addWidget(_status_badge(b["status"]))
                 reason_lbl = QLabel(b["cancellation_reason"])
-                reason_lbl.setStyleSheet("color:#EF4444;font-size:10px;font-style:italic;")
+                reason_lbl.setStyleSheet("color:#DC2626;font-size:10px;font-style:italic;"
                 reason_lbl.setWordWrap(True)
                 sc_lay.addWidget(reason_lbl)
                 self.table.setCellWidget(row, 4, status_col)

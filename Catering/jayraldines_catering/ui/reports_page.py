@@ -12,6 +12,7 @@ from PySide6.QtGui import QColor, QPainter, QLinearGradient, QPen, QCursor
 from utils import exporter as _exporter
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted
+from utils.theme import ThemeManager
 import utils.repository as repo
 
 from PySide6.QtCharts import (QChart, QChartView, QLineSeries, QAreaSeries,
@@ -30,10 +31,12 @@ def _chart_view(chart: QChart) -> QChartView:
     return v
 
 
-def _axis_style(axis, label_color="#9CA3AF"):
+def _axis_style(axis, label_color=None):
+    if label_color is None:
+        label_color = "#64748B" if not ThemeManager().is_dark() else "#9CA3AF"
     axis.setLabelsColor(QColor(label_color))
     axis.setLinePenColor(Qt.transparent)
-    axis.setGridLineColor(QColor("#243244"))
+    axis.setGridLineColor(QColor("#E2E8F0") if not ThemeManager().is_dark() else QColor("#243244"))
 
 
 class HoverCard(QFrame):
@@ -187,7 +190,8 @@ class PaymentDonutChart(QVBoxLayout):
         for label, (value, color) in data.items():
             sl = self._series.append(label, value)
             sl.setColor(QColor(color))
-            sl.setLabelColor(QColor("#F9FAFB"))
+            _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
+            sl.setLabelColor(QColor(_lbl_c))
             sl.hovered.connect(
                 lambda state, s=sl, c=color: self._on_hover(s, state, c)
             )
@@ -197,7 +201,8 @@ class PaymentDonutChart(QVBoxLayout):
         self._chart.addSeries(self._series)
         self._chart.setAnimationOptions(QChart.SeriesAnimations)
         self._chart.legend().setAlignment(Qt.AlignRight)
-        self._chart.legend().setLabelColor(QColor("#9CA3AF"))
+        _leg_c = "#64748B" if not ThemeManager().is_dark() else "#9CA3AF"
+        self._chart.legend().setLabelColor(QColor(_leg_c))
 
         self._view = _chart_view(self._chart)
         self._view.setMinimumHeight(220)
@@ -238,11 +243,14 @@ class MonthlyRevenueChart(QVBoxLayout):
 
         self._bar_rev = QBarSet("Revenue")
         self._bar_rev.setColor(QColor("#E11D48"))
-        self._bar_rev.setLabelColor(QColor("#F9FAFB"))
+        _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
+        self._bar_rev.setLabelColor(QColor(_lbl_c))
 
         self._bar_tgt = QBarSet("Target")
-        self._bar_tgt.setColor(QColor("#374151"))
-        self._bar_tgt.setLabelColor(QColor("#9CA3AF"))
+        _tgt_c = "#CBD5E1" if not ThemeManager().is_dark() else "#374151"
+        self._bar_tgt.setColor(QColor(_tgt_c))
+        _muted_c = "#64748B" if not ThemeManager().is_dark() else "#9CA3AF"
+        self._bar_tgt.setLabelColor(QColor(_muted_c))
 
         for v, t in zip(revenue, target):
             self._bar_rev.append(v / 1000)
@@ -297,7 +305,8 @@ class TopMenuItemsChart(QVBoxLayout):
 
         self._bar_set = QBarSet("Orders")
         self._bar_set.setColor(QColor("#F59E0B"))
-        self._bar_set.setLabelColor(QColor("#F9FAFB"))
+        _lbl_c2 = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
+        self._bar_set.setLabelColor(QColor(_lbl_c2))
         for v in orders:
             self._bar_set.append(v)
 
@@ -349,14 +358,16 @@ class CustomerFrequencyChart(QVBoxLayout):
         for label, count, color in zip(customers, counts, colors):
             sl = self._series.append(f"{label} ({count})", count)
             sl.setColor(QColor(color))
-            sl.setLabelColor(QColor("#F9FAFB"))
+            _lbl_c3 = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
+            sl.setLabelColor(QColor(_lbl_c3))
             self._slices.append(sl)
 
         self._chart = QChart()
         self._chart.addSeries(self._series)
         self._chart.setAnimationOptions(QChart.SeriesAnimations)
         self._chart.legend().setAlignment(Qt.AlignRight)
-        self._chart.legend().setLabelColor(QColor("#9CA3AF"))
+        _leg_c2 = "#64748B" if not ThemeManager().is_dark() else "#9CA3AF"
+        self._chart.legend().setLabelColor(QColor(_leg_c2))
 
         self._view = _chart_view(self._chart)
         self._view.setMinimumHeight(220)
@@ -427,10 +438,14 @@ class ReportsPage(QWidget):
             btn.setFixedHeight(28)
             btn.setChecked(lbl == "All Time")
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setStyleSheet(
+            _period_style = (
+                "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
+                "background:transparent;border:1px solid #CBD5E1;"
+            ) if not ThemeManager().is_dark() else (
                 "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
                 "background:transparent;color:#9CA3AF;border:1px solid #374151;"
             )
+            btn.setStyleSheet(_period_style)
             self._period_group.addButton(btn)
             self._period_btns.append(btn)
             btn.toggled.connect(lambda checked, b=btn, p=lbl: self._on_period(b, p, checked))
@@ -541,7 +556,7 @@ class ReportsPage(QWidget):
             limit_status = "LIMIT REACHED" if pax_val >= 600 else ("NEAR LIMIT" if pax_val >= 400 else "")
             id_lbl = QLabel(
                 f"<span style='font-weight:700;font-size:13px;'>{b.get('id','')}</span>"
-                f"<br><span style='font-size:11px;color:#9CA3AF;'>{b.get('date','')}</span>"
+                f"<br><span style='font-size:11px;'>{b.get('date','')}</span>"
             )
             client_lbl   = QLabel(f"<span style='font-weight:600;font-size:13px;'>{b.get('name','')}</span>")
             package_lbl  = QLabel(f"<span style='font-size:13px;'>{b.get('package','—')}</span>")
@@ -663,7 +678,7 @@ class ReportsPage(QWidget):
             limit_status = "LIMIT REACHED" if pax_val >= 600 else ("NEAR LIMIT" if pax_val >= 400 else "")
             id_lbl       = QLabel(
                 f"<span style='font-weight:700;font-size:13px;'>{b.get('id','')}</span>"
-                f"<br><span style='font-size:11px;color:#9CA3AF;'>{b.get('date','')}</span>"
+                f"<br><span style='font-size:11px;'>{b.get('date','')}</span>"
             )
             client_lbl   = QLabel(f"<span style='font-weight:600;font-size:13px;'>{b.get('name','')}</span>")
             package_lbl  = QLabel(f"<span style='font-size:13px;'>{b.get('package','—')}</span>")
@@ -719,7 +734,7 @@ class ReportsPage(QWidget):
             self._exp_table.setCellWidget(row, 3, amt_lbl)
             del_btn = QPushButton("✕")
             del_btn.setFixedSize(28, 28)
-            del_btn.setStyleSheet("background:transparent;border:none;color:#6B7280;font-weight:700;")
+            del_btn.setStyleSheet("background:transparent;border:none;font-weight:700;"
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.clicked.connect(lambda _, eid=exp["id"]: self._delete_expense(eid))
             self._exp_table.setCellWidget(row, 4, del_btn)
@@ -786,11 +801,18 @@ class ReportsPage(QWidget):
 
     def _build_export_menu(self):
         menu = QMenu(self)
-        menu.setStyleSheet(
-            "QMenu{background:#1F2937;border:1px solid #374151;border-radius:8px;padding:4px;}"
-            "QMenu::item{color:#F9FAFB;padding:8px 20px;font-size:13px;border-radius:6px;}"
-            "QMenu::item:selected{background:#374151;}"
-        )
+        if not ThemeManager().is_dark():
+            menu.setStyleSheet(
+                "QMenu{background:#FFFFFF;border:1px solid #E2E8F0;border-radius:8px;padding:4px;}"
+                "QMenu::item{color:#0F172A;padding:8px 20px;font-size:13px;border-radius:6px;}"
+                "QMenu::item:selected{background:#F1F5F9;}"
+            )
+        else:
+            menu.setStyleSheet(
+                "QMenu{background:#1F2937;border:1px solid #374151;border-radius:8px;padding:4px;}"
+                "QMenu::item{color:#F9FAFB;padding:8px 20px;font-size:13px;border-radius:6px;}"
+                "QMenu::item:selected{background:#374151;}"
+            )
         pdf_act = QAction("Export as PDF", self)
         pdf_act.triggered.connect(self._export_pdf)
         xlsx_act = QAction("Export as Excel (.xlsx)", self)

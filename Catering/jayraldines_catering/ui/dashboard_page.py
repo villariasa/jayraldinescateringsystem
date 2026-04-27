@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction
 from datetime import datetime
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
+from utils.theme import ThemeManager
 import utils.repository as repo
 from utils import exporter as _exporter
 
@@ -32,7 +33,8 @@ class KPICard(AnimatedCard):
         top_row.addStretch()
         if icon_name:
             ico = QLabel()
-            ico.setPixmap(get_icon(icon_name, color="#374151", size=QSize(18, 18)).pixmap(QSize(18, 18)))
+            _ico_color = "#64748B" if not ThemeManager().is_dark() else "#374151"
+            ico.setPixmap(get_icon(icon_name, color=_ico_color, size=QSize(18, 18)).pixmap(QSize(18, 18)))
             top_row.addWidget(ico)
         layout.addLayout(top_row)
 
@@ -74,9 +76,9 @@ class ActivityItem(QWidget):
         vbox = QVBoxLayout()
         vbox.setSpacing(3)
         t_lbl = QLabel(title)
-        t_lbl.setStyleSheet("font-weight: 700; font-size: 13px; color: #F9FAFB;")
+        t_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
         d_lbl = QLabel(desc)
-        d_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+        d_lbl.setStyleSheet("font-size: 12px;")
         d_lbl.setWordWrap(True)
         vbox.addWidget(t_lbl)
         vbox.addWidget(d_lbl)
@@ -84,7 +86,7 @@ class ActivityItem(QWidget):
         layout.addStretch()
 
         time_lbl = QLabel(time)
-        time_lbl.setStyleSheet("color: #6B7280; font-size: 11px; white-space: nowrap;")
+        time_lbl.setStyleSheet("font-size: 11px; white-space: nowrap;"
         layout.addWidget(time_lbl, alignment=Qt.AlignTop)
 
 
@@ -98,9 +100,9 @@ class EventItem(QWidget):
         left = QVBoxLayout()
         left.setSpacing(3)
         name_lbl = QLabel(name)
-        name_lbl.setStyleSheet("font-weight: 700; font-size: 13px; color: #F9FAFB;")
+        name_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
         date_lbl = QLabel(f"{date_str}  ·  {pax} pax")
-        date_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+        date_lbl.setStyleSheet("font-size: 12px;"
         left.addWidget(name_lbl)
         left.addWidget(date_lbl)
 
@@ -108,7 +110,7 @@ class EventItem(QWidget):
         self._countdown_lbl = None
         if event_dt is not None:
             self._countdown_lbl = QLabel()
-            self._countdown_lbl.setStyleSheet("color: #F59E0B; font-size: 11px; font-weight: 700;")
+            self._countdown_lbl.setStyleSheet("color: #D97706; font-size: 11px; font-weight: 700;"
             left.addWidget(self._countdown_lbl)
             self._tick_countdown()
             self._timer = QTimer(self)
@@ -232,7 +234,7 @@ class DashboardPage(QWidget):
         cap_head.addLayout(cap_v)
         cap_head.addStretch()
         self._pax_lbl = QLabel('—')
-        self._pax_lbl.setStyleSheet("font-size:28px;font-weight:800;color:#F9FAFB;")
+        self._pax_lbl.setStyleSheet("font-size:28px;font-weight:800;"
         cap_head.addWidget(self._pax_lbl)
         cap_lay.addLayout(cap_head)
 
@@ -243,9 +245,9 @@ class DashboardPage(QWidget):
         cap_lay.addWidget(self.prog)
 
         self._cap_pct_lbl = QLabel("")
-        self._cap_pct_lbl.setStyleSheet("color:#F59E0B;font-weight:700;font-size:12px;")
+        self._cap_pct_lbl.setStyleSheet("color:#D97706;font-weight:700;font-size:12px;")
         self._cap_rem_lbl = QLabel("")
-        self._cap_rem_lbl.setStyleSheet("color:#6B7280;font-size:12px;")
+        self._cap_rem_lbl.setStyleSheet("font-size:12px;"
         cap_foot = QHBoxLayout()
         cap_foot.addWidget(self._cap_pct_lbl)
         cap_foot.addStretch()
@@ -359,11 +361,18 @@ class DashboardPage(QWidget):
 
     def _build_export_menu(self):
         menu = QMenu(self)
-        menu.setStyleSheet(
-            "QMenu{background:#1F2937;border:1px solid #374151;border-radius:8px;padding:4px;}"
-            "QMenu::item{color:#F9FAFB;padding:8px 20px;font-size:13px;border-radius:6px;}"
-            "QMenu::item:selected{background:#374151;}"
-        )
+        if not ThemeManager().is_dark():
+            menu.setStyleSheet(
+                "QMenu{background:#FFFFFF;border:1px solid #E2E8F0;border-radius:8px;padding:4px;}"
+                "QMenu::item{color:#0F172A;padding:8px 20px;font-size:13px;border-radius:6px;}"
+                "QMenu::item:selected{background:#F1F5F9;}"
+            )
+        else:
+            menu.setStyleSheet(
+                "QMenu{background:#1F2937;border:1px solid #374151;border-radius:8px;padding:4px;}"
+                "QMenu::item{color:#F9FAFB;padding:8px 20px;font-size:13px;border-radius:6px;}"
+                "QMenu::item:selected{background:#374151;}"
+            )
         pdf_act = QAction("Export as PDF", self)
         pdf_act.triggered.connect(self._export_pdf)
         xlsx_act = QAction("Export as Excel (.xlsx)", self)

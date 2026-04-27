@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize
 
 from utils.icons import btn_icon_primary, get_icon
+from utils.theme import ThemeManager
 from components.dialogs import confirm, success
 import utils.repository as repo
 from utils.session import get_actor
@@ -28,6 +29,62 @@ _COL_COLORS  = {
     "Delivered":   "#10B981",
     "Cancelled":   "#EF4444",
 }
+
+
+def _is_light():
+    return not ThemeManager().is_dark()
+
+
+def _card_style():
+    if _is_light():
+        return "QFrame { background: #FFFFFF; border-radius: 10px; border: 1px solid #E2E8F0; }"
+    return "QFrame { background: #1F2937; border-radius: 10px; border: 1px solid #374151; }"
+
+
+def _id_color():
+    return "#0F172A" if _is_light() else "#F9FAFB"
+
+
+def _client_color():
+    return "#475569" if _is_light() else "#9CA3AF"
+
+
+def _muted_color():
+    return "#64748B" if _is_light() else "#6B7280"
+
+
+def _task_input_style():
+    if _is_light():
+        return (
+            "background:#F8FAFC;color:#0F172A;border:1px solid #E2E8F0;"
+            "border-radius:5px;padding:4px 8px;font-size:11px;"
+        )
+    return (
+        "background:#111827;color:#F9FAFB;border:1px solid #374151;"
+        "border-radius:5px;padding:4px 8px;font-size:11px;"
+    )
+
+
+def _checkbox_style():
+    if _is_light():
+        return (
+            "QCheckBox { color: #475569; font-size: 11px; background: transparent; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #CBD5E1; background: #F8FAFC; }"
+            "QCheckBox::indicator:checked { background: #22C55E; border-color: #22C55E; }"
+        )
+    return (
+        "QCheckBox { color: #9CA3AF; font-size: 11px; background: transparent; }"
+        "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #374151; background: #111827; }"
+        "QCheckBox::indicator:checked { background: #22C55E; border-color: #22C55E; }"
+    )
+
+
+def _back_btn_style():
+    return (
+        "background:rgba(245,158,11,.12);color:#D97706;"
+        "border:1px solid rgba(245,158,11,.3);border-radius:6px;"
+        "font-size:11px;font-weight:600;"
+    )
 
 
 class KitchenPage(QWidget):
@@ -107,42 +164,40 @@ class KitchenPage(QWidget):
 
     def _build_order_card(self, order):
         card = QFrame()
-        card.setStyleSheet(
-            "QFrame { background: #1F2937; border-radius: 10px; border: 1px solid #374151; }"
-        )
+        card.setStyleSheet(_card_style())
         lay = QVBoxLayout(card)
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(6)
 
         id_lbl = QLabel(order["id"])
-        id_lbl.setStyleSheet("font-weight: 700; color: #F9FAFB; font-size: 13px;")
+        id_lbl.setStyleSheet(f"font-weight: 700; color: {_id_color()}; font-size: 13px;")
         lay.addWidget(id_lbl)
 
         client_lbl = QLabel(order["client"])
-        client_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+        client_lbl.setStyleSheet(f"color: {_client_color()}; font-size: 12px;")
         lay.addWidget(client_lbl)
 
         event_lbl = QLabel(order["event"])
-        event_lbl.setStyleSheet("color: #6B7280; font-size: 11px;")
+        event_lbl.setStyleSheet(f"color: {_muted_color()}; font-size: 11px;")
         lay.addWidget(event_lbl)
 
         pax_lbl = QLabel(f"{order['pax']} pax")
-        pax_lbl.setStyleSheet("color: #6B7280; font-size: 11px;")
+        pax_lbl.setStyleSheet(f"color: {_muted_color()}; font-size: 11px;")
         lay.addWidget(pax_lbl)
 
         items_lbl = QLabel(order["items"])
-        items_lbl.setStyleSheet("color: #9CA3AF; font-size: 11px;")
+        items_lbl.setStyleSheet(f"color: {_client_color()}; font-size: 11px;")
         items_lbl.setWordWrap(True)
         lay.addWidget(items_lbl)
 
         if order.get("db_id"):
             divider = QFrame()
             divider.setFrameShape(QFrame.HLine)
-            divider.setStyleSheet("color: #374151;")
+            divider.setStyleSheet(f"color: {'#E2E8F0' if _is_light() else '#374151'};")
             lay.addWidget(divider)
 
-            tasks_lbl = QLabel("Tasks")
-            tasks_lbl.setStyleSheet("color: #6B7280; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
+            tasks_lbl = QLabel("TASKS")
+            tasks_lbl.setStyleSheet(f"color: {_muted_color()}; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
             lay.addWidget(tasks_lbl)
 
             tasks = repo.get_kitchen_tasks(order["db_id"])
@@ -160,11 +215,8 @@ class KitchenPage(QWidget):
             add_row = QHBoxLayout()
             add_row.setSpacing(6)
             task_input = QLineEdit()
-            task_input.setPlaceholderText("Add task…")
-            task_input.setStyleSheet(
-                "background:#111827;color:#F9FAFB;border:1px solid #374151;"
-                "border-radius:5px;padding:4px 8px;font-size:11px;"
-            )
+            task_input.setPlaceholderText("Add task...")
+            task_input.setStyleSheet(_task_input_style())
             task_input.setFixedHeight(26)
             add_btn = QPushButton("+")
             add_btn.setFixedSize(26, 26)
@@ -183,7 +235,7 @@ class KitchenPage(QWidget):
         status = order["status"]
 
         if next_s:
-            fwd_label = "  Mark Delivered" if next_s == "Delivered" else f"  → {next_s}"
+            fwd_label = "  Mark Delivered" if next_s == "Delivered" else f"  Move to {next_s}"
             btn = QPushButton(fwd_label)
             btn.setObjectName("primaryButton")
             btn.setFixedHeight(30)
@@ -192,14 +244,10 @@ class KitchenPage(QWidget):
             lay.addWidget(btn)
 
         if prev_s:
-            ret_btn = QPushButton(f"  ← Back to {prev_s}")
+            ret_btn = QPushButton(f"  Back to {prev_s}")
             ret_btn.setFixedHeight(30)
             ret_btn.setCursor(Qt.PointingHandCursor)
-            ret_btn.setStyleSheet(
-                "background:rgba(245,158,11,.12);color:#F59E0B;"
-                "border:1px solid rgba(245,158,11,.3);border-radius:6px;"
-                "font-size:11px;font-weight:600;"
-            )
+            ret_btn.setStyleSheet(_back_btn_style())
             ret_btn.clicked.connect(lambda checked=False, o=order: self._return_order(o))
             lay.addWidget(ret_btn)
 
@@ -230,19 +278,15 @@ class KitchenPage(QWidget):
 
         cb = QCheckBox(task["label"])
         cb.setChecked(task["is_done"])
-        cb.setStyleSheet(
-            "QCheckBox { color: #9CA3AF; font-size: 11px; background: transparent; }"
-            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #374151; background: #111827; }"
-            "QCheckBox::indicator:checked { background: #22C55E; border-color: #22C55E; }"
-        )
+        cb.setStyleSheet(_checkbox_style())
         cb.stateChanged.connect(lambda _, tid=task["id"]: repo.toggle_kitchen_task(tid))
         row.addWidget(cb, 1)
 
-        del_btn = QPushButton("×")
+        del_btn = QPushButton("x")
         del_btn.setFixedSize(18, 18)
         del_btn.setCursor(Qt.PointingHandCursor)
         del_btn.setStyleSheet(
-            "background: transparent; color: #6B7280; border: none; font-size: 13px; font-weight: 700;"
+            f"background: transparent; color: {_muted_color()}; border: none; font-size: 13px; font-weight: 700;"
         )
         del_btn.clicked.connect(lambda _, tid=task["id"], rw=row_w: self._delete_task_row(tid, rw))
         row.addWidget(del_btn)

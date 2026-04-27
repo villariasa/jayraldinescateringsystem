@@ -380,7 +380,21 @@ QComboBox {
     font-size: 13px;
 }
 QComboBox:focus { border: 1px solid #E11D48; }
-QComboBox::drop-down { width: 28px; border-left: none; }
+QComboBox::drop-down {
+    width: 28px;
+    border-left: none;
+    background: transparent;
+}
+QComboBox::down-arrow {
+    width: 10px;
+    height: 10px;
+    border-left: 2px solid #64748B;
+    border-bottom: 2px solid #64748B;
+    border-top: none;
+    border-right: none;
+    margin-right: 6px;
+    transform: rotate(-45deg);
+}
 QComboBox QAbstractItemView {
     border: 1px solid #E2E8F0;
     border-radius: 8px;
@@ -389,6 +403,15 @@ QComboBox QAbstractItemView {
     selection-color: #E11D48;
     color: #0F172A;
     outline: none;
+    padding: 4px;
+}
+QComboBox QAbstractItemView::item {
+    padding: 8px 12px;
+    border-radius: 6px;
+    color: #0F172A;
+}
+QComboBox QAbstractItemView::item:hover {
+    background-color: #F1F5F9;
 }
 
 QTextEdit {
@@ -496,6 +519,74 @@ QFrame#scheduleCard QLabel { color: #0F172A; }
 QFrame#stepActive  { background-color: #E11D48; border-radius: 14px; min-height: 6px; max-height: 6px; }
 QFrame#stepDone    { background-color: #16A34A; border-radius: 14px; min-height: 6px; max-height: 6px; }
 QFrame#stepPending { background-color: #E2E8F0; border-radius: 14px; min-height: 6px; max-height: 6px; }
+
+/* --- MENU (context / popup) --- */
+QMenu {
+    background-color: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 4px;
+    color: #0F172A;
+}
+QMenu::item {
+    color: #0F172A;
+    padding: 8px 20px;
+    font-size: 13px;
+    border-radius: 6px;
+}
+QMenu::item:selected {
+    background-color: #F1F5F9;
+    color: #0F172A;
+}
+QMenu::item:disabled {
+    color: #94A3B8;
+}
+QMenu::separator {
+    height: 1px;
+    background: #E2E8F0;
+    margin: 4px 8px;
+}
+
+/* --- DIALOG --- */
+QDialog {
+    background-color: #F8FAFC;
+}
+
+/* --- CALENDAR WIDGET (date picker popup) --- */
+QCalendarWidget {
+    background-color: #FFFFFF;
+    color: #0F172A;
+}
+QCalendarWidget QAbstractItemView {
+    background-color: #FFFFFF;
+    color: #0F172A;
+    selection-background-color: #E11D48;
+    selection-color: #FFFFFF;
+}
+QCalendarWidget QWidget#qt_calendar_navigationbar {
+    background-color: #F1F5F9;
+}
+QCalendarWidget QToolButton {
+    color: #0F172A;
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 4px;
+}
+QCalendarWidget QToolButton:hover {
+    background-color: #E2E8F0;
+}
+QCalendarWidget QSpinBox {
+    color: #0F172A;
+    background-color: #F8FAFC;
+}
+
+/* --- SPINBOX POPUP / CALENDAR CONTAINER --- */
+QDateEdit::drop-down, QTimeEdit::drop-down {
+    width: 24px;
+    border-left: none;
+    background: transparent;
+}
 
 /* --- CHECKBOX --- */
 QCheckBox { color: #0F172A; font-size: 13px; }

@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
+from utils.theme import ThemeManager
 from components.dialogs import confirm, success
 import utils.repository as repo
 
@@ -311,18 +312,19 @@ class CustomersPage(QWidget):
             for fu in fups:
                 fu_row = QHBoxLayout()
                 done_cb_lbl = QLabel(("✓ " if fu["is_done"] else "○ ") + fu["date"] + " — " + fu["note"])
-                done_cb_lbl.setStyleSheet("color:#9CA3AF;" if fu["is_done"] else "color:#F9FAFB;")
+                _done_color = "#94A3B8" if fu["is_done"] else ("#475569" if not ThemeManager().is_dark() else "#F9FAFB")
+                done_cb_lbl.setStyleSheet(f"color:{_done_color};")
                 done_cb_lbl.setWordWrap(True)
                 fu_row.addWidget(done_cb_lbl, 1)
                 if not fu["is_done"]:
                     done_btn = QPushButton("Done")
                     done_btn.setFixedHeight(26)
-                    done_btn.setStyleSheet("background:#22C55E;color:white;border:none;border-radius:5px;font-size:11px;padding:0 8px;")
+                    done_btn.setStyleSheet("background:#16A34A;color:white;border:none;border-radius:5px;font-size:11px;padding:0 8px;"
                     done_btn.clicked.connect(lambda _, fid=fu["id"]: (repo.complete_follow_up(fid), _reload()))
                     fu_row.addWidget(done_btn)
                 del_btn2 = QPushButton("✕")
                 del_btn2.setFixedSize(24, 24)
-                del_btn2.setStyleSheet("background:transparent;border:none;color:#6B7280;font-weight:700;")
+                del_btn2.setStyleSheet("background:transparent;border:none;font-weight:700;"
                 del_btn2.clicked.connect(lambda _, fid=fu["id"]: (repo.delete_follow_up(fid), _reload()))
                 fu_row.addWidget(del_btn2)
                 row_w = QWidget()
@@ -330,7 +332,7 @@ class CustomersPage(QWidget):
                 inner_lay.addWidget(row_w)
             if not fups:
                 empty = QLabel("No follow-ups yet.")
-                empty.setStyleSheet("color:#6B7280;")
+                empty.setStyleSheet("color:#64748B;"
                 inner_lay.addWidget(empty)
             inner_lay.addStretch()
 

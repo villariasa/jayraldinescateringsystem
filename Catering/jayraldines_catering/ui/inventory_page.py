@@ -169,7 +169,7 @@ class AdjustStockDialog(QDialog):
         lay.addWidget(div)
 
         current_lbl = QLabel(f"Current stock: {self._item['stock']} {self._item['unit']}")
-        current_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+        current_lbl.setStyleSheet("font-size: 12px;"
         lay.addWidget(current_lbl)
 
         form = QFormLayout()
@@ -186,7 +186,7 @@ class AdjustStockDialog(QDialog):
         lay.addLayout(form)
 
         hint = QLabel("Positive = restock   |   Negative = usage")
-        hint.setStyleSheet("color: #6B7280; font-size: 11px;")
+        hint.setStyleSheet("font-size: 11px;"
         lay.addWidget(hint)
 
         btn_row = QHBoxLayout()
