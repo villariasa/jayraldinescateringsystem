@@ -145,22 +145,6 @@ class EventItem(QWidget):
             self._countdown_lbl.setText(f"Starts in {h:02d}:{m:02d}:{s:02d}")
 
 
-class MenuAlertItem(QWidget):
-    def __init__(self, item, issue, badge_type="badgeWarning", parent=None):
-        super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 10, 0, 10)
-        layout.setSpacing(14)
-
-        name_lbl = QLabel(item)
-        name_lbl.setStyleSheet("font-weight: 600; font-size: 13px;")
-        layout.addWidget(name_lbl)
-        layout.addStretch()
-
-        issue_lbl = QLabel(issue)
-        issue_lbl.setObjectName(badge_type)
-        layout.addWidget(issue_lbl)
-
 
 class DashboardPage(QWidget):
     new_booking_requested = Signal()
@@ -318,27 +302,6 @@ class DashboardPage(QWidget):
 
         self._act_items_start = self._act_lay.count()
 
-        self.menu_card = AnimatedCard(self.content)
-        self._menu_lay = QVBoxLayout(self.menu_card)
-        self._menu_lay.setContentsMargins(24, 24, 24, 24)
-        self._menu_lay.setSpacing(0)
-
-        menu_head = QHBoxLayout()
-        menu_title = QLabel("Menu Alerts")
-        menu_title.setObjectName("h3")
-        menu_head.addWidget(menu_title)
-        menu_head.addStretch()
-        self._menu_badge = QLabel("—")
-        self._menu_badge.setObjectName("badgeWarning")
-        menu_head.addWidget(self._menu_badge)
-        self._menu_lay.addLayout(menu_head)
-
-        menu_div = QFrame()
-        menu_div.setObjectName("divider")
-        self._menu_lay.addWidget(menu_div)
-
-        self._menu_items_start = self._menu_lay.count()
-
         self.followup_card = AnimatedCard(self.content)
         self._followup_lay = QVBoxLayout(self.followup_card)
         self._followup_lay.setContentsMargins(24, 24, 24, 24)
@@ -361,7 +324,6 @@ class DashboardPage(QWidget):
         self._fu_items_start = self._followup_lay.count()
 
         bot_row.addWidget(self.act_card, 3)
-        bot_row.addWidget(self.menu_card, 2)
         bot_row.addWidget(self.followup_card, 2)
         self.lay.addLayout(bot_row)
 
@@ -470,7 +432,6 @@ class DashboardPage(QWidget):
 
         self._rebuild_events()
         self._rebuild_activity()
-        self._rebuild_menu_alerts()
         self._rebuild_followup_alerts()
 
     def _clear_layout_from(self, layout, from_index: int):
@@ -544,28 +505,6 @@ class DashboardPage(QWidget):
                     act.get("color", "#9CA3AF"),
                 ))
         self._act_lay.addStretch()
-
-    def _rebuild_menu_alerts(self):
-        self._clear_layout_from(self._menu_lay, self._menu_items_start)
-        alerts = repo.get_menu_alerts()
-        badge_map = {"warning": "badgeWarning", "danger": "badgeDanger"}
-        if not alerts:
-            self._menu_badge.setText("No Issues")
-            self._menu_badge.setObjectName("badgeSuccess")
-            empty = QLabel("All menu items are fine.")
-            empty.setObjectName("subtitle")
-            empty.setContentsMargins(0, 8, 0, 8)
-            self._menu_lay.addWidget(empty)
-        else:
-            self._menu_badge.setText(f"{len(alerts)} Issue{'s' if len(alerts) != 1 else ''}")
-            self._menu_badge.setObjectName("badgeWarning")
-            for a in alerts:
-                bt = badge_map.get(a.get("badge_type", "warning"), "badgeWarning")
-                self._menu_lay.addWidget(MenuAlertItem(a["item"], a["issue"], bt))
-                sep = QFrame()
-                sep.setObjectName("divider")
-                self._menu_lay.addWidget(sep)
-        self._menu_lay.addStretch()
 
     def _rebuild_followup_alerts(self):
         self._clear_layout_from(self._followup_lay, self._fu_items_start)

@@ -113,8 +113,17 @@ class KitchenPage(QWidget):
         header.addStretch()
         root.addLayout(header)
 
-        self._cols_layout = QHBoxLayout()
+        col_scroll = QScrollArea()
+        col_scroll.setWidgetResizable(True)
+        col_scroll.setFrameShape(QFrame.NoFrame)
+        col_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        col_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        col_container = QWidget()
+        col_container.setStyleSheet("background: transparent;")
+        self._cols_layout = QHBoxLayout(col_container)
         self._cols_layout.setSpacing(16)
+        self._cols_layout.setContentsMargins(0, 0, 0, 0)
 
         _DISPLAY_COLS = ["Queued", "Preparing", "In Progress", "Ready", "Delivered", "Cancelled"]
         self._col_inner = {}
@@ -123,6 +132,8 @@ class KitchenPage(QWidget):
             color = _COL_COLORS[status]
             col_frame = QFrame()
             col_frame.setObjectName("card")
+            col_frame.setMinimumWidth(200)
+            col_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             col_layout = QVBoxLayout(col_frame)
             col_layout.setContentsMargins(16, 16, 16, 16)
             col_layout.setSpacing(12)
@@ -152,9 +163,10 @@ class KitchenPage(QWidget):
 
             self._col_inner[status] = inner_lay
             self._col_frames[status] = col_frame
-            self._cols_layout.addWidget(col_frame)
+            self._cols_layout.addWidget(col_frame, 1)
 
-        root.addLayout(self._cols_layout)
+        col_scroll.setWidget(col_container)
+        root.addWidget(col_scroll)
 
     def _apply_column_styles(self):
         bg = "#FFFFFF" if _is_light() else "#111827"
@@ -250,34 +262,38 @@ class KitchenPage(QWidget):
         status = order["status"]
 
         if next_s:
-            fwd_label = "  Mark Delivered" if next_s == "Delivered" else f"  Move to {next_s}"
+            fwd_label = "Mark Delivered" if next_s == "Delivered" else f"Move to {next_s}"
             btn = QPushButton(fwd_label)
             btn.setObjectName("primaryButton")
-            btn.setFixedHeight(30)
+            btn.setMinimumHeight(30)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda checked=False, o=order: self._advance_order(o))
             lay.addWidget(btn)
 
         if prev_s:
-            ret_btn = QPushButton(f"  Back to {prev_s}")
-            ret_btn.setFixedHeight(30)
+            ret_btn = QPushButton(f"Back to {prev_s}")
+            ret_btn.setMinimumHeight(30)
+            ret_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             ret_btn.setCursor(Qt.PointingHandCursor)
             ret_btn.setStyleSheet(_back_btn_style())
             ret_btn.clicked.connect(lambda checked=False, o=order: self._return_order(o))
             lay.addWidget(ret_btn)
 
         if status not in ("Delivered", "Cancelled", "Done"):
-            cancel_btn = QPushButton("  Cancel")
+            cancel_btn = QPushButton("Cancel")
             cancel_btn.setObjectName("dangerButton")
-            cancel_btn.setFixedHeight(30)
+            cancel_btn.setMinimumHeight(30)
+            cancel_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             cancel_btn.setCursor(Qt.PointingHandCursor)
             cancel_btn.clicked.connect(lambda checked=False, o=order: self._cancel_order(o))
             lay.addWidget(cancel_btn)
 
         if status in ("Delivered", "Cancelled"):
-            done_btn = QPushButton("  Remove")
+            done_btn = QPushButton("Remove")
             done_btn.setObjectName("secondaryButton")
-            done_btn.setFixedHeight(30)
+            done_btn.setMinimumHeight(30)
+            done_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             done_btn.setCursor(Qt.PointingHandCursor)
             done_btn.clicked.connect(lambda checked=False, o=order: self._remove_order(o))
             lay.addWidget(done_btn)

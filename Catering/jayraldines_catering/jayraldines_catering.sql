@@ -35,7 +35,6 @@ CREATE TYPE kitchen_status    AS ENUM ('Queued', 'Preparing', 'In Progress', 'Re
 CREATE TYPE payment_method    AS ENUM ('Cash', 'Bank Transfer', 'GCash', 'PayMaya');
 CREATE TYPE menu_category     AS ENUM ('Main Course','Noodles','Soup','Vegetables','Dessert','Drinks','Bread','Other');
 CREATE TYPE menu_package_tier AS ENUM ('Budget','Standard','Premium','Custom');
-CREATE TYPE inventory_unit    AS ENUM ('kg','g','L','mL','pcs','packs','trays','boxes');
 CREATE TYPE expense_category  AS ENUM ('Food Cost','Labor','Transport','Utilities','Equipment','Other');
 
 -- =============================================================================
@@ -242,26 +241,6 @@ CREATE TABLE kitchen_tasks (
 );
 
 CREATE INDEX idx_kitchen_tasks_order ON kitchen_tasks (order_id);
-
--- =============================================================================
--- TABLE: inventory
--- =============================================================================
-CREATE TABLE inventory (
-    id           SERIAL          PRIMARY KEY,
-    ingredient   VARCHAR(120)    NOT NULL UNIQUE,
-    unit         inventory_unit  NOT NULL,
-    stock        NUMERIC(10,2)   NOT NULL DEFAULT 0 CHECK (stock >= 0),
-    min_stock    NUMERIC(10,2)   NOT NULL DEFAULT 0 CHECK (min_stock >= 0),
-    expiry_date  DATE,
-    updated_at   TIMESTAMPTZ     NOT NULL DEFAULT NOW()
-);
-
-INSERT INTO inventory (ingredient, unit, stock, min_stock) VALUES
-  ('Chicken',     'kg', 8,  20),
-  ('Rice',        'kg', 15, 30),
-  ('Cooking Oil', 'L',  4,  10),
-  ('Pork',        'kg', 25, 15),
-  ('Flour',       'kg', 40, 10);
 
 -- =============================================================================
 -- TABLE: expenses  (Feature 8 — profit/expense tracking)
@@ -884,78 +863,6 @@ END;
 $$;
 
 -- =============================================================================
--- STORED PROCEDURE: sp_add_inventory_item
--- OUT p_item_id INT
--- =============================================================================
-CREATE OR REPLACE PROCEDURE sp_add_inventory_item(
-    IN  p_ingredient   TEXT,
-    IN  p_unit         TEXT,
-    IN  p_stock        NUMERIC,
-    IN  p_min_stock    NUMERIC,
-    IN  p_expiry_date  DATE,
-    OUT p_item_id      INT
-)
-LANGUAGE plpgsql AS $$
-BEGIN
-    INSERT INTO inventory (ingredient, unit, stock, min_stock, expiry_date)
-    VALUES (p_ingredient, p_unit::inventory_unit, p_stock, p_min_stock, p_expiry_date)
-    RETURNING id INTO p_item_id;
-END;
-$$;
-
--- =============================================================================
--- STORED PROCEDURE: sp_update_inventory_item
--- =============================================================================
-CREATE OR REPLACE PROCEDURE sp_update_inventory_item(
-    IN p_item_id      INT,
-    IN p_ingredient   TEXT,
-    IN p_unit         TEXT,
-    IN p_min_stock    NUMERIC,
-    IN p_expiry_date  DATE
-)
-LANGUAGE plpgsql AS $$
-BEGIN
-    UPDATE inventory
-    SET
-        ingredient  = p_ingredient,
-        unit        = p_unit::inventory_unit,
-        min_stock   = p_min_stock,
-        expiry_date = p_expiry_date,
-        updated_at  = NOW()
-    WHERE id = p_item_id;
-END;
-$$;
-
--- =============================================================================
--- STORED PROCEDURE: sp_adjust_inventory_stock
--- OUT p_new_stock NUMERIC
--- =============================================================================
-CREATE OR REPLACE PROCEDURE sp_adjust_inventory_stock(
-    IN  p_item_id   INT,
-    IN  p_delta     NUMERIC,
-    OUT p_new_stock NUMERIC
-)
-LANGUAGE plpgsql AS $$
-BEGIN
-    UPDATE inventory
-    SET stock = GREATEST(0, stock + p_delta), updated_at = NOW()
-    WHERE id = p_item_id;
-
-    SELECT stock INTO p_new_stock FROM inventory WHERE id = p_item_id;
-END;
-$$;
-
--- =============================================================================
--- STORED PROCEDURE: sp_delete_inventory_item
--- =============================================================================
-CREATE OR REPLACE PROCEDURE sp_delete_inventory_item(IN p_item_id INT)
-LANGUAGE plpgsql AS $$
-BEGIN
-    DELETE FROM inventory WHERE id = p_item_id;
-END;
-$$;
-
--- =============================================================================
 -- STORED PROCEDURE: sp_create_kitchen_order
 -- OUT p_order_id INT, OUT p_order_ref TEXT
 -- =============================================================================
@@ -1395,21 +1302,6 @@ WHERE b.event_date >= CURRENT_DATE
 ORDER BY b.event_date, b.event_time;
 
 -- =============================================================================
--- VIEW: v_inventory_alerts
--- =============================================================================
-CREATE OR REPLACE VIEW v_inventory_alerts AS
-SELECT
-    id,
-    ingredient,
-    unit,
-    stock,
-    min_stock,
-    ROUND((stock / NULLIF(min_stock,0)) * 100, 1) AS stock_pct
-FROM inventory
-WHERE stock < min_stock
-ORDER BY stock_pct;
-
--- =============================================================================
 -- VIEW: v_calendar_day_summary
 -- =============================================================================
 CREATE OR REPLACE VIEW v_calendar_day_summary AS
@@ -1575,14 +1467,6 @@ SELECT
     END AS badge_type
 FROM menu_items mi
 WHERE mi.status IN ('Seasonal', 'Out of Stock', 'Unavailable')
-UNION ALL
-SELECT
-    mi.name AS item,
-    'Ingredient near low stock' AS issue,
-    'danger' AS badge_type
-FROM inventory inv
-JOIN menu_items mi ON LOWER(mi.name) LIKE '%' || LOWER(inv.ingredient) || '%'
-WHERE inv.stock < inv.min_stock
 ORDER BY badge_type DESC, item
 LIMIT 10;
 
