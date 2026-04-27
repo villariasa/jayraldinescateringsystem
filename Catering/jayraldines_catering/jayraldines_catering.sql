@@ -542,8 +542,8 @@ BEGIN
         v_allow_zero := COALESCE(v_allow_zero, FALSE);
 
         IF NOT v_allow_zero AND v_amount_paid < (v_total * v_min_pct / 100) THEN
-            RAISE EXCEPTION 'Downpayment insufficient. Required: ₱% (% %%). Paid: ₱%.',
-                ROUND(v_total * v_min_pct / 100, 2), v_min_pct, '%', v_amount_paid;
+            RAISE EXCEPTION 'Downpayment insufficient. Required: ₱% (%%). Paid: ₱%.',
+                ROUND(v_total * v_min_pct / 100, 2), v_min_pct, v_amount_paid;
         END IF;
     END IF;
 
