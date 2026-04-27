@@ -13,7 +13,7 @@ Jayraldine's Catering Management System is a desktop application built with PySi
 
 | Module | Purpose |
 |---|---|
-| Dashboard | Business overview, KPIs, follow-up alerts, capacity summary |
+| Dashboard | Business overview, KPIs, recent activity, follow-up alerts, capacity summary |
 | Orders & Bookings | Receive, approve, decline, and manage event bookings |
 | Customers | Client database, loyalty tiers, follow-up reminders |
 | Menu | Menu items, packages, and status management |
@@ -21,7 +21,6 @@ Jayraldine's Catering Management System is a desktop application built with PySi
 | Kitchen | Kanban order preparation tracking with per-dish task checklists |
 | Billing | Invoices, payment tracking, receipt printing and emailing |
 | Reports | Business performance reports, expense tracking, profit summary |
-| Inventory | Ingredient stock levels and low-stock alerts |
 | Settings | Business info, booking policy, SMTP/SMS config, backup/restore, audit log |
 
 ---
@@ -268,7 +267,7 @@ Configure in [Settings] → Email (SMTP) Configuration
 
 ---
 
-## 6. Menu & Inventory
+## 6. Menu Management
 
 ```
 [Menu] manages available dishes and packages
@@ -278,11 +277,7 @@ Each item has: name, description, category, package tier, price, status
 Status options:
   Available / Unavailable / Seasonal / Out of Stock
     ↓
-[Inventory] tracks raw ingredients
-    ↓
-Low stock items trigger alerts on Dashboard
-    ↓
-Staff adjusts stock (restock or usage deduction)
+Unavailable / Seasonal / Out of Stock items flagged in v_menu_alerts
 ```
 
 ---
@@ -408,7 +403,6 @@ Actor defaults to "staff" — changeable via utils/session.py set_actor()
 | `kitchen_orders` | Kitchen preparation queue |
 | `kitchen_tasks` | Per-dish task checklist for each kitchen order |
 | `calendar_events` | Manual schedule entries |
-| `inventory` | Ingredient stock levels |
 | `notifications` | System alert history |
 | `expenses` | Business expense records |
 | `audit_logs` | Full change history with actor, action, old/new values |
@@ -435,4 +429,4 @@ Actor defaults to "staff" — changeable via utils/session.py set_actor()
 
 ---
 
-*Updated: 2026-04-27 — Reflects all implemented features including F2–F12*
+*Updated: 2026-04-27 — Reflects all implemented features. Inventory module removed; system does not track raw ingredient stock.*
