@@ -276,7 +276,7 @@ class CustomersPage(QWidget):
 
     def _open_follow_ups(self, c):
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                                        QPushButton, QLineEdit, QDateEdit, QScrollArea, QFrame)
+                                       QPushButton, QLineEdit, QDateEdit, QScrollArea, QFrame)
         from PySide6.QtCore import QDate
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Follow-ups — {c['name']}")
@@ -319,12 +319,14 @@ class CustomersPage(QWidget):
                 if not fu["is_done"]:
                     done_btn = QPushButton("Done")
                     done_btn.setFixedHeight(26)
-                    done_btn.setStyleSheet("background:#16A34A;color:white;border:none;border-radius:5px;font-size:11px;padding:0 8px;"
+                    # FIX 1: Added closing parenthesis
+                    done_btn.setStyleSheet("background:#16A34A;color:white;border:none;border-radius:5px;font-size:11px;padding:0 8px;")
                     done_btn.clicked.connect(lambda _, fid=fu["id"]: (repo.complete_follow_up(fid), _reload()))
                     fu_row.addWidget(done_btn)
                 del_btn2 = QPushButton("✕")
                 del_btn2.setFixedSize(24, 24)
-                del_btn2.setStyleSheet("background:transparent;border:none;font-weight:700;"
+                # FIX 2: Added closing parenthesis
+                del_btn2.setStyleSheet("background:transparent;border:none;font-weight:700;")
                 del_btn2.clicked.connect(lambda _, fid=fu["id"]: (repo.delete_follow_up(fid), _reload()))
                 fu_row.addWidget(del_btn2)
                 row_w = QWidget()
@@ -332,7 +334,8 @@ class CustomersPage(QWidget):
                 inner_lay.addWidget(row_w)
             if not fups:
                 empty = QLabel("No follow-ups yet.")
-                empty.setStyleSheet("color:#64748B;"
+                # FIX 3: Added closing parenthesis
+                empty.setStyleSheet("color:#64748B;")
                 inner_lay.addWidget(empty)
             inner_lay.addStretch()
 

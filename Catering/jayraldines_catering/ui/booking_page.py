@@ -73,7 +73,8 @@ def _action_buttons(status, on_approve, on_decline):
         row.addWidget(decline_btn)
     else:
         locked_lbl = QLabel("—")
-        locked_lbl.setStyleSheet("font-size:13px;"
+        # FIX 1: Added closing parenthesis
+        locked_lbl.setStyleSheet("font-size:13px;")
         row.addWidget(locked_lbl)
     row.addStretch()
     return widget
@@ -192,7 +193,8 @@ class BookingPage(QWidget):
             name_lbl.setContentsMargins(8, 0, 0, 0)
             self.table.setCellWidget(row, 1, name_lbl)
 
-            pax_lbl = QLabel(f"<span style='font-weight:600;font-size:13px;'>{b['pax']}</span>"
+            # FIX 2: Added closing parenthesis
+            pax_lbl = QLabel(f"<span style='font-weight:600;font-size:13px;'>{b['pax']}</span>")
             pax_lbl.setContentsMargins(8, 0, 0, 0)
             self.table.setCellWidget(row, 2, pax_lbl)
 
@@ -208,7 +210,8 @@ class BookingPage(QWidget):
                 sc_lay.setSpacing(2)
                 sc_lay.addWidget(_status_badge(b["status"]))
                 reason_lbl = QLabel(b["cancellation_reason"])
-                reason_lbl.setStyleSheet("color:#DC2626;font-size:10px;font-style:italic;"
+                # FIX 3: Added closing parenthesis
+                reason_lbl.setStyleSheet("color:#DC2626;font-size:10px;font-style:italic;")
                 reason_lbl.setWordWrap(True)
                 sc_lay.addWidget(reason_lbl)
                 self.table.setCellWidget(row, 4, status_col)

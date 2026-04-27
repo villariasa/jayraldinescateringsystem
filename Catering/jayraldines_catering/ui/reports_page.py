@@ -734,7 +734,7 @@ class ReportsPage(QWidget):
             self._exp_table.setCellWidget(row, 3, amt_lbl)
             del_btn = QPushButton("✕")
             del_btn.setFixedSize(28, 28)
-            del_btn.setStyleSheet("background:transparent;border:none;font-weight:700;"
+            del_btn.setStyleSheet("background:transparent;border:none;font-weight:700;")
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.clicked.connect(lambda _, eid=exp["id"]: self._delete_expense(eid))
             self._exp_table.setCellWidget(row, 4, del_btn)

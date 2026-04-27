@@ -69,7 +69,7 @@ class DayCell(QFrame):
         # 2. Booking Count
         count_lbl = QLabel(f"{booking_count} Booking{'s' if booking_count > 1 else ''}")
         count_lbl.setObjectName("bookingCount")
-        count_lbl.setStyleSheet("font-size: 11px; font-weight: 600;"
+        count_lbl.setStyleSheet("font-size: 11px; font-weight: 600;")
         self.layout.insertWidget(2, count_lbl)
 
     def mousePressEvent(self, event):
@@ -99,12 +99,13 @@ class ScheduleCard(AnimatedCard):
 
         if source == "booking" and ref:
             ref_lbl = QLabel(f"Booking: {ref}")
-            ref_lbl.setStyleSheet("font-size:11px;color:#2563EB;font-weight:600;"
+            ref_lbl.setStyleSheet("font-size:11px;color:#2563EB;font-weight:600;")
             layout.addWidget(ref_lbl)
             if status:
                 st_colors = {"CONFIRMED": "#22C55E", "PENDING": "#F59E0B"}
                 st_lbl = QLabel(status.capitalize())
-                st_lbl.setStyleSheet(f"font-size:10px;font-weight:700;color:{st_colors.get(status,'#64748B')};"
+                # FIX 1: Added closing parenthesis
+                st_lbl.setStyleSheet(f"font-size:10px;font-weight:700;color:{st_colors.get(status,'#64748B')};")
                 layout.addWidget(st_lbl)
 
         time_lbl = QLabel(f"Time: {time}")
@@ -328,7 +329,8 @@ class CalendarPage(QWidget):
         
         cal_head.addStretch()
         legend = QLabel("Available  |  Near Full (400+)  |  Fully Booked (600)")
-        legend.setStyleSheet("font-size: 12px; font-weight: 600; margin-right: 24px;"
+        # FIX 2: Added closing parenthesis
+        legend.setStyleSheet("font-size: 12px; font-weight: 600; margin-right: 24px;")
         cal_head.addWidget(legend)
 
         # Dynamic Nav Buttons
@@ -367,7 +369,8 @@ class CalendarPage(QWidget):
         for col, day in enumerate(days):
             lbl = QLabel(day)
             lbl.setAlignment(Qt.AlignCenter)
-            lbl.setStyleSheet("font-weight: 800; font-size: 12px; padding: 10px 0px;"
+            # FIX 3: Added closing parenthesis
+            lbl.setStyleSheet("font-weight: 800; font-size: 12px; padding: 10px 0px;")
             self.grid.addWidget(lbl, 0, col)
 
         self._db_cache: dict = {}
@@ -396,7 +399,8 @@ class CalendarPage(QWidget):
         
         close_row = QHBoxLayout()
         self.lbl_panel_date = QLabel("Date")
-        self.lbl_panel_date.setStyleSheet("color: #FFFFFF; font-size: 20px; font-weight: 800;"
+        # FIX 4: Added closing parenthesis
+        self.lbl_panel_date.setStyleSheet("color: #FFFFFF; font-size: 20px; font-weight: 800;")
         close_row.addWidget(self.lbl_panel_date)
         
         btn_close = QPushButton()
@@ -410,14 +414,16 @@ class CalendarPage(QWidget):
         
         # Capacity Box
         cap_box = QFrame()
-        cap_box.setStyleSheet("background-color: rgba(0, 0, 0, 0.06); border-radius: 8px; margin-top: 15px;"
+        # FIX 5: Added closing parenthesis
+        cap_box.setStyleSheet("background-color: rgba(0, 0, 0, 0.06); border-radius: 8px; margin-top: 15px;")
         cap_layout = QHBoxLayout(cap_box)
         
         # --- THE FIX: Force RichText and use <br> ---
         self.lbl_capacity = QLabel()
         self.lbl_capacity.setTextFormat(Qt.RichText)
         self.lbl_capacity.setText("TOTAL CAPACITY<br><span style='font-size: 28px; font-weight: 800;'>0</span> / 600 Pax")
-        self.lbl_capacity.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 600;"
+        # FIX 6: Added closing parenthesis
+        self.lbl_capacity.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 600;")
         
         cap_layout.addWidget(self.lbl_capacity)
         sph_layout.addWidget(cap_box)
@@ -431,7 +437,8 @@ class CalendarPage(QWidget):
         self.sp_body_layout.setSpacing(16)
         
         lbl_ds = QLabel("DAILY SCHEDULE")
-        lbl_ds.setStyleSheet("font-size: 12px; font-weight: 800; letter-spacing: 0.5px;"
+        # FIX 7: Added closing parenthesis
+        lbl_ds.setStyleSheet("font-size: 12px; font-weight: 800; letter-spacing: 0.5px;")
         self.sp_body_layout.addWidget(lbl_ds)
 
         self.cards_container = QVBoxLayout()
@@ -629,7 +636,8 @@ class CalendarPage(QWidget):
                 f" / {max_pax} Pax"
             )
             empty_lbl = QLabel("No events scheduled for this day.")
-            empty_lbl.setStyleSheet("font-style: italic; font-size: 13px;"
+            # FIX 8: Added closing parenthesis
+            empty_lbl.setStyleSheet("font-style: italic; font-size: 13px;")
             self.cards_container.addWidget(empty_lbl)
 
         self._selected_day = day_num

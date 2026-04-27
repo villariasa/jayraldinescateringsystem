@@ -86,7 +86,8 @@ class ActivityItem(QWidget):
         layout.addStretch()
 
         time_lbl = QLabel(time)
-        time_lbl.setStyleSheet("font-size: 11px; white-space: nowrap;"
+        # FIX 1: Added closing parenthesis
+        time_lbl.setStyleSheet("font-size: 11px; white-space: nowrap;")
         layout.addWidget(time_lbl, alignment=Qt.AlignTop)
 
 
@@ -102,7 +103,8 @@ class EventItem(QWidget):
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
         date_lbl = QLabel(f"{date_str}  ·  {pax} pax")
-        date_lbl.setStyleSheet("font-size: 12px;"
+        # FIX 2: Added closing parenthesis
+        date_lbl.setStyleSheet("font-size: 12px;")
         left.addWidget(name_lbl)
         left.addWidget(date_lbl)
 
@@ -110,7 +112,8 @@ class EventItem(QWidget):
         self._countdown_lbl = None
         if event_dt is not None:
             self._countdown_lbl = QLabel()
-            self._countdown_lbl.setStyleSheet("color: #D97706; font-size: 11px; font-weight: 700;"
+            # FIX 3: Added closing parenthesis
+            self._countdown_lbl.setStyleSheet("color: #D97706; font-size: 11px; font-weight: 700;")
             left.addWidget(self._countdown_lbl)
             self._tick_countdown()
             self._timer = QTimer(self)
@@ -234,7 +237,8 @@ class DashboardPage(QWidget):
         cap_head.addLayout(cap_v)
         cap_head.addStretch()
         self._pax_lbl = QLabel('—')
-        self._pax_lbl.setStyleSheet("font-size:28px;font-weight:800;"
+        # FIX 4: Added closing parenthesis
+        self._pax_lbl.setStyleSheet("font-size:28px;font-weight:800;")
         cap_head.addWidget(self._pax_lbl)
         cap_lay.addLayout(cap_head)
 
@@ -247,7 +251,8 @@ class DashboardPage(QWidget):
         self._cap_pct_lbl = QLabel("")
         self._cap_pct_lbl.setStyleSheet("color:#D97706;font-weight:700;font-size:12px;")
         self._cap_rem_lbl = QLabel("")
-        self._cap_rem_lbl.setStyleSheet("font-size:12px;"
+        # FIX 5: Added closing parenthesis
+        self._cap_rem_lbl.setStyleSheet("font-size:12px;")
         cap_foot = QHBoxLayout()
         cap_foot.addWidget(self._cap_pct_lbl)
         cap_foot.addStretch()
