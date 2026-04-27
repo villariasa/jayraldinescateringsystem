@@ -2,8 +2,8 @@ import csv
 import os
 import tempfile
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
+    QWidget, QVBoxLayout, QHBoxLayout, QFrame,
+    QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QDialog, QFormLayout, QComboBox, QLineEdit, QDoubleSpinBox,
     QFileDialog, QMessageBox, QDateEdit, QTextEdit, QSizePolicy,
     QStackedWidget
@@ -318,13 +318,6 @@ class InvoiceDialog(QDialog):
         completer = self.customer_combo.completer()
         completer.setCompletionMode(QCompleter.PopupCompletion)
         completer.setFilterMode(Qt.MatchContains)
-        self.customer_combo.currentIndexChanged.connect(self._on_customer_selected)
-        if self._edit_mode:
-            idx = self.customer_combo.findText(self._invoice_data.get("customer", ""))
-            if idx >= 0:
-                self.customer_combo.setCurrentIndex(idx)
-            else:
-                self.customer_combo.setEditText(self._invoice_data.get("customer", ""))
 
         self._date_stack = QStackedWidget()
         self._date_stack.setFixedHeight(38)
@@ -349,6 +342,15 @@ class InvoiceDialog(QDialog):
         self._date_stack.addWidget(self.date_field)
         self._date_stack.addWidget(self.date_combo)
         self._date_stack.setCurrentIndex(0)
+
+        # MOVED THE SIGNAL CONNECTION HERE (After date_combo is created!)
+        self.customer_combo.currentIndexChanged.connect(self._on_customer_selected)
+        if self._edit_mode:
+            idx = self.customer_combo.findText(self._invoice_data.get("customer", ""))
+            if idx >= 0:
+                self.customer_combo.setCurrentIndex(idx)
+            else:
+                self.customer_combo.setEditText(self._invoice_data.get("customer", ""))
 
         self.amount_field = QDoubleSpinBox()
         self.amount_field.setPrefix("₱ ")
@@ -505,11 +507,14 @@ class BillingPage(QWidget):
         hdr.setSectionResizeMode(7,  QHeaderView.Fixed)
         hdr.setSectionResizeMode(8,  QHeaderView.Fixed)
         hdr.setSectionResizeMode(9,  QHeaderView.Fixed)
-        hdr.setSectionResizeMode(10, QHeaderView.Fixed)
+        
+        # Make Column 10 (Actions) dynamically resize to fit all 3 buttons
+        hdr.setSectionResizeMode(10, QHeaderView.ResizeToContents) 
+        
         self._table.setColumnWidth(7,  38)
         self._table.setColumnWidth(8,  38)
         self._table.setColumnWidth(9,  38)
-        self._table.setColumnWidth(10, 38)
+        # Note: We removed the self._table.setColumnWidth(10, 38) line entirely!
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.verticalHeader().setVisible(False)

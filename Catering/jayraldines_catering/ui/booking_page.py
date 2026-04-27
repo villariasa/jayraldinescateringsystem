@@ -73,7 +73,6 @@ def _action_buttons(status, on_approve, on_decline):
         row.addWidget(decline_btn)
     else:
         locked_lbl = QLabel("—")
-        # FIX 1: Added closing parenthesis
         locked_lbl.setStyleSheet("font-size:13px;")
         row.addWidget(locked_lbl)
     row.addStretch()
@@ -146,22 +145,21 @@ class BookingPage(QWidget):
         t_head.addWidget(btn_export)
         table_layout.addLayout(t_head)
 
-        self.table = QTableWidget(0, 9)
-        self.table.setHorizontalHeaderLabels(["DATE", "CLIENT NAME", "PAX", "TOTAL AMOUNT", "STATUS", "ACTIONS", "", "", ""])
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["DATE", "CLIENT NAME", "PAX", "TOTAL AMOUNT", "STATUS", "APPROVAL", "ACTIONS"])
         _bk_hdr = self.table.horizontalHeader()
-        _bk_hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
+        
+        # --- FIX: Set DATE column to Fixed and increase width to 150px to prevent cutoff ---
+        _bk_hdr.setSectionResizeMode(0, QHeaderView.Fixed)
         _bk_hdr.setSectionResizeMode(1, QHeaderView.Stretch)
-        _bk_hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        _bk_hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        _bk_hdr.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        _bk_hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        _bk_hdr.setSectionResizeMode(6, QHeaderView.Fixed)
-        _bk_hdr.setSectionResizeMode(7, QHeaderView.Fixed)
-        _bk_hdr.setSectionResizeMode(8, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 110)
-        self.table.setColumnWidth(6, 40)
-        self.table.setColumnWidth(7, 40)
-        self.table.setColumnWidth(8, 40)
+        _bk_hdr.setSectionResizeMode(4, QHeaderView.Fixed) # Status Badge
+        _bk_hdr.setSectionResizeMode(5, QHeaderView.Fixed) # Approval buttons
+        _bk_hdr.setSectionResizeMode(6, QHeaderView.ResizeToContents) # The dynamic grouped actions
+
+        self.table.setColumnWidth(0, 150) # Generous room for full date + padding
+        self.table.setColumnWidth(4, 120) 
+        self.table.setColumnWidth(5, 90)
+
         _bk_hdr.setMinimumSectionSize(80)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setFocusPolicy(Qt.NoFocus)
@@ -200,7 +198,6 @@ class BookingPage(QWidget):
             name_lbl.setContentsMargins(8, 0, 0, 0)
             self.table.setCellWidget(row, 1, name_lbl)
 
-            # FIX 2: Added closing parenthesis
             pax_lbl = QLabel(f"<span style='font-weight:600;font-size:13px;'>{b['pax']}</span>")
             pax_lbl.setContentsMargins(8, 0, 0, 0)
             self.table.setCellWidget(row, 2, pax_lbl)
@@ -215,27 +212,42 @@ class BookingPage(QWidget):
                 sc_lay = QVBoxLayout(status_col)
                 sc_lay.setContentsMargins(4, 2, 4, 2)
                 sc_lay.setSpacing(2)
-                sc_lay.addWidget(_status_badge(b["status"]))
+                
+                badge_w = QWidget()
+                badge_l = QHBoxLayout(badge_w)
+                badge_l.setContentsMargins(0, 0, 0, 0)
+                badge_l.addWidget(_status_badge(b["status"]), alignment=Qt.AlignLeft)
+                sc_lay.addWidget(badge_w)
+                
                 reason_lbl = QLabel(b["cancellation_reason"])
-                # FIX 3: Added closing parenthesis
                 reason_lbl.setStyleSheet("color:#DC2626;font-size:10px;font-style:italic;")
                 reason_lbl.setWordWrap(True)
                 sc_lay.addWidget(reason_lbl)
                 self.table.setCellWidget(row, 4, status_col)
             else:
-                self.table.setCellWidget(row, 4, _status_badge(b["status"]))
+                badge_w = QWidget()
+                badge_l = QHBoxLayout(badge_w)
+                badge_l.setContentsMargins(4, 0, 4, 0)
+                badge_l.addWidget(_status_badge(b["status"]), alignment=Qt.AlignLeft | Qt.AlignVCenter)
+                self.table.setCellWidget(row, 4, badge_w)
 
-            actions = _action_buttons(
+            approvals = _action_buttons(
                 b["status"],
                 on_approve=lambda _, r=bref: self._approve_booking(r),
                 on_decline=lambda _, r=bref: self._decline_booking(r),
             )
-            self.table.setCellWidget(row, 5, actions)
+            self.table.setCellWidget(row, 5, approvals)
+
+            actions_w = QFrame()
+            actions_w.setStyleSheet("background: transparent;")
+            actions_l = QHBoxLayout(actions_w)
+            actions_l.setContentsMargins(4, 0, 16, 0) 
+            actions_l.setSpacing(8)
 
             edit_btn = QPushButton()
-            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(14, 14)))
-            edit_btn.setIconSize(QSize(14, 14))
-            edit_btn.setFixedSize(32, 32)
+            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
+            edit_btn.setIconSize(QSize(13, 13))
+            edit_btn.setFixedSize(30, 30)
             edit_btn.setStyleSheet("background:transparent;border:none;")
             edit_btn.setCursor(Qt.PointingHandCursor)
             edit_btn.setToolTip("Edit booking")
@@ -243,28 +255,33 @@ class BookingPage(QWidget):
             if b["status"] != "PENDING":
                 edit_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
             edit_btn.clicked.connect(lambda _, r=bref: self._edit_booking(r))
-            self.table.setCellWidget(row, 6, edit_btn)
-
+            
             del_btn = QPushButton()
             del_btn.setIcon(btn_icon_red("trash"))
-            del_btn.setIconSize(QSize(14, 14))
-            del_btn.setFixedSize(32, 32)
+            del_btn.setIconSize(QSize(13, 13))
+            del_btn.setFixedSize(30, 30)
             del_btn.setStyleSheet("border:none;background:transparent;")
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.setToolTip("Delete booking")
             del_btn.clicked.connect(lambda _, r=bref: self._delete_booking(r))
-            self.table.setCellWidget(row, 7, del_btn)
-
+            
             confirm_btn = QPushButton()
-            confirm_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(14, 14)))
-            confirm_btn.setIconSize(QSize(14, 14))
-            confirm_btn.setFixedSize(32, 32)
+            confirm_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(13, 13)))
+            confirm_btn.setIconSize(QSize(13, 13))
+            confirm_btn.setFixedSize(30, 30)
             confirm_btn.setStyleSheet("background:transparent;border:none;")
             confirm_btn.setCursor(Qt.PointingHandCursor)
             confirm_btn.setToolTip("Send Confirmation Email")
             confirm_btn.setEnabled(b["status"] == "CONFIRMED")
+            if b["status"] != "CONFIRMED":
+                confirm_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
             confirm_btn.clicked.connect(lambda _, r=bref: self._send_confirmation(r))
-            self.table.setCellWidget(row, 8, confirm_btn)
+            
+            actions_l.addWidget(edit_btn)
+            actions_l.addWidget(del_btn)
+            actions_l.addWidget(confirm_btn)
+            
+            self.table.setCellWidget(row, 6, actions_w)
 
     def _approve_booking(self, ref):
         b = next((x for x in self._bookings if x["id"] == ref), None)
@@ -414,6 +431,7 @@ class BookingPage(QWidget):
         result = repo.create_booking(data)
         bkg_id = result["booking_ref"] if result else f"BKG-{len(self._bookings) + 1:03d}"
         db_id  = result["booking_id"]  if result else None
+        
         self._bookings.append({
             "db_id":  db_id,
             "date":   data["date"],
@@ -425,7 +443,20 @@ class BookingPage(QWidget):
         })
         self._populate_table()
         success(self, message="Booking created successfully.")
+        
+        # 1. Send the email approval request to the customer
         self._send_approval_request(data, bkg_id)
+        
+        # 2. Push an in-app notification for the Admin/Owner!
+        try:
+            repo.push_notification(
+                type_="info",
+                title="New Booking Request",
+                message=f"{data['name']} submitted a new booking request for {data['pax']} pax on {data['date']}.",
+                color="#3B82F6"  # Blue color for info
+            )
+        except Exception as exc:
+            print(f"[Notification] Failed to create in-app notification: {exc}")
 
     def _send_approval_request(self, data: dict, bkg_ref: str) -> None:
         """Send a booking approval request email to the customer."""

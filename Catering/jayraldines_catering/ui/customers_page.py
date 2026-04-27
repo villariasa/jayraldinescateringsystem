@@ -443,18 +443,18 @@ class CustomersPage(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._table = QTableWidget(0, 8)
-        self._table.setHorizontalHeaderLabels(["Name", "Contact", "Email", "Events", "Tier", "Status", "", ""])
+        # FIX 1: We reduced the column count to 7 (merged actions into 1 column)
+        self._table = QTableWidget(0, 7)
+        self._table.setHorizontalHeaderLabels(["NAME", "CONTACT", "EMAIL", "EVENTS", "TIER", "STATUS", ""])
+        
         hdr = self._table.horizontalHeader()
-        hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
+        
+        hdr.setSectionResizeMode(QHeaderView.ResizeToContents) 
         hdr.setSectionResizeMode(0, QHeaderView.Stretch)
         hdr.setSectionResizeMode(2, QHeaderView.Stretch)
         hdr.setSectionResizeMode(4, QHeaderView.Fixed)
-        hdr.setSectionResizeMode(6, QHeaderView.Fixed)
-        hdr.setSectionResizeMode(7, QHeaderView.Fixed)
+        
         self._table.setColumnWidth(4, 80)
-        self._table.setColumnWidth(6, 76)
-        self._table.setColumnWidth(7, 44)
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.verticalHeader().setVisible(False)
@@ -487,11 +487,14 @@ class CustomersPage(QWidget):
             status_item.setForeground(QColor(color_map.get(c["status"], "#9CA3AF")))
             self._table.setItem(row, 5, status_item)
 
-            edit_w = QFrame()
-            edit_w.setStyleSheet("background: transparent;")
-            edit_l = QHBoxLayout(edit_w)
-            edit_l.setContentsMargins(2, 0, 2, 0)
-            edit_l.setSpacing(2)
+            # FIX 2: Group all 3 buttons into a single horizontal layout for Column 6
+            actions_w = QFrame()
+            actions_w.setStyleSheet("background: transparent;")
+            actions_l = QHBoxLayout(actions_w)
+            # Add 16px right margin so the scrollbar doesn't cover the trash icon
+            actions_l.setContentsMargins(4, 0, 16, 0)
+            actions_l.setSpacing(8)
+
             edit_btn = QPushButton()
             edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
             edit_btn.setIconSize(QSize(13, 13))
@@ -500,7 +503,7 @@ class CustomersPage(QWidget):
             edit_btn.setStyleSheet("background: transparent; border: none;")
             edit_btn.setCursor(Qt.PointingHandCursor)
             edit_btn.clicked.connect(lambda _, cust=c: self._open_edit_dialog(cust))
-            edit_l.addWidget(edit_btn)
+            
             fu_btn = QPushButton()
             fu_btn.setIcon(get_icon("bell", color="#F59E0B", size=QSize(13, 13)))
             fu_btn.setIconSize(QSize(13, 13))
@@ -509,13 +512,7 @@ class CustomersPage(QWidget):
             fu_btn.setStyleSheet("background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:6px;")
             fu_btn.setCursor(Qt.PointingHandCursor)
             fu_btn.clicked.connect(lambda _, cust=c: self._open_follow_ups(cust))
-            edit_l.addWidget(fu_btn)
-            self._table.setCellWidget(row, 6, edit_w)
-
-            del_w = QFrame()
-            del_w.setStyleSheet("background: transparent;")
-            del_l = QHBoxLayout(del_w)
-            del_l.setContentsMargins(4, 0, 4, 0)
+            
             del_btn = QPushButton()
             del_btn.setIcon(btn_icon_red("trash"))
             del_btn.setIconSize(QSize(13, 13))
@@ -523,8 +520,14 @@ class CustomersPage(QWidget):
             del_btn.setStyleSheet("background: transparent; border: none;")
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.clicked.connect(lambda _, cust=c: self._delete_customer_by_ref(cust))
-            del_l.addWidget(del_btn)
-            self._table.setCellWidget(row, 7, del_w)
+            
+            actions_l.addWidget(edit_btn)
+            actions_l.addWidget(fu_btn)
+            actions_l.addWidget(del_btn)
+            
+            # Add the unified actions widget to column 6
+            self._table.setCellWidget(row, 6, actions_w)
+
 
     def _delete_customer_by_ref(self, c):
         if not confirm(self, title="Delete Customer",
@@ -582,13 +585,11 @@ class CustomersPage(QWidget):
                 if not fu["is_done"]:
                     done_btn = QPushButton("Done")
                     done_btn.setFixedHeight(26)
-                    # FIX 1: Added closing parenthesis
                     done_btn.setStyleSheet("background:#16A34A;color:white;border:none;border-radius:5px;font-size:11px;padding:0 8px;")
                     done_btn.clicked.connect(lambda _, fid=fu["id"]: (repo.complete_follow_up(fid), _reload()))
                     fu_row.addWidget(done_btn)
                 del_btn2 = QPushButton("✕")
                 del_btn2.setFixedSize(24, 24)
-                # FIX 2: Added closing parenthesis
                 del_btn2.setStyleSheet("background:transparent;border:none;font-weight:700;")
                 del_btn2.clicked.connect(lambda _, fid=fu["id"]: (repo.delete_follow_up(fid), _reload()))
                 fu_row.addWidget(del_btn2)
@@ -597,7 +598,6 @@ class CustomersPage(QWidget):
                 inner_lay.addWidget(row_w)
             if not fups:
                 empty = QLabel("No follow-ups yet.")
-                # FIX 3: Added closing parenthesis
                 empty.setStyleSheet("color:#64748B;")
                 inner_lay.addWidget(empty)
             inner_lay.addStretch()
