@@ -7,8 +7,67 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QDate, QTime, QSize, Signal
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
+from utils.theme import ThemeManager
 import utils.menu_store as menu_store
 import utils.repository as repo
+
+
+def _is_light():
+    return not ThemeManager().is_dark()
+
+
+def _readonly_input_style():
+    if _is_light():
+        return "background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0;border-radius:8px;padding:8px 14px;"
+    return "background:#111827;color:#9CA3AF;border:1px solid #243244;border-radius:8px;padding:8px 14px;"
+
+
+def _package_card_style(selected=False):
+    if selected:
+        return "QFrame { background: rgba(225,29,72,0.10); border-radius: 10px; border: 2px solid #E11D48; }"
+    if _is_light():
+        return ("QFrame { background: #F8FAFC; border-radius: 10px; border: 2px solid #E2E8F0; }"
+                "QFrame:hover { border: 2px solid #E11D48; }")
+    return ("QFrame { background: #1F2937; border-radius: 10px; border: 2px solid #243244; }"
+            "QFrame:hover { border: 2px solid #E11D48; }")
+
+
+def _package_name_style():
+    return "font-weight: 700; color: %s; font-size: 13px;" % ("#0F172A" if _is_light() else "#F9FAFB")
+
+
+def _package_desc_style():
+    return "color: %s; font-size: 12px;" % ("#64748B" if _is_light() else "#9CA3AF")
+
+
+def _notes_style():
+    if _is_light():
+        return ("background: #F8FAFC; color: #0F172A; border: 1px solid #E2E8F0; "
+                "border-radius: 8px; padding: 8px; font-size: 13px;")
+    return ("background: #1F2937; color: #F9FAFB; border: 1px solid #243244; "
+            "border-radius: 8px; padding: 8px; font-size: 13px;")
+
+
+def _cost_breakdown_style():
+    return "color: %s; font-size: 11px; font-weight: 700; letter-spacing: 1px;" % (
+        "#64748B" if _is_light() else "#6B7280"
+    )
+
+
+def _cost_base_style():
+    return "color: %s; font-size: 13px;" % ("#475569" if _is_light() else "#9CA3AF")
+
+
+def _cost_total_style():
+    return "color: %s; font-size: 15px; font-weight: 800;" % ("#0F172A" if _is_light() else "#F9FAFB")
+
+
+def _checkbox_item_style():
+    return "color: %s; font-size: 13px;" % ("#0F172A" if _is_light() else "#F9FAFB")
+
+
+def _step_line_inactive():
+    return "background: %s; margin-top: 13px;" % ("#E2E8F0" if _is_light() else "#243244")
 
 
 _STEPS = ["Customer", "Event", "Menu", "Payment"]
@@ -79,7 +138,7 @@ class StepIndicator(QWidget):
                 line = QFrame()
                 line.setFrameShape(QFrame.HLine)
                 line.setFixedHeight(2)
-                line.setStyleSheet("background: #243244; margin-top: 13px;")
+                line.setStyleSheet(_step_line_inactive())
                 line.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
                 layout.addWidget(line)
                 self._lines.append(line)
@@ -227,14 +286,14 @@ class BookingModal(QDialog):
         left.addWidget(_field_label("Contact Number"))
         self.f_contact = _input("+63 9XX XXX XXXX")
         self.f_contact.setReadOnly(True)
-        self.f_contact.setStyleSheet("background:#111827;color:#9CA3AF;")
+        self.f_contact.setStyleSheet(_readonly_input_style())
         left.addWidget(self.f_contact)
 
         right = QVBoxLayout()
         right.addWidget(_field_label("Email"))
         self.f_email = _input("email@example.com")
         self.f_email.setReadOnly(True)
-        self.f_email.setStyleSheet("background:#111827;color:#9CA3AF;")
+        self.f_email.setStyleSheet(_readonly_input_style())
         right.addWidget(self.f_email)
 
         row.addLayout(left)
@@ -244,7 +303,7 @@ class BookingModal(QDialog):
         lay.addWidget(_field_label("Address"))
         self.f_address = _input("Street, Barangay, City")
         self.f_address.setReadOnly(True)
-        self.f_address.setStyleSheet("background:#111827;color:#9CA3AF;")
+        self.f_address.setStyleSheet(_readonly_input_style())
         lay.addWidget(self.f_address)
         lay.addStretch()
 
@@ -321,10 +380,7 @@ class BookingModal(QDialog):
         self.f_notes = QTextEdit()
         self.f_notes.setPlaceholderText("Dietary requirements, setup instructions, etc.")
         self.f_notes.setFixedHeight(80)
-        self.f_notes.setStyleSheet(
-            "background: #1F2937; color: #F9FAFB; border: 1px solid #243244; "
-            "border-radius: 8px; padding: 8px; font-size: 13px;"
-        )
+        self.f_notes.setStyleSheet(_notes_style())
         lay.addWidget(self.f_notes)
         lay.addStretch()
 
@@ -384,19 +440,16 @@ class BookingModal(QDialog):
         self._pkg_btns = []
         for i, (name, price, desc, _rate) in enumerate(_PACKAGES):
             card = QFrame()
-            card.setStyleSheet(
-                "QFrame { background: #1F2937; border-radius: 10px; border: 2px solid #243244; }"
-                "QFrame:hover { border: 2px solid #E11D48; }"
-            )
+            card.setStyleSheet(_package_card_style(selected=False))
             card.setCursor(Qt.PointingHandCursor)
             card_lay = QHBoxLayout(card)
             card_lay.setContentsMargins(16, 14, 16, 14)
             info = QVBoxLayout()
             info.setSpacing(2)
             n_lbl = QLabel(name)
-            n_lbl.setStyleSheet("font-weight: 700; color: #F9FAFB; font-size: 13px;")
+            n_lbl.setStyleSheet(_package_name_style())
             d_lbl = QLabel(desc)
-            d_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+            d_lbl.setStyleSheet(_package_desc_style())
             info.addWidget(n_lbl)
             info.addWidget(d_lbl)
             card_lay.addLayout(info)
@@ -423,7 +476,7 @@ class BookingModal(QDialog):
         for item in menu_store.get_available_items():
             row = QHBoxLayout()
             chk = QCheckBox(item["item"])
-            chk.setStyleSheet("color: #F9FAFB; font-size: 13px;")
+            chk.setStyleSheet(_checkbox_item_style())
             cat = QLabel(item["category"])
             cat.setStyleSheet("color: #6B7280; font-size: 11px;")
             p = QLabel(f"₱{item['price']:,.0f}")
@@ -453,16 +506,11 @@ class BookingModal(QDialog):
         self._selected_pkg = idx
         for i, (card, btn) in enumerate(self._pkg_btns):
             if i == idx:
-                card.setStyleSheet(
-                    "QFrame { background: rgba(225,29,72,0.10); border-radius: 10px; border: 2px solid #E11D48; }"
-                )
+                card.setStyleSheet(_package_card_style(selected=True))
                 btn.setObjectName("primaryButton")
                 btn.setText("Selected")
             else:
-                card.setStyleSheet(
-                    "QFrame { background: #1F2937; border-radius: 10px; border: 2px solid #243244; }"
-                    "QFrame:hover { border: 2px solid #E11D48; }"
-                )
+                card.setStyleSheet(_package_card_style(selected=False))
                 btn.setObjectName("secondaryButton")
                 btn.setText("Select")
             btn.style().unpolish(btn)
@@ -499,13 +547,13 @@ class BookingModal(QDialog):
         cb_lay.setSpacing(8)
 
         cb_title = QLabel("COST BREAKDOWN")
-        cb_title.setStyleSheet("color: #6B7280; font-size: 11px; font-weight: 700; letter-spacing: 1px;")
+        cb_title.setStyleSheet(_cost_breakdown_style())
         cb_lay.addWidget(cb_title)
 
         self._lbl_base    = QLabel()
-        self._lbl_base.setStyleSheet("color: #9CA3AF; font-size: 13px;")
+        self._lbl_base.setStyleSheet(_cost_base_style())
         self._lbl_total   = QLabel()
-        self._lbl_total.setStyleSheet("color: #F9FAFB; font-size: 15px; font-weight: 800;")
+        self._lbl_total.setStyleSheet(_cost_total_style())
         self._lbl_deposit = QLabel()
         self._lbl_deposit.setStyleSheet("color: #EF4444; font-size: 13px; font-weight: 700;")
 
@@ -551,12 +599,12 @@ class BookingModal(QDialog):
         if self._step == 1:
             if not self.f_occasion.text().strip():
                 self.f_occasion.setFocus()
-                self.f_occasion.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px; background: #1F2937; color: #F9FAFB; padding: 8px 14px;")
+                self.f_occasion.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px; padding: 8px 14px;")
                 return False
             self.f_occasion.setStyleSheet("")
             if not self.f_venue.text().strip():
                 self.f_venue.setFocus()
-                self.f_venue.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px; background: #1F2937; color: #F9FAFB; padding: 8px 14px;")
+                self.f_venue.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px; padding: 8px 14px;")
                 return False
             self.f_venue.setStyleSheet("")
         return True

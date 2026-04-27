@@ -20,7 +20,7 @@ import utils.menu_store as menu_store
 
 def get_all_customers() -> list[dict]:
     rows = db.fetchall(
-        "SELECT id, name, contact, email, total_events, status::TEXT FROM customers ORDER BY name"
+        "SELECT id, name, contact, email, address, total_events, status::TEXT FROM customers ORDER BY name"
     )
     if rows is None:
         return []
@@ -30,6 +30,7 @@ def get_all_customers() -> list[dict]:
             "name":    r["name"],
             "contact": r["contact"],
             "email":   r["email"] or "",
+            "address": r["address"] or "",
             "events":  r["total_events"],
             "status":  r["status"],
         }
@@ -38,13 +39,14 @@ def get_all_customers() -> list[dict]:
 
 
 def add_customer(data: dict) -> Optional[int]:
-    """data keys: name, contact, email, status"""
+    """data keys: name, contact, email, address, status"""
     result = db.callproc_out(
         "sp_add_customer",
         in_params=(
             data["name"],
             data.get("contact", ""),
             data.get("email", ""),
+            data.get("address", ""),
             data.get("status", "Active"),
         ),
         out_names=["p_customer_id"],
@@ -53,7 +55,7 @@ def add_customer(data: dict) -> Optional[int]:
 
 
 def update_customer(customer_id: int, data: dict) -> None:
-    """data keys: name, contact, email, status"""
+    """data keys: name, contact, email, address, status"""
     db.callproc_void(
         "sp_update_customer",
         in_params=(
@@ -61,6 +63,7 @@ def update_customer(customer_id: int, data: dict) -> None:
             data["name"],
             data.get("contact", ""),
             data.get("email", ""),
+            data.get("address", ""),
             data.get("status", "Active"),
         ),
     )
@@ -900,7 +903,7 @@ def get_profit_summary() -> list[dict]:
 
 def get_all_customers_with_loyalty() -> list[dict]:
     rows = db.fetchall(
-        "SELECT id, name, contact, email, total_events, status::TEXT, loyalty_tier::TEXT FROM customers ORDER BY name"
+        "SELECT id, name, contact, email, address, total_events, status::TEXT, loyalty_tier::TEXT FROM customers ORDER BY name"
     )
     if rows is None:
         return []
@@ -910,6 +913,7 @@ def get_all_customers_with_loyalty() -> list[dict]:
             "name":         r["name"],
             "contact":      r["contact"],
             "email":        r["email"] or "",
+            "address":      r["address"] or "",
             "events":       r["total_events"],
             "status":       r["status"],
             "loyalty_tier": r["loyalty_tier"],

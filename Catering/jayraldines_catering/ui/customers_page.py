@@ -1,10 +1,39 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
-    QDialog, QFormLayout, QComboBox, QSizePolicy
+    QDialog, QFormLayout, QComboBox, QSizePolicy, QTextEdit
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
+
+
+_COUNTRY_CODES = [
+    ("+63", "PH  +63"),
+    ("+1",  "US  +1"),
+    ("+44", "UK  +44"),
+    ("+61", "AU  +61"),
+    ("+81", "JP  +81"),
+    ("+82", "KR  +82"),
+    ("+86", "CN  +86"),
+    ("+91", "IN  +91"),
+    ("+65", "SG  +65"),
+    ("+60", "MY  +60"),
+    ("+62", "ID  +62"),
+    ("+66", "TH  +66"),
+    ("+84", "VN  +84"),
+    ("+971","UAE +971"),
+    ("+966","SA  +966"),
+    ("+49", "DE  +49"),
+    ("+33", "FR  +33"),
+    ("+39", "IT  +39"),
+    ("+34", "ES  +34"),
+    ("+7",  "RU  +7"),
+    ("+55", "BR  +55"),
+    ("+52", "MX  +52"),
+    ("+27", "ZA  +27"),
+    ("+234","NG  +234"),
+    ("+20", "EG  +20"),
+]
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
 from utils.theme import ThemeManager
@@ -26,7 +55,7 @@ class AddCustomerDialog(QDialog):
         self.setWindowTitle("Add Customer")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(420)
+        self.setFixedWidth(480)
         self.setModal(True)
         self._result = None
         self._build_ui()
@@ -66,15 +95,43 @@ class AddCustomerDialog(QDialog):
         form.setSpacing(12)
         form.setLabelAlignment(Qt.AlignRight)
 
-        self.name_field    = QLineEdit(); self.name_field.setPlaceholderText("Full name / Company name")
-        self.contact_field = QLineEdit(); self.contact_field.setPlaceholderText("+63 9XX XXX XXXX")
-        self.email_field   = QLineEdit(); self.email_field.setPlaceholderText("email@example.com")
-        self.status_field  = QComboBox(); self.status_field.addItems(["Active", "Pending", "Inactive"])
+        self.name_field = QLineEdit()
+        self.name_field.setPlaceholderText("Full name / Company name")
+        self.name_field.setFixedHeight(38)
+
+        contact_row = QHBoxLayout()
+        contact_row.setSpacing(6)
+        self.country_code_combo = QComboBox()
+        self.country_code_combo.setFixedHeight(38)
+        self.country_code_combo.setFixedWidth(110)
+        for code, label in _COUNTRY_CODES:
+            self.country_code_combo.addItem(label, code)
+        self.country_code_combo.setCurrentIndex(0)
+        self.contact_field = QLineEdit()
+        self.contact_field.setPlaceholderText("9XX XXX XXXX")
+        self.contact_field.setFixedHeight(38)
+        contact_row.addWidget(self.country_code_combo)
+        contact_row.addWidget(self.contact_field)
+        contact_widget = QWidget()
+        contact_widget.setLayout(contact_row)
+
+        self.email_field = QLineEdit()
+        self.email_field.setPlaceholderText("email@example.com")
+        self.email_field.setFixedHeight(38)
+
+        self.address_field = QTextEdit()
+        self.address_field.setPlaceholderText("Street, Barangay, City, Province")
+        self.address_field.setFixedHeight(72)
+
+        self.status_field = QComboBox()
+        self.status_field.setFixedHeight(38)
+        self.status_field.addItems(["Active", "Pending", "Inactive"])
 
         for lbl, widget in [
             ("Name *",    self.name_field),
-            ("Contact *", self.contact_field),
+            ("Contact *", contact_widget),
             ("Email",     self.email_field),
+            ("Address",   self.address_field),
             ("Status",    self.status_field),
         ]:
             form.addRow(QLabel(lbl), widget)
@@ -106,19 +163,22 @@ class AddCustomerDialog(QDialog):
 
     def _save(self):
         name    = self.name_field.text().strip()
-        contact = self.contact_field.text().strip()
-        if not name or not contact:
+        number  = self.contact_field.text().strip()
+        if not name or not number:
             self._err.setText("Name and Contact are required.")
             self._err.show()
             if not name:
                 self.name_field.setStyleSheet("border: 1px solid #E11D48;")
-            if not contact:
+            if not number:
                 self.contact_field.setStyleSheet("border: 1px solid #E11D48;")
             return
+        code    = self.country_code_combo.currentData()
+        contact = f"{code} {number}"
         self._result = {
             "name":    name,
             "contact": contact,
             "email":   self.email_field.text().strip(),
+            "address": self.address_field.toPlainText().strip(),
             "events":  0,
             "status":  self.status_field.currentText(),
         }

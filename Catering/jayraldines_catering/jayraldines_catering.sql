@@ -74,6 +74,7 @@ CREATE TABLE customers (
     name            VARCHAR(150)    NOT NULL,
     contact         VARCHAR(30)     NOT NULL,
     email           VARCHAR(120),
+    address         TEXT,
     status          customer_status NOT NULL DEFAULT 'Active',
     loyalty_tier    loyalty_tier    NOT NULL DEFAULT 'Bronze',
     total_events    INT             NOT NULL DEFAULT 0 CHECK (total_events >= 0),
@@ -768,13 +769,14 @@ CREATE OR REPLACE PROCEDURE sp_add_customer(
     IN  p_name         TEXT,
     IN  p_contact      TEXT,
     IN  p_email        TEXT,
+    IN  p_address      TEXT,
     IN  p_status       TEXT,
     OUT p_customer_id  INT
 )
 LANGUAGE plpgsql AS $$
 BEGIN
-    INSERT INTO customers (name, contact, email, status)
-    VALUES (p_name, p_contact, p_email, p_status::customer_status)
+    INSERT INTO customers (name, contact, email, address, status)
+    VALUES (p_name, p_contact, p_email, p_address, p_status::customer_status)
     ON CONFLICT DO NOTHING
     RETURNING id INTO p_customer_id;
 END;
@@ -788,6 +790,7 @@ CREATE OR REPLACE PROCEDURE sp_update_customer(
     IN p_name        TEXT,
     IN p_contact     TEXT,
     IN p_email       TEXT,
+    IN p_address     TEXT,
     IN p_status      TEXT
 )
 LANGUAGE plpgsql AS $$
@@ -797,6 +800,7 @@ BEGIN
         name       = p_name,
         contact    = p_contact,
         email      = p_email,
+        address    = p_address,
         status     = p_status::customer_status,
         updated_at = NOW()
     WHERE id = p_customer_id;
