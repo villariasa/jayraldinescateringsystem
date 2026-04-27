@@ -95,6 +95,11 @@ class KitchenPage(QWidget):
         self._orders = db_rows if db_rows else []
         self._build_ui()
         self._refresh_columns()
+        ThemeManager().theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, _theme: str):
+        self._apply_column_styles()
+        self._refresh_columns()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -113,6 +118,7 @@ class KitchenPage(QWidget):
 
         _DISPLAY_COLS = ["Queued", "Preparing", "In Progress", "Ready", "Delivered", "Cancelled"]
         self._col_inner = {}
+        self._col_frames = {}
         for status in _DISPLAY_COLS:
             color = _COL_COLORS[status]
             col_frame = QFrame()
@@ -145,9 +151,18 @@ class KitchenPage(QWidget):
             col_layout.addWidget(scroll)
 
             self._col_inner[status] = inner_lay
+            self._col_frames[status] = col_frame
             self._cols_layout.addWidget(col_frame)
 
         root.addLayout(self._cols_layout)
+
+    def _apply_column_styles(self):
+        bg = "#FFFFFF" if _is_light() else "#111827"
+        border = "#E2E8F0" if _is_light() else "#243244"
+        for col_frame in self._col_frames.values():
+            col_frame.setStyleSheet(
+                f"QFrame#card {{ background-color: {bg}; border-radius: 14px; border: 1px solid {border}; }}"
+            )
 
     def _refresh_columns(self):
         for status, lay in self._col_inner.items():

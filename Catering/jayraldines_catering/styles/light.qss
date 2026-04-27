@@ -405,13 +405,24 @@ QComboBox QAbstractItemView {
     outline: none;
     padding: 4px;
 }
+QComboBox QAbstractItemView QWidget,
+QComboBox QAbstractItemView QScrollBar {
+    background-color: #FFFFFF;
+    color: #0F172A;
+}
 QComboBox QAbstractItemView::item {
     padding: 8px 12px;
     border-radius: 6px;
     color: #0F172A;
+    background-color: #FFFFFF;
 }
 QComboBox QAbstractItemView::item:hover {
     background-color: #F1F5F9;
+    color: #0F172A;
+}
+QComboBox QAbstractItemView::item:selected {
+    background-color: rgba(225,29,72,0.08);
+    color: #E11D48;
 }
 
 QTextEdit {
