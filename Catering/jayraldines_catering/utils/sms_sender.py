@@ -16,9 +16,15 @@ def send_sms(api_key: str, to_number: str, message: str) -> tuple[bool, str]:
     if not to_number:
         return False, "No contact number provided."
 
-    cleaned = "".join(c for c in to_number if c.isdigit() or c == "+")
-    if not cleaned:
+    digits_only = "".join(c for c in to_number if c.isdigit())
+    if not digits_only:
         return False, "Invalid contact number."
+    if digits_only.startswith("0"):
+        cleaned = "63" + digits_only[1:]
+    elif digits_only.startswith("63"):
+        cleaned = digits_only
+    else:
+        cleaned = "63" + digits_only
 
     try:
         payload = urllib.parse.urlencode({
