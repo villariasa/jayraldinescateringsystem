@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QDateEdit, QTextEdit, QSizePolicy,
     QStackedWidget
 )
-from PySide6.QtCore import Qt, QSize, QDate
+from PySide6.QtCore import Qt, QSize, QDate, QTimer
 from PySide6.QtWidgets import QCompleter
 from datetime import date as _date_type
 from PySide6.QtGui import QColor
@@ -911,6 +911,24 @@ class BillingPage(QWidget):
         self._invoices = filtered
         self._populate_table()
         self._invoices = saved
+
+    def highlight_row(self, item_id):
+        for row, inv in enumerate(self._invoices):
+            if inv.get("db_id") == item_id or str(inv.get("db_id", "")) == str(item_id):
+                self._table.scrollTo(self._table.model().index(row, 0))
+                self._set_row_highlight(row, True)
+                QTimer.singleShot(2000, lambda r=row: self._set_row_highlight(r, False))
+                break
+
+    def _set_row_highlight(self, row: int, on: bool):
+        hl = QColor("#F59E0B") if on else QColor("transparent")
+        for col in range(self._table.columnCount()):
+            item = self._table.item(row, col)
+            if item:
+                item.setBackground(hl)
+            w = self._table.cellWidget(row, col)
+            if w:
+                w.setStyleSheet(f"background: {'rgba(245,158,11,0.18)' if on else 'transparent'};")
 
     def export_csv(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export Invoices", "invoices.csv", "CSV Files (*.csv)")

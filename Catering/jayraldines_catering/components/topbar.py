@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QLineEdit, QWidget, QMessageBox, QFileDialog
 from PySide6.QtCore import Qt, QSize, Signal, QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QKeyEvent
+from components.search_dropdown import SearchDropdown
 import sys
 import os
 import subprocess
@@ -24,6 +25,7 @@ _PAGE_TITLES = {
 
 class TopBar(QFrame):
     search_changed = Signal(str)
+    search_result_selected = Signal(dict)
     def __init__(self):
         super().__init__()
         self.setObjectName("topBar")
@@ -50,9 +52,13 @@ class TopBar(QFrame):
         self.search_box.setObjectName("searchBox")
         self.search_box.setPlaceholderText("Search...")
         self.search_box.setFixedHeight(36)
-        self.search_box.textChanged.connect(self.search_changed.emit)
+        self.search_box.textChanged.connect(self._on_search_text)
+        self.search_box.installEventFilter(self)
         self.search_inner.addWidget(self.search_box)
         self.main_layout.addWidget(self.search_wrap)
+
+        self._dropdown = SearchDropdown()
+        self._dropdown.result_selected.connect(self._on_result_selected)
 
         self.clock_lbl = QLabel(self)
         self.clock_lbl.setObjectName("subtitle")
@@ -226,6 +232,28 @@ class TopBar(QFrame):
                 "QPushButton { background: transparent; border: none; font-size: 16px; border-radius: 8px; }"
                 "QPushButton:hover { background: #F1F5F9; }"
             )
+
+    def _on_search_text(self, text: str):
+        self.search_changed.emit(text)
+        if text.strip():
+            self._dropdown.search(text)
+            self._dropdown.show_below(self.search_box)
+        else:
+            self._dropdown.hide()
+
+    def _on_result_selected(self, item: dict):
+        self._dropdown.hide()
+        self.search_box.blockSignals(True)
+        self.search_box.clear()
+        self.search_box.blockSignals(False)
+        self.search_result_selected.emit(item)
+
+    def eventFilter(self, obj, event):
+        if obj is self.search_box and isinstance(event, QKeyEvent):
+            if self._dropdown.isVisible():
+                if self._dropdown.handle_key(event):
+                    return True
+        return super().eventFilter(obj, event)
 
     def _tick_clock(self):
         now = datetime.now()
