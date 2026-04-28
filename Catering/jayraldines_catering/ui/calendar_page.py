@@ -121,6 +121,7 @@ class ManageScheduleDialog(QDialog):
     def __init__(self, parent=None, date_str="", events=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(480)
         self.setModal(True)
         self._events = list(events or [])
@@ -134,21 +135,23 @@ class ManageScheduleDialog(QDialog):
 
         container = QFrame()
         container.setObjectName("card")
+        container.setStyleSheet("")
         container_lay = QVBoxLayout(container)
         container_lay.setContentsMargins(0, 0, 0, 0)
         container_lay.setSpacing(0)
 
-        # scrollable area for all content
+        # --- scrollable body (header + events + form) ---
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("background: transparent;")
+        scroll.setMaximumHeight(480)
+        scroll.viewport().setStyleSheet("background: transparent;")
 
         body = QWidget()
-        body.setStyleSheet("background: transparent;")
+        body.setAutoFillBackground(False)
         lay = QVBoxLayout(body)
-        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setContentsMargins(24, 24, 24, 16)
         lay.setSpacing(16)
 
         header = QHBoxLayout()
@@ -200,8 +203,14 @@ class ManageScheduleDialog(QDialog):
         self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
         self._err.hide()
         lay.addWidget(self._err)
+        lay.addStretch()
 
+        scroll.setWidget(body)
+        container_lay.addWidget(scroll)
+
+        # --- buttons always visible below scroll ---
         btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(24, 12, 24, 16)
         btn_row.addStretch()
         cancel = QPushButton("Cancel")
         cancel.setObjectName("secondaryButton")
@@ -218,10 +227,7 @@ class ManageScheduleDialog(QDialog):
         btn_row.addWidget(cancel)
         btn_row.addWidget(add_btn)
         btn_row.addWidget(save_btn)
-        lay.addLayout(btn_row)
-
-        scroll.setWidget(body)
-        container_lay.addWidget(scroll)
+        container_lay.addLayout(btn_row)
 
         outer.addWidget(container)
 
@@ -481,9 +487,7 @@ class CalendarPage(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet("background: transparent;")
         scroll.setWidget(sp_body)
-        scroll.setMaximumHeight(400)
         sp_layout.addWidget(scroll, 1)
-        sp_layout.addStretch(0)
 
         # Bottom Button
         self._btn_manage = QPushButton("  Manage Day Schedule")
