@@ -18,6 +18,7 @@ class Toast(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setFixedWidth(360)
+        self.setMinimumHeight(80)
 
         accent = _COLOR_MAP.get(color, color)
 
@@ -36,10 +37,10 @@ class Toast(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(container)
 
-        container.setMinimumHeight(70)
+        container.setMinimumHeight(80)
         lay = QVBoxLayout(container)
-        lay.setContentsMargins(16, 14, 16, 14)
-        lay.setSpacing(6)
+        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setSpacing(8)
 
         top_row = QHBoxLayout()
         dot = QLabel("●")
@@ -59,8 +60,9 @@ class Toast(QWidget):
         lay.addLayout(top_row)
 
         msg_lbl = QLabel(message)
-        msg_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+        msg_lbl.setStyleSheet("color: #9CA3AF; font-size: 13px;")
         msg_lbl.setWordWrap(True)
+        msg_lbl.setMinimumHeight(20)
         lay.addWidget(msg_lbl)
 
         self._anim_in  = None
@@ -71,6 +73,8 @@ class Toast(QWidget):
 
     def show_toast(self, x: int, y: int, duration_ms: int = 7000):
         self.adjustSize()
+        if self.height() < 80:
+            self.setFixedHeight(80)
         self.move(x, y)
         self.setWindowOpacity(0.0)
         self.show()
