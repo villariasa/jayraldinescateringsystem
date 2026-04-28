@@ -97,6 +97,13 @@ class KitchenPage(QWidget):
         self._refresh_columns()
         ThemeManager().theme_changed.connect(self._on_theme_changed)
 
+    def _reset_column_widths(self):
+        if not hasattr(self, "_splitter") or not hasattr(self, "_h_scroll"):
+            return
+        vw = self._h_scroll.viewport().width()
+        equal_w = max(260, vw // self._n_cols)
+        self._splitter.setSizes([equal_w] * self._n_cols)
+
     def _sync_heights(self):
         if hasattr(self, "_h_scroll") and hasattr(self, "_scroll_container"):
             vh = self._h_scroll.viewport().height()
@@ -111,6 +118,7 @@ class KitchenPage(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._sync_heights()
+        self._reset_column_widths()
 
     def _on_theme_changed(self, _theme: str):
         self._apply_column_styles()
@@ -126,6 +134,12 @@ class KitchenPage(QWidget):
         title.setObjectName("pageTitle")
         header.addWidget(title)
         header.addStretch()
+        reset_btn = QPushButton("⇔  Reset Column Widths")
+        reset_btn.setObjectName("secondaryButton")
+        reset_btn.setCursor(Qt.PointingHandCursor)
+        reset_btn.setFixedHeight(34)
+        reset_btn.clicked.connect(self._reset_column_widths)
+        header.addWidget(reset_btn)
         root.addLayout(header)
 
         self._h_scroll = QScrollArea()
@@ -207,10 +221,10 @@ class KitchenPage(QWidget):
             self._col_frames[status] = col_frame
             self._splitter.addWidget(col_wrap)
 
+        self._n_cols = len(_DISPLAY_COLS)
         col_min_w = 260
-        n_cols = len(_DISPLAY_COLS)
-        self._splitter.setSizes([col_min_w] * n_cols)
-        self._splitter.setMinimumWidth(col_min_w * n_cols)
+        self._splitter.setSizes([col_min_w] * self._n_cols)
+        self._splitter.setMinimumWidth(col_min_w * self._n_cols)
 
         splitter_lay = QVBoxLayout(scroll_container)
         splitter_lay.setContentsMargins(0, 0, 0, 0)
