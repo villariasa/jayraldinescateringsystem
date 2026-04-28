@@ -114,17 +114,14 @@ class KitchenPage(QWidget):
         root.addLayout(header)
 
         scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidgetResizable(False)
         scroll_area.setFrameShape(QFrame.NoFrame)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         scroll_area.setStyleSheet("background: transparent;")
 
         scroll_container = QWidget()
         scroll_container.setStyleSheet("background: transparent;")
-        scroll_outer = QVBoxLayout(scroll_container)
-        scroll_outer.setContentsMargins(0, 0, 0, 0)
-        scroll_outer.setSpacing(0)
 
         self._splitter = QSplitter(Qt.Horizontal)
         self._splitter.setHandleWidth(6)
@@ -195,10 +192,16 @@ class KitchenPage(QWidget):
             self._col_frames[status] = col_frame
             self._splitter.addWidget(col_wrap)
 
-        default_w = 260
-        self._splitter.setSizes([default_w] * len(_DISPLAY_COLS))
+        col_min_w = 260
+        n_cols = len(_DISPLAY_COLS)
+        self._splitter.setSizes([col_min_w] * n_cols)
+        self._splitter.setMinimumWidth(col_min_w * n_cols)
 
-        scroll_outer.addWidget(self._splitter, 1)
+        splitter_lay = QVBoxLayout(scroll_container)
+        splitter_lay.setContentsMargins(0, 0, 0, 0)
+        splitter_lay.setSpacing(0)
+        splitter_lay.addWidget(self._splitter)
+
         scroll_area.setWidget(scroll_container)
         root.addWidget(scroll_area, 1)
 
