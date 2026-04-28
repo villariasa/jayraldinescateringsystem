@@ -27,7 +27,8 @@ class DayCell(QFrame):
         self.is_current_month = is_current_month
         
         # Responsive sizing instead of fixed
-        self.setMinimumSize(100, 100)
+        self.setMinimumSize(80, 80)
+        self.setMaximumHeight(130)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         self.layout = QVBoxLayout(self)
@@ -119,8 +120,7 @@ class ScheduleCard(AnimatedCard):
 class ManageScheduleDialog(QDialog):
     def __init__(self, parent=None, date_str="", events=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlags(Qt.Dialog)
         self.setFixedWidth(480)
         self.setModal(True)
         self._events = list(events or [])
@@ -279,7 +279,21 @@ class ManageScheduleDialog(QDialog):
 class CalendarPage(QWidget):
     def __init__(self):
         super().__init__()
-        main_layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet("background: transparent;")
+
+        scroll_content = QWidget()
+        scroll_area.setWidget(scroll_content)
+        root.addWidget(scroll_area)
+
+        main_layout = QVBoxLayout(scroll_content)
         main_layout.setContentsMargins(40, 40, 40, 40)
         main_layout.setSpacing(32)
 
