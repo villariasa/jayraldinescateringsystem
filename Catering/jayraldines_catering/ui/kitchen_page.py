@@ -97,12 +97,20 @@ class KitchenPage(QWidget):
         self._refresh_columns()
         ThemeManager().theme_changed.connect(self._on_theme_changed)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
+    def _sync_heights(self):
         if hasattr(self, "_h_scroll") and hasattr(self, "_scroll_container"):
             vh = self._h_scroll.viewport().height()
-            self._scroll_container.setFixedHeight(vh)
-            self._splitter.setFixedHeight(vh)
+            if vh > 0:
+                self._scroll_container.setFixedHeight(vh)
+                self._splitter.setFixedHeight(vh)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_heights()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._sync_heights()
 
     def _on_theme_changed(self, _theme: str):
         self._apply_column_styles()
@@ -142,7 +150,7 @@ class KitchenPage(QWidget):
             }
         """)
         self._splitter.setChildrenCollapsible(False)
-        self._splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
 
         _DISPLAY_COLS = ["Queued", "Preparing", "In Progress", "Ready", "Delivered", "Cancelled"]
         self._col_inner = {}
