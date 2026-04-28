@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
     QDialog, QFormLayout, QComboBox, QSizePolicy, QTextEdit, QScrollArea
 )
-from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
 
@@ -859,24 +859,6 @@ class CustomersPage(QWidget):
 
     def filter_search(self, text):
         self._search.setText(text)
-
-    def highlight_row(self, item_id):
-        for row, c in enumerate(self._customers):
-            if c.get("id") == item_id or str(c.get("id", "")) == str(item_id):
-                self._table.scrollTo(self._table.model().index(row, 0))
-                self._set_row_highlight(row, True)
-                QTimer.singleShot(2000, lambda r=row: self._set_row_highlight(r, False))
-                break
-
-    def _set_row_highlight(self, row: int, on: bool):
-        hl = QColor("#F59E0B") if on else QColor("transparent")
-        for col in range(self._table.columnCount()):
-            item = self._table.item(row, col)
-            if item:
-                item.setBackground(hl)
-            w = self._table.cellWidget(row, col)
-            if w:
-                w.setStyleSheet(f"background: {'rgba(245,158,11,0.18)' if on else 'transparent'};")
 
     def _export_csv(self):
         import csv

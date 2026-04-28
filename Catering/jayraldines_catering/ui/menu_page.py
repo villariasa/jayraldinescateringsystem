@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QTextEdit, QMessageBox, QScrollArea, QSpinBox,
     QCheckBox, QSizePolicy, QGridLayout
 )
-from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QFont
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
@@ -812,23 +812,3 @@ class MenuPage(QWidget):
         self._filter_q = q
         self._populate_table()
 
-    def highlight_row(self, item_id):
-        self._filter_q = ""
-        self._populate_table()
-        db_items = repo.get_all_menu_items() or menu_store.all_items()
-        for row, item in enumerate(db_items):
-            if item.get("id") == item_id or str(item.get("id", "")) == str(item_id):
-                self._table.scrollTo(self._table.model().index(row, 0))
-                self._set_row_highlight(row, True)
-                QTimer.singleShot(2000, lambda r=row: self._set_row_highlight(r, False))
-                break
-
-    def _set_row_highlight(self, row: int, on: bool):
-        hl = QColor("#F59E0B") if on else QColor("transparent")
-        for col in range(self._table.columnCount()):
-            item = self._table.item(row, col)
-            if item:
-                item.setBackground(hl)
-            w = self._table.cellWidget(row, col)
-            if w:
-                w.setStyleSheet(f"background: {'rgba(245,158,11,0.18)' if on else 'transparent'};")

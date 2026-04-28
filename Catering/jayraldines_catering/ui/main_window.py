@@ -109,7 +109,6 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._poll_notifications)
 
         self.topbar.search_changed.connect(self._on_search)
-        self.topbar.search_result_selected.connect(self._on_search_result)
 
         print("[MW] Navigating to dashboard...")
         self._navigate(0)
@@ -125,17 +124,6 @@ class MainWindow(QMainWindow):
         page = self.stack.currentWidget()
         if hasattr(page, "filter_search"):
             page.filter_search(text)
-
-    def _on_search_result(self, item: dict):
-        from components.search_dropdown import _PAGE_MAP
-        page_idx = _PAGE_MAP.get(item.get("type", ""), -1)
-        if page_idx < 0:
-            return
-        self._navigate(page_idx)
-        target = self.stack.widget(page_idx)
-        item_id = item.get("id")
-        if item_id is not None and hasattr(target, "highlight_row"):
-            QTimer.singleShot(150, lambda: target.highlight_row(item_id))
 
     def _toggle_fullscreen(self):
         if self.isFullScreen():

@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QTableWidget, QHeaderView,
     QDialog, QFileDialog, QMessageBox, QInputDialog
 )
-from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red, get_icon
@@ -529,23 +529,3 @@ class BookingPage(QWidget):
         filtered = [b for b in self._bookings if q in b["name"].lower() or q in b["id"].lower() or q in b["date"].lower()]
         self._populate_table(filtered)
 
-    def highlight_row(self, item_id):
-        self._active_filter = "All"
-        self._populate_table()
-        visible = self._visible_bookings()
-        for row, b in enumerate(visible):
-            if b.get("db_id") == item_id or b.get("id") == str(item_id):
-                self.table.scrollTo(self.table.model().index(row, 0))
-                self._set_row_highlight(row, True)
-                QTimer.singleShot(2000, lambda r=row: self._set_row_highlight(r, False))
-                break
-
-    def _set_row_highlight(self, row: int, on: bool):
-        hl = QColor("#F59E0B") if on else QColor("transparent")
-        for col in range(self.table.columnCount()):
-            item = self.table.item(row, col)
-            if item:
-                item.setBackground(hl)
-            w = self.table.cellWidget(row, col)
-            if w:
-                w.setStyleSheet(f"background: {'rgba(245,158,11,0.18)' if on else 'transparent'};")
