@@ -97,6 +97,13 @@ class KitchenPage(QWidget):
         self._refresh_columns()
         ThemeManager().theme_changed.connect(self._on_theme_changed)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_h_scroll") and hasattr(self, "_scroll_container"):
+            vh = self._h_scroll.viewport().height()
+            self._scroll_container.setFixedHeight(vh)
+            self._splitter.setFixedHeight(vh)
+
     def _on_theme_changed(self, _theme: str):
         self._apply_column_styles()
         self._refresh_columns()
@@ -113,12 +120,12 @@ class KitchenPage(QWidget):
         header.addStretch()
         root.addLayout(header)
 
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(False)
-        scroll_area.setFrameShape(QFrame.NoFrame)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        scroll_area.setStyleSheet("background: transparent;")
+        self._h_scroll = QScrollArea()
+        self._h_scroll.setWidgetResizable(False)
+        self._h_scroll.setFrameShape(QFrame.NoFrame)
+        self._h_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._h_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self._h_scroll.setStyleSheet("background: transparent;")
 
         scroll_container = QWidget()
         scroll_container.setStyleSheet("background: transparent;")
@@ -202,8 +209,9 @@ class KitchenPage(QWidget):
         splitter_lay.setSpacing(0)
         splitter_lay.addWidget(self._splitter)
 
-        scroll_area.setWidget(scroll_container)
-        root.addWidget(scroll_area, 1)
+        self._h_scroll.setWidget(scroll_container)
+        self._scroll_container = scroll_container
+        root.addWidget(self._h_scroll, 1)
 
     def _apply_column_styles(self):
         bg = "#FFFFFF" if _is_light() else "#111827"
