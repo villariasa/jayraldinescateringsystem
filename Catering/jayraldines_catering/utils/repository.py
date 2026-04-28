@@ -202,23 +202,111 @@ def delete_menu_item(index: int, item_id: int) -> None:
 
 def get_all_packages() -> list[dict]:
     rows = db.fetchall(
-        "SELECT id, name, price_per_pax, description FROM packages ORDER BY price_per_pax"
+        "SELECT id, name, price_per_pax, min_pax, description FROM packages ORDER BY price_per_pax"
     )
     if not rows:
-        return [
-            {"id": 1, "name": "Standard Package", "price_per_pax": 1500.0, "description": "Buffet setup, 5 dishes, dessert"},
-            {"id": 2, "name": "Premium Package",  "price_per_pax": 2500.0, "description": "Plated service, 8 dishes, dessert + drinks"},
-            {"id": 3, "name": "VIP Package",       "price_per_pax": 3500.0, "description": "Full service, 12 dishes, open bar, décor"},
-        ]
+        return []
     return [
         {
             "id":            r["id"],
             "name":          r["name"],
             "price_per_pax": float(r["price_per_pax"]),
+            "min_pax":       int(r["min_pax"]),
             "description":   r["description"] or "",
         }
         for r in rows
     ]
+
+def get_package_items(package_id: int) -> list[dict]:
+    """Return menu items linked to a package with their custom prices."""
+    rows = db.fetchall(
+        """
+        SELECT pi.id, pi.menu_item_id, mi.name AS item_name,
+               mi.category::TEXT AS category, pi.custom_price
+        FROM package_items pi
+        JOIN menu_items mi ON mi.id = pi.menu_item_id
+        WHERE pi.package_id = %s
+        ORDER BY mi.category, mi.name
+        """,
+        (package_id,),
+    )
+    if not rows:
+        return []
+    return [
+        {
+            "id":           r["id"],
+            "menu_item_id": r["menu_item_id"],
+            "item_name":    r["item_name"],
+            "category":     r["category"],
+            "custom_price": float(r["custom_price"]),
+        }
+        for r in rows
+    ]
+
+def set_package_items(package_id: int, items: list[dict]) -> bool:
+    """Replace all package items. items: list of {menu_item_id, custom_price}."""
+    try:
+        if not items:
+            db.callproc_void(
+                "sp_set_package_items",
+                in_params=(package_id, None, None),
+            )
+        else:
+            ids    = [i["menu_item_id"] for i in items]
+            prices = [i["custom_price"]  for i in items]
+            db.callproc_void(
+                "sp_set_package_items",
+                in_params=(package_id, ids, prices),
+            )
+        return True
+    except Exception as exc:
+        print(f"[repository] set_package_items failed: {exc}")
+        return False
+
+def add_package(data: dict) -> Optional[int]:
+    """data keys: name, price_per_pax, min_pax, description. Returns new package id."""
+    try:
+        result = db.callproc_out(
+            "sp_add_package",
+            in_params=(
+                data["name"],
+                data["price_per_pax"],
+                data.get("min_pax", 1),
+                data.get("description", ""),
+            ),
+            out_names=["p_package_id"],
+        )
+        return result["p_package_id"] if result else None
+    except Exception as exc:
+        print(f"[repository] add_package failed: {exc}")
+        return None
+
+def update_package(db_id: int, data: dict) -> bool:
+    """data keys: name, price_per_pax, min_pax, description. Returns True on success."""
+    try:
+        db.callproc_void(
+            "sp_update_package",
+            in_params=(
+                db_id,
+                data["name"],
+                data["price_per_pax"],
+                data.get("min_pax", 1),
+                data.get("description", ""),
+            ),
+        )
+        return True
+    except Exception as exc:
+        print(f"[repository] update_package failed: {exc}")
+        return False
+
+def delete_package(db_id: int) -> bool:
+    """Returns True on success, False if linked to bookings."""
+    try:
+        db.callproc_void("sp_delete_package", in_params=(db_id,))
+        return True
+    except Exception as exc:
+        print(f"[repository] delete_package failed: {exc}")
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +456,16 @@ def delete_booking(db_id: int) -> None:
     db.callproc_void("sp_delete_booking", in_params=(db_id,))
 
 
+def complete_booking(db_id: int) -> bool:
+    """Mark a CONFIRMED booking as COMPLETED. Returns True on success."""
+    try:
+        db.callproc_void("sp_complete_booking", in_params=(db_id,))
+        return True
+    except Exception as exc:
+        print(f"[repository] complete_booking failed: {exc}")
+        return False
+
+
 # ---------------------------------------------------------------------------
 # INVOICES
 # ---------------------------------------------------------------------------
@@ -460,7 +558,9 @@ def add_payment_record(invoice_id: int, amount: float,
     """Returns {record_id, new_status, new_paid} or None on failure."""
     try:
         from datetime import date as _d
-        if isinstance(payment_date, str):
+        if payment_date is None:
+            payment_date = _d.today()
+        elif isinstance(payment_date, str):
             payment_date = _parse_date(payment_date)
         result = db.callproc_out(
             "sp_add_payment_record",
@@ -1223,10 +1323,51 @@ def log_confirmation_sent(booking_id: int, method: str) -> None:
         pass
 
 
+def get_customer_ledger(customer_id: int) -> list[dict]:
+    """Return unified timeline of bookings, invoices, payments for a customer."""
+    rows = db.fetchall(
+        """
+        SELECT entry_type, recorded_date, event_date, reference,
+               description, debit, credit, entry_status
+        FROM v_customer_ledger
+        WHERE customer_id = %s
+        ORDER BY recorded_date DESC, entry_type
+        """,
+        (customer_id,),
+    )
+    if not rows:
+        return []
+    from datetime import date as _d
+    result = []
+    for r in rows:
+        result.append({
+            "entry_type":   r["entry_type"],
+            "recorded_date": r["recorded_date"].strftime("%b %d, %Y") if isinstance(r["recorded_date"], _d) else str(r["recorded_date"]),
+            "event_date":   r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], _d) else str(r["event_date"]),
+            "reference":    r["reference"] or "",
+            "description":  r["description"] or "",
+            "debit":        float(r["debit"]) if r["debit"] else 0.0,
+            "credit":       float(r["credit"]) if r["credit"] else 0.0,
+            "status":       r["entry_status"] or "",
+        })
+    return result
+
+def get_booking_balance(booking_id: int) -> Optional[dict]:
+    """Return total_amount, amount_paid, balance for a booking."""
+    row = db.fetchone(
+        "SELECT total_amount, amount_paid FROM bookings WHERE id = %s",
+        (booking_id,),
+    )
+    if not row:
+        return None
+    total = float(row["total_amount"])
+    paid  = float(row["amount_paid"])
+    return {"total": total, "paid": paid, "balance": total - paid}
+
 def get_booking_detail(db_id: int) -> Optional[dict]:
     row = db.fetchone(
         """
-        SELECT id, booking_ref, customer_name, contact, email, occasion,
+        SELECT id, customer_id, booking_ref, customer_name, contact, email, occasion,
                venue, event_date, pax, status::TEXT
         FROM bookings WHERE id = %s
         """,
@@ -1236,16 +1377,17 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
         return None
     from datetime import date as _d
     return {
-        "db_id":        row["id"],
-        "booking_ref":  row["booking_ref"],
+        "db_id":         row["id"],
+        "customer_id":   row["customer_id"],
+        "booking_ref":   row["booking_ref"],
         "customer_name": row["customer_name"],
-        "contact":      row["contact"] or "",
-        "email":        row["email"] or "",
-        "occasion":     row["occasion"],
-        "venue":        row["venue"],
-        "event_date":   row["event_date"].strftime("%b %d, %Y") if isinstance(row["event_date"], _d) else str(row["event_date"]),
-        "pax":          row["pax"],
-        "status":       row["status"],
+        "contact":       row["contact"] or "",
+        "email":         row["email"] or "",
+        "occasion":      row["occasion"],
+        "venue":         row["venue"],
+        "event_date":    row["event_date"].strftime("%b %d, %Y") if isinstance(row["event_date"], _d) else str(row["event_date"]),
+        "pax":           row["pax"],
+        "status":        row["status"],
     }
 
 

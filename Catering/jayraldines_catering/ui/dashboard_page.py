@@ -92,8 +92,12 @@ class ActivityItem(QWidget):
 
 
 class EventItem(QWidget):
-    def __init__(self, name, date_str, pax, status, status_type="success", event_dt=None, parent=None):
+    def __init__(self, name, date_str, pax, status, status_type="success", event_dt=None, db_id=None, on_completed=None, parent=None):
         super().__init__(parent)
+        self._db_id = db_id
+        self._on_completed = on_completed
+        self._completed_btn = None
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 10, 0, 10)
         layout.setSpacing(14)
@@ -103,7 +107,6 @@ class EventItem(QWidget):
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
         date_lbl = QLabel(f"{date_str}  ·  {pax} pax")
-        # FIX 2: Added closing parenthesis
         date_lbl.setStyleSheet("font-size: 12px;")
         left.addWidget(name_lbl)
         left.addWidget(date_lbl)
@@ -112,7 +115,6 @@ class EventItem(QWidget):
         self._countdown_lbl = None
         if event_dt is not None:
             self._countdown_lbl = QLabel()
-            # FIX 3: Added closing parenthesis
             self._countdown_lbl.setStyleSheet("color: #D97706; font-size: 11px; font-weight: 700;")
             left.addWidget(self._countdown_lbl)
             self._tick_countdown()
@@ -128,6 +130,36 @@ class EventItem(QWidget):
         badge.setObjectName(badge_map.get(status_type, "badgeInfo"))
         layout.addWidget(badge)
 
+        self._layout = layout
+
+    def _show_complete_button(self):
+        if self._completed_btn is not None:
+            return
+        self._completed_btn = QPushButton("Mark as Completed")
+        self._completed_btn.setStyleSheet(
+            "QPushButton { background: #16A34A; color: #fff; border-radius: 6px; "
+            "padding: 4px 10px; font-size: 11px; font-weight: 600; } "
+            "QPushButton:hover { background: #15803D; }"
+        )
+        self._completed_btn.clicked.connect(self._handle_complete)
+        self._layout.addWidget(self._completed_btn)
+
+    def _handle_complete(self):
+        if self._db_id is None:
+            return
+        reply = QMessageBox.question(
+            self, "Mark as Completed",
+            "Mark this event as Completed?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            ok = repo.complete_booking(self._db_id)
+            if ok:
+                if self._on_completed:
+                    self._on_completed()
+            else:
+                QMessageBox.warning(self, "Error", "Could not mark booking as completed.")
+
     def _tick_countdown(self):
         delta = self._event_dt - datetime.now()
         total = int(delta.total_seconds())
@@ -135,6 +167,8 @@ class EventItem(QWidget):
             self._countdown_lbl.setText("Event started")
             if hasattr(self, "_timer"):
                 self._timer.stop()
+            if self._db_id is not None:
+                self._show_complete_button()
             return
         days, rem = divmod(total, 86400)
         h, rem2 = divmod(rem, 3600)
@@ -482,6 +516,8 @@ class DashboardPage(QWidget):
                     status_raw.capitalize(),
                     stype,
                     event_dt=event_dt,
+                    db_id=ev.get("id"),
+                    on_completed=self._rebuild_events,
                 ))
                 sep = QFrame()
                 sep.setObjectName("divider")

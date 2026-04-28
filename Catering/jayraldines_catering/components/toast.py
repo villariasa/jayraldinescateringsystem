@@ -36,9 +36,10 @@ class Toast(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(container)
 
+        container.setMinimumHeight(70)
         lay = QVBoxLayout(container)
         lay.setContentsMargins(16, 14, 16, 14)
-        lay.setSpacing(4)
+        lay.setSpacing(6)
 
         top_row = QHBoxLayout()
         dot = QLabel("●")

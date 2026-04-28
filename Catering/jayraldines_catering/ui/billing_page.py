@@ -345,8 +345,13 @@ class InvoiceDialog(QDialog):
         self._date_stack.addWidget(self.date_combo)
         self._date_stack.setCurrentIndex(0)
 
+        self._balance_lbl = QLabel()
+        self._balance_lbl.setStyleSheet("font-size: 12px; color: #6B7280; padding: 4px 0;")
+        self._balance_lbl.hide()
+
         # --- FIX 1: Move Signal down here so self.date_combo exists first ---
         self.customer_combo.currentIndexChanged.connect(self._on_customer_selected)
+        self.date_combo.currentIndexChanged.connect(self._on_booking_date_selected)
         
         if self._edit_mode:
             idx = self.customer_combo.findText(self._invoice_data.get("customer", ""))
@@ -391,6 +396,7 @@ class InvoiceDialog(QDialog):
             form.addRow(QLabel(lbl), widget)
 
         lay.addLayout(form)
+        lay.addWidget(self._balance_lbl)
 
         self._err = QLabel("")
         self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
@@ -404,14 +410,14 @@ class InvoiceDialog(QDialog):
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(self.reject)
         label = "Save Changes" if self._edit_mode else "  Create Invoice"
-        save = QPushButton(label)
-        save.setObjectName("primaryButton")
-        save.setIcon(btn_icon_primary("check"))
-        save.setIconSize(QSize(15, 15))
-        save.setCursor(Qt.PointingHandCursor)
-        save.clicked.connect(self._save)
+        self._save_btn = QPushButton(label)
+        self._save_btn.setObjectName("primaryButton")
+        self._save_btn.setIcon(btn_icon_primary("check"))
+        self._save_btn.setIconSize(QSize(15, 15))
+        self._save_btn.setCursor(Qt.PointingHandCursor)
+        self._save_btn.clicked.connect(self._save)
         btn_row.addWidget(cancel)
-        btn_row.addWidget(save)
+        btn_row.addWidget(self._save_btn)
         lay.addLayout(btn_row)
 
         outer.addWidget(container)
@@ -422,12 +428,16 @@ class InvoiceDialog(QDialog):
             self._err.setText("Please search and select a customer.")
             self._err.show()
             return
-            
-        # --- FIX 2: Check if date_combo was used to extract booking_id ---
+
         booking_id = None
         if self._date_stack.currentIndex() == 1:
             booking_id = self.date_combo.currentData()
-            
+
+        if not self._edit_mode and not booking_id:
+            self._err.setText("Please select a booking event date. A booking is required to create an invoice.")
+            self._err.show()
+            return
+
         self._result = {
             "booking_id": booking_id,
             "customer":   customer,
@@ -445,6 +455,9 @@ class InvoiceDialog(QDialog):
         name = self.customer_combo.itemText(index).strip()
         if not name or index == 0:
             self._date_stack.setCurrentIndex(0)
+            self._balance_lbl.hide()
+            if hasattr(self, "_save_btn"):
+                self._save_btn.setEnabled(True)
             return
         try:
             dates = repo.get_customer_event_dates(name)
@@ -454,15 +467,43 @@ class InvoiceDialog(QDialog):
             self.date_combo.blockSignals(True)
             self.date_combo.clear()
             for d in dates:
-                # Check if repo returned dict with ID, or just string
                 if isinstance(d, dict):
                     self.date_combo.addItem(d.get("date", ""), d.get("id"))
                 else:
                     self.date_combo.addItem(d)
             self.date_combo.blockSignals(False)
             self._date_stack.setCurrentIndex(1)
+            self._err.hide()
+            if hasattr(self, "_save_btn"):
+                self._save_btn.setEnabled(True)
+            self._on_booking_date_selected(self.date_combo.currentIndex())
         else:
             self._date_stack.setCurrentIndex(0)
+            self._balance_lbl.hide()
+            self._err.setText("This customer has no bookings yet. Cannot create an invoice without a booking.")
+            self._err.show()
+            if hasattr(self, "_save_btn"):
+                self._save_btn.setEnabled(False)
+
+    def _on_booking_date_selected(self, index):
+        booking_id = self.date_combo.itemData(index)
+        if not booking_id:
+            self._balance_lbl.hide()
+            return
+        try:
+            bal = repo.get_booking_balance(booking_id)
+        except Exception:
+            bal = None
+        if bal:
+            color = "#22C55E" if bal["balance"] <= 0 else "#E11D48"
+            self._balance_lbl.setText(
+                f"Booking total: <b>₱ {bal['total']:,.2f}</b>  |  "
+                f"Already paid: <b>₱ {bal['paid']:,.2f}</b>  |  "
+                f"Balance: <b style='color:{color};'>₱ {bal['balance']:,.2f}</b>"
+            )
+            self._balance_lbl.show()
+        else:
+            self._balance_lbl.hide()
 
     def _get_event_date(self) -> str:
         if self._date_stack.currentIndex() == 1:
@@ -826,6 +867,17 @@ class BillingPage(QWidget):
                 else:
                     result["invoice"] = f"INV-{len(self._invoices)+1:03d}"
                 result["customer_email"] = repo.get_customer_email_by_name(result.get("customer", ""))
+                if result.get("status") == "Paid" and result.get("db_id") and result.get("amount", 0) > 0:
+                    try:
+                        repo.add_payment_record(
+                            result["db_id"],
+                            result["amount"],
+                            None,
+                            "Cash",
+                            "Auto-recorded on invoice creation (Paid status)",
+                        )
+                    except Exception:
+                        pass
                 self._invoices.append(result)
                 self._populate_table()
                 repo.write_audit_log(get_actor(), "CREATE", "invoices", result.get("db_id"),

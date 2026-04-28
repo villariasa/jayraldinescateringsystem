@@ -26,7 +26,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- =============================================================================
 -- ENUMERATIONS
 -- =============================================================================
-CREATE TYPE booking_status    AS ENUM ('PENDING', 'CONFIRMED', 'CANCELLED');
+CREATE TYPE booking_status    AS ENUM ('PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED');
 CREATE TYPE invoice_status    AS ENUM ('Unpaid', 'Partial', 'Paid');
 CREATE TYPE customer_status   AS ENUM ('Active', 'Pending', 'Inactive');
 CREATE TYPE loyalty_tier      AS ENUM ('Bronze', 'Silver', 'Gold', 'VIP');
@@ -94,13 +94,28 @@ CREATE TABLE packages (
     id              SERIAL          PRIMARY KEY,
     name            VARCHAR(100)    NOT NULL UNIQUE,
     price_per_pax   NUMERIC(10,2)   NOT NULL CHECK (price_per_pax > 0),
+    min_pax         INT             NOT NULL DEFAULT 1 CHECK (min_pax >= 1),
     description     TEXT
 );
 
-INSERT INTO packages (name, price_per_pax, description) VALUES
-  ('Standard Package', 1500.00, 'Buffet setup, 5 dishes, dessert'),
-  ('Premium Package',  2500.00, 'Plated service, 8 dishes, dessert + drinks'),
-  ('VIP Package',      3500.00, 'Full service, 12 dishes, open bar, décor');
+INSERT INTO packages (name, price_per_pax, min_pax, description) VALUES
+  ('Standard Package', 1500.00, 50,  'Buffet setup, 5 dishes, dessert'),
+  ('Premium Package',  2500.00, 80,  'Plated service, 8 dishes, dessert + drinks'),
+  ('VIP Package',      3500.00, 100, 'Full service, 12 dishes, open bar, décor');
+
+-- =============================================================================
+-- TABLE: package_items
+-- Links menu_items to packages with owner-defined per-item pricing
+-- =============================================================================
+CREATE TABLE package_items (
+    id              SERIAL          PRIMARY KEY,
+    package_id      INT             NOT NULL REFERENCES packages(id) ON DELETE CASCADE,
+    menu_item_id    INT             NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+    custom_price    NUMERIC(10,2)   NOT NULL CHECK (custom_price >= 0),
+    CONSTRAINT uq_package_menu_item UNIQUE (package_id, menu_item_id)
+);
+
+CREATE INDEX idx_package_items_pkg ON package_items (package_id);
 
 -- =============================================================================
 -- TABLE: menu_items
@@ -426,6 +441,7 @@ BEGIN
         UPDATE customers
         SET total_events = total_events + 1, updated_at = NOW()
         WHERE id = v_cid;
+        CALL sp_recalculate_loyalty(v_cid);
     END IF;
 END;
 $$;
@@ -501,13 +517,20 @@ BEGIN
     INTO v_current, v_amount_paid, v_total
     FROM bookings WHERE id = p_booking_id;
 
-    IF v_current IN ('CONFIRMED', 'CANCELLED') THEN
-        RAISE EXCEPTION 'Booking status is locked. Cannot change from % to %.',
-            v_current, p_new_status;
+    IF v_current = 'CANCELLED' THEN
+        RAISE EXCEPTION 'Cancelled bookings cannot be changed.';
     END IF;
 
-    IF v_current != 'PENDING' THEN
-        RAISE EXCEPTION 'Only PENDING bookings can be transitioned.';
+    IF v_current = 'COMPLETED' THEN
+        RAISE EXCEPTION 'Completed bookings cannot be changed.';
+    END IF;
+
+    IF v_current NOT IN ('PENDING', 'CONFIRMED') THEN
+        RAISE EXCEPTION 'Only PENDING or CONFIRMED bookings can be transitioned.';
+    END IF;
+
+    IF p_new_status = 'COMPLETED' AND v_current != 'CONFIRMED' THEN
+        RAISE EXCEPTION 'Only CONFIRMED bookings can be marked as COMPLETED.';
     END IF;
 
     IF p_new_status = 'CONFIRMED' THEN
@@ -530,6 +553,46 @@ BEGIN
                                    THEN p_cancellation_reason
                                    ELSE cancellation_reason END,
         updated_at          = NOW()
+    WHERE id = p_booking_id;
+
+    IF p_new_status = 'CONFIRMED' THEN
+        UPDATE customers
+        SET total_events = (
+            SELECT COUNT(*) FROM bookings
+            WHERE customer_id = customers.id
+              AND status IN ('CONFIRMED', 'COMPLETED')
+        ), updated_at = NOW()
+        WHERE id = (
+            SELECT customer_id FROM bookings WHERE id = p_booking_id
+        ) AND id IS NOT NULL;
+
+        CALL sp_recalculate_loyalty(
+            (SELECT customer_id FROM bookings WHERE id = p_booking_id)
+        );
+    END IF;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_complete_booking
+-- Marks a CONFIRMED booking as COMPLETED (event has ended).
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_complete_booking(
+    IN p_booking_id INT
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_current booking_status;
+BEGIN
+    SELECT status INTO v_current FROM bookings WHERE id = p_booking_id;
+
+    IF v_current != 'CONFIRMED' THEN
+        RAISE EXCEPTION 'Only CONFIRMED bookings can be marked as COMPLETED. Current status: %', v_current;
+    END IF;
+
+    UPDATE bookings
+    SET status     = 'COMPLETED'::booking_status,
+        updated_at = NOW()
     WHERE id = p_booking_id;
 END;
 $$;
@@ -1603,6 +1666,144 @@ BEGIN
         FROM payment_records
         WHERE invoice_id = p_invoice_id
         ORDER BY payment_date DESC, created_at DESC;
+END;
+$$;
+
+-- =============================================================================
+-- VIEW: v_customer_ledger
+-- Returns a unified timeline of bookings, invoices, and payments per customer
+-- =============================================================================
+CREATE OR REPLACE VIEW v_customer_ledger AS
+SELECT
+    c.id                            AS customer_id,
+    c.name                          AS customer_name,
+    'Booking'                       AS entry_type,
+    b.created_at::DATE              AS recorded_date,
+    b.event_date                    AS event_date,
+    b.booking_ref                   AS reference,
+    b.occasion                      AS description,
+    b.total_amount                  AS debit,
+    b.amount_paid                   AS credit,
+    b.status::TEXT                  AS entry_status,
+    b.id                            AS source_id
+FROM customers c
+JOIN bookings b ON b.customer_id = c.id
+
+UNION ALL
+
+SELECT
+    c.id,
+    c.name,
+    'Invoice',
+    i.created_at::DATE,
+    i.event_date,
+    i.invoice_ref,
+    'Invoice issued',
+    i.total_amount,
+    i.amount_paid,
+    i.status::TEXT,
+    i.id
+FROM customers c
+JOIN bookings b ON b.customer_id = c.id
+JOIN invoices i ON i.booking_id = b.id
+
+UNION ALL
+
+SELECT
+    c.id,
+    c.name,
+    'Payment',
+    pr.payment_date,
+    i.event_date,
+    CONCAT('PMT-', pr.id::TEXT),
+    COALESCE(pr.note, pr.method),
+    0,
+    pr.amount,
+    'Paid',
+    pr.id
+FROM customers c
+JOIN bookings b ON b.customer_id = c.id
+JOIN invoices i ON i.booking_id = b.id
+JOIN payment_records pr ON pr.invoice_id = i.id
+
+ORDER BY recorded_date DESC, entry_type;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_add_package
+-- OUT p_package_id INT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_add_package(
+    IN  p_name          TEXT,
+    IN  p_price_per_pax NUMERIC,
+    IN  p_min_pax       INT,
+    IN  p_description   TEXT,
+    OUT p_package_id    INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO packages (name, price_per_pax, min_pax, description)
+    VALUES (p_name, p_price_per_pax, COALESCE(p_min_pax, 1), p_description)
+    RETURNING id INTO p_package_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_update_package
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_update_package(
+    IN p_package_id     INT,
+    IN p_name           TEXT,
+    IN p_price_per_pax  NUMERIC,
+    IN p_min_pax        INT,
+    IN p_description    TEXT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM packages WHERE id = p_package_id) THEN
+        RAISE EXCEPTION 'Package not found: %', p_package_id;
+    END IF;
+    UPDATE packages
+    SET name          = p_name,
+        price_per_pax = p_price_per_pax,
+        min_pax       = COALESCE(p_min_pax, 1),
+        description   = p_description
+    WHERE id = p_package_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_delete_package
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_delete_package(IN p_package_id INT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM bookings WHERE package_id = p_package_id) THEN
+        RAISE EXCEPTION 'Cannot delete package: it is linked to existing bookings.';
+    END IF;
+    DELETE FROM packages WHERE id = p_package_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_set_package_items
+-- Replaces all items for a package (delete + re-insert)
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_set_package_items(
+    IN p_package_id     INT,
+    IN p_menu_item_ids  INT[],
+    IN p_custom_prices  NUMERIC[]
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    i INT;
+BEGIN
+    DELETE FROM package_items WHERE package_id = p_package_id;
+    IF p_menu_item_ids IS NOT NULL THEN
+        FOR i IN 1 .. array_length(p_menu_item_ids, 1) LOOP
+            INSERT INTO package_items (package_id, menu_item_id, custom_price)
+            VALUES (p_package_id, p_menu_item_ids[i], p_custom_prices[i]);
+        END LOOP;
+    END IF;
 END;
 $$;
 

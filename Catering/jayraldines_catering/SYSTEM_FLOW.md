@@ -82,6 +82,12 @@ CONFIRMED bookings appear in:
         ↓
 [Send Confirmation] button (bell icon) available on each CONFIRMED row
   → Manually resends email + SMS confirmation at any time
+        ↓
+When event date/time is reached:
+  - Dashboard countdown shows "Event started"
+  - [Mark as Completed] button appears on the upcoming event card
+  - Clicking it sets Status: COMPLETED
+  - Completed bookings are locked (no further status changes)
 ```
 
 ---
@@ -302,10 +308,13 @@ Unavailable / Seasonal / Out of Stock items flagged in v_menu_alerts
 |---|---|---|---|
 | PENDING | CONFIRMED | ✓ Yes | Downpayment met + capacity available |
 | PENDING | CANCELLED | ✓ Yes | Cancellation reason recorded |
-| CONFIRMED | any | ✗ Locked | — |
+| CONFIRMED | COMPLETED | ✓ Yes | Event has started (via dashboard "Mark as Completed" button) |
+| CONFIRMED | CANCELLED | ✗ Locked | — |
+| COMPLETED | any | ✗ Locked | — |
 | CANCELLED | any | ✗ Locked | — |
 
 > Only PENDING bookings can be edited or transitioned.
+> Only CONFIRMED bookings can be marked as COMPLETED (via Dashboard upcoming event card).
 > Admin can bypass downpayment check via `allow_zero_downpayment` toggle in Settings.
 
 ---

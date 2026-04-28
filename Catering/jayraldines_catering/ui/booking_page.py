@@ -309,10 +309,29 @@ class BookingPage(QWidget):
         try:
             if b.get("db_id"):
                 repo.update_booking_status(b["db_id"], "CONFIRMED")
+                try:
+                    detail = repo.get_booking_detail(b["db_id"])
+                    if detail and detail.get("customer_id"):
+                        repo.recalculate_loyalty(detail["customer_id"])
+                except Exception:
+                    pass
+                try:
+                    repo.sync_kitchen_from_bookings()
+                except Exception:
+                    pass
             b["status"] = "CONFIRMED"
             self._populate_table()
             success(self, message="Booking approved successfully.")
             repo.write_audit_log(get_actor(), "APPROVE", "bookings", b.get("db_id"), None, {"status": "CONFIRMED"})
+            try:
+                repo.push_notification(
+                    "success",
+                    "Booking Confirmed",
+                    f"Booking for {b.get('name', '')} on {b.get('date', '')} has been confirmed.",
+                    "#22C55E",
+                )
+            except Exception:
+                pass
             if b.get("db_id"):
                 self._send_confirmation_auto(b)
         except Exception as exc:
@@ -380,7 +399,8 @@ class BookingPage(QWidget):
             else:
                 errors.append(f"Email: {err}")
         if sent_email:
-            success(self, message=f"Confirmation sent via email to {detail['email']}.")
+            QMessageBox.information(self, "Confirmation Sent",
+                f"Booking confirmation has been sent via email to:\n{detail['email']}")
         elif errors:
             QMessageBox.warning(self, "Send Failed", "\n".join(errors))
         else:
