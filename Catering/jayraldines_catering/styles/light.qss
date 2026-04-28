@@ -388,8 +388,8 @@ QComboBox::drop-down {
 QComboBox::down-arrow {
     width: 10px;
     height: 10px;
-    border-left: 2px solid #64748B;
-    border-bottom: 2px solid #64748B;
+    border-left: 2px solid #0F172A;
+    border-bottom: 2px solid #0F172A;
     border-top: none;
     border-right: none;
     margin-right: 6px;
@@ -434,6 +434,36 @@ QTextEdit {
     font-size: 13px;
 }
 QTextEdit:focus { border: 1px solid #E11D48; }
+
+/* --- TABS --- */
+QTabWidget::pane {
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    background: #FFFFFF;
+    top: -1px;
+}
+QTabBar::tab {
+    background: #F1F5F9;
+    color: #64748B;
+    padding: 8px 20px;
+    border: 1px solid #E2E8F0;
+    border-bottom: none;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    margin-right: 2px;
+}
+QTabBar::tab:selected {
+    background: #FFFFFF;
+    color: #0F172A;
+    font-weight: 700;
+    border-bottom: 2px solid #E11D48;
+}
+QTabBar::tab:hover:!selected {
+    background: #E2E8F0;
+    color: #0F172A;
+}
 
 QFrame#costBox {
     background-color: #F1F5F9;

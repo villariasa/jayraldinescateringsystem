@@ -349,6 +349,15 @@ class KitchenPage(QWidget):
                 repo.write_audit_log(get_actor(), "STATUS_CHANGE", "kitchen_orders", order["db_id"],
                     {"status": prev_s}, {"status": next_s})
             self._refresh_columns()
+            try:
+                repo.push_notification(
+                    "success",
+                    f"Order {next_s}",
+                    f"Kitchen order '{order['id']}' for {order.get('client', '')} moved to {next_s}.",
+                    "#22C55E" if next_s == "Delivered" else "#F59E0B",
+                )
+            except Exception:
+                pass
             if next_s == "Delivered":
                 success(self, message=f"Order '{order['id']}' marked as Delivered.")
 
@@ -376,6 +385,15 @@ class KitchenPage(QWidget):
             repo.write_audit_log(get_actor(), "CANCEL", "kitchen_orders", order["db_id"],
                 {"status": old_s}, {"status": "Cancelled"})
         self._refresh_columns()
+        try:
+            repo.push_notification(
+                "error",
+                "Order Cancelled",
+                f"Kitchen order '{order['id']}' for {order.get('client', '')} has been cancelled.",
+                "#EF4444",
+            )
+        except Exception:
+            pass
         success(self, message=f"Order '{order['id']}' has been cancelled.")
 
     def _remove_order(self, order):

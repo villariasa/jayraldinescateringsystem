@@ -762,6 +762,15 @@ class BillingPage(QWidget):
                         self._populate_table()
                         repo.write_audit_log(get_actor(), "PAYMENT", "invoices", inv["db_id"],
                             None, {"amount": result["amount"], "method": result["method"]})
+                        try:
+                            repo.push_notification(
+                                "success",
+                                "Payment Recorded",
+                                f"₱{result['amount']:,.2f} payment via {result['method']} recorded for {inv.get('customer', '')} — {inv.get('invoice', '')}.",
+                                "#22C55E",
+                            )
+                        except Exception:
+                            pass
                         success(self, message=f"Payment of ₱{result['amount']:,.2f} recorded.")
                     else:
                         QMessageBox.warning(self, "Error", "Failed to record payment.")
@@ -882,6 +891,15 @@ class BillingPage(QWidget):
                 self._populate_table()
                 repo.write_audit_log(get_actor(), "CREATE", "invoices", result.get("db_id"),
                     None, {"invoice": result.get("invoice"), "customer": result.get("customer")})
+                try:
+                    repo.push_notification(
+                        "info",
+                        "Invoice Created",
+                        f"Invoice {result.get('invoice', '')} created for {result.get('customer', '')} — ₱{float(result.get('amount', 0)):,.2f}.",
+                        "#3B82F6",
+                    )
+                except Exception:
+                    pass
                 success(self, message="Invoice created successfully.")
 
     def filter_search(self, text):

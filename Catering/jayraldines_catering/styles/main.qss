@@ -390,7 +390,21 @@ QComboBox {
     font-size: 13px;
 }
 QComboBox:focus { border: 1px solid #E11D48; }
-QComboBox::drop-down { width: 28px; border-left: none; }
+QComboBox::drop-down {
+    width: 28px;
+    border-left: none;
+    background: transparent;
+}
+QComboBox::down-arrow {
+    width: 10px;
+    height: 10px;
+    border-left: 2px solid #F9FAFB;
+    border-bottom: 2px solid #F9FAFB;
+    border-top: none;
+    border-right: none;
+    margin-right: 6px;
+    transform: rotate(-45deg);
+}
 QComboBox QAbstractItemView {
     border: 1px solid #243244;
     border-radius: 8px;
@@ -399,6 +413,36 @@ QComboBox QAbstractItemView {
     selection-color: #E11D48;
     color: #F9FAFB;
     outline: none;
+}
+
+/* --- TABS --- */
+QTabWidget::pane {
+    border: 1px solid #243244;
+    border-radius: 8px;
+    background: #111827;
+    top: -1px;
+}
+QTabBar::tab {
+    background: #1F2937;
+    color: #9CA3AF;
+    padding: 8px 20px;
+    border: 1px solid #243244;
+    border-bottom: none;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    margin-right: 2px;
+}
+QTabBar::tab:selected {
+    background: #111827;
+    color: #F9FAFB;
+    font-weight: 700;
+    border-bottom: 2px solid #E11D48;
+}
+QTabBar::tab:hover:!selected {
+    background: #243244;
+    color: #F9FAFB;
 }
 
 QFrame#costBox {
