@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QScrollArea, QLineEdit, QCheckBox, QSizePolicy
+    QFrame, QScrollArea, QLineEdit, QCheckBox, QSizePolicy, QSplitter
 )
 from PySide6.QtCore import Qt, QSize
 
@@ -113,34 +113,48 @@ class KitchenPage(QWidget):
         header.addStretch()
         root.addLayout(header)
 
-        col_scroll = QScrollArea()
-        col_scroll.setWidgetResizable(True)
-        col_scroll.setFrameShape(QFrame.NoFrame)
-        col_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        col_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        col_container = QWidget()
-        col_container.setStyleSheet("background: transparent;")
-        self._cols_layout = QHBoxLayout(col_container)
-        self._cols_layout.setSpacing(16)
-        self._cols_layout.setContentsMargins(0, 0, 0, 0)
+        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter.setHandleWidth(6)
+        self._splitter.setStyleSheet("""
+            QSplitter::handle {
+                background: transparent;
+            }
+            QSplitter::handle:hover {
+                background: rgba(225,29,72,0.25);
+                border-radius: 3px;
+            }
+        """)
+        self._splitter.setChildrenCollapsible(False)
 
         _DISPLAY_COLS = ["Queued", "Preparing", "In Progress", "Ready", "Delivered", "Cancelled"]
         self._col_inner = {}
         self._col_frames = {}
         for status in _DISPLAY_COLS:
             color = _COL_COLORS[status]
+
+            col_wrap = QWidget()
+            col_wrap.setMinimumWidth(180)
+            col_wrap_lay = QVBoxLayout(col_wrap)
+            col_wrap_lay.setContentsMargins(4, 0, 4, 0)
+            col_wrap_lay.setSpacing(0)
+
             col_frame = QFrame()
             col_frame.setObjectName("card")
-            col_frame.setMinimumWidth(200)
             col_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             col_layout = QVBoxLayout(col_frame)
             col_layout.setContentsMargins(16, 16, 16, 16)
             col_layout.setSpacing(12)
 
+            header_row = QHBoxLayout()
             col_title = QLabel(status)
             col_title.setStyleSheet(f"color: {color}; font-weight: 700; font-size: 13px;")
-            col_layout.addWidget(col_title)
+            header_row.addWidget(col_title)
+            header_row.addStretch()
+            resize_hint = QLabel("⠿")
+            resize_hint.setStyleSheet(f"color: {color}; font-size: 14px;")
+            resize_hint.setToolTip("Drag the edge to resize this column")
+            header_row.addWidget(resize_hint)
+            col_layout.addLayout(header_row)
 
             divider = QFrame()
             divider.setObjectName("divider")
@@ -161,12 +175,15 @@ class KitchenPage(QWidget):
             scroll.setWidget(inner)
             col_layout.addWidget(scroll)
 
+            col_wrap_lay.addWidget(col_frame)
+
             self._col_inner[status] = inner_lay
             self._col_frames[status] = col_frame
-            self._cols_layout.addWidget(col_frame, 1)
+            self._splitter.addWidget(col_wrap)
 
-        col_scroll.setWidget(col_container)
-        root.addWidget(col_scroll)
+        default_w = 220
+        self._splitter.setSizes([default_w] * len(_DISPLAY_COLS))
+        root.addWidget(self._splitter)
 
     def _apply_column_styles(self):
         bg = "#FFFFFF" if _is_light() else "#111827"
