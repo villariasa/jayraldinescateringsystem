@@ -6,7 +6,6 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFrame,
 from PySide6.QtCore import Qt, Signal, QSize, QTime
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
-from utils.theme import ThemeManager
 from components.booking_modal import BookingModal
 from components.dialogs import confirm, success
 import utils.repository as repo
@@ -27,8 +26,7 @@ class DayCell(QFrame):
         self.is_current_month = is_current_month
         
         # Responsive sizing instead of fixed
-        self.setMinimumSize(80, 80)
-        self.setMaximumHeight(130)
+        self.setMinimumSize(100, 100)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         self.layout = QVBoxLayout(self)
@@ -59,18 +57,18 @@ class DayCell(QFrame):
         pax_tag.setAlignment(Qt.AlignCenter)
         
         if total_pax >= 600:
-            pax_tag.setStyleSheet("background-color: rgba(248,113,113,0.15); color: #DC2626; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
+            pax_tag.setStyleSheet("background-color: rgba(248,113,113,0.15); color: #f87171; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
         elif total_pax >= 400:
-            pax_tag.setStyleSheet("background-color: rgba(245,158,11,0.15); color: #D97706; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
+            pax_tag.setStyleSheet("background-color: rgba(197,164,109,0.15); color: #c5a46d; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
         else:
-            pax_tag.setStyleSheet("background-color: rgba(34,197,94,0.15); color: #16A34A; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
+            pax_tag.setStyleSheet("background-color: rgba(110,231,183,0.15); color: #6ee7b7; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
             
         self.layout.insertWidget(1, pax_tag)
 
         # 2. Booking Count
         count_lbl = QLabel(f"{booking_count} Booking{'s' if booking_count > 1 else ''}")
         count_lbl.setObjectName("bookingCount")
-        count_lbl.setStyleSheet("font-size: 11px; font-weight: 600;")
+        count_lbl.setStyleSheet("color: #9aa0a6; font-size: 11px; font-weight: 600;")
         self.layout.insertWidget(2, count_lbl)
 
     def mousePressEvent(self, event):
@@ -100,13 +98,12 @@ class ScheduleCard(AnimatedCard):
 
         if source == "booking" and ref:
             ref_lbl = QLabel(f"Booking: {ref}")
-            ref_lbl.setStyleSheet("font-size:11px;color:#2563EB;font-weight:600;")
+            ref_lbl.setStyleSheet("font-size:11px;color:#3B82F6;font-weight:600;")
             layout.addWidget(ref_lbl)
             if status:
                 st_colors = {"CONFIRMED": "#22C55E", "PENDING": "#F59E0B"}
                 st_lbl = QLabel(status.capitalize())
-                # FIX 1: Added closing parenthesis
-                st_lbl.setStyleSheet(f"font-size:10px;font-weight:700;color:{st_colors.get(status,'#64748B')};")
+                st_lbl.setStyleSheet(f"font-size:10px;font-weight:700;color:{st_colors.get(status,'#9CA3AF')};")
                 layout.addWidget(st_lbl)
 
         time_lbl = QLabel(f"Time: {time}")
@@ -135,23 +132,8 @@ class ManageScheduleDialog(QDialog):
 
         container = QFrame()
         container.setObjectName("card")
-        container.setStyleSheet("")
-        container_lay = QVBoxLayout(container)
-        container_lay.setContentsMargins(0, 0, 0, 0)
-        container_lay.setSpacing(0)
-
-        # --- scrollable body (header + events + form) ---
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setMaximumHeight(480)
-        scroll.viewport().setStyleSheet("background: transparent;")
-
-        body = QWidget()
-        body.setAutoFillBackground(False)
-        lay = QVBoxLayout(body)
-        lay.setContentsMargins(24, 24, 24, 16)
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(24, 24, 24, 24)
         lay.setSpacing(16)
 
         header = QHBoxLayout()
@@ -203,14 +185,8 @@ class ManageScheduleDialog(QDialog):
         self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
         self._err.hide()
         lay.addWidget(self._err)
-        lay.addStretch()
 
-        scroll.setWidget(body)
-        container_lay.addWidget(scroll)
-
-        # --- buttons always visible below scroll ---
         btn_row = QHBoxLayout()
-        btn_row.setContentsMargins(24, 12, 24, 16)
         btn_row.addStretch()
         cancel = QPushButton("Cancel")
         cancel.setObjectName("secondaryButton")
@@ -227,7 +203,7 @@ class ManageScheduleDialog(QDialog):
         btn_row.addWidget(cancel)
         btn_row.addWidget(add_btn)
         btn_row.addWidget(save_btn)
-        container_lay.addLayout(btn_row)
+        lay.addLayout(btn_row)
 
         outer.addWidget(container)
 
@@ -301,21 +277,7 @@ class ManageScheduleDialog(QDialog):
 class CalendarPage(QWidget):
     def __init__(self):
         super().__init__()
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.NoFrame)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setStyleSheet("background: transparent;")
-
-        scroll_content = QWidget()
-        scroll_area.setWidget(scroll_content)
-        root.addWidget(scroll_area)
-
-        main_layout = QVBoxLayout(scroll_content)
+        main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(40, 40, 40, 40)
         main_layout.setSpacing(32)
 
@@ -365,8 +327,7 @@ class CalendarPage(QWidget):
         
         cal_head.addStretch()
         legend = QLabel("Available  |  Near Full (400+)  |  Fully Booked (600)")
-        # FIX 2: Added closing parenthesis
-        legend.setStyleSheet("font-size: 12px; font-weight: 600; margin-right: 24px;")
+        legend.setStyleSheet("font-size: 12px; font-weight: 600; color: #9aa0a6; margin-right: 24px;")
         cal_head.addWidget(legend)
 
         # Dynamic Nav Buttons
@@ -405,8 +366,7 @@ class CalendarPage(QWidget):
         for col, day in enumerate(days):
             lbl = QLabel(day)
             lbl.setAlignment(Qt.AlignCenter)
-            # FIX 3: Added closing parenthesis
-            lbl.setStyleSheet("font-weight: 800; font-size: 12px; padding: 10px 0px;")
+            lbl.setStyleSheet("font-weight: 800; color: #64748B; font-size: 12px; padding: 10px 0px;")
             self.grid.addWidget(lbl, 0, col)
 
         self._db_cache: dict = {}
@@ -420,7 +380,7 @@ class CalendarPage(QWidget):
         self.side_panel = QFrame()
         self.side_panel.setObjectName("sidePanel")
         self.side_panel.setFixedWidth(340)
-        self.side_panel.setFixedHeight(600)
+        self.side_panel.setMinimumHeight(300)
         self.side_panel.setVisible(False) 
         
         sp_layout = QVBoxLayout(self.side_panel)
@@ -435,8 +395,7 @@ class CalendarPage(QWidget):
         
         close_row = QHBoxLayout()
         self.lbl_panel_date = QLabel("Date")
-        # FIX 4: Added closing parenthesis
-        self.lbl_panel_date.setStyleSheet("color: #FFFFFF; font-size: 20px; font-weight: 800;")
+        self.lbl_panel_date.setStyleSheet("color: white; font-size: 20px; font-weight: 800;")
         close_row.addWidget(self.lbl_panel_date)
         
         btn_close = QPushButton()
@@ -450,16 +409,14 @@ class CalendarPage(QWidget):
         
         # Capacity Box
         cap_box = QFrame()
-        # FIX 5: Added closing parenthesis
-        cap_box.setStyleSheet("background-color: rgba(0, 0, 0, 0.06); border-radius: 8px; margin-top: 15px;")
+        cap_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.06); border-radius: 8px; margin-top: 15px;")
         cap_layout = QHBoxLayout(cap_box)
         
         # --- THE FIX: Force RichText and use <br> ---
         self.lbl_capacity = QLabel()
         self.lbl_capacity.setTextFormat(Qt.RichText)
         self.lbl_capacity.setText("TOTAL CAPACITY<br><span style='font-size: 28px; font-weight: 800;'>0</span> / 600 Pax")
-        # FIX 6: Added closing parenthesis
-        self.lbl_capacity.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: 600;")
+        self.lbl_capacity.setStyleSheet("color: white; font-size: 12px; font-weight: 600;")
         
         cap_layout.addWidget(self.lbl_capacity)
         sph_layout.addWidget(cap_box)
@@ -473,8 +430,7 @@ class CalendarPage(QWidget):
         self.sp_body_layout.setSpacing(16)
         
         lbl_ds = QLabel("DAILY SCHEDULE")
-        # FIX 7: Added closing parenthesis
-        lbl_ds.setStyleSheet("font-size: 12px; font-weight: 800; letter-spacing: 0.5px;")
+        lbl_ds.setStyleSheet("color: #9aa0a6; font-size: 12px; font-weight: 800; letter-spacing: 0.5px;")
         self.sp_body_layout.addWidget(lbl_ds)
 
         self.cards_container = QVBoxLayout()
@@ -489,14 +445,13 @@ class CalendarPage(QWidget):
         scroll.setWidget(sp_body)
         sp_layout.addWidget(scroll, 1)
 
-        # Bottom Button - fixed, always visible
+        # Bottom Button
         self._btn_manage = QPushButton("  Manage Day Schedule")
         self._btn_manage.setObjectName("goldButton")
-        self._btn_manage.setFixedHeight(44)
-        self._btn_manage.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._btn_manage.setMinimumHeight(40)
         self._btn_manage.setCursor(Qt.PointingHandCursor)
         self._btn_manage.clicked.connect(self._open_manage_schedule)
-        sp_layout.addWidget(self._btn_manage, 0)
+        sp_layout.addWidget(self._btn_manage)
 
         split_layout.addWidget(self.side_panel, 3) 
         main_layout.addLayout(split_layout)
@@ -636,21 +591,7 @@ class CalendarPage(QWidget):
         if db_key in self._db_cache:
             events = self._db_cache[db_key]
             total_pax = sum(e["pax"] for e in events)
-            try:
-                max_pax = repo.get_business_policy().get("max_daily_pax", 600)
-            except Exception:
-                max_pax = 600
-            if total_pax >= max_pax:
-                cap_color = "#EF4444"
-            elif total_pax >= int(max_pax * 0.67):
-                cap_color = "#F59E0B"
-            else:
-                cap_color = "#22C55E"
-            self.lbl_capacity.setText(
-                f"TOTAL CAPACITY<br>"
-                f"<span style='font-size: 28px; font-weight: 800; color: {cap_color};'>{total_pax}</span>"
-                f" / {max_pax} Pax"
-            )
+            self.lbl_capacity.setText(f"TOTAL CAPACITY<br><span style='font-size: 28px; font-weight: 800;'>{total_pax}</span> / 600 Pax")
             for event in events:
                 card = ScheduleCard(
                     event["name"], event["pax"], event["time"], event["loc"],
@@ -661,18 +602,9 @@ class CalendarPage(QWidget):
                 self.cards_container.addWidget(card)
         else:
             # --- THE FIX: Empty State ---
-            try:
-                max_pax = repo.get_business_policy().get("max_daily_pax", 600)
-            except Exception:
-                max_pax = 600
-            self.lbl_capacity.setText(
-                f"TOTAL CAPACITY<br>"
-                f"<span style='font-size: 28px; font-weight: 800; color: #22C55E;'>0</span>"
-                f" / {max_pax} Pax"
-            )
+            self.lbl_capacity.setText("TOTAL CAPACITY<br><span style='font-size: 28px; font-weight: 800;'>0</span> / 600 Pax")
             empty_lbl = QLabel("No events scheduled for this day.")
-            # FIX 8: Added closing parenthesis
-            empty_lbl.setStyleSheet("font-style: italic; font-size: 13px;")
+            empty_lbl.setStyleSheet("color: #94A3B8; font-style: italic; font-size: 13px;")
             self.cards_container.addWidget(empty_lbl)
 
         self._selected_day = day_num
