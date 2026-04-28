@@ -113,6 +113,19 @@ class KitchenPage(QWidget):
         header.addStretch()
         root.addLayout(header)
 
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setStyleSheet("background: transparent;")
+
+        scroll_container = QWidget()
+        scroll_container.setStyleSheet("background: transparent;")
+        scroll_outer = QVBoxLayout(scroll_container)
+        scroll_outer.setContentsMargins(0, 0, 0, 0)
+        scroll_outer.setSpacing(0)
+
         self._splitter = QSplitter(Qt.Horizontal)
         self._splitter.setHandleWidth(6)
         self._splitter.setStyleSheet("""
@@ -125,6 +138,7 @@ class KitchenPage(QWidget):
             }
         """)
         self._splitter.setChildrenCollapsible(False)
+        self._splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         _DISPLAY_COLS = ["Queued", "Preparing", "In Progress", "Ready", "Delivered", "Cancelled"]
         self._col_inner = {}
@@ -133,7 +147,7 @@ class KitchenPage(QWidget):
             color = _COL_COLORS[status]
 
             col_wrap = QWidget()
-            col_wrap.setMinimumWidth(180)
+            col_wrap.setMinimumWidth(160)
             col_wrap_lay = QVBoxLayout(col_wrap)
             col_wrap_lay.setContentsMargins(4, 0, 4, 0)
             col_wrap_lay.setSpacing(0)
@@ -181,9 +195,12 @@ class KitchenPage(QWidget):
             self._col_frames[status] = col_frame
             self._splitter.addWidget(col_wrap)
 
-        default_w = 220
+        default_w = 260
         self._splitter.setSizes([default_w] * len(_DISPLAY_COLS))
-        root.addWidget(self._splitter, 1)
+
+        scroll_outer.addWidget(self._splitter, 1)
+        scroll_area.setWidget(scroll_container)
+        root.addWidget(scroll_area, 1)
 
     def _apply_column_styles(self):
         bg = "#FFFFFF" if _is_light() else "#111827"
