@@ -1704,8 +1704,8 @@ SELECT
     b.event_date                    AS event_date,
     b.booking_ref                   AS reference,
     b.occasion                      AS description,
-    b.total_amount                  AS debit,
-    b.amount_paid                   AS credit,
+    0                               AS debit,
+    0                               AS credit,
     b.status::TEXT                  AS entry_status,
     b.id                            AS source_id
 FROM customers c
@@ -1722,7 +1722,7 @@ SELECT
     i.invoice_ref,
     'Invoice issued',
     i.total_amount,
-    i.amount_paid,
+    0,
     i.status::TEXT,
     i.id
 FROM customers c

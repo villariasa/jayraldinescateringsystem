@@ -451,7 +451,7 @@ class BookingPage(QWidget):
         result = repo.create_booking(data)
         bkg_id = result["booking_ref"] if result else f"BKG-{len(self._bookings) + 1:03d}"
         db_id  = result["booking_id"]  if result else None
-        
+
         self._bookings.append({
             "db_id":  db_id,
             "date":   data["date"],
@@ -463,17 +463,31 @@ class BookingPage(QWidget):
         })
         self._populate_table()
         success(self, message="Booking created successfully.")
-        
-        # 1. Send the email approval request to the customer
+
+        if db_id:
+            try:
+                from utils.repository import _parse_amount
+                amount_paid = _parse_amount(data.get("amount_paid", "0"))
+                if amount_paid > 0:
+                    repo.create_downpayment_invoice(
+                        booking_id=db_id,
+                        customer_name=data["name"],
+                        event_date=data["date"],
+                        total_amount=float(data["total"]),
+                        amount_paid=amount_paid,
+                        payment_mode=data.get("payment_mode", "Cash"),
+                    )
+            except Exception as exc:
+                print(f"[booking] auto downpayment invoice failed: {exc}")
+
         self._send_approval_request(data, bkg_id)
-        
-        # 2. Push an in-app notification for the Admin/Owner!
+
         try:
             repo.push_notification(
                 type_="info",
                 title="New Booking Request",
                 message=f"{data['name']} submitted a new booking request for {data['pax']} pax on {data['date']}.",
-                color="#3B82F6"  # Blue color for info
+                color="#3B82F6"
             )
         except Exception as exc:
             print(f"[Notification] Failed to create in-app notification: {exc}")

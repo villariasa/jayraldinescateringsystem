@@ -347,6 +347,8 @@ class InvoiceDialog(QDialog):
 
         self._balance_lbl = QLabel()
         self._balance_lbl.setStyleSheet("font-size: 12px; color: #6B7280; padding: 4px 0;")
+        self._balance_lbl.setWordWrap(True)
+        self._balance_lbl.setTextFormat(Qt.RichText)
         self._balance_lbl.hide()
 
         # --- FIX 1: Move Signal down here so self.date_combo exists first ---

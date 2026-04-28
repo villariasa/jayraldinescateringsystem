@@ -1353,16 +1353,59 @@ def get_customer_ledger(customer_id: int) -> list[dict]:
     return result
 
 def get_booking_balance(booking_id: int) -> Optional[dict]:
-    """Return total_amount, amount_paid, balance for a booking."""
+    """Return total_amount, total paid (from payment_records), balance for a booking."""
     row = db.fetchone(
-        "SELECT total_amount, amount_paid FROM bookings WHERE id = %s",
+        "SELECT total_amount FROM bookings WHERE id = %s",
         (booking_id,),
     )
     if not row:
         return None
     total = float(row["total_amount"])
-    paid  = float(row["amount_paid"])
+    paid_row = db.fetchone(
+        """
+        SELECT COALESCE(SUM(pr.amount), 0) AS total_paid
+        FROM invoices i
+        JOIN payment_records pr ON pr.invoice_id = i.id
+        WHERE i.booking_id = %s
+        """,
+        (booking_id,),
+    )
+    paid = float(paid_row["total_paid"]) if paid_row else 0.0
     return {"total": total, "paid": paid, "balance": total - paid}
+
+
+def create_downpayment_invoice(booking_id: int, customer_name: str,
+                               event_date, total_amount: float,
+                               amount_paid: float, payment_mode: str) -> Optional[dict]:
+    """Auto-create a downpayment invoice + payment record when a booking is saved."""
+    try:
+        from datetime import date as _d
+        if isinstance(event_date, str):
+            event_date = _parse_date(event_date)
+        paid_status = "Paid" if abs(amount_paid - total_amount) < 0.01 else "Partial"
+        inv_result = db.callproc_out(
+            "sp_create_invoice",
+            in_params=(booking_id, customer_name, event_date, total_amount, amount_paid, paid_status),
+            out_names=["p_invoice_id", "p_invoice_ref"],
+        )
+        if not inv_result:
+            return None
+        invoice_id  = inv_result["p_invoice_id"]
+        invoice_ref = inv_result["p_invoice_ref"]
+        pay_result = db.callproc_out(
+            "sp_add_payment_record",
+            in_params=(invoice_id, amount_paid, _d.today(), payment_mode or "Cash",
+                       "Initial downpayment recorded on booking"),
+            out_names=["p_record_id", "p_new_status", "p_new_paid"],
+        )
+        return {
+            "invoice_id":  invoice_id,
+            "invoice_ref": invoice_ref,
+            "record_id":   pay_result["p_record_id"] if pay_result else None,
+        }
+    except Exception as exc:
+        print(f"[repository] create_downpayment_invoice failed: {exc}")
+    return None
 
 def get_booking_detail(db_id: int) -> Optional[dict]:
     row = db.fetchone(
