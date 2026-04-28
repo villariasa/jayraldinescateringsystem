@@ -1,8 +1,10 @@
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QLineEdit, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QLineEdit, QWidget, QMessageBox, QFileDialog
 from PySide6.QtCore import Qt, QSize, Signal, QTimer
 from PySide6.QtGui import QFont
+import sys
+import os
+import subprocess
 from datetime import datetime
-
 from utils.icons import get_icon
 from utils.theme import ThemeManager
 
@@ -108,6 +110,102 @@ class TopBar(QFrame):
         self.owner_lbl = QLabel("Owner", self)
         self.owner_lbl.setObjectName("h3")
         self.main_layout.addWidget(self.owner_lbl)
+
+        self.main_layout.addSpacing(8)
+
+        self.close_btn = QPushButton(self)
+        self.close_btn.setIcon(get_icon("close", color="#EF4444", size=QSize(16, 16)))
+        self.close_btn.setIconSize(QSize(16, 16))
+        self.close_btn.setFixedSize(32, 32)
+        self.close_btn.setToolTip("Close Application")
+        self.close_btn.setCursor(Qt.PointingHandCursor)
+        self.close_btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none; border-radius: 8px; }"
+            "QPushButton:hover { background: rgba(239,68,68,0.15); }"
+        )
+        self.close_btn.clicked.connect(self._confirm_close)
+        self.main_layout.addWidget(self.close_btn)
+
+    def _confirm_close(self):
+        reply = QMessageBox.question(
+            self, "Close Application",
+            "Are you sure you want to close Jayraldine's Catering?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        backup_reply = QMessageBox.question(
+            self, "Backup Database",
+            "Do you want to backup the database before closing?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if backup_reply == QMessageBox.Yes:
+            self._do_backup()
+        else:
+            sys.exit(0)
+
+    def _do_backup(self):
+        default_name = f"jayraldines_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Database Backup", default_name, "SQL Files (*.sql);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            from utils.db import _CONFIG
+            env = os.environ.copy()
+            env["PGPASSWORD"] = _CONFIG.get("password", "")
+            result = subprocess.run(
+                [
+                    "pg_dump",
+                    "-h", _CONFIG.get("host", "localhost"),
+                    "-p", str(_CONFIG.get("port", 5432)),
+                    "-U", _CONFIG.get("user", "postgres"),
+                    "-F", "p",
+                    "-f", path,
+                    _CONFIG.get("dbname", "jayraldines_catering"),
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                QMessageBox.information(
+                    self, "Backup Successful",
+                    f"Database backed up successfully to:\n{path}"
+                )
+                sys.exit(0)
+            else:
+                err = result.stderr.strip() or "Unknown error"
+                retry = QMessageBox.question(
+                    self, "Backup Failed",
+                    f"Backup failed:\n{err}\n\nClose anyway without backup?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if retry == QMessageBox.Yes:
+                    sys.exit(0)
+        except FileNotFoundError:
+            retry = QMessageBox.question(
+                self, "pg_dump Not Found",
+                "pg_dump was not found on this system.\nClose anyway without backup?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if retry == QMessageBox.Yes:
+                sys.exit(0)
+        except Exception as exc:
+            retry = QMessageBox.question(
+                self, "Backup Error",
+                f"An error occurred during backup:\n{exc}\n\nClose anyway without backup?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if retry == QMessageBox.Yes:
+                sys.exit(0)
 
     def _toggle_theme(self):
         new_theme = self._theme.toggle()

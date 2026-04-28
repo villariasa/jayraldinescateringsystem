@@ -533,6 +533,7 @@ DECLARE
     v_total         NUMERIC;
     v_min_pct       NUMERIC;
     v_allow_zero    BOOLEAN;
+    v_customer_id   INT;
 BEGIN
     SELECT status, amount_paid, total_amount
     INTO v_current, v_amount_paid, v_total
@@ -577,19 +578,19 @@ BEGIN
     WHERE id = p_booking_id;
 
     IF p_new_status = 'CONFIRMED' THEN
-        UPDATE customers
-        SET total_events = (
-            SELECT COUNT(*) FROM bookings
-            WHERE customer_id = customers.id
-              AND status IN ('CONFIRMED', 'COMPLETED')
-        ), updated_at = NOW()
-        WHERE id = (
-            SELECT customer_id FROM bookings WHERE id = p_booking_id
-        ) AND id IS NOT NULL;
+        SELECT customer_id INTO v_customer_id FROM bookings WHERE id = p_booking_id;
 
-        CALL sp_recalculate_loyalty(
-            (SELECT customer_id FROM bookings WHERE id = p_booking_id)
-        );
+        IF v_customer_id IS NOT NULL THEN
+            UPDATE customers
+            SET total_events = (
+                SELECT COUNT(*) FROM bookings
+                WHERE customer_id = v_customer_id
+                  AND status IN ('CONFIRMED', 'COMPLETED')
+            ), updated_at = NOW()
+            WHERE id = v_customer_id;
+
+            CALL sp_recalculate_loyalty(v_customer_id);
+        END IF;
     END IF;
 END;
 $$;
