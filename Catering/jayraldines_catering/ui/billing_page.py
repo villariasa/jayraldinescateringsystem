@@ -318,6 +318,8 @@ class InvoiceDialog(QDialog):
         completer = self.customer_combo.completer()
         completer.setCompletionMode(QCompleter.PopupCompletion)
         completer.setFilterMode(Qt.MatchContains)
+        
+        # NOTE: Signal connection removed from here to fix AttributeError
 
         self._date_stack = QStackedWidget()
         self._date_stack.setFixedHeight(38)
@@ -343,8 +345,9 @@ class InvoiceDialog(QDialog):
         self._date_stack.addWidget(self.date_combo)
         self._date_stack.setCurrentIndex(0)
 
-        # MOVED THE SIGNAL CONNECTION HERE (After date_combo is created!)
+        # --- FIX 1: Move Signal down here so self.date_combo exists first ---
         self.customer_combo.currentIndexChanged.connect(self._on_customer_selected)
+        
         if self._edit_mode:
             idx = self.customer_combo.findText(self._invoice_data.get("customer", ""))
             if idx >= 0:
@@ -419,7 +422,14 @@ class InvoiceDialog(QDialog):
             self._err.setText("Please search and select a customer.")
             self._err.show()
             return
+            
+        # --- FIX 2: Check if date_combo was used to extract booking_id ---
+        booking_id = None
+        if self._date_stack.currentIndex() == 1:
+            booking_id = self.date_combo.currentData()
+            
         self._result = {
+            "booking_id": booking_id,
             "customer":   customer,
             "event_date": self._get_event_date(),
             "amount":     self.amount_field.value(),
@@ -444,7 +454,11 @@ class InvoiceDialog(QDialog):
             self.date_combo.blockSignals(True)
             self.date_combo.clear()
             for d in dates:
-                self.date_combo.addItem(d)
+                # Check if repo returned dict with ID, or just string
+                if isinstance(d, dict):
+                    self.date_combo.addItem(d.get("date", ""), d.get("id"))
+                else:
+                    self.date_combo.addItem(d)
             self.date_combo.blockSignals(False)
             self._date_stack.setCurrentIndex(1)
         else:
@@ -501,20 +515,18 @@ class BillingPage(QWidget):
         self._table.setHorizontalHeaderLabels(
             ["Invoice #", "Customer", "Event Date", "Total", "Paid", "Balance", "Status", "", "", "", ""]
         )
+        
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(1, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(7,  QHeaderView.Fixed)
-        hdr.setSectionResizeMode(8,  QHeaderView.Fixed)
-        hdr.setSectionResizeMode(9,  QHeaderView.Fixed)
         
-        # Make Column 10 (Actions) dynamically resize to fit all 3 buttons
-        hdr.setSectionResizeMode(10, QHeaderView.ResizeToContents) 
+        # --- FIX 3: Let the action columns resize automatically to fit without cutting off ---
+        hdr.setSectionResizeMode(7,  QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(8,  QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(9,  QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(10, QHeaderView.ResizeToContents)
+        # We removed the lines forcing the columns to 38px
         
-        self._table.setColumnWidth(7,  38)
-        self._table.setColumnWidth(8,  38)
-        self._table.setColumnWidth(9,  38)
-        # Note: We removed the self._table.setColumnWidth(10, 38) line entirely!
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.verticalHeader().setVisible(False)

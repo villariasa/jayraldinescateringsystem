@@ -83,11 +83,11 @@ def get_customer_email_by_name(name: str) -> str:
     return (row["email"] or "") if row else ""
 
 
-def get_customer_event_dates(name: str) -> list[str]:
-    """Return list of event date strings (MMM dd, yyyy) from confirmed/pending bookings for a customer."""
+def get_customer_event_dates(name: str) -> list[dict]:
+    """Return list of dicts {'date': '...', 'id': ...} for a customer's valid bookings."""
     rows = db.fetchall(
         """
-        SELECT DISTINCT event_date
+        SELECT id, event_date
         FROM bookings
         WHERE customer_name = %s AND status NOT IN ('CANCELLED')
         ORDER BY event_date DESC
@@ -98,10 +98,12 @@ def get_customer_event_dates(name: str) -> list[str]:
         return []
     from datetime import date as _d
     return [
-        r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], _d) else str(r["event_date"])
+        {
+            "id": r["id"],
+            "date": r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], _d) else str(r["event_date"])
+        }
         for r in rows
     ]
-
 
 # ---------------------------------------------------------------------------
 # MENU ITEMS
@@ -399,13 +401,13 @@ def get_all_invoices() -> list[dict]:
 
 
 def create_invoice(data: dict) -> Optional[dict]:
-    """data keys: customer, event_date (str), amount (float), paid (float), status (str)"""
+    """data keys: booking_id (int|None), customer, event_date (str), amount, paid, status"""
     try:
         event_date = _parse_date(data["event_date"])
         result = db.callproc_out(
             "sp_create_invoice",
             in_params=(
-                None,
+                data.get("booking_id"), # FIX: Now correctly passing the ID to the DB
                 data["customer"],
                 event_date,
                 data["amount"],
@@ -419,7 +421,6 @@ def create_invoice(data: dict) -> Optional[dict]:
     except Exception as exc:
         print(f"[repository] create_invoice failed: {exc}")
     return None
-
 
 def update_invoice(db_id: int, data: dict) -> None:
     """data keys: customer, event_date (str), amount (float), paid (float), status (str)"""
