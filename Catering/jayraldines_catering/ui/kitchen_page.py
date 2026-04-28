@@ -183,7 +183,7 @@ class KitchenPage(QWidget):
 
         default_w = 220
         self._splitter.setSizes([default_w] * len(_DISPLAY_COLS))
-        root.addWidget(self._splitter)
+        root.addWidget(self._splitter, 1)
 
     def _apply_column_styles(self):
         bg = "#FFFFFF" if _is_light() else "#111827"
