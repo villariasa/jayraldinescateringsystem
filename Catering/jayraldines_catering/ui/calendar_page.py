@@ -381,6 +381,7 @@ class CalendarPage(QWidget):
         self.side_panel.setObjectName("sidePanel")
         self.side_panel.setFixedWidth(340)
         self.side_panel.setMinimumHeight(300)
+        self.side_panel.setMaximumHeight(620)
         self.side_panel.setVisible(False) 
         
         sp_layout = QVBoxLayout(self.side_panel)
