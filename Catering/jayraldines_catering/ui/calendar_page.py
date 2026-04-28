@@ -120,7 +120,8 @@ class ScheduleCard(AnimatedCard):
 class ManageScheduleDialog(QDialog):
     def __init__(self, parent=None, date_str="", events=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.Dialog)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(480)
         self.setModal(True)
         self._events = list(events or [])
@@ -130,8 +131,7 @@ class ManageScheduleDialog(QDialog):
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(16, 16, 16, 16)
 
         container = QFrame()
         container.setObjectName("card")
@@ -139,15 +139,17 @@ class ManageScheduleDialog(QDialog):
         container_lay.setContentsMargins(0, 0, 0, 0)
         container_lay.setSpacing(0)
 
-        # --- Scrollable body ---
+        # scrollable area for all content
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background: transparent;")
 
         body = QWidget()
+        body.setStyleSheet("background: transparent;")
         lay = QVBoxLayout(body)
-        lay.setContentsMargins(24, 24, 24, 16)
+        lay.setContentsMargins(24, 24, 24, 24)
         lay.setSpacing(16)
 
         header = QHBoxLayout()
@@ -199,19 +201,9 @@ class ManageScheduleDialog(QDialog):
         self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
         self._err.hide()
         lay.addWidget(self._err)
-        lay.addStretch()
 
-        scroll.setWidget(body)
-        container_lay.addWidget(scroll, 1)
-
-        # --- Fixed bottom buttons (always visible) ---
-        btn_bar = QFrame()
-        btn_bar.setObjectName("card")
-        btn_bar.setStyleSheet("border-top: 1px solid #E2E8F0; border-radius: 0px;")
-        btn_bar.setFixedHeight(60)
-        btn_bar_lay = QHBoxLayout(btn_bar)
-        btn_bar_lay.setContentsMargins(24, 0, 24, 0)
-        btn_bar_lay.addStretch()
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
         cancel = QPushButton("Cancel")
         cancel.setObjectName("secondaryButton")
         cancel.setCursor(Qt.PointingHandCursor)
@@ -224,10 +216,13 @@ class ManageScheduleDialog(QDialog):
         save_btn.setObjectName("goldButton")
         save_btn.setCursor(Qt.PointingHandCursor)
         save_btn.clicked.connect(self._save)
-        btn_bar_lay.addWidget(cancel)
-        btn_bar_lay.addWidget(add_btn)
-        btn_bar_lay.addWidget(save_btn)
-        container_lay.addWidget(btn_bar)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(add_btn)
+        btn_row.addWidget(save_btn)
+        lay.addLayout(btn_row)
+
+        scroll.setWidget(body)
+        container_lay.addWidget(scroll)
 
         outer.addWidget(container)
 
