@@ -35,6 +35,7 @@ CREATE TYPE kitchen_status    AS ENUM ('Queued', 'Preparing', 'In Progress', 'Re
 CREATE TYPE payment_method    AS ENUM ('Cash', 'Bank Transfer', 'GCash', 'PayMaya');
 CREATE TYPE menu_category     AS ENUM ('Main Course','Noodles','Soup','Vegetables','Dessert','Drinks','Bread','Other');
 CREATE TYPE menu_package_tier AS ENUM ('Budget','Standard','Premium','Custom');
+CREATE TYPE inventory_unit    AS ENUM ('kg','g','L','mL','pcs','packs','trays','boxes');
 CREATE TYPE expense_category  AS ENUM ('Food Cost','Labor','Transport','Utilities','Equipment','Other');
 
 -- =============================================================================
@@ -104,20 +105,6 @@ INSERT INTO packages (name, price_per_pax, min_pax, description) VALUES
   ('VIP Package',      3500.00, 100, 'Full service, 12 dishes, open bar, décor');
 
 -- =============================================================================
--- TABLE: package_items
--- Links menu_items to packages with owner-defined per-item pricing
--- =============================================================================
-CREATE TABLE package_items (
-    id              SERIAL          PRIMARY KEY,
-    package_id      INT             NOT NULL REFERENCES packages(id) ON DELETE CASCADE,
-    menu_item_id    INT             NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
-    custom_price    NUMERIC(10,2)   NOT NULL CHECK (custom_price >= 0),
-    CONSTRAINT uq_package_menu_item UNIQUE (package_id, menu_item_id)
-);
-
-CREATE INDEX idx_package_items_pkg ON package_items (package_id);
-
--- =============================================================================
 -- TABLE: menu_items
 -- =============================================================================
 CREATE TABLE menu_items (
@@ -141,6 +128,21 @@ INSERT INTO menu_items (name, category, package_tier, price, status) VALUES
   ('Chicken Inasal',   'Main Course', 'Budget',   2200.00, 'Available'),
   ('Chopsuey',         'Vegetables',  'Budget',   1200.00, 'Available'),
   ('Puto Bumbong',     'Dessert',     'Budget',    600.00, 'Seasonal');
+
+-- =============================================================================
+-- TABLE: package_items
+-- Links menu_items to packages with owner-defined per-item pricing
+-- =============================================================================
+CREATE TABLE package_items (
+    id              SERIAL          PRIMARY KEY,
+    package_id      INT             NOT NULL REFERENCES packages(id) ON DELETE CASCADE,
+    menu_item_id    INT             NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+    custom_price    NUMERIC(10,2)   NOT NULL CHECK (custom_price >= 0),
+    CONSTRAINT uq_package_menu_item UNIQUE (package_id, menu_item_id)
+);
+
+CREATE INDEX idx_package_items_pkg ON package_items (package_id);
+
 
 -- =============================================================================
 -- TABLE: bookings
@@ -258,6 +260,25 @@ CREATE TABLE kitchen_tasks (
 CREATE INDEX idx_kitchen_tasks_order ON kitchen_tasks (order_id);
 
 -- =============================================================================
+-- TABLE: inventory
+-- =============================================================================
+CREATE TABLE inventory (
+    id          SERIAL          PRIMARY KEY,
+    ingredient  VARCHAR(120)    NOT NULL UNIQUE,
+    unit        inventory_unit  NOT NULL,
+    stock       NUMERIC(10,2)   NOT NULL DEFAULT 0 CHECK (stock >= 0),
+    min_stock   NUMERIC(10,2)   NOT NULL DEFAULT 0 CHECK (min_stock >= 0),
+    updated_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO inventory (ingredient, unit, stock, min_stock) VALUES
+  ('Chicken',     'kg', 8,  20),
+  ('Rice',        'kg', 15, 30),
+  ('Cooking Oil', 'L',  4,  10),
+  ('Pork',        'kg', 25, 15),
+  ('Flour',       'kg', 40, 10);
+
+-- =============================================================================
 -- TABLE: expenses  (Feature 8 — profit/expense tracking)
 -- =============================================================================
 CREATE TABLE expenses (
@@ -336,8 +357,8 @@ CREATE TABLE notifications (
 
 INSERT INTO notifications (type, title, message, color, is_read) VALUES
   ('warning', 'Payment Pending',    'Invoice #BKG-002 (Smith Wedding) requires a 50% downpayment of ₱60,000.',  '#F59E0B', TRUE),
-  ('success', 'Booking Confirmed',  'TechCorp Inc. booking for Oct 24 has been confirmed. 150 pax.',             '#22C55E', TRUE),
-  ('info',    'New Booking Request','Cruz Corporate submitted an event inquiry for Apr 30, 2026.',               '#3B82F6', TRUE);
+  ('success', 'Booking Confirmed',  'TechCorp Inc. booking for Oct 24 has been confirmed. 150 pax.',            '#22C55E', TRUE),
+  ('info',    'New Booking Request','Cruz Corporate submitted an event inquiry for Apr 30, 2026.',              '#3B82F6', TRUE);
 
 -- =============================================================================
 -- TABLE: calendar_events
@@ -538,7 +559,7 @@ BEGIN
         INTO v_min_pct, v_allow_zero
         FROM business_info WHERE id = 1;
 
-        v_min_pct   := COALESCE(v_min_pct, 30);
+        v_min_pct    := COALESCE(v_min_pct, 30);
         v_allow_zero := COALESCE(v_allow_zero, FALSE);
 
         IF NOT v_allow_zero AND v_amount_paid < (v_total * v_min_pct / 100) THEN
@@ -1337,8 +1358,8 @@ $$;
 -- =============================================================================
 CREATE OR REPLACE VIEW v_dashboard_kpis AS
 SELECT
-    (SELECT COUNT(*) FROM bookings WHERE event_date = CURRENT_DATE)                         AS todays_events,
-    (SELECT COUNT(*) FROM bookings WHERE status = 'PENDING')                                AS pending_bookings,
+    (SELECT COUNT(*) FROM bookings WHERE event_date = CURRENT_DATE)                          AS todays_events,
+    (SELECT COUNT(*) FROM bookings WHERE status = 'PENDING')                                 AS pending_bookings,
     (SELECT COALESCE(SUM(total_amount),0) FROM bookings
      WHERE event_date BETWEEN date_trunc('week', CURRENT_DATE)
                           AND date_trunc('week', CURRENT_DATE) + INTERVAL '6 days')         AS weekly_revenue,
@@ -1371,13 +1392,13 @@ CREATE OR REPLACE VIEW v_calendar_day_summary AS
 SELECT
     b.event_date,
     COUNT(*)                            AS booking_count,
-    SUM(b.pax)                         AS total_pax,
+    SUM(b.pax)                          AS total_pax,
     bi.max_daily_pax,
     CASE
         WHEN SUM(b.pax) >= bi.max_daily_pax            THEN 'Full'
         WHEN SUM(b.pax) >= bi.max_daily_pax * 0.67     THEN 'Near Full'
-        ELSE                                                 'Available'
-    END                                AS capacity_status
+        ELSE                                           'Available'
+    END                                 AS capacity_status
 FROM bookings b
 CROSS JOIN (SELECT max_daily_pax FROM business_info LIMIT 1) bi
 WHERE b.status != 'CANCELLED'
@@ -1460,9 +1481,9 @@ SELECT 'Others', COUNT(*) FROM (
 -- =============================================================================
 CREATE OR REPLACE VIEW v_report_kpis AS
 SELECT
-    COUNT(*)                                                                    AS total_bookings,
-    COALESCE(SUM(b.pax), 0)::INT                                               AS total_pax,
-    COALESCE((SELECT SUM(total_amount) FROM invoices), 0)::FLOAT               AS total_revenue,
+    COUNT(*)                                                                        AS total_bookings,
+    COALESCE(SUM(b.pax), 0)::INT                                                    AS total_pax,
+    COALESCE((SELECT SUM(total_amount) FROM invoices), 0)::FLOAT                    AS total_revenue,
     COALESCE((SELECT SUM(total_amount - amount_paid) FROM invoices WHERE status != 'Paid'), 0)::FLOAT AS unpaid_amount,
     COALESCE((SELECT COUNT(*) FROM bookings WHERE DATE(event_date) = CURRENT_DATE), 0)::INT AS today_bookings,
     COALESCE((SELECT COUNT(*) FROM bookings
@@ -1539,11 +1560,11 @@ LIMIT 10;
 -- =============================================================================
 CREATE OR REPLACE VIEW v_profit_summary AS
 SELECT
-    COALESCE(m.month_num, e.month_num)                                  AS month_num,
+    COALESCE(m.month_num, e.month_num)                                          AS month_num,
     COALESCE(m.month_label, TO_CHAR(TO_DATE(e.month_num::TEXT, 'MM'), 'Mon')) AS month_label,
-    COALESCE(m.revenue, 0)::FLOAT                                       AS revenue,
-    COALESCE(e.total_expense, 0)::FLOAT                                 AS total_expense,
-    (COALESCE(m.revenue, 0) - COALESCE(e.total_expense, 0))::FLOAT     AS net_profit
+    COALESCE(m.revenue, 0)::FLOAT                                               AS revenue,
+    COALESCE(e.total_expense, 0)::FLOAT                                         AS total_expense,
+    (COALESCE(m.revenue, 0) - COALESCE(e.total_expense, 0))::FLOAT              AS net_profit
 FROM (
     SELECT
         EXTRACT(MONTH FROM event_date)::INT AS month_num,
