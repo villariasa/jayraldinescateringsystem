@@ -138,7 +138,8 @@ class NotificationPopover(QFrame):
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._scroll.setStyleSheet("background: transparent;")
-        self._scroll.setMaximumHeight(400)
+        self._scroll.setMinimumHeight(200)
+        self._scroll.setMaximumHeight(480)
 
         self._inner_w = QWidget()
         self._inner_w.setStyleSheet("background: transparent;")
@@ -191,9 +192,10 @@ class NotificationPopover(QFrame):
 
     def _build_item(self, notif):
         w = QWidget()
+        w.setMinimumHeight(72)
         w.setStyleSheet("background: transparent;")
         lay = QHBoxLayout(w)
-        lay.setContentsMargins(0, 10, 0, 10)
+        lay.setContentsMargins(0, 12, 0, 12)
         lay.setSpacing(12)
 
         dot = QFrame()
@@ -207,8 +209,11 @@ class NotificationPopover(QFrame):
         msg_lbl = QLabel(notif["message"])
         msg_lbl.setObjectName("subtitle")
         msg_lbl.setWordWrap(True)
+        msg_lbl.setMinimumHeight(18)
+        msg_lbl.setStyleSheet("font-size: 12px; color: #9CA3AF;")
         time_lbl = QLabel(notif["time"])
         time_lbl.setObjectName("muted")
+        time_lbl.setStyleSheet("font-size: 11px; color: #6B7280;")
 
         text_col.addWidget(title_lbl)
         text_col.addWidget(msg_lbl)
