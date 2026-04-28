@@ -121,7 +121,6 @@ class ManageScheduleDialog(QDialog):
     def __init__(self, parent=None, date_str="", events=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(480)
         self.setModal(True)
         self._events = list(events or [])
