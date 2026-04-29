@@ -110,6 +110,16 @@ class MainWindow(QMainWindow):
         self._poll_timer.start(5_000)
         QTimer.singleShot(0, self._poll_notifications)
 
+        self._dash_timer = QTimer(self)
+        self._dash_timer.timeout.connect(self.dashboard_page.reload)
+        self._dash_timer.start(5_000)
+
+        from utils.signals import app_events
+        _ev = app_events()
+        _ev.booking_saved.connect(self._on_booking_saved)
+        _ev.payment_recorded.connect(self._on_payment_recorded)
+        _ev.kitchen_updated.connect(self._on_kitchen_updated)
+
         self.topbar.search_changed.connect(self._on_search)
 
         print("[MW] Navigating to dashboard...")
@@ -164,6 +174,21 @@ class MainWindow(QMainWindow):
     def _on_all_read(self):
         self.topbar.notif_badge.setText("0")
         self.topbar.notif_badge.setVisible(False)
+
+    def _on_booking_saved(self):
+        self.billing_page.reload()
+        self.kitchen_page.reload()
+        self.dashboard_page.reload()
+        self._poll_notifications()
+
+    def _on_payment_recorded(self):
+        self.billing_page.reload()
+        self.dashboard_page.reload()
+        self._poll_notifications()
+
+    def _on_kitchen_updated(self):
+        self.dashboard_page.reload()
+        self._poll_notifications()
 
     def _exit_fullscreen(self):
         if self.isFullScreen():

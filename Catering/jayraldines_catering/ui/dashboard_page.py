@@ -366,10 +366,6 @@ class DashboardPage(QWidget):
 
         self._load_data()
 
-        self._refresh_timer = QTimer(self)
-        self._refresh_timer.timeout.connect(self._load_data)
-        self._refresh_timer.start(5_000)
-
     def _build_export_menu(self):
         menu = QMenu(self)
         if not ThemeManager().is_dark():
@@ -421,6 +417,9 @@ class DashboardPage(QWidget):
         else:
             QMessageBox.warning(self, "Export Failed",
                 "Excel export failed. Make sure openpyxl is installed:\npip install openpyxl")
+
+    def reload(self):
+        self._load_data()
 
     def _load_data(self):
         kpis = repo.get_dashboard_kpis()

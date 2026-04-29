@@ -16,6 +16,7 @@ from components.dialogs import confirm, success
 import utils.repository as repo
 import utils.exporter as exporter
 from utils.session import get_actor
+from utils.signals import app_events
 
 
 _STATUS_COLORS = {"Paid": "#22C55E", "Partial": "#F59E0B", "Unpaid": "#EF4444"}
@@ -298,6 +299,18 @@ class BillingPage(QWidget):
         self._build_ui()
         self._populate_table()
 
+    def reload(self):
+        try:
+            new_rows = repo.get_all_invoices() or []
+        except Exception:
+            return
+        old_sig = [(i.get("db_id"), i.get("paid"), i.get("status")) for i in self._invoices]
+        new_sig = [(i.get("db_id"), i.get("paid"), i.get("status")) for i in new_rows]
+        if old_sig == new_sig:
+            return
+        self._invoices = new_rows
+        self._populate_table()
+
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -504,6 +517,7 @@ class BillingPage(QWidget):
                         )
                     except Exception:
                         pass
+                    app_events().payment_recorded.emit()
                     success(self, message=f"Payment of ₱{result['amount']:,.2f} recorded.")
                 except Exception as exc:
                     QMessageBox.warning(self, "Payment Error", str(exc))

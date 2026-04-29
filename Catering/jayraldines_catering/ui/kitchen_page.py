@@ -9,6 +9,7 @@ from utils.theme import ThemeManager
 from components.dialogs import confirm, success
 import utils.repository as repo
 from utils.session import get_actor
+from utils.signals import app_events
 
 
 _SAMPLE_ORDERS = [
@@ -96,6 +97,19 @@ class KitchenPage(QWidget):
         self._build_ui()
         self._refresh_columns()
         ThemeManager().theme_changed.connect(self._on_theme_changed)
+
+    def reload(self):
+        try:
+            repo.sync_kitchen_from_bookings()
+            new_rows = repo.get_all_orders() or []
+        except Exception:
+            return
+        old_sig = [(o.get("db_id"), o.get("status")) for o in self._orders]
+        new_sig = [(o.get("db_id"), o.get("status")) for o in new_rows]
+        if old_sig == new_sig:
+            return
+        self._orders = new_rows
+        self._refresh_columns()
 
     def _reset_column_widths(self):
         if not hasattr(self, "_splitter") or not hasattr(self, "_h_scroll"):
@@ -425,6 +439,7 @@ class KitchenPage(QWidget):
                 )
             except Exception:
                 pass
+            app_events().kitchen_updated.emit()
             if next_s == "Delivered":
                 success(self, message=f"Order '{order['id']}' marked as Delivered.")
 
@@ -439,6 +454,7 @@ class KitchenPage(QWidget):
             repo.write_audit_log(get_actor(), "STATUS_CHANGE", "kitchen_orders", order["db_id"],
                 {"status": old_s}, {"status": prev_s})
         self._refresh_columns()
+        app_events().kitchen_updated.emit()
 
     def _cancel_order(self, order):
         if not confirm(self, title="Cancel Order",
@@ -461,6 +477,7 @@ class KitchenPage(QWidget):
             )
         except Exception:
             pass
+        app_events().kitchen_updated.emit()
         success(self, message=f"Order '{order['id']}' has been cancelled.")
 
     def _remove_order(self, order):

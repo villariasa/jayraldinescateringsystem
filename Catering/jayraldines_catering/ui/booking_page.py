@@ -14,6 +14,7 @@ from components.dialogs import confirm, success
 from components.filter_popover import FilterPopover
 import utils.repository as repo
 from utils.session import get_actor
+from utils.signals import app_events
 
 
 _STATUS_COLORS = {
@@ -334,6 +335,7 @@ class BookingPage(QWidget):
                 pass
             if b.get("db_id"):
                 self._send_confirmation_auto(b)
+            app_events().booking_saved.emit()
         except Exception as exc:
             QMessageBox.warning(self, "Cannot Approve", str(exc))
 
@@ -481,6 +483,8 @@ class BookingPage(QWidget):
             )
         except Exception as exc:
             print(f"[Notification] Failed to create in-app notification: {exc}")
+
+        app_events().booking_saved.emit()
 
     def _send_approval_request(self, data: dict, bkg_ref: str) -> None:
         """Send a booking approval request email to the customer."""
