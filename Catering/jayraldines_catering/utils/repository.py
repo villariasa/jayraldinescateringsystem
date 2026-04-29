@@ -473,7 +473,7 @@ def complete_booking(db_id: int) -> bool:
 def get_all_invoices() -> list[dict]:
     rows = db.fetchall(
         """
-        SELECT i.id, i.invoice_ref, i.customer_name, i.event_date,
+        SELECT i.id, i.invoice_ref, i.booking_id, i.customer_name, i.event_date,
                i.total_amount, i.amount_paid, i.status::TEXT,
                COALESCE(c.email, '') AS customer_email
         FROM invoices i
@@ -487,6 +487,7 @@ def get_all_invoices() -> list[dict]:
         {
             "db_id":          r["id"],
             "invoice":        r["invoice_ref"],
+            "booking_id":     r["booking_id"],
             "customer":       r["customer_name"],
             "customer_email": r["customer_email"],
             "event_date":     r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], date) else str(r["event_date"]),
@@ -498,27 +499,94 @@ def get_all_invoices() -> list[dict]:
     ]
 
 
-def create_invoice(data: dict) -> Optional[dict]:
-    """data keys: booking_id (int|None), customer, event_date (str), amount, paid, status"""
+def auto_create_invoice(booking_id: int) -> Optional[dict]:
+    """Auto-create exactly one invoice per booking (called right after booking creation)."""
     try:
-        event_date = _parse_date(data["event_date"])
         result = db.callproc_out(
-            "sp_create_invoice",
-            in_params=(
-                data.get("booking_id"), # FIX: Now correctly passing the ID to the DB
-                data["customer"],
-                event_date,
-                data["amount"],
-                data["paid"],
-                data["status"],
-            ),
+            "sp_auto_create_invoice",
+            in_params=(booking_id,),
             out_names=["p_invoice_id", "p_invoice_ref"],
         )
         if result:
             return {"invoice_id": result["p_invoice_id"], "invoice_ref": result["p_invoice_ref"]}
     except Exception as exc:
-        print(f"[repository] create_invoice failed: {exc}")
+        print(f"[repository] auto_create_invoice failed: {exc}")
     return None
+
+
+def pay_invoice(booking_id: int, payment_amount: float, payment_date,
+                method: str = "Cash", note: str = "") -> dict:
+    """
+    Single entry point for all payments.
+    Validates downpayment, overpayment, cancelled booking.
+    Updates invoice + booking atomically.
+    Returns result dict or raises Exception with a user-friendly message.
+    """
+    from datetime import date as _d
+    if payment_date is None:
+        payment_date = _d.today()
+    elif isinstance(payment_date, str):
+        payment_date = _parse_date(payment_date)
+    result = db.callproc_out(
+        "sp_pay_invoice",
+        in_params=(booking_id, payment_amount, payment_date, method, note or None),
+        out_names=[
+            "p_invoice_id", "p_invoice_ref",
+            "p_new_invoice_status", "p_new_booking_status",
+            "p_new_paid", "p_remaining",
+        ],
+    )
+    if not result:
+        raise Exception("Payment failed — no result from database.")
+    return {
+        "invoice_id":           result["p_invoice_id"],
+        "invoice_ref":          result["p_invoice_ref"],
+        "new_invoice_status":   result["p_new_invoice_status"],
+        "new_booking_status":   result["p_new_booking_status"],
+        "new_paid":             float(result["p_new_paid"]),
+        "remaining":            float(result["p_remaining"]),
+    }
+
+
+def get_invoice_payment_info(booking_id: int) -> Optional[dict]:
+    """Return invoice + computed payment requirements for a booking."""
+    row = db.fetchone(
+        """
+        SELECT i.id, i.invoice_ref, i.total_amount, i.amount_paid, i.status::TEXT,
+               bi.min_downpayment_pct, bi.allow_zero_downpayment
+        FROM invoices i
+        JOIN bookings b ON b.id = i.booking_id
+        CROSS JOIN business_info bi
+        WHERE i.booking_id = %s AND bi.id = 1
+        LIMIT 1
+        """,
+        (booking_id,),
+    )
+    if not row:
+        return None
+    total      = float(row["total_amount"])
+    paid       = float(row["amount_paid"])
+    min_pct    = float(row["min_downpayment_pct"])
+    allow_zero = bool(row["allow_zero_downpayment"])
+    required_down = round(total * min_pct / 100, 2)
+    remaining  = total - paid
+    if paid == 0:
+        required_payment = 0.0 if allow_zero else required_down
+    else:
+        required_payment = remaining
+    return {
+        "invoice_id":       row["id"],
+        "invoice_ref":      row["invoice_ref"],
+        "total":            total,
+        "paid":             paid,
+        "remaining":        remaining,
+        "required_down":    required_down,
+        "required_payment": required_payment,
+        "allow_zero":       allow_zero,
+        "min_pct":          min_pct,
+        "status":           row["status"],
+    }
+
 
 def update_invoice(db_id: int, data: dict) -> None:
     """data keys: customer, event_date (str), amount (float), paid (float), status (str)"""
@@ -537,16 +605,6 @@ def update_invoice(db_id: int, data: dict) -> None:
         )
     except Exception as exc:
         print(f"[repository] update_invoice failed: {exc}")
-
-
-def record_payment(invoice_id: int, amount: float) -> Optional[str]:
-    """Returns new status string or None on failure."""
-    result = db.callproc_out(
-        "sp_record_payment",
-        in_params=(invoice_id, amount),
-        out_names=["p_new_status"],
-    )
-    return result["p_new_status"] if result else None
 
 
 def delete_invoice(db_id: int) -> None:
@@ -720,78 +778,6 @@ def sync_kitchen_from_bookings() -> int:
     except Exception as exc:
         print(f"[repo] sync_kitchen_from_bookings: {exc}")
         return 0
-
-
-# ---------------------------------------------------------------------------
-# INVENTORY
-# ---------------------------------------------------------------------------
-
-def get_all_inventory() -> list[dict]:
-    rows = db.fetchall(
-        "SELECT id, ingredient, unit::TEXT, stock, min_stock FROM inventory ORDER BY ingredient"
-    )
-    if not rows:
-        return []
-    return [
-        {
-            "id":         r["id"],
-            "ingredient": r["ingredient"],
-            "unit":       r["unit"],
-            "stock":      float(r["stock"]),
-            "min_stock":  float(r["min_stock"]),
-            "status":     "Low Stock" if r["stock"] < r["min_stock"] else "OK",
-        }
-        for r in rows
-    ]
-
-
-def add_inventory_item(data: dict) -> Optional[int]:
-    """data keys: ingredient, unit, stock, min_stock, expiry_date (optional)"""
-    result = db.callproc_out(
-        "sp_add_inventory_item",
-        in_params=(
-            data["ingredient"],
-            data["unit"],
-            data.get("stock", 0),
-            data.get("min_stock", 0),
-            data.get("expiry_date", None),
-        ),
-        out_names=["p_item_id"],
-    )
-    return result["p_item_id"] if result else None
-
-
-def update_inventory_item(item_id: int, data: dict) -> None:
-    """data keys: ingredient, unit, min_stock, expiry_date (optional)"""
-    db.callproc_void(
-        "sp_update_inventory_item",
-        in_params=(
-            item_id,
-            data["ingredient"],
-            data["unit"],
-            data.get("min_stock", 0),
-            data.get("expiry_date", None),
-        ),
-    )
-
-
-def adjust_inventory_stock(item_id: int, delta: float) -> Optional[float]:
-    """Returns new stock level or None on failure."""
-    result = db.callproc_out(
-        "sp_adjust_inventory_stock",
-        in_params=(item_id, delta),
-        out_names=["p_new_stock"],
-    )
-    return float(result["p_new_stock"]) if result and result.get("p_new_stock") is not None else None
-
-
-def delete_inventory_item(item_id: int) -> None:
-    db.callproc_void("sp_delete_inventory_item", in_params=(item_id,))
-
-
-def get_low_stock_items() -> list[dict]:
-    rows = db.fetchall("SELECT * FROM v_inventory_alerts")
-    return rows if rows else []
 
 
 # ---------------------------------------------------------------------------

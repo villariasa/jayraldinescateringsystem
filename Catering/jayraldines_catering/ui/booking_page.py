@@ -466,19 +466,9 @@ class BookingPage(QWidget):
 
         if db_id:
             try:
-                from utils.repository import _parse_amount
-                amount_paid = _parse_amount(data.get("amount_paid", "0"))
-                if amount_paid > 0:
-                    repo.create_downpayment_invoice(
-                        booking_id=db_id,
-                        customer_name=data["name"],
-                        event_date=data["date"],
-                        total_amount=float(data["total"]),
-                        amount_paid=amount_paid,
-                        payment_mode=data.get("payment_mode", "Cash"),
-                    )
+                repo.auto_create_invoice(db_id)
             except Exception as exc:
-                print(f"[booking] auto downpayment invoice failed: {exc}")
+                print(f"[booking] auto_create_invoice failed: {exc}")
 
         self._send_approval_request(data, bkg_id)
 

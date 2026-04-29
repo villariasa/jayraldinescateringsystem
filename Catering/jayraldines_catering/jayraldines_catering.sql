@@ -35,7 +35,6 @@ CREATE TYPE kitchen_status    AS ENUM ('Queued', 'Preparing', 'In Progress', 'Re
 CREATE TYPE payment_method    AS ENUM ('Cash', 'Bank Transfer', 'GCash', 'PayMaya');
 CREATE TYPE menu_category     AS ENUM ('Main Course','Noodles','Soup','Vegetables','Dessert','Drinks','Bread','Other');
 CREATE TYPE menu_package_tier AS ENUM ('Budget','Standard','Premium','Custom');
-CREATE TYPE inventory_unit    AS ENUM ('kg','g','L','mL','pcs','packs','trays','boxes');
 CREATE TYPE expense_category  AS ENUM ('Food Cost','Labor','Transport','Utilities','Equipment','Other');
 
 -- =============================================================================
@@ -259,24 +258,6 @@ CREATE TABLE kitchen_tasks (
 
 CREATE INDEX idx_kitchen_tasks_order ON kitchen_tasks (order_id);
 
--- =============================================================================
--- TABLE: inventory
--- =============================================================================
-CREATE TABLE inventory (
-    id          SERIAL          PRIMARY KEY,
-    ingredient  VARCHAR(120)    NOT NULL UNIQUE,
-    unit        inventory_unit  NOT NULL,
-    stock       NUMERIC(10,2)   NOT NULL DEFAULT 0 CHECK (stock >= 0),
-    min_stock   NUMERIC(10,2)   NOT NULL DEFAULT 0 CHECK (min_stock >= 0),
-    updated_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
-);
-
-INSERT INTO inventory (ingredient, unit, stock, min_stock) VALUES
-  ('Chicken',     'kg', 8,  20),
-  ('Rice',        'kg', 15, 30),
-  ('Cooking Oil', 'L',  4,  10),
-  ('Pork',        'kg', 25, 15),
-  ('Flour',       'kg', 40, 10);
 
 -- =============================================================================
 -- TABLE: expenses  (Feature 8 — profit/expense tracking)
@@ -659,6 +640,7 @@ $$;
 
 -- =============================================================================
 -- STORED PROCEDURE: sp_create_invoice
+-- Internal helper: inserts an invoice row. Called by sp_auto_create_invoice.
 -- OUT p_invoice_id INT, OUT p_invoice_ref TEXT
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_create_invoice(
@@ -666,8 +648,6 @@ CREATE OR REPLACE PROCEDURE sp_create_invoice(
     IN  p_customer_name TEXT,
     IN  p_event_date    DATE,
     IN  p_total_amount  NUMERIC,
-    IN  p_amount_paid   NUMERIC,
-    IN  p_status        TEXT,
     OUT p_invoice_id    INT,
     OUT p_invoice_ref   TEXT
 )
@@ -680,9 +660,147 @@ BEGIN
         total_amount, amount_paid, status
     ) VALUES (
         p_invoice_ref, p_booking_id, p_customer_name, p_event_date,
-        p_total_amount, p_amount_paid, p_status::invoice_status
+        p_total_amount, 0, 'Unpaid'::invoice_status
     )
     RETURNING id INTO p_invoice_id;
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_auto_create_invoice
+-- Called immediately after a booking is created.
+-- Enforces: exactly one invoice per booking.
+-- OUT p_invoice_id INT, OUT p_invoice_ref TEXT
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_auto_create_invoice(
+    IN  p_booking_id INT,
+    OUT p_invoice_id INT,
+    OUT p_invoice_ref TEXT
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_customer_name TEXT;
+    v_event_date    DATE;
+    v_total_amount  NUMERIC;
+    v_existing_id   INT;
+BEGIN
+    SELECT customer_name, event_date, total_amount
+    INTO v_customer_name, v_event_date, v_total_amount
+    FROM bookings WHERE id = p_booking_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Booking not found: %', p_booking_id;
+    END IF;
+
+    SELECT id INTO v_existing_id FROM invoices WHERE booking_id = p_booking_id LIMIT 1;
+    IF v_existing_id IS NOT NULL THEN
+        SELECT id, invoice_ref INTO p_invoice_id, p_invoice_ref
+        FROM invoices WHERE id = v_existing_id;
+        RETURN;
+    END IF;
+
+    CALL sp_create_invoice(p_booking_id, v_customer_name, v_event_date, v_total_amount,
+                           p_invoice_id, p_invoice_ref);
+END;
+$$;
+
+-- =============================================================================
+-- STORED PROCEDURE: sp_pay_invoice
+-- Single entry point for ALL payments. Validates and records payment,
+-- updates invoice status, syncs booking.amount_paid and booking.status.
+-- OUT p_invoice_id INT, OUT p_invoice_ref TEXT, OUT p_new_invoice_status TEXT,
+--     p_new_booking_status TEXT, p_new_paid NUMERIC, p_remaining NUMERIC
+-- =============================================================================
+CREATE OR REPLACE PROCEDURE sp_pay_invoice(
+    IN  p_booking_id     INT,
+    IN  p_payment_amount NUMERIC,
+    IN  p_payment_date   DATE,
+    IN  p_method         TEXT,
+    IN  p_note           TEXT,
+    OUT p_invoice_id           INT,
+    OUT p_invoice_ref          TEXT,
+    OUT p_new_invoice_status   TEXT,
+    OUT p_new_booking_status   TEXT,
+    OUT p_new_paid             NUMERIC,
+    OUT p_remaining            NUMERIC
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_total          NUMERIC;
+    v_inv_paid       NUMERIC;
+    v_min_pct        NUMERIC;
+    v_allow_zero     BOOLEAN;
+    v_required_down  NUMERIC;
+    v_bk_status      booking_status;
+    v_new_inv_status invoice_status;
+    v_record_id      INT;
+BEGIN
+    SELECT i.id, i.invoice_ref, i.total_amount, i.amount_paid, b.status
+    INTO p_invoice_id, p_invoice_ref, v_total, v_inv_paid, v_bk_status
+    FROM invoices i
+    JOIN bookings b ON b.id = i.booking_id
+    WHERE i.booking_id = p_booking_id
+    FOR UPDATE OF i;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'No invoice found for booking %', p_booking_id;
+    END IF;
+
+    IF v_bk_status = 'CANCELLED' THEN
+        RAISE EXCEPTION 'Cannot record payment: booking is cancelled.';
+    END IF;
+
+    SELECT min_downpayment_pct, allow_zero_downpayment
+    INTO v_min_pct, v_allow_zero
+    FROM business_info WHERE id = 1;
+    v_min_pct    := COALESCE(v_min_pct, 30);
+    v_allow_zero := COALESCE(v_allow_zero, FALSE);
+    v_required_down := ROUND(v_total * v_min_pct / 100, 2);
+
+    IF p_payment_amount <= 0 THEN
+        RAISE EXCEPTION 'Payment amount must be greater than zero.';
+    END IF;
+
+    IF (v_inv_paid + p_payment_amount) > v_total THEN
+        RAISE EXCEPTION 'Payment of ₱% exceeds remaining balance of ₱%.',
+            p_payment_amount, (v_total - v_inv_paid);
+    END IF;
+
+    IF v_inv_paid = 0 AND NOT v_allow_zero AND p_payment_amount < v_required_down THEN
+        RAISE EXCEPTION 'Downpayment insufficient. Required: ₱% (% %%). Entered: ₱%.',
+            v_required_down, v_min_pct, p_payment_amount;
+    END IF;
+
+    INSERT INTO payment_records (invoice_id, amount, payment_date, method, note)
+    VALUES (p_invoice_id, p_payment_amount, p_payment_date, p_method, p_note)
+    RETURNING id INTO v_record_id;
+
+    p_new_paid := v_inv_paid + p_payment_amount;
+    p_remaining := v_total - p_new_paid;
+
+    v_new_inv_status := CASE
+        WHEN p_new_paid = 0       THEN 'Unpaid'::invoice_status
+        WHEN p_new_paid < v_total THEN 'Partial'::invoice_status
+        ELSE                           'Paid'::invoice_status
+    END;
+
+    UPDATE invoices
+    SET amount_paid = p_new_paid, status = v_new_inv_status, updated_at = NOW()
+    WHERE id = p_invoice_id;
+
+    UPDATE bookings
+    SET amount_paid = p_new_paid,
+        status = CASE
+            WHEN status = 'CANCELLED' THEN status
+            WHEN p_new_paid >= v_total THEN 'CONFIRMED'::booking_status
+            WHEN p_new_paid >= v_required_down OR v_allow_zero THEN 'CONFIRMED'::booking_status
+            ELSE 'PENDING'::booking_status
+        END,
+        updated_at = NOW()
+    WHERE id = p_booking_id
+    RETURNING status::TEXT INTO p_new_booking_status;
+
+    p_new_invoice_status := v_new_inv_status::TEXT;
 END;
 $$;
 

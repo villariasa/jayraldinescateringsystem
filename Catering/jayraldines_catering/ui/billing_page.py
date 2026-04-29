@@ -5,11 +5,9 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QDialog, QFormLayout, QComboBox, QLineEdit, QDoubleSpinBox,
-    QFileDialog, QMessageBox, QDateEdit, QTextEdit, QSizePolicy,
-    QStackedWidget
+    QFileDialog, QMessageBox, QDateEdit
 )
 from PySide6.QtCore import Qt, QSize, QDate
-from PySide6.QtWidgets import QCompleter
 from datetime import date as _date_type
 from PySide6.QtGui import QColor
 
@@ -42,12 +40,20 @@ class RecordPaymentDialog(QDialog):
     def __init__(self, parent=None, inv: dict = None):
         super().__init__(parent)
         self._inv = inv or {}
+        self._pay_info = None
         self.setWindowTitle("Record Payment")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(420)
+        self.setFixedWidth(460)
         self.setModal(True)
         self._result = None
+
+        if self._inv.get("booking_id"):
+            try:
+                self._pay_info = repo.get_invoice_payment_info(self._inv["booking_id"])
+            except Exception:
+                self._pay_info = None
+
         self._build_ui()
 
     def _build_ui(self):
@@ -80,12 +86,40 @@ class RecordPaymentDialog(QDialog):
         div.setFixedHeight(1)
         lay.addWidget(div)
 
-        balance = float(self._inv.get("amount", 0)) - float(self._inv.get("paid", 0))
-        info = QLabel(
-            f"<b>{self._inv.get('invoice', '')}</b> — {self._inv.get('customer', '')}<br>"
-            f"Balance due: <span style='color:#E11D48;font-weight:700;'>₱ {balance:,.2f}</span>"
-        )
+        pi = self._pay_info
+        if pi:
+            total     = pi["total"]
+            paid      = pi["paid"]
+            remaining = pi["remaining"]
+            req       = pi["required_payment"]
+            min_pct   = pi["min_pct"]
+            is_first  = paid == 0
+            req_label = (
+                f"Required downpayment ({min_pct:.0f}%): <b style='color:#F59E0B;'>₱ {req:,.2f}</b>"
+                if is_first and not pi["allow_zero"]
+                else f"Amount due: <b style='color:#E11D48;'>₱ {remaining:,.2f}</b>"
+            )
+            summary_html = (
+                f"<b>{self._inv.get('invoice', '')}</b> — {self._inv.get('customer', '')}<br>"
+                f"Total: <b>₱ {total:,.2f}</b> &nbsp;|&nbsp; "
+                f"Paid: <b>₱ {paid:,.2f}</b> &nbsp;|&nbsp; "
+                f"Balance: <b style='color:#E11D48;'>₱ {remaining:,.2f}</b><br>"
+                f"{req_label}"
+            )
+            max_amount = remaining
+            default_amount = req if req > 0 else remaining
+        else:
+            balance = float(self._inv.get("amount", 0)) - float(self._inv.get("paid", 0))
+            summary_html = (
+                f"<b>{self._inv.get('invoice', '')}</b> — {self._inv.get('customer', '')}<br>"
+                f"Balance due: <span style='color:#E11D48;font-weight:700;'>₱ {balance:,.2f}</span>"
+            )
+            max_amount = balance
+            default_amount = balance
+
+        info = QLabel(summary_html)
         info.setWordWrap(True)
+        info.setTextFormat(Qt.RichText)
         info.setStyleSheet("font-size:13px; padding:8px 0;")
         lay.addWidget(info)
 
@@ -95,8 +129,8 @@ class RecordPaymentDialog(QDialog):
 
         self._amount_f = QDoubleSpinBox()
         self._amount_f.setPrefix("₱ ")
-        self._amount_f.setRange(0.01, max(balance, 0.01))
-        self._amount_f.setValue(min(balance, balance))
+        self._amount_f.setRange(0.01, max(max_amount, 0.01))
+        self._amount_f.setValue(max(default_amount, 0.01))
         self._amount_f.setDecimals(2)
         self._amount_f.setSingleStep(1000)
         self._amount_f.setFixedHeight(38)
@@ -127,6 +161,7 @@ class RecordPaymentDialog(QDialog):
 
         self._err = QLabel("")
         self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.setWordWrap(True)
         self._err.hide()
         lay.addWidget(self._err)
 
@@ -150,13 +185,8 @@ class RecordPaymentDialog(QDialog):
 
     def _save(self):
         amount = self._amount_f.value()
-        balance = float(self._inv.get("amount", 0)) - float(self._inv.get("paid", 0))
         if amount <= 0:
             self._err.setText("Amount must be greater than 0.")
-            self._err.show()
-            return
-        if amount > balance + 0.005:
-            self._err.setText(f"Amount exceeds remaining balance of ₱ {balance:,.2f}.")
             self._err.show()
             return
         self._result = {
@@ -258,259 +288,6 @@ class PaymentHistoryDialog(QDialog):
         outer.addWidget(container)
 
 
-class InvoiceDialog(QDialog):
-    def __init__(self, parent=None, invoice_data=None):
-        super().__init__(parent)
-        self._edit_mode = invoice_data is not None
-        self._invoice_data = invoice_data or {}
-        self.setWindowTitle("Edit Invoice" if self._edit_mode else "New Invoice")
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(460)
-        self.setModal(True)
-        self._result = None
-        self._build_ui()
-
-    def _build_ui(self):
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 16, 16, 16)
-
-        container = QFrame()
-        container.setObjectName("card")
-        lay = QVBoxLayout(container)
-        lay.setContentsMargins(24, 24, 24, 24)
-        lay.setSpacing(16)
-
-        header = QHBoxLayout()
-        title = QLabel("Edit Invoice" if self._edit_mode else "New Invoice")
-        title.setObjectName("h3")
-        header.addWidget(title)
-        header.addStretch()
-        close_btn = QPushButton()
-        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
-        close_btn.setIconSize(QSize(14, 14))
-        close_btn.setFixedSize(28, 28)
-        close_btn.setStyleSheet("background: transparent; border: none;")
-        close_btn.setCursor(Qt.PointingHandCursor)
-        close_btn.clicked.connect(self.reject)
-        header.addWidget(close_btn)
-        lay.addLayout(header)
-
-        div = QFrame()
-        div.setObjectName("divider")
-        div.setFixedHeight(1)
-        lay.addWidget(div)
-
-        form = QFormLayout()
-        form.setSpacing(12)
-        form.setLabelAlignment(Qt.AlignRight)
-
-        self._customers = repo.get_all_customers() or []
-        self.customer_combo = QComboBox()
-        self.customer_combo.setEditable(True)
-        self.customer_combo.setFixedHeight(38)
-        self.customer_combo.setPlaceholderText("Search customer...")
-        self.customer_combo.addItem("", None)
-        for c in self._customers:
-            self.customer_combo.addItem(c["name"], c)
-        self.customer_combo.setCurrentIndex(0)
-        self.customer_combo.setEditText("")
-        completer = self.customer_combo.completer()
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setFilterMode(Qt.MatchContains)
-        
-        # NOTE: Signal connection removed from here to fix AttributeError
-
-        self._date_stack = QStackedWidget()
-        self._date_stack.setFixedHeight(38)
-
-        self.date_field = QDateEdit()
-        self.date_field.setCalendarPopup(True)
-        self.date_field.setFixedHeight(38)
-        self.date_field.setDisplayFormat("MMM dd, yyyy")
-        if self._edit_mode:
-            raw = self._invoice_data.get("event_date", "")
-            q = QDate.fromString(str(raw), "yyyy-MM-dd")
-            if not q.isValid():
-                q = QDate.fromString(str(raw), "MMM dd, yyyy")
-            self.date_field.setDate(q if q.isValid() else QDate.currentDate())
-        else:
-            self.date_field.setDate(QDate.currentDate())
-
-        self.date_combo = QComboBox()
-        self.date_combo.setFixedHeight(38)
-        self.date_combo.setPlaceholderText("Select booking date...")
-
-        self._date_stack.addWidget(self.date_field)
-        self._date_stack.addWidget(self.date_combo)
-        self._date_stack.setCurrentIndex(0)
-
-        self._balance_lbl = QLabel()
-        self._balance_lbl.setStyleSheet("font-size: 12px; color: #6B7280; padding: 4px 0;")
-        self._balance_lbl.setWordWrap(True)
-        self._balance_lbl.setTextFormat(Qt.RichText)
-        self._balance_lbl.hide()
-
-        # --- FIX 1: Move Signal down here so self.date_combo exists first ---
-        self.customer_combo.currentIndexChanged.connect(self._on_customer_selected)
-        self.date_combo.currentIndexChanged.connect(self._on_booking_date_selected)
-        
-        if self._edit_mode:
-            idx = self.customer_combo.findText(self._invoice_data.get("customer", ""))
-            if idx >= 0:
-                self.customer_combo.setCurrentIndex(idx)
-            else:
-                self.customer_combo.setEditText(self._invoice_data.get("customer", ""))
-
-        self.amount_field = QDoubleSpinBox()
-        self.amount_field.setPrefix("₱ ")
-        self.amount_field.setRange(0, 9999999)
-        self.amount_field.setDecimals(2)
-        self.amount_field.setSingleStep(1000)
-        self.amount_field.setFixedHeight(38)
-        if self._edit_mode:
-            self.amount_field.setValue(float(self._invoice_data.get("amount", 0)))
-
-        self.paid_field = QDoubleSpinBox()
-        self.paid_field.setPrefix("₱ ")
-        self.paid_field.setRange(0, 9999999)
-        self.paid_field.setDecimals(2)
-        self.paid_field.setSingleStep(1000)
-        self.paid_field.setFixedHeight(38)
-        if self._edit_mode:
-            self.paid_field.setValue(float(self._invoice_data.get("paid", 0)))
-
-        self.status_field = QComboBox()
-        self.status_field.addItems(_STATUSES)
-        self.status_field.setFixedHeight(38)
-        if self._edit_mode:
-            idx = self.status_field.findText(self._invoice_data.get("status", "Unpaid"))
-            if idx >= 0:
-                self.status_field.setCurrentIndex(idx)
-
-        for lbl, widget in [
-            ("Customer *",   self.customer_combo),
-            ("Event Date *", self._date_stack),
-            ("Total Amount", self.amount_field),
-            ("Amount Paid",  self.paid_field),
-            ("Status",       self.status_field),
-        ]:
-            form.addRow(QLabel(lbl), widget)
-
-        lay.addLayout(form)
-        lay.addWidget(self._balance_lbl)
-
-        self._err = QLabel("")
-        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
-        self._err.hide()
-        lay.addWidget(self._err)
-
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel = QPushButton("Cancel")
-        cancel.setObjectName("secondaryButton")
-        cancel.setCursor(Qt.PointingHandCursor)
-        cancel.clicked.connect(self.reject)
-        label = "Save Changes" if self._edit_mode else "  Create Invoice"
-        self._save_btn = QPushButton(label)
-        self._save_btn.setObjectName("primaryButton")
-        self._save_btn.setIcon(btn_icon_primary("check"))
-        self._save_btn.setIconSize(QSize(15, 15))
-        self._save_btn.setCursor(Qt.PointingHandCursor)
-        self._save_btn.clicked.connect(self._save)
-        btn_row.addWidget(cancel)
-        btn_row.addWidget(self._save_btn)
-        lay.addLayout(btn_row)
-
-        outer.addWidget(container)
-
-    def _save(self):
-        customer = self.customer_combo.currentText().strip()
-        if not customer or self.customer_combo.currentIndex() == 0:
-            self._err.setText("Please search and select a customer.")
-            self._err.show()
-            return
-
-        booking_id = None
-        if self._date_stack.currentIndex() == 1:
-            booking_id = self.date_combo.currentData()
-
-        if not self._edit_mode and not booking_id:
-            self._err.setText("Please select a booking event date. A booking is required to create an invoice.")
-            self._err.show()
-            return
-
-        self._result = {
-            "booking_id": booking_id,
-            "customer":   customer,
-            "event_date": self._get_event_date(),
-            "amount":     self.amount_field.value(),
-            "paid":       self.paid_field.value(),
-            "status":     self.status_field.currentText(),
-        }
-        self.accept()
-
-    def get_result(self):
-        return self._result
-
-    def _on_customer_selected(self, index):
-        name = self.customer_combo.itemText(index).strip()
-        if not name or index == 0:
-            self._date_stack.setCurrentIndex(0)
-            self._balance_lbl.hide()
-            if hasattr(self, "_save_btn"):
-                self._save_btn.setEnabled(True)
-            return
-        try:
-            dates = repo.get_customer_event_dates(name)
-        except Exception:
-            dates = []
-        if dates:
-            self.date_combo.blockSignals(True)
-            self.date_combo.clear()
-            for d in dates:
-                if isinstance(d, dict):
-                    self.date_combo.addItem(d.get("date", ""), d.get("id"))
-                else:
-                    self.date_combo.addItem(d)
-            self.date_combo.blockSignals(False)
-            self._date_stack.setCurrentIndex(1)
-            self._err.hide()
-            if hasattr(self, "_save_btn"):
-                self._save_btn.setEnabled(True)
-            self._on_booking_date_selected(self.date_combo.currentIndex())
-        else:
-            self._date_stack.setCurrentIndex(0)
-            self._balance_lbl.hide()
-            self._err.setText("This customer has no bookings yet. Cannot create an invoice without a booking.")
-            self._err.show()
-            if hasattr(self, "_save_btn"):
-                self._save_btn.setEnabled(False)
-
-    def _on_booking_date_selected(self, index):
-        booking_id = self.date_combo.itemData(index)
-        if not booking_id:
-            self._balance_lbl.hide()
-            return
-        try:
-            bal = repo.get_booking_balance(booking_id)
-        except Exception:
-            bal = None
-        if bal:
-            color = "#22C55E" if bal["balance"] <= 0 else "#E11D48"
-            self._balance_lbl.setText(
-                f"Booking total: <b>₱ {bal['total']:,.2f}</b>  |  "
-                f"Already paid: <b>₱ {bal['paid']:,.2f}</b>  |  "
-                f"Balance: <b style='color:{color};'>₱ {bal['balance']:,.2f}</b>"
-            )
-            self._balance_lbl.show()
-        else:
-            self._balance_lbl.hide()
-
-    def _get_event_date(self) -> str:
-        if self._date_stack.currentIndex() == 1:
-            return self.date_combo.currentText().strip()
-        return self.date_field.date().toString("yyyy-MM-dd")
 
 
 class BillingPage(QWidget):
@@ -532,14 +309,6 @@ class BillingPage(QWidget):
         header.addWidget(title)
         header.addStretch()
 
-        new_btn = QPushButton("  New Invoice")
-        new_btn.setObjectName("primaryButton")
-        new_btn.setIcon(btn_icon_primary("plus"))
-        new_btn.setIconSize(QSize(15, 15))
-        new_btn.setCursor(Qt.PointingHandCursor)
-        new_btn.clicked.connect(self._open_new_invoice)
-        header.addWidget(new_btn)
-
         export_btn = QPushButton("  Export")
         export_btn.setObjectName("secondaryButton")
         export_btn.setIcon(btn_icon_secondary("export"))
@@ -554,9 +323,9 @@ class BillingPage(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._table = QTableWidget(0, 11)
+        self._table = QTableWidget(0, 10)
         self._table.setHorizontalHeaderLabels(
-            ["Invoice #", "Customer", "Event Date", "Total", "Paid", "Balance", "Status", "", "", "", ""]
+            ["Invoice #", "Customer", "Event Date", "Total", "Paid", "Balance", "Status", "", "", ""]
         )
         
         hdr = self._table.horizontalHeader()
@@ -564,10 +333,9 @@ class BillingPage(QWidget):
         hdr.setSectionResizeMode(1, QHeaderView.Stretch)
         
         # --- FIX 3: Let the action columns resize automatically to fit without cutting off ---
-        hdr.setSectionResizeMode(7,  QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(8,  QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(9,  QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(10, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(8, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(9, QHeaderView.ResizeToContents)
         # We removed the lines forcing the columns to 38px
         
         self._table.setAlternatingRowColors(True)
@@ -609,16 +377,6 @@ class BillingPage(QWidget):
             status_item.setForeground(QColor(_STATUS_COLORS.get(status, "#9CA3AF")))
             self._table.setItem(row, 6, status_item)
 
-            edit_btn = QPushButton()
-            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(14, 14)))
-            edit_btn.setIconSize(QSize(14, 14))
-            edit_btn.setFixedSize(34, 34)
-            edit_btn.setStyleSheet("background: transparent; border: none;")
-            edit_btn.setCursor(Qt.PointingHandCursor)
-            edit_btn.setToolTip("Edit invoice")
-            edit_btn.clicked.connect(self._edit_invoice)
-            self._table.setCellWidget(row, 7, edit_btn)
-
             pay_btn = QPushButton()
             pay_btn.setIcon(get_icon("check", color="#22C55E", size=QSize(14, 14)))
             pay_btn.setIconSize(QSize(14, 14))
@@ -626,9 +384,9 @@ class BillingPage(QWidget):
             pay_btn.setStyleSheet("background: transparent; border: none;")
             pay_btn.setCursor(Qt.PointingHandCursor)
             pay_btn.setToolTip("Record Payment")
-            pay_btn.setEnabled(bal > 0.005)
+            pay_btn.setEnabled(bal > 0.005 and bool(inv.get("booking_id")))
             pay_btn.clicked.connect(self._record_payment)
-            self._table.setCellWidget(row, 8, pay_btn)
+            self._table.setCellWidget(row, 7, pay_btn)
 
             hist_btn = QPushButton()
             hist_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(14, 14)))
@@ -638,7 +396,7 @@ class BillingPage(QWidget):
             hist_btn.setCursor(Qt.PointingHandCursor)
             hist_btn.setToolTip("Payment History")
             hist_btn.clicked.connect(self._show_payment_history)
-            self._table.setCellWidget(row, 9, hist_btn)
+            self._table.setCellWidget(row, 8, hist_btn)
 
             actions_frame = QFrame()
             actions_frame.setStyleSheet("background: transparent;")
@@ -676,7 +434,7 @@ class BillingPage(QWidget):
             actions_lay.addWidget(print_btn)
             actions_lay.addWidget(email_btn)
             actions_lay.addWidget(del_btn)
-            self._table.setCellWidget(row, 10, actions_frame)
+            self._table.setCellWidget(row, 9, actions_frame)
 
     def _row_from_sender(self, col):
         btn = self.sender()
@@ -711,76 +469,47 @@ class BillingPage(QWidget):
                                     return r
         return -1
 
-    def _edit_invoice(self):
+    def _record_payment(self):
         row = self._row_from_sender(7)
         if row < 0:
             return
         inv = self._invoices[row]
-        dlg = InvoiceDialog(self, invoice_data=inv)
-        if dlg.exec() == QDialog.Accepted:
-            result = dlg.get_result()
-            if result:
-                if inv.get("db_id"):
-                    repo.update_invoice(inv["db_id"], {
-                        "customer":   result["customer"],
-                        "event_date": result["event_date"],
-                        "amount":     result["amount"],
-                        "paid":       result["paid"],
-                        "status":     result["status"],
-                    })
-                inv.update({
-                    "customer":   result["customer"],
-                    "event_date": _fmt_date(result["event_date"]),
-                    "amount":     result["amount"],
-                    "paid":       result["paid"],
-                    "status":     result["status"],
-                })
-                self._populate_table()
-                repo.write_audit_log(get_actor(), "UPDATE", "invoices", inv.get("db_id"),
-                    {"status": inv.get("status"), "paid": inv.get("paid")},
-                    {"status": result["status"], "paid": result["paid"]})
-                success(self, message="Invoice updated successfully.")
-
-    def _record_payment(self):
-        row = self._row_from_sender(8)
-        if row < 0:
+        if not inv.get("booking_id"):
+            QMessageBox.warning(self, "Not Allowed",
+                "This invoice is not linked to a booking and cannot accept payments through this flow.")
             return
-        inv = self._invoices[row]
         dlg = RecordPaymentDialog(self, inv=inv)
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
-            if result and inv.get("db_id"):
+            if result:
                 try:
-                    pr = repo.add_payment_record(
-                        inv["db_id"],
+                    pr = repo.pay_invoice(
+                        inv["booking_id"],
                         result["amount"],
                         result["payment_date"],
                         result["method"],
                         result["note"],
                     )
-                    if pr:
-                        inv["paid"]   = pr["new_paid"]
-                        inv["status"] = pr["new_status"]
-                        self._populate_table()
-                        repo.write_audit_log(get_actor(), "PAYMENT", "invoices", inv["db_id"],
-                            None, {"amount": result["amount"], "method": result["method"]})
-                        try:
-                            repo.push_notification(
-                                "success",
-                                "Payment Recorded",
-                                f"₱{result['amount']:,.2f} payment via {result['method']} recorded for {inv.get('customer', '')} — {inv.get('invoice', '')}.",
-                                "#22C55E",
-                            )
-                        except Exception:
-                            pass
-                        success(self, message=f"Payment of ₱{result['amount']:,.2f} recorded.")
-                    else:
-                        QMessageBox.warning(self, "Error", "Failed to record payment.")
+                    inv["paid"]   = pr["new_paid"]
+                    inv["status"] = pr["new_invoice_status"]
+                    self._populate_table()
+                    repo.write_audit_log(get_actor(), "PAYMENT", "invoices", inv["db_id"],
+                        None, {"amount": result["amount"], "method": result["method"]})
+                    try:
+                        repo.push_notification(
+                            "success",
+                            "Payment Recorded",
+                            f"₱{result['amount']:,.2f} via {result['method']} recorded for {inv.get('customer', '')} — {inv.get('invoice', '')}.",
+                            "#22C55E",
+                        )
+                    except Exception:
+                        pass
+                    success(self, message=f"Payment of ₱{result['amount']:,.2f} recorded.")
                 except Exception as exc:
                     QMessageBox.warning(self, "Payment Error", str(exc))
 
     def _show_payment_history(self):
-        row = self._row_from_sender(9)
+        row = self._row_from_sender(8)
         if row < 0:
             return
         inv = self._invoices[row]
@@ -864,45 +593,6 @@ class BillingPage(QWidget):
                 os.unlink(tmp_path)
             except Exception:
                 pass
-
-    def _open_new_invoice(self):
-        dlg = InvoiceDialog(self)
-        if dlg.exec() == QDialog.Accepted:
-            result = dlg.get_result()
-            if result:
-                result["event_date"] = _fmt_date(result["event_date"])
-                db_result = repo.create_invoice(result)
-                if db_result:
-                    result["db_id"]   = db_result.get("invoice_id")
-                    result["invoice"] = db_result.get("invoice_ref", f"INV-{len(self._invoices)+1:03d}")
-                else:
-                    result["invoice"] = f"INV-{len(self._invoices)+1:03d}"
-                result["customer_email"] = repo.get_customer_email_by_name(result.get("customer", ""))
-                if result.get("status") == "Paid" and result.get("db_id") and result.get("amount", 0) > 0:
-                    try:
-                        repo.add_payment_record(
-                            result["db_id"],
-                            result["amount"],
-                            None,
-                            "Cash",
-                            "Auto-recorded on invoice creation (Paid status)",
-                        )
-                    except Exception:
-                        pass
-                self._invoices.append(result)
-                self._populate_table()
-                repo.write_audit_log(get_actor(), "CREATE", "invoices", result.get("db_id"),
-                    None, {"invoice": result.get("invoice"), "customer": result.get("customer")})
-                try:
-                    repo.push_notification(
-                        "info",
-                        "Invoice Created",
-                        f"Invoice {result.get('invoice', '')} created for {result.get('customer', '')} — ₱{float(result.get('amount', 0)):,.2f}.",
-                        "#3B82F6",
-                    )
-                except Exception:
-                    pass
-                success(self, message="Invoice created successfully.")
 
     def filter_search(self, text):
         q = text.lower()
