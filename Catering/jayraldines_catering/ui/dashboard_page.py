@@ -368,7 +368,7 @@ class DashboardPage(QWidget):
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._load_data)
-        self._refresh_timer.start(60_000)
+        self._refresh_timer.start(5_000)
 
     def _build_export_menu(self):
         menu = QMenu(self)

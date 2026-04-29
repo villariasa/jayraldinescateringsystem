@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QApplication
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
+from PySide6.QtGui import QMouseEvent
 
 
 _COLOR_MAP = {
@@ -65,11 +66,44 @@ class Toast(QWidget):
         msg_lbl.setMinimumHeight(20)
         lay.addWidget(msg_lbl)
 
-        self._anim_in  = None
-        self._anim_out = None
+        self._anim_in   = None
+        self._anim_out  = None
+        self._anim_slide = None
         self._auto_timer = QTimer(self)
         self._auto_timer.setSingleShot(True)
         self._auto_timer.timeout.connect(self._dismiss)
+        self._dismissing = False
+
+        self._drag_start_pos = None
+        self._drag_start_x   = None
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self._drag_start_pos = event.globalPosition().toPoint()
+            self._drag_start_x   = self.x()
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self._drag_start_pos is None:
+            return
+        delta_x = event.globalPosition().toPoint().x() - self._drag_start_pos.x()
+        if delta_x > 0:
+            self.move(self._drag_start_x + delta_x, self.y())
+            opacity = max(0.0, 1.0 - delta_x / self.width())
+            self.setWindowOpacity(opacity)
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if self._drag_start_pos is None:
+            return
+        delta_x = event.globalPosition().toPoint().x() - self._drag_start_pos.x()
+        self._drag_start_pos = None
+        if delta_x > self.width() * 0.3:
+            self._slide_out()
+        elif delta_x < 5:
+            self._dismiss()
+        else:
+            self.move(self._drag_start_x, self.y())
+            self.setWindowOpacity(1.0)
 
     def show_toast(self, x: int, y: int, duration_ms: int = 7000):
         self.adjustSize()
@@ -89,7 +123,25 @@ class Toast(QWidget):
 
         self._auto_timer.start(duration_ms)
 
+    def _slide_out(self):
+        if self._dismissing:
+            return
+        self._dismissing = True
+        self._auto_timer.stop()
+        screen = QApplication.primaryScreen()
+        target_x = screen.availableGeometry().right() + 20 if screen else self.x() + 400
+        self._anim_slide = QPropertyAnimation(self, b"pos")
+        self._anim_slide.setDuration(250)
+        self._anim_slide.setStartValue(self.pos())
+        self._anim_slide.setEndValue(QPoint(target_x, self.y()))
+        self._anim_slide.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim_slide.finished.connect(self.close)
+        self._anim_slide.start()
+
     def _dismiss(self):
+        if self._dismissing:
+            return
+        self._dismissing = True
         self._auto_timer.stop()
         self._anim_out = QPropertyAnimation(self, b"windowOpacity")
         self._anim_out.setDuration(300)
