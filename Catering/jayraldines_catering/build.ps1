@@ -152,27 +152,19 @@ $spec += "`n"
 $spec += "exe = EXE(`n"
 $spec += "    pyz,`n"
 $spec += "    a.scripts,`n"
-$spec += "    [],`n"
-$spec += "    exclude_binaries=True,`n"
+$spec += "    a.binaries,`n"
+$spec += "    a.zipfiles,`n"
+$spec += "    a.datas,`n"
 $spec += "    name='JayraldinesCatering',`n"
 $spec += "    debug=False,`n"
 $spec += "    bootloader_ignore_signals=False,`n"
 $spec += "    strip=False,`n"
 $spec += "    upx=False,`n"
+$spec += "    runtime_tmpdir=None,`n"
 $spec += "    console=False,`n"
 if ($iconLine) {
     $spec += "    $iconLine`n"
 }
-$spec += ")`n"
-$spec += "`n"
-$spec += "coll = COLLECT(`n"
-$spec += "    exe,`n"
-$spec += "    a.binaries,`n"
-$spec += "    a.zipfiles,`n"
-$spec += "    a.datas,`n"
-$spec += "    strip=False,`n"
-$spec += "    upx=False,`n"
-$spec += "    name='JayraldinesCatering',`n"
 $spec += ")`n"
 
 [System.IO.File]::WriteAllText("$PWD\jayraldines.spec", $spec, [System.Text.Encoding]::UTF8)
@@ -193,13 +185,13 @@ if (Test-Path "build") {
 
 & $python -m PyInstaller jayraldines.spec
 
-if (-not (Test-Path "dist\JayraldinesCatering\JayraldinesCatering.exe")) {
+if (-not (Test-Path "dist\JayraldinesCatering.exe")) {
     Print-Fail "Build failed - exe not found in dist\"
     Read-Host "Press ENTER to exit"
     exit 1
 }
 
-Print-OK "Build successful: dist\JayraldinesCatering\JayraldinesCatering.exe"
+Print-OK "Build successful: dist\JayraldinesCatering.exe"
 
 # ------------------------------------------------------------------------------
 # 7. Write Inno Setup script
@@ -225,12 +217,14 @@ $iss += "[Languages]`r`n"
 $iss += "Name: `"english`"; MessagesFile: `"compiler:Default.isl`"`r`n"
 $iss += "`r`n"
 $iss += "[Files]`r`n"
-$iss += "Source: `"dist\JayraldinesCatering\*`"; DestDir: `"{app}`"; Flags: ignoreversion recursesubdirs createallsubdirs`r`n"
+$iss += "Source: `"dist\JayraldinesCatering.exe`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
 $iss += "Source: `"jayraldines_catering_clean.sql`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
+$iss += "Source: `"setup.ps1`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
 $iss += "`r`n"
 $iss += "[Icons]`r`n"
 $iss += "Name: `"{group}\Jayraldines Catering`"; Filename: `"{app}\JayraldinesCatering.exe`"`r`n"
 $iss += "Name: `"{commondesktop}\Jayraldines Catering`"; Filename: `"{app}\JayraldinesCatering.exe`"; Tasks: desktopicon`r`n"
+$iss += "Name: `"{group}\Setup Database`"; Filename: `"powershell.exe`"; Parameters: `"-ExecutionPolicy Bypass -File \"{app}\setup.ps1\"`"; WorkingDir: `"{app}`"`r`n"
 $iss += "`r`n"
 $iss += "[Tasks]`r`n"
 $iss += "Name: `"desktopicon`"; Description: `"Create a desktop shortcut`"; GroupDescription: `"Additional icons:`"`r`n"
@@ -277,8 +271,8 @@ Write-Host "===================================================" -ForegroundColo
 Write-Host "  BUILD COMPLETE" -ForegroundColor Green
 Write-Host "===================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  App folder  : dist\JayraldinesCatering\" -ForegroundColor White
-Write-Host "  Run directly: dist\JayraldinesCatering\JayraldinesCatering.exe" -ForegroundColor White
+Write-Host "  Single EXE  : dist\JayraldinesCatering.exe" -ForegroundColor White
+Write-Host "  Copy this one file anywhere - it is fully self-contained." -ForegroundColor White
 if (Test-Path "installer_output\JayraldinesSetup.exe") {
     Write-Host "  Installer   : installer_output\JayraldinesSetup.exe" -ForegroundColor White
 }

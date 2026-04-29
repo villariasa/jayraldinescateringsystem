@@ -9,7 +9,6 @@ if getattr(sys, "frozen", False):
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication
-from ui.main_window import MainWindow
 from utils.theme import ThemeManager
 import utils.db as db
 
@@ -26,58 +25,54 @@ def main():
         _meipass = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
         QCoreApplication.addLibraryPath(os.path.join(_meipass, "PySide6", "plugins"))
 
-    print("[BOOT] Starting QApplication...")
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    print("[BOOT] QApplication initialized")
 
-    print("[BOOT] Applying theme...")
     try:
         theme = ThemeManager()
         theme.apply("dark")
-        print("[BOOT] Theme applied OK")
     except Exception:
-        print("[FATAL] ThemeManager crashed:")
         traceback.print_exc()
         sys.exit(1)
 
-    print("[BOOT] Connecting to DB...")
+    from components.splash import SplashScreen
+    splash = SplashScreen()
+    splash.show()
+    app.processEvents()
+
     try:
-        connected = db.connect()
-        if connected:
-            print("[DB] Connected to jayraldines_catering")
-        else:
-            print("[DB] Running in offline mode (no database)")
+        splash.set_status("Loading theme and resources...", 15)
+        from ui.main_window import MainWindow
+
+        splash.set_status("Connecting to database...", 40)
+        try:
+            connected = db.connect()
+            if connected:
+                splash.set_status("Database connected.", 65)
+            else:
+                splash.set_status("Running in offline mode.", 65)
+        except Exception:
+            traceback.print_exc()
+            splash.set_status("Database unavailable - offline mode.", 65)
+
+        splash.set_status("Building interface...", 80)
+        window = MainWindow()
+
+        splash.set_status("Ready!", 100)
+        app.processEvents()
+
     except Exception:
-        print("[FATAL] DB connection crashed:")
         traceback.print_exc()
         sys.exit(1)
 
     app.aboutToQuit.connect(db.close)
-
-    print("[BOOT] Creating MainWindow...")
-    try:
-        window = MainWindow()
-        print("[BOOT] MainWindow created OK")
-    except Exception:
-        print("[FATAL] MainWindow crashed during init:")
-        traceback.print_exc()
-        sys.exit(1)
-
-    # 💣 CRITICAL FIX (THIS WAS MISSING)
     app.window_ref = window
 
-    print("[BOOT] Showing window...")
     window.show()
-
-    print("[BOOT] Window shown, entering event loop...")
+    splash.close()
 
     app.aboutToQuit.connect(lambda: print("[QT] aboutToQuit triggered"))
-
-    code = app.exec()
-
-    print(f"[BOOT] Event loop exited with code {code}")
-    sys.exit(code)
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
