@@ -256,8 +256,9 @@ $env:PGPASSWORD = ""
 # ------------------------------------------------------------------------------
 Print-Step "Step 6 - Verifying Database Connection"
 
+$escapedPass = $pgPass -replace '\\', '\\\\' -replace '"', '\"'
 $testLines  = "import sys, os`n"
-$testLines += "os.environ['DB_PASSWORD'] = '" + $pgPass + "'`n"
+$testLines += 'os.environ["DB_PASSWORD"] = "' + $escapedPass + '"' + "`n"
 $testLines += "sys.path.insert(0, '.')`n"
 $testLines += "import utils.db as db`n"
 $testLines += "ok = db.connect()`n"
