@@ -7,10 +7,22 @@ if getattr(sys, "frozen", False):
     os.environ.setdefault("QT_QPA_PLATFORM_PLUGIN_PATH", os.path.join(_meipass, "PySide6", "plugins", "platforms"))
     os.environ.setdefault("QT_PLUGIN_PATH", os.path.join(_meipass, "PySide6", "plugins"))
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QCoreApplication
 from utils.theme import ThemeManager
 import utils.db as db
+
+_MUTEX_HANDLE = None
+
+
+def _acquire_single_instance():
+    global _MUTEX_HANDLE
+    if sys.platform != "win32":
+        return True
+    import ctypes
+    _MUTEX_HANDLE = ctypes.windll.kernel32.CreateMutexW(None, True, "Global\\JayraldinesCateringMutex")
+    err = ctypes.windll.kernel32.GetLastError()
+    return err != 183
 
 
 def _exception_hook(exc_type, exc_value, exc_tb):
@@ -20,6 +32,15 @@ def _exception_hook(exc_type, exc_value, exc_tb):
 
 def main():
     sys.excepthook = _exception_hook
+
+    if not _acquire_single_instance():
+        app = QApplication(sys.argv)
+        QMessageBox.warning(
+            None,
+            "Already Running",
+            "Jayraldine's Catering is already open.\nPlease check your taskbar.",
+        )
+        sys.exit(0)
 
     if getattr(sys, "frozen", False):
         _meipass = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
@@ -41,21 +62,37 @@ def main():
     app.processEvents()
 
     try:
-        splash.set_status("Loading theme and resources...", 15)
+        import threading
+
+        splash.set_status("Connecting to database...", 20)
+        app.processEvents()
+
+        _db_result = [False]
+
+        def _db_connect():
+            try:
+                _db_result[0] = db.connect()
+            except Exception:
+                traceback.print_exc()
+
+        db_thread = threading.Thread(target=_db_connect, daemon=True)
+        db_thread.start()
+
+        splash.set_status("Loading interface...", 40)
         from ui.main_window import MainWindow
+        app.processEvents()
 
-        splash.set_status("Connecting to database...", 40)
-        try:
-            connected = db.connect()
-            if connected:
-                splash.set_status("Database connected.", 65)
-            else:
-                splash.set_status("Running in offline mode.", 65)
-        except Exception:
-            traceback.print_exc()
-            splash.set_status("Database unavailable - offline mode.", 65)
+        splash.set_status("Waiting for database...", 70)
+        app.processEvents()
+        db_thread.join()
 
-        splash.set_status("Building interface...", 80)
+        if _db_result[0]:
+            splash.set_status("Database connected.", 80)
+        else:
+            splash.set_status("Running in offline mode.", 80)
+        app.processEvents()
+
+        splash.set_status("Building interface...", 90)
         window = MainWindow()
 
         splash.set_status("Ready!", 100)

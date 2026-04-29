@@ -46,7 +46,7 @@ def connect() -> bool:
                 _conn.close()
             except Exception:
                 pass
-        _conn = psycopg2.connect(**_CONFIG)
+        _conn = psycopg2.connect(**_CONFIG, connect_timeout=5)
         _conn.autocommit = False
         return True
     except Exception as exc:
