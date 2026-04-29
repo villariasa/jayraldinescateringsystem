@@ -105,7 +105,7 @@ class MainWindow(QMainWindow):
 
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._poll_notifications)
-        self._poll_timer.start(60_000)
+        self._poll_timer.start(5_000)
         QTimer.singleShot(0, self._poll_notifications)
 
         self.topbar.search_changed.connect(self._on_search)
