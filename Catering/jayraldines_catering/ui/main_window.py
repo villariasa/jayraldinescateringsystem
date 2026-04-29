@@ -103,6 +103,8 @@ class MainWindow(QMainWindow):
         self._scheduler = NotifScheduler(self)
         self._scheduler.new_notification.connect(self._on_new_notification)
 
+        self._last_notif_id = None
+
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._poll_notifications)
         self._poll_timer.start(5_000)
@@ -136,11 +138,24 @@ class MainWindow(QMainWindow):
         self._notif_popover.toggle_anchored(self.topbar.notif_btn)
 
     def _poll_notifications(self):
+        from components.notifications_panel import _notifications
         count = reload_notifications()
         self.topbar.notif_badge.setText(str(count))
         self.topbar.notif_badge.setVisible(count > 0)
         if self._notif_popover.isVisible():
             self._notif_popover._refresh_list()
+        if _notifications:
+            max_id = max(n.get("db_id", 0) for n in _notifications)
+            if self._last_notif_id is None:
+                self._last_notif_id = max_id
+            else:
+                new_ones = [n for n in _notifications if n.get("db_id", 0) > self._last_notif_id]
+                if new_ones:
+                    for n in new_ones:
+                        self._toast_manager.show(n["title"], n["message"], n.get("color", "#3B82F6"), duration_ms=7000)
+                    self._last_notif_id = max_id
+        elif self._last_notif_id is None:
+            self._last_notif_id = 0
 
     def _on_new_notification(self, title: str, message: str, color: str):
         self._poll_notifications()

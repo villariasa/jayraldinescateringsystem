@@ -523,23 +523,7 @@ class BookingModal(QDialog):
         lay.setSpacing(12)
         lay.setContentsMargins(0, 0, 0, 0)
 
-        lay.addWidget(_section_label("Payment Details"))
-
-        row = QHBoxLayout()
-        row.setSpacing(16)
-        v1 = QVBoxLayout()
-        v1.addWidget(_field_label("Mode of Payment"))
-        self.f_payment_mode = QComboBox()
-        self.f_payment_mode.addItems(["Cash", "Bank Transfer", "GCash", "PayMaya"])
-        self.f_payment_mode.setFixedHeight(38)
-        v1.addWidget(self.f_payment_mode)
-        v2 = QVBoxLayout()
-        v2.addWidget(_field_label("Amount Paid"))
-        self.f_amount_paid = _input("₱ 0.00")
-        v2.addWidget(self.f_amount_paid)
-        row.addLayout(v1)
-        row.addLayout(v2)
-        lay.addLayout(row)
+        lay.addWidget(_section_label("Booking Summary"))
 
         self._cost_box = QFrame()
         self._cost_box.setObjectName("costBox")
@@ -555,11 +539,16 @@ class BookingModal(QDialog):
         self._lbl_total   = QLabel()
         self._lbl_total.setStyleSheet(_cost_total_style())
         self._lbl_deposit = QLabel()
-        self._lbl_deposit.setStyleSheet("color: #EF4444; font-size: 13px; font-weight: 700;")
+        self._lbl_deposit.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: 700;")
+
+        note = QLabel("Payments are recorded in the Billing module after booking is created.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #9CA3AF; font-size: 12px; padding-top: 4px;")
 
         cb_lay.addWidget(self._lbl_base)
         cb_lay.addWidget(self._lbl_total)
         cb_lay.addWidget(self._lbl_deposit)
+        cb_lay.addWidget(note)
         lay.addWidget(self._cost_box)
 
         self.f_pax.valueChanged.connect(self._update_cost)
@@ -573,10 +562,20 @@ class BookingModal(QDialog):
         pkg_idx = getattr(self, "_selected_pkg", 0)
         rate = _PACKAGES[pkg_idx][3]
         total = pax * rate
-        deposit = total // 2
+        try:
+            biz = repo.get_business_info()
+            pct = float(biz.get("min_downpayment_pct", 50))
+            allow_zero = biz.get("allow_zero_downpayment", False)
+        except Exception:
+            pct = 50
+            allow_zero = False
+        deposit = round(total * pct / 100, 2)
         self._lbl_base.setText(f"Base Rate: ₱{rate:,} × {pax} pax")
-        self._lbl_total.setText(f"Grand Total: ₱{total:,}")
-        self._lbl_deposit.setText(f"Required 50% Deposit: ₱{deposit:,}")
+        self._lbl_total.setText(f"Grand Total: ₱{total:,.2f}")
+        if allow_zero:
+            self._lbl_deposit.setText("No downpayment required.")
+        else:
+            self._lbl_deposit.setText(f"Required {pct:.0f}% Downpayment: ₱{deposit:,.2f}")
 
     def _refresh_step(self):
         self._stack.setCurrentIndex(self._step)
@@ -652,8 +651,6 @@ class BookingModal(QDialog):
             "notes":        self.f_notes.toPlainText().strip(),
             "menu_type":    menu_type,
             "menu_value":   menu_value,
-            "payment_mode": self.f_payment_mode.currentText(),
-            "amount_paid":  self.f_amount_paid.text().strip(),
             "total":        total,
             "status":       "PENDING",
         }
