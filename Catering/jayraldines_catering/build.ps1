@@ -111,7 +111,9 @@ Print-Step "Step 5 — Writing PyInstaller Spec File"
 $iconLine = if ($iconArg) { "icon='$iconArg'," } else { "" }
 
 $specContent = @"
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+block_cipher = None
 
 a = Analysis(
     ['main.py'],
@@ -123,22 +125,30 @@ a = Analysis(
         ('components', 'components'),
         ('ui',         'ui'),
         ('utils',      'utils'),
+        *collect_data_files('PySide6', subdir='plugins'),
     ],
     hiddenimports=[
         'psycopg2',
         'psycopg2.extensions',
         'psycopg2.extras',
         'reportlab',
+        'reportlab.graphics',
+        'reportlab.platypus',
+        'reportlab.lib',
         'openpyxl',
+        'PySide6.QtSvg',
+        'PySide6.QtXml',
+        'PySide6.QtPrintSupport',
         *collect_submodules('PySide6'),
     ],
     hookspath=[],
     runtime_hooks=[],
     excludes=['tkinter', 'matplotlib', 'scipy', 'numpy'],
     noarchive=False,
+    cipher=block_cipher,
 )
 
-pyz = PYZ(a.pure)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
     pyz,
@@ -157,6 +167,7 @@ exe = EXE(
 coll = COLLECT(
     exe,
     a.binaries,
+    a.zipfiles,
     a.datas,
     strip=False,
     upx=True,

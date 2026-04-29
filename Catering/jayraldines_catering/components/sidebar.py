@@ -5,8 +5,8 @@ from PySide6.QtGui import QPixmap
 
 from utils.icons import nav_icon, nav_icon_active, get_icon
 
-BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+from utils.paths import resource_path
+ASSETS_DIR = resource_path("assets")
 
 _NAV_ITEMS = [
     ("Dashboard", "dashboard", 0),

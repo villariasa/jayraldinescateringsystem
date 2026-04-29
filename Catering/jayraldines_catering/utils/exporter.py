@@ -38,15 +38,10 @@ if REPORTLAB_OK:
 else:
     _C_RED = _C_DARK = _C_GRAY = _C_LIGHT = _C_WHITE = _C_MUTED = _C_BORDER = _C_GREEN = _C_AMBER = _C_BLUE = None
 
-_LOGO_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "assets", "logo.png"
-)
+from utils.paths import resource_path
+_LOGO_PATH = resource_path("assets", "logo.png")
 if not os.path.exists(_LOGO_PATH):
-    _LOGO_PATH = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "assets", "logo.jpg"
-    )
+    _LOGO_PATH = resource_path("assets", "logo.jpg")
 
 _PAGE_W = A4[0] if REPORTLAB_OK else 595
 _MARGIN = 1.5 * cm if REPORTLAB_OK else 0

@@ -2,8 +2,9 @@ import os
 from PySide6.QtGui import QIcon, QPixmap, QPainter
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtSvg import QSvgRenderer
+from utils.paths import resource_path
 
-_ICONS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "icons", "svg")
+_ICONS_DIR = resource_path("assets", "icons", "svg")
 
 ICON_MAP = {
     "dashboard":     "dashboard.svg",

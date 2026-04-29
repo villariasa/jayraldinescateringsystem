@@ -1,10 +1,10 @@
 import os
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QObject, Signal
+from utils.paths import resource_path
 
-_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_DARK_QSS  = os.path.join(_BASE, "styles", "main.qss")
-_LIGHT_QSS = os.path.join(_BASE, "styles", "light.qss")
+_DARK_QSS  = resource_path("styles", "main.qss")
+_LIGHT_QSS = resource_path("styles", "light.qss")
 
 
 class ThemeManager(QObject):
