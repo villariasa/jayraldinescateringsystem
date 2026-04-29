@@ -12,6 +12,17 @@
 $ErrorActionPreference = "Stop"
 $Host.UI.RawUI.WindowTitle = "Jayraldine's Catering — Build"
 
+trap {
+    Write-Host ""
+    Write-Host "  [FATAL ERROR]" -ForegroundColor Red
+    Write-Host "  $_" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  The build script encountered an error. See message above." -ForegroundColor Yellow
+    Write-Host ""
+    Pause
+    exit 1
+}
+
 function Print-Step($msg) {
     Write-Host ""
     Write-Host "===================================================" -ForegroundColor Cyan
