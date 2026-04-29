@@ -4,7 +4,14 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtSvg import QSvgRenderer
 from utils.paths import resource_path
 
-_ICONS_DIR = resource_path("assets", "icons", "svg")
+_ICONS_DIR: str = ""
+
+
+def _icons_dir() -> str:
+    global _ICONS_DIR
+    if not _ICONS_DIR:
+        _ICONS_DIR = resource_path("assets", "icons", "svg")
+    return _ICONS_DIR
 
 ICON_MAP = {
     "dashboard":     "dashboard.svg",
@@ -58,7 +65,7 @@ def get_icon(name: str, color: str = COLOR_MUTED, size: QSize = DEFAULT_SIZE) ->
     svg_file = ICON_MAP.get(name)
     if not svg_file:
         return QIcon()
-    svg_path = os.path.join(_ICONS_DIR, svg_file)
+    svg_path = os.path.join(_icons_dir(), svg_file)
     if not os.path.exists(svg_path):
         return QIcon()
 

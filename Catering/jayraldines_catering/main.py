@@ -1,7 +1,14 @@
 import sys
 import os
 import traceback
+
+if getattr(sys, "frozen", False):
+    _meipass = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    os.environ.setdefault("QT_QPA_PLATFORM_PLUGIN_PATH", os.path.join(_meipass, "PySide6", "plugins", "platforms"))
+    os.environ.setdefault("QT_PLUGIN_PATH", os.path.join(_meipass, "PySide6", "plugins"))
+
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication
 from ui.main_window import MainWindow
 from utils.theme import ThemeManager
 import utils.db as db
@@ -14,6 +21,10 @@ def _exception_hook(exc_type, exc_value, exc_tb):
 
 def main():
     sys.excepthook = _exception_hook
+
+    if getattr(sys, "frozen", False):
+        _meipass = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        QCoreApplication.addLibraryPath(os.path.join(_meipass, "PySide6", "plugins"))
 
     print("[BOOT] Starting QApplication...")
     app = QApplication(sys.argv)

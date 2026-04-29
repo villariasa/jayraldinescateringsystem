@@ -39,9 +39,13 @@ else:
     _C_RED = _C_DARK = _C_GRAY = _C_LIGHT = _C_WHITE = _C_MUTED = _C_BORDER = _C_GREEN = _C_AMBER = _C_BLUE = None
 
 from utils.paths import resource_path
-_LOGO_PATH = resource_path("assets", "logo.png")
-if not os.path.exists(_LOGO_PATH):
-    _LOGO_PATH = resource_path("assets", "logo.jpg")
+
+
+def _logo_path() -> str:
+    p = resource_path("assets", "logo.png")
+    if not os.path.exists(p):
+        p = resource_path("assets", "logo.jpg")
+    return p
 
 _PAGE_W = A4[0] if REPORTLAB_OK else 595
 _MARGIN = 1.5 * cm if REPORTLAB_OK else 0
@@ -121,9 +125,10 @@ def _status_style(status: str, styles):
 
 def _header_block(story, styles, biz_name: str, title: str, period: str = "All Time"):
     header_left = []
-    if os.path.exists(_LOGO_PATH):
+    _lp = _logo_path()
+    if os.path.exists(_lp):
         try:
-            logo = Image(_LOGO_PATH, width=2*cm, height=2*cm)
+            logo = Image(_lp, width=2*cm, height=2*cm)
             header_left.append(logo)
         except Exception:
             header_left.append(Paragraph(biz_name[:1], styles["Brand"]))
@@ -289,9 +294,10 @@ def export_receipt_pdf(path: str, inv: dict, business: dict) -> bool:
         header_w = _CONTENT_W
 
         logo_cell = ""
-        if os.path.exists(_LOGO_PATH):
+        _lp = _logo_path()
+        if os.path.exists(_lp):
             try:
-                logo_cell = Image(_LOGO_PATH, width=2.0*cm, height=2.0*cm)
+                logo_cell = Image(_lp, width=2.0*cm, height=2.0*cm)
             except Exception:
                 logo_cell = ""
 

@@ -6,7 +6,6 @@ from PySide6.QtGui import QPixmap
 from utils.icons import nav_icon, nav_icon_active, get_icon
 
 from utils.paths import resource_path
-ASSETS_DIR = resource_path("assets")
 
 _NAV_ITEMS = [
     ("Dashboard", "dashboard", 0),
@@ -47,7 +46,7 @@ class Sidebar(QFrame):
         self.logo_layout.setSpacing(10)
 
         self.logo_icon = QLabel(self.logo_frame)
-        logo_path = os.path.join(ASSETS_DIR, "logo.png")
+        logo_path = resource_path("assets", "logo.png")
         if os.path.exists(logo_path):
             px = QPixmap(logo_path).scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.logo_icon.setPixmap(px)

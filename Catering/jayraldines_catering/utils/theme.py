@@ -3,9 +3,6 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QObject, Signal
 from utils.paths import resource_path
 
-_DARK_QSS  = resource_path("styles", "main.qss")
-_LIGHT_QSS = resource_path("styles", "light.qss")
-
 
 class ThemeManager(QObject):
     theme_changed = Signal(str)
@@ -35,7 +32,7 @@ class ThemeManager(QObject):
     def apply(self, theme: str = None):
         if theme:
             self._current = theme
-        path = _DARK_QSS if self._current == "dark" else _LIGHT_QSS
+        path = resource_path("styles", "main.qss") if self._current == "dark" else resource_path("styles", "light.qss")
         app = QApplication.instance()
         if app and os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
