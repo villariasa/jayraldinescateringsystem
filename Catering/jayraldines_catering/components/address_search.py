@@ -3,10 +3,11 @@ from typing import Optional
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel,
-    QListWidget, QListWidgetItem, QFrame, QSizePolicy,
+    QListWidget, QListWidgetItem, QFrame, QSizePolicy, QApplication,
 )
-from PySide6.QtCore import Qt, QTimer, Signal, QPoint
+from PySide6.QtCore import Qt, QTimer, Signal, QPoint, QRect
 from PySide6.QtGui import QColor
+
 
 import utils.repository as repo
 
@@ -121,16 +122,6 @@ class AddressSearchWidget(QWidget):
         search_row.addWidget(self._clear_btn)
         root.addLayout(search_row)
 
-        # --- dropdown (hidden by default) ---
-        self._dropdown = QListWidget()
-        self._dropdown.setObjectName("addressDropdown")
-        self._dropdown.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._dropdown.setStyleSheet(self._dropdown_style())
-        self._dropdown.itemClicked.connect(self._on_item_clicked)
-        self._dropdown.setMaximumHeight(0)
-        self._dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        root.addWidget(self._dropdown)
-
         # --- street input (hidden until selection) ---
         self._street_row = QWidget()
         street_lay = QVBoxLayout(self._street_row)
@@ -155,6 +146,16 @@ class AddressSearchWidget(QWidget):
         self._hint.setMaximumHeight(0)
         self._hint.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         root.addWidget(self._hint)
+
+        # --- floating dropdown (NOT in layout, parented to window) ---
+        self._dropdown = QListWidget()
+        self._dropdown.setObjectName("addressDropdown")
+        self._dropdown.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._dropdown.setStyleSheet(self._dropdown_style())
+        self._dropdown.itemClicked.connect(self._on_item_clicked)
+        self._dropdown.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        self._dropdown.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self._dropdown.hide()
 
     # ------------------------------------------------------------------
     # Internals
@@ -211,10 +212,18 @@ class AddressSearchWidget(QWidget):
                 item.setData(Qt.UserRole, row)
                 self._dropdown.addItem(item)
 
+        self._position_dropdown()
+
+    def _position_dropdown(self):
         row_h = 36
         count = self._dropdown.count()
         h = min(count * row_h + 8, self._DROPDOWN_MAX_H)
-        self._show_widget(self._dropdown, h)
+        w = self._search.width() + self._clear_btn.width() + 6
+
+        global_pos = self._search.mapToGlobal(QPoint(0, self._search.height() + 2))
+        self._dropdown.setGeometry(QRect(global_pos.x(), global_pos.y(), w, h))
+        self._dropdown.show()
+        self._dropdown.raise_()
 
     def _on_item_clicked(self, item: QListWidgetItem):
         data = item.data(Qt.UserRole)
@@ -231,7 +240,7 @@ class AddressSearchWidget(QWidget):
         self.address_selected.emit(data)
 
     def _hide_dropdown(self):
-        self._hide_widget(self._dropdown)
+        self._dropdown.hide()
         self._dropdown.clear()
 
     # ------------------------------------------------------------------
@@ -241,7 +250,7 @@ class AddressSearchWidget(QWidget):
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
         if obj is self._search and event.type() == QEvent.FocusOut:
-            QTimer.singleShot(300, self._hide_dropdown)
+            QTimer.singleShot(150, self._hide_dropdown)
         return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------------
