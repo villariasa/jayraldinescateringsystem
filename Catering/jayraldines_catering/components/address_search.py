@@ -3,11 +3,10 @@ from typing import Optional
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel,
-    QListWidget, QListWidgetItem, QFrame, QSizePolicy, QApplication,
+    QListWidget, QListWidgetItem, QFrame, QSizePolicy,
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QPoint, QRect
 from PySide6.QtGui import QColor
-
 
 import utils.repository as repo
 
@@ -147,14 +146,13 @@ class AddressSearchWidget(QWidget):
         self._hint.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         root.addWidget(self._hint)
 
-        # --- floating dropdown (NOT in layout, parented to window) ---
+        # --- floating dropdown (outside layout so it never shifts the dialog) ---
         self._dropdown = QListWidget()
         self._dropdown.setObjectName("addressDropdown")
         self._dropdown.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._dropdown.setStyleSheet(self._dropdown_style())
         self._dropdown.itemClicked.connect(self._on_item_clicked)
-        self._dropdown.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
-        self._dropdown.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self._dropdown.setWindowFlags(Qt.ToolTip)
         self._dropdown.hide()
 
     # ------------------------------------------------------------------
@@ -212,14 +210,10 @@ class AddressSearchWidget(QWidget):
                 item.setData(Qt.UserRole, row)
                 self._dropdown.addItem(item)
 
-        self._position_dropdown()
-
-    def _position_dropdown(self):
         row_h = 36
         count = self._dropdown.count()
         h = min(count * row_h + 8, self._DROPDOWN_MAX_H)
-        w = self._search.width() + self._clear_btn.width() + 6
-
+        w = self._search.width()
         global_pos = self._search.mapToGlobal(QPoint(0, self._search.height() + 2))
         self._dropdown.setGeometry(QRect(global_pos.x(), global_pos.y(), w, h))
         self._dropdown.show()
