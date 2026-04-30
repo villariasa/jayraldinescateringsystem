@@ -885,8 +885,8 @@ def get_report_kpis(period_filter: str = "") -> dict:
                 COALESCE(SUM(pax),0)::INT                   AS total_pax,
                 COALESCE(SUM(total_amount),0)::FLOAT        AS total_revenue,
                 0::FLOAT                                    AS unpaid_amount,
-                COALESCE((SELECT COUNT(*) FROM bookings WHERE DATE(event_date)=CURRENT_DATE),0)::INT AS today_bookings,
-                COALESCE((SELECT COUNT(*) FROM bookings WHERE event_date BETWEEN date_trunc('week',CURRENT_DATE) AND date_trunc('week',CURRENT_DATE)+INTERVAL '6 days'),0)::INT AS week_bookings
+                COALESCE((SELECT COUNT(*) FROM bookings WHERE created_at::DATE=CURRENT_DATE),0)::INT AS today_bookings,
+                COALESCE((SELECT COUNT(*) FROM bookings WHERE created_at::DATE BETWEEN date_trunc('week',CURRENT_DATE)::DATE AND (date_trunc('week',CURRENT_DATE)+INTERVAL '6 days')::DATE),0)::INT AS week_bookings
             FROM bookings WHERE 1=1 {period_filter}
             """
         )
@@ -1045,6 +1045,23 @@ def update_expense(expense_id: int, data: dict) -> None:
 
 def delete_expense(expense_id: int) -> None:
     db.callproc_void("sp_delete_expense", in_params=(expense_id,))
+
+
+def get_top_locations(limit: int = 10) -> list[dict]:
+    rows = db.fetchall(
+        """
+        SELECT venue, COUNT(*) AS booking_count
+        FROM bookings
+        WHERE venue IS NOT NULL AND TRIM(venue) != ''
+        GROUP BY venue
+        ORDER BY booking_count DESC
+        LIMIT %s
+        """,
+        (limit,),
+    )
+    if not rows:
+        return []
+    return [{"venue": r["venue"], "count": int(r["booking_count"])} for r in rows]
 
 
 def get_profit_summary() -> list[dict]:

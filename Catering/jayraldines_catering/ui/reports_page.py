@@ -383,7 +383,73 @@ class TopMenuItemsChart(QVBoxLayout):
 
 
 # ─────────────────────────────────────────────
-# CHART 5: Customer Order Frequency (Pie)
+# CHART 5: Top Booking Locations (Horizontal Bar)
+# ─────────────────────────────────────────────
+class TopLocationsChart(QVBoxLayout):
+    def __init__(self):
+        super().__init__()
+
+        self._title_lbl = QLabel("Top Booking Locations (Venues)")
+        self._title_lbl.setObjectName("h3")
+        self.addWidget(self._title_lbl)
+
+        db_data = repo.get_top_locations(limit=10)
+        _MAX = 30
+        if db_data:
+            venues = [(r["venue"][:_MAX] + "…") if len(r["venue"]) > _MAX else r["venue"] for r in db_data]
+            counts = [r["count"] for r in db_data]
+        else:
+            venues = ["No Data"]
+            counts = [0]
+
+        self._venues = venues
+        self._counts = counts
+
+        self._bar_set = QBarSet("Bookings")
+        self._bar_set.setColor(QColor("#8B5CF6"))
+        _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
+        self._bar_set.setLabelColor(QColor(_lbl_c))
+        for v in counts:
+            self._bar_set.append(v)
+        self._bar_set.hovered.connect(self._on_hover)
+
+        self._series = QBarSeries()
+        self._series.append(self._bar_set)
+
+        self._chart = QChart()
+        self._chart.addSeries(self._series)
+        self._chart.setAnimationOptions(QChart.SeriesAnimations)
+        self._chart.legend().hide()
+
+        self._ax = QBarCategoryAxis()
+        self._ax.append(venues)
+        _axis_style(self._ax)
+        self._chart.addAxis(self._ax, Qt.AlignBottom)
+        self._series.attachAxis(self._ax)
+
+        self._ay = QValueAxis()
+        self._ay.setRange(0, max(counts) * 1.2 if counts else 10)
+        self._ay.setLabelFormat("%d")
+        _axis_style(self._ay)
+        self._chart.addAxis(self._ay, Qt.AlignLeft)
+        self._series.attachAxis(self._ay)
+
+        self._view = _chart_view(self._chart)
+        self._view.setMinimumHeight(240)
+        self.addWidget(self._view)
+
+    def _on_hover(self, state, index):
+        if state and 0 <= index < len(self._venues):
+            QToolTip.showText(
+                QCursor.pos(),
+                f"<b>{self._venues[index]}</b><br>Bookings: <b>{self._counts[index]}</b>"
+            )
+        else:
+            QToolTip.hideText()
+
+
+# ─────────────────────────────────────────────
+# CHART 6: Customer Order Frequency (Pie)
 # ─────────────────────────────────────────────
 class CustomerFrequencyChart(QVBoxLayout):
     def __init__(self):
@@ -582,13 +648,25 @@ class ReportsPage(QWidget):
 
         self.main_layout.addLayout(self._row2)
 
-        # ── ROW 3: Customer Frequency (full width) ───────────────────────────
-        self._freq_chart_layout = CustomerFrequencyChart()   # instance var
+        # ── ROW 3: Top Locations + Customer Frequency ────────────────────────
+        self._row3 = QHBoxLayout()
+        self._row3.setSpacing(24)
+
+        self._locations_chart_layout = TopLocationsChart()
+        self.locations_card = QFrame(self.scroll_content)
+        self.locations_card.setObjectName("card")
+        self.locations_card.setLayout(self._locations_chart_layout)
+        self.locations_card.layout().setContentsMargins(28, 24, 28, 20)
+        self._row3.addWidget(self.locations_card, 3)
+
+        self._freq_chart_layout = CustomerFrequencyChart()
         self.freq_card = QFrame(self.scroll_content)
         self.freq_card.setObjectName("card")
         self.freq_card.setLayout(self._freq_chart_layout)
         self.freq_card.layout().setContentsMargins(28, 24, 28, 20)
-        self.main_layout.addWidget(self.freq_card)
+        self._row3.addWidget(self.freq_card, 2)
+
+        self.main_layout.addLayout(self._row3)
 
         # ── RECENT BOOKINGS TABLE ────────────────────────────────────────────
         self.table_card = HoverCard(self.scroll_content)

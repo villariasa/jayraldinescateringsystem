@@ -459,15 +459,21 @@ class BookingPage(QWidget):
             "status": data["status"],
         })
         self._populate_table()
-        success(self, message="Booking created successfully.")
+
+        email_status = self._send_approval_request(data, bkg_id)
+        if email_status is True:
+            msg = f"Booking created successfully.\nConfirmation email sent to {data.get('email', '')}."
+        elif email_status is False:
+            msg = "Booking created successfully.\nCould not send confirmation email — check SMTP settings."
+        else:
+            msg = "Booking created successfully."
+        success(self, message=msg)
 
         if db_id:
             try:
                 repo.auto_create_invoice(db_id)
             except Exception as exc:
                 print(f"[booking] auto_create_invoice failed: {exc}")
-
-        self._send_approval_request(data, bkg_id)
 
         try:
             repo.push_notification(
@@ -481,25 +487,29 @@ class BookingPage(QWidget):
 
         app_events().booking_saved.emit()
 
-    def _send_approval_request(self, data: dict, bkg_ref: str) -> None:
-        """Send a booking approval request email to the customer."""
+    def _send_approval_request(self, data: dict, bkg_ref: str):
+        """Send a booking approval request email to the customer.
+        Returns True on success, False on failure, None if email/SMTP not configured."""
         try:
             email = data.get("email", "")
             if not email or "@" not in email:
-                return
+                return None
             smtp = repo.get_smtp_config()
             if not smtp.get("smtp_host"):
-                return
+                return None
             biz = repo.get_business_info()
             booking_data = {**data, "booking_ref": bkg_ref, "business_contact": biz.get("contact", ""), "business_name": biz.get("name", "Jayraldine's Catering")}
             from utils.mailer import send_booking_approval_request_email
             ok, err = send_booking_approval_request_email(smtp, email, booking_data)
             if ok:
                 print(f"[booking] Approval request email sent to {email}")
+                return True
             else:
                 print(f"[booking] Approval request email failed: {err}")
+                return False
         except Exception as exc:
             print(f"[booking] send_approval_request failed: {exc}")
+            return False
 
     def _open_filter(self):
         if self._filter_popover is None:

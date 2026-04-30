@@ -58,7 +58,10 @@ class AddressSearchWidget(QWidget):
         self._search.blockSignals(False)
         self._street.setText(street)
         self._selected = data
-        self._street_row.setVisible(bool(display_text))
+        if display_text:
+            self._show_widget(self._street_row, 80)
+        else:
+            self._hide_widget(self._street_row)
         self._clear_btn.setVisible(bool(display_text))
         self._hide_dropdown()
 
@@ -66,7 +69,7 @@ class AddressSearchWidget(QWidget):
         self._search.clear()
         self._street.clear()
         self._selected = None
-        self._street_row.setVisible(False)
+        self._hide_widget(self._street_row)
         self._clear_btn.setVisible(False)
         self._hide_dropdown()
         self.address_cleared.emit()
@@ -74,6 +77,16 @@ class AddressSearchWidget(QWidget):
     def is_valid(self) -> bool:
         """Return True if a suggestion has been selected and street is not empty."""
         return self._selected is not None and bool(self.get_street())
+
+    def highlight_street_error(self) -> None:
+        """Highlight the street field in red to indicate it is required."""
+        self._street.setStyleSheet(
+            "border: 1px solid #E11D48; border-radius: 6px; background: rgba(225,29,72,0.05);"
+        )
+        self._street.setFocus()
+
+    def _clear_street_error(self) -> None:
+        self._street.setStyleSheet("")
 
     # ------------------------------------------------------------------
     # UI construction
@@ -111,12 +124,11 @@ class AddressSearchWidget(QWidget):
         # --- dropdown (hidden by default) ---
         self._dropdown = QListWidget()
         self._dropdown.setObjectName("addressDropdown")
-        self._dropdown.setFixedWidth(self._search.width())
-        self._dropdown.setMaximumHeight(self._DROPDOWN_MAX_H)
         self._dropdown.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._dropdown.setStyleSheet(self._dropdown_style())
         self._dropdown.itemClicked.connect(self._on_item_clicked)
-        self._dropdown.setVisible(False)
+        self._dropdown.setMaximumHeight(0)
+        self._dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         root.addWidget(self._dropdown)
 
         # --- street input (hidden until selection) ---
@@ -133,32 +145,43 @@ class AddressSearchWidget(QWidget):
 
         street_lay.addWidget(lbl)
         street_lay.addWidget(self._street)
-        self._street_row.setVisible(False)
+        self._street.textChanged.connect(self._clear_street_error)
+        self._street_row.setMaximumHeight(0)
+        self._street_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         root.addWidget(self._street_row)
 
-        # --- hint label ---
         self._hint = QLabel("Start typing to search (min 2 characters)")
         self._hint.setStyleSheet("color:#6B7280; font-size:11px;")
-        self._hint.setVisible(False)
+        self._hint.setMaximumHeight(0)
+        self._hint.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         root.addWidget(self._hint)
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
+    def _show_widget(self, w, max_h: int):
+        w.setMaximumHeight(max_h)
+
+    def _hide_widget(self, w):
+        w.setMaximumHeight(0)
+
     def _on_text_changed(self, text: str):
         if self._selected:
             self._selected = None
-            self._street_row.setVisible(False)
+            self._hide_widget(self._street_row)
             self._clear_btn.setVisible(False)
             self.address_cleared.emit()
 
         if len(text.strip()) < 2:
             self._hide_dropdown()
-            self._hint.setVisible(len(text.strip()) == 1)
+            if len(text.strip()) == 1:
+                self._show_widget(self._hint, 20)
+            else:
+                self._hide_widget(self._hint)
             return
 
-        self._hint.setVisible(False)
+        self._hide_widget(self._hint)
         self._debounce.start(300)
 
     def _run_search(self):
@@ -191,8 +214,7 @@ class AddressSearchWidget(QWidget):
         row_h = 36
         count = self._dropdown.count()
         h = min(count * row_h + 8, self._DROPDOWN_MAX_H)
-        self._dropdown.setFixedHeight(h)
-        self._dropdown.setVisible(True)
+        self._show_widget(self._dropdown, h)
 
     def _on_item_clicked(self, item: QListWidgetItem):
         data = item.data(Qt.UserRole)
@@ -204,12 +226,12 @@ class AddressSearchWidget(QWidget):
         self._search.blockSignals(False)
         self._clear_btn.setVisible(True)
         self._hide_dropdown()
-        self._street_row.setVisible(True)
+        self._show_widget(self._street_row, 80)
         self._street.setFocus()
         self.address_selected.emit(data)
 
     def _hide_dropdown(self):
-        self._dropdown.setVisible(False)
+        self._hide_widget(self._dropdown)
         self._dropdown.clear()
 
     # ------------------------------------------------------------------

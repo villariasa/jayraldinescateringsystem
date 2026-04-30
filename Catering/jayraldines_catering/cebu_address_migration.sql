@@ -39,7 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_address_cities_name    ON address_cities    (LOWE
 
 CREATE TABLE IF NOT EXISTS addresses (
     id          SERIAL PRIMARY KEY,
-    street      VARCHAR(255),
+    street      VARCHAR(255)    NOT NULL,
     barangay_id INT REFERENCES address_barangays(id),
     city_id     INT REFERENCES address_cities(id),
     province_id INT REFERENCES address_provinces(id),

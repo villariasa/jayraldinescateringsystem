@@ -182,8 +182,13 @@ class AddCustomerDialog(QDialog):
             return
         code    = self.country_code_combo.currentData()
         contact = f"{code} {number}"
-        sel     = self.address_widget.get_selection()
-        street  = self.address_widget.get_street()
+        sel    = self.address_widget.get_selection()
+        street = self.address_widget.get_street()
+        if sel and not street:
+            self._err.setText("Street / House No. is required after selecting an address.")
+            self._err.show()
+            self.address_widget.highlight_street_error()
+            return
         if sel:
             addr_str = f"{street}, {sel['barangay']}, {sel['city']}, Cebu".strip(", ")
         else:
@@ -368,8 +373,13 @@ class EditCustomerDialog(QDialog):
             return
         code    = self.country_code_combo.currentData()
         contact = f"{code} {number}"
-        sel     = self.address_widget.get_selection()
-        street  = self.address_widget.get_street()
+        sel    = self.address_widget.get_selection()
+        street = self.address_widget.get_street()
+        if sel and not street:
+            self._err.setText("Street / House No. is required after selecting an address.")
+            self._err.show()
+            self.address_widget.highlight_street_error()
+            return
         if sel:
             addr_str = f"{street}, {sel['barangay']}, {sel['city']}, Cebu".strip(", ")
         else:

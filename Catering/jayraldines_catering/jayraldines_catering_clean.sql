@@ -1621,10 +1621,10 @@ SELECT
     COALESCE(SUM(b.pax), 0)::INT                                                   AS total_pax,
     COALESCE((SELECT SUM(total_amount) FROM invoices), 0)::FLOAT                   AS total_revenue,
     COALESCE((SELECT SUM(total_amount - amount_paid) FROM invoices WHERE status != 'Paid'), 0)::FLOAT AS unpaid_amount,
-    COALESCE((SELECT COUNT(*) FROM bookings WHERE DATE(event_date) = CURRENT_DATE), 0)::INT AS today_bookings,
+    COALESCE((SELECT COUNT(*) FROM bookings WHERE created_at::DATE = CURRENT_DATE), 0)::INT AS today_bookings,
     COALESCE((SELECT COUNT(*) FROM bookings
-              WHERE event_date BETWEEN date_trunc('week', CURRENT_DATE)
-                                   AND date_trunc('week', CURRENT_DATE) + INTERVAL '6 days'), 0)::INT AS week_bookings
+              WHERE created_at::DATE BETWEEN date_trunc('week', CURRENT_DATE)::DATE
+                                        AND (date_trunc('week', CURRENT_DATE) + INTERVAL '6 days')::DATE), 0)::INT AS week_bookings
 FROM bookings b;
 
 CREATE OR REPLACE VIEW v_recent_activity AS
@@ -1793,7 +1793,7 @@ CREATE INDEX IF NOT EXISTS idx_address_cities_name    ON address_cities    (LOWE
 
 CREATE TABLE IF NOT EXISTS addresses (
     id          SERIAL PRIMARY KEY,
-    street      VARCHAR(255),
+    street      VARCHAR(255)    NOT NULL,
     barangay_id INT REFERENCES address_barangays(id),
     city_id     INT REFERENCES address_cities(id),
     province_id INT REFERENCES address_provinces(id),
