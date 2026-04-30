@@ -463,6 +463,8 @@ class DashboardPage(QWidget):
         self._cap_pct_lbl.setText(f"{pct}% Capacity")
         self._cap_rem_lbl.setText(f"{max(0, 600 - pax)} slots remaining")
 
+        self._cached_events = repo.get_upcoming_events(limit=20)
+        self._cached_activity = repo.get_recent_activity(limit=10)
         self._rebuild_events()
         self._rebuild_activity()
         self._rebuild_followup_alerts()
@@ -473,9 +475,25 @@ class DashboardPage(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-    def _rebuild_events(self):
+    def filter_search(self, text: str):
+        q = text.strip().lower()
+        events = getattr(self, "_cached_events", []) or []
+        activity = getattr(self, "_cached_activity", []) or []
+        if q:
+            events   = [e for e in events   if q in (e.get("customer_name") or "").lower()
+                                               or q in str(e.get("event_date") or "").lower()
+                                               or q in (e.get("status") or "").lower()]
+            activity = [a for a in activity  if q in (a.get("title") or "").lower()
+                                               or q in (a.get("description") or "").lower()]
+        self._rebuild_events(events)
+        self._rebuild_activity(activity)
+
+    def _rebuild_events(self, events=None):
         self._clear_layout_from(self._ev_lay, self._ev_items_start)
-        events = repo.get_upcoming_events(limit=5)
+        if events is None:
+            events = getattr(self, "_cached_events", None)
+        if events is None:
+            events = repo.get_upcoming_events(limit=20)
         if not events:
             empty = QLabel("No upcoming events.")
             empty.setObjectName("subtitle")
@@ -523,9 +541,12 @@ class DashboardPage(QWidget):
                 self._ev_lay.addWidget(sep)
         self._ev_lay.addStretch()
 
-    def _rebuild_activity(self):
+    def _rebuild_activity(self, activities=None):
         self._clear_layout_from(self._act_lay, self._act_items_start)
-        activities = repo.get_recent_activity(limit=5)
+        if activities is None:
+            activities = getattr(self, "_cached_activity", None)
+        if activities is None:
+            activities = repo.get_recent_activity(limit=10)
         if not activities:
             empty = QLabel("No recent activity.")
             empty.setObjectName("subtitle")

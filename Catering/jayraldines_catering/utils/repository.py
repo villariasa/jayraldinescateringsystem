@@ -1489,6 +1489,62 @@ def _parse_date(s: str) -> date:
     raise ValueError(f"Cannot parse date: {s!r}")
 
 
+# ---------------------------------------------------------------------------
+# CEBU ADDRESS SYSTEM
+# ---------------------------------------------------------------------------
+
+def search_cebu_address(query: str, limit: int = 10) -> list[dict]:
+    """Return up to `limit` barangay+city matches for the given query string."""
+    if not query or len(query.strip()) < 2:
+        return []
+    rows = db.fetchall(
+        "SELECT * FROM fn_search_cebu_address(%s, %s)",
+        (query.strip(), limit),
+    )
+    return rows or []
+
+
+def save_address(street: str, barangay_id: int, city_id: int,
+                 province_id: int, zip_code: str = "") -> Optional[int]:
+    """Insert a structured address record and return its id."""
+    result = db.callproc_out(
+        "sp_save_address",
+        in_params=(street, barangay_id, city_id, province_id, zip_code),
+        out_names=["p_address_id"],
+    )
+    if result:
+        return result.get("p_address_id")
+    return None
+
+
+def link_customer_address(customer_id: int, address_id: int) -> None:
+    """Update customer.address_id to point at the new structured address."""
+    db.execute(
+        "UPDATE customers SET address_id = %s WHERE id = %s",
+        (address_id, customer_id),
+    )
+
+
+def get_recent_addresses(limit: int = 5) -> list[dict]:
+    """Return the most recently saved structured addresses with display text."""
+    rows = db.fetchall(
+        """
+        SELECT a.id, a.street, a.zip_code,
+               b.name AS barangay, c.name AS city, pr.name AS province,
+               b.id   AS barangay_id, c.id AS city_id, pr.id AS province_id,
+               (a.street || ', ' || b.name || ', ' || c.name) AS display_text
+        FROM addresses a
+        JOIN address_barangays b  ON b.id  = a.barangay_id
+        JOIN address_cities    c  ON c.id  = a.city_id
+        JOIN address_provinces pr ON pr.id = a.province_id
+        ORDER BY a.created_at DESC
+        LIMIT %s
+        """,
+        (limit,),
+    )
+    return rows or []
+
+
 def _parse_time(s: str) -> time:
     from datetime import datetime as dt
     for fmt in ("%I:%M %p", "%H:%M", "%H:%M:%S"):

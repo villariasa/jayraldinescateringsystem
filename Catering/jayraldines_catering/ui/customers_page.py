@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
+from components.address_search import AddressSearchWidget
 
 
 def _format_phone_input(text: str) -> str:
@@ -131,9 +132,7 @@ class AddCustomerDialog(QDialog):
         self.email_field.setPlaceholderText("email@example.com")
         self.email_field.setFixedHeight(38)
 
-        self.address_field = QTextEdit()
-        self.address_field.setPlaceholderText("Street, Barangay, City, Province")
-        self.address_field.setFixedHeight(72)
+        self.address_widget = AddressSearchWidget()
 
         self.status_field = QComboBox()
         self.status_field.setFixedHeight(38)
@@ -143,12 +142,16 @@ class AddCustomerDialog(QDialog):
             ("Name *",    self.name_field),
             ("Contact *", contact_widget),
             ("Email",     self.email_field),
-            ("Address",   self.address_field),
             ("Status",    self.status_field),
         ]:
             form.addRow(QLabel(lbl), widget)
 
         lay.addLayout(form)
+
+        addr_lbl = QLabel("Address (Cebu)")
+        addr_lbl.setStyleSheet("color:#9CA3AF; font-size:12px; font-weight:600;")
+        lay.addWidget(addr_lbl)
+        lay.addWidget(self.address_widget)
 
         self._err = QLabel("")
         self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
@@ -186,13 +189,21 @@ class AddCustomerDialog(QDialog):
             return
         code    = self.country_code_combo.currentData()
         contact = f"{code} {number}"
+        sel     = self.address_widget.get_selection()
+        street  = self.address_widget.get_street()
+        if sel:
+            addr_str = f"{street}, {sel['barangay']}, {sel['city']}, Cebu".strip(", ")
+        else:
+            addr_str = street
         self._result = {
-            "name":    name,
-            "contact": contact,
-            "email":   self.email_field.text().strip(),
-            "address": self.address_field.toPlainText().strip(),
-            "events":  0,
-            "status":  self.status_field.currentText(),
+            "name":         name,
+            "contact":      contact,
+            "email":        self.email_field.text().strip(),
+            "address":      addr_str,
+            "address_data": sel,
+            "street":       street,
+            "events":       0,
+            "status":       self.status_field.currentText(),
         }
         self.accept()
 
@@ -293,10 +304,10 @@ class EditCustomerDialog(QDialog):
         self.email_field.setPlaceholderText("email@example.com")
         self.email_field.setFixedHeight(38)
 
-        self.address_field = QTextEdit()
-        self.address_field.setPlaceholderText("Street, Barangay, City, Province")
-        self.address_field.setFixedHeight(72)
-        self.address_field.setPlainText(self._customer.get("address", ""))
+        existing_addr = self._customer.get("address", "")
+        self.address_widget = AddressSearchWidget()
+        if existing_addr:
+            self.address_widget.set_value(existing_addr)
 
         self.status_field = QComboBox()
         self.status_field.setFixedHeight(38)
@@ -309,12 +320,16 @@ class EditCustomerDialog(QDialog):
             ("Name *",    self.name_field),
             ("Contact *", contact_widget),
             ("Email",     self.email_field),
-            ("Address",   self.address_field),
             ("Status",    self.status_field),
         ]:
             form.addRow(QLabel(lbl), widget)
 
         lay.addLayout(form)
+
+        addr_lbl = QLabel("Address (Cebu)")
+        addr_lbl.setStyleSheet("color:#9CA3AF; font-size:12px; font-weight:600;")
+        lay.addWidget(addr_lbl)
+        lay.addWidget(self.address_widget)
 
         self._err = QLabel("")
         self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
@@ -360,12 +375,20 @@ class EditCustomerDialog(QDialog):
             return
         code    = self.country_code_combo.currentData()
         contact = f"{code} {number}"
+        sel     = self.address_widget.get_selection()
+        street  = self.address_widget.get_street()
+        if sel:
+            addr_str = f"{street}, {sel['barangay']}, {sel['city']}, Cebu".strip(", ")
+        else:
+            addr_str = street or self._customer.get("address", "")
         self._result = {
-            "name":    name,
-            "contact": contact,
-            "email":   self.email_field.text().strip(),
-            "address": self.address_field.toPlainText().strip(),
-            "status":  self.status_field.currentText(),
+            "name":         name,
+            "contact":      contact,
+            "email":        self.email_field.text().strip(),
+            "address":      addr_str,
+            "address_data": sel,
+            "street":       street,
+            "status":       self.status_field.currentText(),
         }
         self.accept()
 
@@ -830,6 +853,16 @@ class CustomersPage(QWidget):
             result = dlg.get_result()
             if result and c.get("id"):
                 repo.update_customer(c["id"], result)
+                addr_data = result.get("address_data")
+                if addr_data:
+                    addr_id = repo.save_address(
+                        result.get("street", ""),
+                        addr_data["barangay_id"],
+                        addr_data["city_id"],
+                        addr_data["province_id"],
+                    )
+                    if addr_id:
+                        repo.link_customer_address(c["id"], addr_id)
                 c["name"]    = result["name"]
                 c["contact"] = result["contact"]
                 c["email"]   = result["email"]
@@ -848,6 +881,16 @@ class CustomersPage(QWidget):
                     result["id"] = new_id
                     result["loyalty_tier"] = "Bronze"
                     repo.recalculate_loyalty(new_id)
+                    addr_data = result.get("address_data")
+                    if addr_data:
+                        addr_id = repo.save_address(
+                            result.get("street", ""),
+                            addr_data["barangay_id"],
+                            addr_data["city_id"],
+                            addr_data["province_id"],
+                        )
+                        if addr_id:
+                            repo.link_customer_address(new_id, addr_id)
                 self._customers.append(result)
                 self._populate_table()
                 success(self, message="Customer added successfully.")
