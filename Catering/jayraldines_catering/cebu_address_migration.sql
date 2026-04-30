@@ -885,12 +885,12 @@ BEGIN
     RETURN QUERY
     SELECT
         b.id                                                    AS barangay_id,
-        b.name                                                  AS barangay,
+        b.name::TEXT                                            AS barangay,
         c.id                                                    AS city_id,
-        c.name                                                  AS city,
+        c.name::TEXT                                            AS city,
         pr.id                                                   AS province_id,
-        pr.name                                                 AS province,
-        (b.name || ', ' || c.name || ', ' || pr.name)          AS display_text
+        pr.name::TEXT                                           AS province,
+        (b.name || ', ' || c.name || ', ' || pr.name)::TEXT    AS display_text
     FROM address_barangays b
     JOIN address_cities    c  ON c.id  = b.city_id
     JOIN address_provinces pr ON pr.id = c.province_id

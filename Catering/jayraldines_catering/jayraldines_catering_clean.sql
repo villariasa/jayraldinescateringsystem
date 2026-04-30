@@ -1968,8 +1968,8 @@ DECLARE v_q TEXT;
 BEGIN
     v_q := '%' || LOWER(TRIM(p_query)) || '%';
     RETURN QUERY
-    SELECT b.id, b.name, c.id, c.name, pr.id, pr.name,
-           (b.name || ', ' || c.name || ', ' || pr.name)
+    SELECT b.id, b.name::TEXT, c.id, c.name::TEXT, pr.id, pr.name::TEXT,
+           (b.name || ', ' || c.name || ', ' || pr.name)::TEXT
     FROM address_barangays b
     JOIN address_cities    c  ON c.id  = b.city_id
     JOIN address_provinces pr ON pr.id = c.province_id
