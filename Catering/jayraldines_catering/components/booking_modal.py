@@ -72,11 +72,6 @@ def _step_line_inactive():
 
 _STEPS = ["Customer", "Event", "Menu", "Payment"]
 
-_PACKAGES = [
-    ("Standard Package",  "₱1,500/pax", "Buffet setup, 5 dishes, dessert",  1500),
-    ("Premium Package",   "₱2,500/pax", "Plated service, 8 dishes, dessert + drinks", 2500),
-    ("VIP Package",       "₱3,500/pax", "Full service, 12 dishes, open bar, décor",  3500),
-]
 
 
 def _section_label(text):
@@ -438,32 +433,44 @@ class BookingModal(QDialog):
         pkg_lay.setSpacing(10)
         pkg_lay.setContentsMargins(0, 0, 0, 0)
         self._pkg_btns = []
-        for i, (name, price, desc, _rate) in enumerate(_PACKAGES):
-            card = QFrame()
-            card.setStyleSheet(_package_card_style(selected=False))
-            card.setCursor(Qt.PointingHandCursor)
-            card_lay = QHBoxLayout(card)
-            card_lay.setContentsMargins(16, 14, 16, 14)
-            info = QVBoxLayout()
-            info.setSpacing(2)
-            n_lbl = QLabel(name)
-            n_lbl.setStyleSheet(_package_name_style())
-            d_lbl = QLabel(desc)
-            d_lbl.setStyleSheet(_package_desc_style())
-            info.addWidget(n_lbl)
-            info.addWidget(d_lbl)
-            card_lay.addLayout(info)
-            card_lay.addStretch()
-            p_lbl = QLabel(price)
-            p_lbl.setStyleSheet("font-weight: 700; color: #F59E0B; font-size: 13px;")
-            card_lay.addWidget(p_lbl)
-            sel_btn = QPushButton("Select")
-            sel_btn.setObjectName("secondaryButton")
-            sel_btn.setFixedWidth(80)
-            sel_btn.clicked.connect(lambda _, idx=i, c=card: self._select_package(idx, c))
-            card_lay.addWidget(sel_btn)
-            self._pkg_btns.append((card, sel_btn))
-            pkg_lay.addWidget(card)
+        self._db_packages = repo.get_all_packages()
+        if not self._db_packages:
+            empty_lbl = QLabel("No packages defined yet.\nAsk the owner to add packages in the Menu section.")
+            empty_lbl.setObjectName("subtitle")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            empty_lbl.setWordWrap(True)
+            pkg_lay.addWidget(empty_lbl)
+        else:
+            for i, pkg in enumerate(self._db_packages):
+                name = pkg["name"]
+                rate = pkg["price_per_pax"]
+                desc = pkg["description"] or ""
+                price_str = f"₱{rate:,.0f}/pax"
+                card = QFrame()
+                card.setStyleSheet(_package_card_style(selected=(i == 0)))
+                card.setCursor(Qt.PointingHandCursor)
+                card_lay = QHBoxLayout(card)
+                card_lay.setContentsMargins(16, 14, 16, 14)
+                info = QVBoxLayout()
+                info.setSpacing(2)
+                n_lbl = QLabel(name)
+                n_lbl.setStyleSheet(_package_name_style())
+                d_lbl = QLabel(desc)
+                d_lbl.setStyleSheet(_package_desc_style())
+                info.addWidget(n_lbl)
+                info.addWidget(d_lbl)
+                card_lay.addLayout(info)
+                card_lay.addStretch()
+                p_lbl = QLabel(price_str)
+                p_lbl.setStyleSheet("font-weight: 700; color: #F59E0B; font-size: 13px;")
+                card_lay.addWidget(p_lbl)
+                sel_btn = QPushButton("Selected" if i == 0 else "Select")
+                sel_btn.setObjectName("primaryButton" if i == 0 else "secondaryButton")
+                sel_btn.setFixedWidth(80)
+                sel_btn.clicked.connect(lambda _, idx=i, c=card: self._select_package(idx, c))
+                card_lay.addWidget(sel_btn)
+                self._pkg_btns.append((card, sel_btn))
+                pkg_lay.addWidget(card)
         pkg_lay.addStretch()
         self.menu_stack.addWidget(pkg_w)
 
@@ -499,7 +506,7 @@ class BookingModal(QDialog):
         self.btn_custom.clicked.connect(lambda: self.menu_stack.setCurrentIndex(1))
 
         lay.addWidget(self.menu_stack, 1)
-        self._selected_pkg = 0
+        self._selected_pkg = 0 if self._db_packages else None
         return w
 
     def _select_package(self, idx, clicked_card):
@@ -559,8 +566,12 @@ class BookingModal(QDialog):
 
     def _update_cost(self):
         pax = self.f_pax.value() if hasattr(self, "f_pax") else 100
-        pkg_idx = getattr(self, "_selected_pkg", 0)
-        rate = _PACKAGES[pkg_idx][3]
+        pkg_idx = getattr(self, "_selected_pkg", None)
+        db_pkgs = getattr(self, "_db_packages", [])
+        if pkg_idx is not None and db_pkgs and pkg_idx < len(db_pkgs):
+            rate = db_pkgs[pkg_idx]["price_per_pax"]
+        else:
+            rate = 0
         total = pax * rate
         try:
             biz = repo.get_business_info()
@@ -625,16 +636,21 @@ class BookingModal(QDialog):
             self._refresh_step()
 
     def _save(self):
-        pkg_names = [p[0] for p in _PACKAGES]
         custom_items = [chk.text() for chk in self._custom_checks if chk.isChecked()]
         menu_type = "package"
-        menu_value = pkg_names[self._selected_pkg]
+        db_pkgs = getattr(self, "_db_packages", [])
+        pkg_idx = getattr(self, "_selected_pkg", None)
+        if db_pkgs and pkg_idx is not None and pkg_idx < len(db_pkgs):
+            menu_value = db_pkgs[pkg_idx]["name"]
+            rate = db_pkgs[pkg_idx]["price_per_pax"]
+        else:
+            menu_value = ""
+            rate = 0
         if self.btn_custom.isChecked() and custom_items:
             menu_type = "custom"
             menu_value = ", ".join(custom_items)
 
         pax = self.f_pax.value()
-        rate = _PACKAGES[self._selected_pkg][3]
         total = pax * rate
 
         selected_customer = self.f_customer_combo.itemData(self.f_customer_combo.currentIndex()) or {}

@@ -12,13 +12,6 @@ from utils.session import get_actor
 from utils.signals import app_events
 
 
-_SAMPLE_ORDERS = [
-    {"id": "ORD-001", "client": "Maria Santos",  "event": "Birthday Party",    "pax": 80,  "items": "Lechon, Kare-Kare, Buko Pandan",   "status": "Queued"},
-    {"id": "ORD-002", "client": "TechCorp Inc.", "event": "Corporate Dinner",  "pax": 150, "items": "Chicken Inasal, Pancit, Leche Flan", "status": "In Progress"},
-    {"id": "ORD-003", "client": "Cruz Family",   "event": "Debut",             "pax": 200, "items": "Lechon, Kare-Kare, Chopsuey",       "status": "Ready"},
-    {"id": "ORD-004", "client": "Smith Wedding", "event": "Wedding Reception",  "pax": 300, "items": "Full Package Premium",              "status": "Queued"},
-]
-
 _STATUSES    = ["Queued", "Preparing", "In Progress", "Ready", "Delivered", "Cancelled"]
 _NEXT_STATUS = {"Queued": "Preparing", "Preparing": "In Progress", "In Progress": "Ready", "Ready": "Delivered"}
 _PREV_STATUS = {"Preparing": "Queued", "In Progress": "Preparing", "Ready": "In Progress", "Delivered": "Ready"}

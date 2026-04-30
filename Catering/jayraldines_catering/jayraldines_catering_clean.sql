@@ -1762,5 +1762,243 @@ ORDER BY recorded_date DESC, entry_type;
 -- GRANT EXECUTE                        ON ALL ROUTINES  IN SCHEMA public TO catering_owner;
 
 -- =============================================================================
+-- CEBU ADDRESS SYSTEM
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS address_regions (
+    id   SERIAL PRIMARY KEY,
+    name VARCHAR(120) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS address_provinces (
+    id        SERIAL PRIMARY KEY,
+    region_id INT NOT NULL REFERENCES address_regions(id) ON DELETE CASCADE,
+    name      VARCHAR(120) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS address_cities (
+    id          SERIAL PRIMARY KEY,
+    province_id INT NOT NULL REFERENCES address_provinces(id) ON DELETE CASCADE,
+    name        VARCHAR(120) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS address_barangays (
+    id      SERIAL PRIMARY KEY,
+    city_id INT NOT NULL REFERENCES address_cities(id) ON DELETE CASCADE,
+    name    VARCHAR(120) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_address_barangays_name ON address_barangays (LOWER(name));
+CREATE INDEX IF NOT EXISTS idx_address_cities_name    ON address_cities    (LOWER(name));
+
+CREATE TABLE IF NOT EXISTS addresses (
+    id          SERIAL PRIMARY KEY,
+    street      VARCHAR(255),
+    barangay_id INT REFERENCES address_barangays(id),
+    city_id     INT REFERENCES address_cities(id),
+    province_id INT REFERENCES address_provinces(id),
+    zip_code    VARCHAR(10),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE customers
+    ADD COLUMN IF NOT EXISTS address_id INT REFERENCES addresses(id);
+
+INSERT INTO address_regions (name) VALUES ('Region VII - Central Visayas')
+    ON CONFLICT DO NOTHING;
+
+INSERT INTO address_provinces (region_id, name)
+SELECT r.id, 'Cebu'
+FROM address_regions r WHERE r.name = 'Region VII - Central Visayas'
+ON CONFLICT DO NOTHING;
+
+DO $$
+DECLARE v_prov_id INT;
+BEGIN
+    SELECT id INTO v_prov_id FROM address_provinces WHERE name = 'Cebu' LIMIT 1;
+    INSERT INTO address_cities (province_id, name) VALUES
+        (v_prov_id,'Cebu City'),(v_prov_id,'Lapu-Lapu City'),(v_prov_id,'Mandaue City'),
+        (v_prov_id,'Carcar City'),(v_prov_id,'Danao City'),(v_prov_id,'Naga City'),
+        (v_prov_id,'Talisay City'),(v_prov_id,'Toledo City'),(v_prov_id,'Alcantara'),
+        (v_prov_id,'Alcoy'),(v_prov_id,'Alegria'),(v_prov_id,'Aloguinsan'),
+        (v_prov_id,'Argao'),(v_prov_id,'Asturias'),(v_prov_id,'Badian'),
+        (v_prov_id,'Balamban'),(v_prov_id,'Bantayan'),(v_prov_id,'Barili'),
+        (v_prov_id,'Bogo City'),(v_prov_id,'Boljoon'),(v_prov_id,'Borbon'),
+        (v_prov_id,'Carmen'),(v_prov_id,'Catmon'),(v_prov_id,'Compostela'),
+        (v_prov_id,'Consolacion'),(v_prov_id,'Cordova'),(v_prov_id,'Daanbantayan'),
+        (v_prov_id,'Dalaguete'),(v_prov_id,'Dumanjug'),(v_prov_id,'Ginatilan'),
+        (v_prov_id,'Liloan'),(v_prov_id,'Madridejos'),(v_prov_id,'Malabuyoc'),
+        (v_prov_id,'Medellin'),(v_prov_id,'Minglanilla'),(v_prov_id,'Moalboal'),
+        (v_prov_id,'Oslob'),(v_prov_id,'Pilar'),(v_prov_id,'Pinamungajan'),
+        (v_prov_id,'Poro'),(v_prov_id,'Ronda'),(v_prov_id,'Samboan'),
+        (v_prov_id,'San Fernando'),(v_prov_id,'San Francisco'),(v_prov_id,'San Remigio'),
+        (v_prov_id,'Santa Fe'),(v_prov_id,'Santander'),(v_prov_id,'Sibonga'),
+        (v_prov_id,'Sogod'),(v_prov_id,'Tabogon'),(v_prov_id,'Tabuelan'),
+        (v_prov_id,'Tuburan'),(v_prov_id,'Tudela')
+    ON CONFLICT DO NOTHING;
+END$$;
+
+DO $$
+DECLARE v_city_id INT;
+BEGIN
+SELECT id INTO v_city_id FROM address_cities WHERE name='Cebu City' LIMIT 1;
+INSERT INTO address_barangays(city_id,name) VALUES
+(v_city_id,'Adlaon'),(v_city_id,'Agsungot'),(v_city_id,'Apas'),(v_city_id,'Bacayan'),
+(v_city_id,'Banilad'),(v_city_id,'Basak Pardo'),(v_city_id,'Basak San Nicolas'),
+(v_city_id,'Binaliw'),(v_city_id,'Bonbon'),(v_city_id,'Budla-an'),(v_city_id,'Buhisan'),
+(v_city_id,'Bulacao'),(v_city_id,'Buot-Taup Pardo'),(v_city_id,'Busay'),
+(v_city_id,'Calamba'),(v_city_id,'Cambinocot'),(v_city_id,'Capitol Site'),
+(v_city_id,'Carreta'),(v_city_id,'Central'),(v_city_id,'Cogon Pardo'),
+(v_city_id,'Cogon Ramos'),(v_city_id,'Day-as'),(v_city_id,'Duljo-Fatima'),
+(v_city_id,'Ermita'),(v_city_id,'Forecast'),(v_city_id,'Guadalupe'),(v_city_id,'Guba'),
+(v_city_id,'Hippodromo'),(v_city_id,'Inayawan'),(v_city_id,'Kalubihan'),
+(v_city_id,'Kalunasan'),(v_city_id,'Kamagayan'),(v_city_id,'Kasambagan'),
+(v_city_id,'Kinasang-an Pardo'),(v_city_id,'Labangon'),(v_city_id,'Lahug'),
+(v_city_id,'Lorega San Miguel'),(v_city_id,'Lusaran'),(v_city_id,'Luz'),
+(v_city_id,'Mabini'),(v_city_id,'Mabolo'),(v_city_id,'Malubog'),
+(v_city_id,'Mambaling'),(v_city_id,'Pahina Central'),(v_city_id,'Pahina San Nicolas'),
+(v_city_id,'Pamutan'),(v_city_id,'Pardo'),(v_city_id,'Pari-an'),(v_city_id,'Paril'),
+(v_city_id,'Pasil'),(v_city_id,'Pit-os'),(v_city_id,'Poblacion Pardo'),
+(v_city_id,'Pulangbato'),(v_city_id,'Pung-ol-Sibugay'),(v_city_id,'Punta Princesa'),
+(v_city_id,'Quiot Pardo'),(v_city_id,'Sambag I'),(v_city_id,'Sambag II'),
+(v_city_id,'San Antonio'),(v_city_id,'San Jose'),(v_city_id,'San Nicolas Central'),
+(v_city_id,'San Nicolas Proper'),(v_city_id,'San Roque'),(v_city_id,'Santa Cruz'),
+(v_city_id,'Santo Nino'),(v_city_id,'Sapangdaku'),(v_city_id,'Sawang Calero'),
+(v_city_id,'Sinsin'),(v_city_id,'Sirao'),(v_city_id,'Suba-basbas'),
+(v_city_id,'Sudlon I'),(v_city_id,'Sudlon II'),(v_city_id,'T. Padilla'),
+(v_city_id,'Tabunan'),(v_city_id,'Tagbao'),(v_city_id,'Talamban'),(v_city_id,'Taptap'),
+(v_city_id,'Tejero'),(v_city_id,'Tinago'),(v_city_id,'Tisa'),(v_city_id,'To-og'),
+(v_city_id,'Toong'),(v_city_id,'Tugbongan'),(v_city_id,'Umapad'),(v_city_id,'Zapatera')
+ON CONFLICT DO NOTHING;
+
+SELECT id INTO v_city_id FROM address_cities WHERE name='Lapu-Lapu City' LIMIT 1;
+INSERT INTO address_barangays(city_id,name) VALUES
+(v_city_id,'Agus'),(v_city_id,'Babag'),(v_city_id,'Bankal'),(v_city_id,'Baring'),
+(v_city_id,'Basak'),(v_city_id,'Buaya'),(v_city_id,'Calawisan'),(v_city_id,'Canjulao'),
+(v_city_id,'Caubian'),(v_city_id,'Caw-oy'),(v_city_id,'Cawhagan'),(v_city_id,'Gun-ob'),
+(v_city_id,'Ibo'),(v_city_id,'Looc'),(v_city_id,'Mactan'),(v_city_id,'Maribago'),
+(v_city_id,'Marigondon'),(v_city_id,'Pajac'),(v_city_id,'Pajo'),(v_city_id,'Pangan-an'),
+(v_city_id,'Poblacion'),(v_city_id,'Portcat'),(v_city_id,'Punta Engano'),
+(v_city_id,'Pusok'),(v_city_id,'Sabang'),(v_city_id,'Santa Rosa'),
+(v_city_id,'Subabasbas'),(v_city_id,'Talima'),(v_city_id,'Tingo'),(v_city_id,'Tungasan')
+ON CONFLICT DO NOTHING;
+
+SELECT id INTO v_city_id FROM address_cities WHERE name='Mandaue City' LIMIT 1;
+INSERT INTO address_barangays(city_id,name) VALUES
+(v_city_id,'Alang-alang'),(v_city_id,'Bakilid'),(v_city_id,'Banilad'),
+(v_city_id,'Basak'),(v_city_id,'Cambaro'),(v_city_id,'Canduman'),
+(v_city_id,'Casili'),(v_city_id,'Casuntingan'),(v_city_id,'Centro'),
+(v_city_id,'Cubacub'),(v_city_id,'Guizo'),(v_city_id,'Ibabao-Estancia'),
+(v_city_id,'Jagobiao'),(v_city_id,'Labogon'),(v_city_id,'Looc'),
+(v_city_id,'Maguikay'),(v_city_id,'Mantuyong'),(v_city_id,'Novaliches'),
+(v_city_id,'Opao'),(v_city_id,'Pagsabungan'),(v_city_id,'Pakna-an'),
+(v_city_id,'Putlod'),(v_city_id,'Subangdaku'),(v_city_id,'Tabok'),
+(v_city_id,'Tawason'),(v_city_id,'Tingub'),(v_city_id,'Tipolo'),(v_city_id,'Umapad')
+ON CONFLICT DO NOTHING;
+
+SELECT id INTO v_city_id FROM address_cities WHERE name='Talisay City' LIMIT 1;
+INSERT INTO address_barangays(city_id,name) VALUES
+(v_city_id,'Biasong'),(v_city_id,'Bulacao'),(v_city_id,'Cansojong'),
+(v_city_id,'Dumlog'),(v_city_id,'Jaclupan'),(v_city_id,'Lagtang'),
+(v_city_id,'Lawaan I'),(v_city_id,'Lawaan II'),(v_city_id,'Lawaan III'),
+(v_city_id,'Linao'),(v_city_id,'Maghaway'),(v_city_id,'Manipis'),
+(v_city_id,'Mohon'),(v_city_id,'Pooc'),(v_city_id,'Poblacion'),
+(v_city_id,'San Isidro'),(v_city_id,'San Roque'),(v_city_id,'Tabunok'),
+(v_city_id,'Tangke'),(v_city_id,'Tapul')
+ON CONFLICT DO NOTHING;
+
+SELECT id INTO v_city_id FROM address_cities WHERE name='Consolacion' LIMIT 1;
+INSERT INTO address_barangays(city_id,name) VALUES
+(v_city_id,'Bagacay'),(v_city_id,'Butong'),(v_city_id,'Cansaga'),
+(v_city_id,'Casili'),(v_city_id,'Danglag'),(v_city_id,'Garing'),
+(v_city_id,'Jugan'),(v_city_id,'Lamac'),(v_city_id,'Lanipga'),
+(v_city_id,'Nangka'),(v_city_id,'Panas'),(v_city_id,'Panoypoy'),
+(v_city_id,'Pitogo'),(v_city_id,'Poblacion Occidental'),(v_city_id,'Poblacion Oriental'),
+(v_city_id,'Pulpog'),(v_city_id,'Sacsac'),(v_city_id,'Tayud'),
+(v_city_id,'Tilhaong'),(v_city_id,'Tolotolo'),(v_city_id,'Tugbongan')
+ON CONFLICT DO NOTHING;
+
+SELECT id INTO v_city_id FROM address_cities WHERE name='Liloan' LIMIT 1;
+INSERT INTO address_barangays(city_id,name) VALUES
+(v_city_id,'Cabadiangan'),(v_city_id,'Calero'),(v_city_id,'Catarman'),
+(v_city_id,'Cotcot'),(v_city_id,'Jubay'),(v_city_id,'Lataban'),
+(v_city_id,'Mulao'),(v_city_id,'Poblacion'),(v_city_id,'San Roque'),
+(v_city_id,'San Vicente'),(v_city_id,'Santa Cruz'),(v_city_id,'Santander'),
+(v_city_id,'Science Park'),(v_city_id,'Tabla'),(v_city_id,'Tayud'),(v_city_id,'Yati')
+ON CONFLICT DO NOTHING;
+
+SELECT id INTO v_city_id FROM address_cities WHERE name='Minglanilla' LIMIT 1;
+INSERT INTO address_barangays(city_id,name) VALUES
+(v_city_id,'Cadulawan'),(v_city_id,'Calajunan'),(v_city_id,'Canlaon'),
+(v_city_id,'Cogon'),(v_city_id,'Cuanos'),(v_city_id,'Guindaruhan'),
+(v_city_id,'Linao'),(v_city_id,'Manduang'),(v_city_id,'Pakigne'),
+(v_city_id,'Poblacion Ward I'),(v_city_id,'Poblacion Ward II'),
+(v_city_id,'Poblacion Ward III'),(v_city_id,'Poblacion Ward IV'),
+(v_city_id,'Tubod'),(v_city_id,'Tulay'),(v_city_id,'Tunghaan'),
+(v_city_id,'Tungkop'),(v_city_id,'Vito')
+ON CONFLICT DO NOTHING;
+
+SELECT id INTO v_city_id FROM address_cities WHERE name='Cordova' LIMIT 1;
+INSERT INTO address_barangays(city_id,name) VALUES
+(v_city_id,'Alegria'),(v_city_id,'Bangbang'),(v_city_id,'Buagsong'),
+(v_city_id,'Catarman'),(v_city_id,'Cogon'),(v_city_id,'Dapitan'),
+(v_city_id,'Day-as'),(v_city_id,'Gabi'),(v_city_id,'Gilutongan'),
+(v_city_id,'Ibabao'),(v_city_id,'Pilipog'),(v_city_id,'Poblacion'),(v_city_id,'San Miguel')
+ON CONFLICT DO NOTHING;
+
+SELECT id INTO v_city_id FROM address_cities WHERE name='Compostela' LIMIT 1;
+INSERT INTO address_barangays(city_id,name) VALUES
+(v_city_id,'Bagalnga'),(v_city_id,'Basak'),(v_city_id,'Bulukon'),
+(v_city_id,'Cabadiangan'),(v_city_id,'Cambayog'),(v_city_id,'Canamucan'),
+(v_city_id,'Cogon'),(v_city_id,'Dapdap'),(v_city_id,'Estipona'),
+(v_city_id,'Lupa'),(v_city_id,'Magay'),(v_city_id,'Mulao'),
+(v_city_id,'Ngall'),(v_city_id,'Nug-as'),(v_city_id,'Oldlungsod'),
+(v_city_id,'Poblacion'),(v_city_id,'Tamiao'),(v_city_id,'Tubigan')
+ON CONFLICT DO NOTHING;
+
+END$$;
+
+CREATE OR REPLACE FUNCTION fn_search_cebu_address(p_query TEXT, p_limit INT DEFAULT 10)
+RETURNS TABLE(
+    barangay_id INT, barangay TEXT, city_id INT, city TEXT,
+    province_id INT, province TEXT, display_text TEXT
+)
+LANGUAGE plpgsql AS $$
+DECLARE v_q TEXT;
+BEGIN
+    v_q := '%' || LOWER(TRIM(p_query)) || '%';
+    RETURN QUERY
+    SELECT b.id, b.name, c.id, c.name, pr.id, pr.name,
+           (b.name || ', ' || c.name || ', ' || pr.name)
+    FROM address_barangays b
+    JOIN address_cities    c  ON c.id  = b.city_id
+    JOIN address_provinces pr ON pr.id = c.province_id
+    WHERE LOWER(b.name) LIKE v_q OR LOWER(c.name) LIKE v_q
+    ORDER BY CASE WHEN LOWER(b.name) LIKE LOWER(TRIM(p_query)) || '%' THEN 0 ELSE 1 END, b.name
+    LIMIT p_limit;
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE sp_save_address(
+    IN  p_street TEXT, IN p_barangay_id INT, IN p_city_id INT,
+    IN  p_province_id INT, IN p_zip_code TEXT, OUT p_address_id INT
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO addresses(street, barangay_id, city_id, province_id, zip_code)
+    VALUES(p_street, p_barangay_id, p_city_id, p_province_id, NULLIF(p_zip_code,''))
+    RETURNING id INTO p_address_id;
+END;
+$$;
+
+-- =============================================================================
+-- DEFAULT SEED DATA (required for app to function on first install)
+-- =============================================================================
+
+INSERT INTO business_info (name, contact, email, address)
+VALUES ('Jayraldine''s Catering', '+63 900 000 0000', 'info@jayraldines.com', 'Cebu City, Cebu')
+ON CONFLICT DO NOTHING;
+
+-- =============================================================================
 -- END OF SCHEMA
 -- =============================================================================

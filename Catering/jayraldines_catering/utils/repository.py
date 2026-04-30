@@ -1498,7 +1498,7 @@ def search_cebu_address(query: str, limit: int = 10) -> list[dict]:
     if not query or len(query.strip()) < 2:
         return []
     rows = db.fetchall(
-        "SELECT * FROM fn_search_cebu_address(%s, %s)",
+        "SELECT * FROM fn_search_cebu_address(%s::text, %s::int)",
         (query.strip(), limit),
     )
     return rows or []

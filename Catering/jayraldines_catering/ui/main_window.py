@@ -6,27 +6,33 @@ from components.sidebar import Sidebar
 from components.topbar import TopBar
 from components.notifications_panel import NotificationPopover, reload_notifications
 from components.toast import ToastManager
-from ui.dashboard_page import DashboardPage
-from ui.booking_page import BookingPage
-from ui.customers_page import CustomersPage
-from ui.menu_page import MenuPage
-from ui.calendar_page import CalendarPage
-from ui.kitchen_page import KitchenPage
-from ui.billing_page import BillingPage
-from ui.reports_page import ReportsPage
-from ui.settings_page import SettingsPage
+
+
+_PAGE_MODULES = [
+    ("ui.dashboard_page",  "DashboardPage"),
+    ("ui.booking_page",    "BookingPage"),
+    ("ui.customers_page",  "CustomersPage"),
+    ("ui.menu_page",       "MenuPage"),
+    ("ui.calendar_page",   "CalendarPage"),
+    ("ui.kitchen_page",    "KitchenPage"),
+    ("ui.billing_page",    "BillingPage"),
+    ("ui.reports_page",    "ReportsPage"),
+    ("ui.settings_page",   "SettingsPage"),
+]
+
+
+class _PlaceholderPage(QWidget):
+    """Lightweight stand-in kept in the stack until the real page is needed."""
+    pass
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        print("[MW] Initializing MainWindow...")
-
         self.setWindowTitle("Jayraldine's Catering")
         self.resize(1400, 900)
 
-        print("[MW] Scheduling fullscreen...")
         self.fullscreen_timer = QTimer(self)
         self.fullscreen_timer.setSingleShot(True)
         self.fullscreen_timer.timeout.connect(self.showFullScreen)
@@ -57,44 +63,18 @@ class MainWindow(QMainWindow):
 
         self.stack = QStackedWidget()
 
-        print("[MW] Creating pages...")
-
-        self.dashboard_page  = DashboardPage()
-        self.booking_page    = BookingPage()
-        self.customers_page  = CustomersPage()
-        self.menu_page       = MenuPage()
-        self.calendar_page   = CalendarPage()
-        self.kitchen_page    = KitchenPage()
-        self.billing_page    = BillingPage()
-        
-        # ✅ NEXT TEST: ReportsPage is now active!
-        self.reports_page    = ReportsPage()
-        
-        self.settings_page   = SettingsPage()
-
-        self.stack.addWidget(self.dashboard_page)
-        self.stack.addWidget(self.booking_page)
-        self.stack.addWidget(self.customers_page)
-        self.stack.addWidget(self.menu_page)
-        self.stack.addWidget(self.calendar_page)
-        self.stack.addWidget(self.kitchen_page)
-        self.stack.addWidget(self.billing_page)
-        
-        # ✅ Added ReportsPage to the stack!
-        self.stack.addWidget(self.reports_page)
-        
-        self.stack.addWidget(self.settings_page)
+        self._pages = [None] * len(_PAGE_MODULES)
+        for i in range(len(_PAGE_MODULES)):
+            ph = _PlaceholderPage()
+            self.stack.addWidget(ph)
 
         self.right_layout.addWidget(self.stack)
         self.main_layout.addWidget(self.right_widget)
 
         self.sidebar.page_changed.connect(self._navigate)
-        self.dashboard_page.new_booking_requested.connect(lambda: self._navigate(1))
-        self.dashboard_page.view_all_activity_requested.connect(lambda: self._navigate(1))
 
         self._notif_popover = NotificationPopover(parent=self)
         self.topbar.notif_btn.clicked.connect(self._open_notif_popover)
-
         self._notif_popover.all_read.connect(self._on_all_read)
 
         self._toast_manager = ToastManager()
@@ -111,7 +91,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._poll_notifications)
 
         self._dash_timer = QTimer(self)
-        self._dash_timer.timeout.connect(self.dashboard_page.reload)
+        self._dash_timer.timeout.connect(self._reload_dashboard)
         self._dash_timer.start(5_000)
 
         from utils.signals import app_events
@@ -122,12 +102,30 @@ class MainWindow(QMainWindow):
 
         self.topbar.search_changed.connect(self._on_search)
 
-        print("[MW] Navigating to dashboard...")
         self._navigate(0)
 
-        print("[MW] MainWindow init complete")
+    def _get_page(self, index: int):
+        if self._pages[index] is not None:
+            return self._pages[index]
+
+        mod_name, cls_name = _PAGE_MODULES[index]
+        import importlib
+        mod = importlib.import_module(mod_name)
+        cls = getattr(mod, cls_name)
+        page = cls()
+        self._pages[index] = page
+
+        self.stack.removeWidget(self.stack.widget(index))
+        self.stack.insertWidget(index, page)
+
+        if index == 0:
+            page.new_booking_requested.connect(lambda: self._navigate(1))
+            page.view_all_activity_requested.connect(lambda: self._navigate(1))
+
+        return page
 
     def _navigate(self, index: int):
+        page = self._get_page(index)
         self.stack.setCurrentIndex(index)
         self.topbar.set_page(index)
         self.sidebar.handle_click(index)
@@ -142,6 +140,10 @@ class MainWindow(QMainWindow):
             self.showMaximized()
         else:
             self.showFullScreen()
+
+    def _exit_fullscreen(self):
+        if self.isFullScreen():
+            self.showMaximized()
 
     def _open_notif_popover(self):
         reload_notifications()
@@ -175,21 +177,39 @@ class MainWindow(QMainWindow):
         self.topbar.notif_badge.setText("0")
         self.topbar.notif_badge.setVisible(False)
 
+    def _reload_dashboard(self):
+        if self._pages[0] is not None:
+            self._pages[0].reload()
+
     def _on_booking_saved(self):
-        self.billing_page.reload()
-        self.kitchen_page.reload()
-        self.dashboard_page.reload()
+        if self._pages[6] is not None:
+            self._pages[6].reload()
+        if self._pages[5] is not None:
+            self._pages[5].reload()
+        if self._pages[0] is not None:
+            self._pages[0].reload()
         self._poll_notifications()
 
     def _on_payment_recorded(self):
-        self.billing_page.reload()
-        self.dashboard_page.reload()
+        if self._pages[6] is not None:
+            self._pages[6].reload()
+        if self._pages[0] is not None:
+            self._pages[0].reload()
         self._poll_notifications()
 
     def _on_kitchen_updated(self):
-        self.dashboard_page.reload()
+        if self._pages[0] is not None:
+            self._pages[0].reload()
         self._poll_notifications()
 
-    def _exit_fullscreen(self):
-        if self.isFullScreen():
-            self.showMaximized()
+    @property
+    def dashboard_page(self):
+        return self._pages[0]
+
+    @property
+    def billing_page(self):
+        return self._pages[6]
+
+    @property
+    def kitchen_page(self):
+        return self._pages[5]

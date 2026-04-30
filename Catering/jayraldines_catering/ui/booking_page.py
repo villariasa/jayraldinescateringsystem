@@ -84,12 +84,7 @@ class BookingPage(QWidget):
     def __init__(self):
         super().__init__()
         db_rows = repo.get_all_bookings()
-        self._bookings = db_rows if db_rows else [
-            {"date": "Oct 24, 2026", "id": "BKG-001", "name": "TechCorp Inc.",  "pax": "150", "total": "₱ 45,000",  "status": "CONFIRMED"},
-            {"date": "Oct 25, 2026", "id": "BKG-002", "name": "Smith Wedding",  "pax": "300", "total": "₱ 120,000", "status": "PENDING"},
-            {"date": "Oct 26, 2026", "id": "BKG-003", "name": "Sarah's 18th",   "pax": "100", "total": "₱ 35,000",  "status": "CONFIRMED"},
-            {"date": "Oct 28, 2026", "id": "BKG-004", "name": "Local NGO Meet", "pax": "60",  "total": "₱ 18,000",  "status": "CANCELLED"},
-        ]
+        self._bookings = db_rows if db_rows else []
         self._active_filter = "All"
         self._filter_popover = None
         self._build_ui()

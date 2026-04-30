@@ -53,13 +53,6 @@ from components.dialogs import confirm, success
 import utils.repository as repo
 
 
-_SAMPLE_CUSTOMERS = [
-    {"name": "Maria Santosasds  ",    "contact": "+63 912 345 6789", "email": "maria@email.com",    "events": 3, "status": "Active"},
-    {"name": "TechCorp Inc.",   "contact": "+63 917 000 1234", "email": "events@techcorp.ph", "events": 1, "status": "Active"},
-    {"name": "Cruz Family",     "contact": "+63 920 111 2222", "email": "cruz@gmail.com",     "events": 2, "status": "Active"},
-    {"name": "Smith Wedding",   "contact": "+63 932 555 6666", "email": "smith@yahoo.com",    "events": 1, "status": "Pending"},
-]
-
 
 class AddCustomerDialog(QDialog):
     def __init__(self, parent=None):
@@ -597,7 +590,7 @@ class CustomersPage(QWidget):
         super().__init__()
         db_rows = repo.get_all_customers_with_loyalty()
         if not db_rows:
-            db_rows = repo.get_all_customers() or list(_SAMPLE_CUSTOMERS)
+            db_rows = repo.get_all_customers() or []
         self._customers = db_rows
         self._build_ui()
         self._populate_table()
