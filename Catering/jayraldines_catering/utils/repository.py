@@ -246,17 +246,11 @@ def get_package_items(package_id: int) -> list[dict]:
 def set_package_items(package_id: int, items: list[dict]) -> bool:
     """Replace all package items. items: list of {menu_item_id, custom_price}."""
     try:
-        if not items:
-            db.callproc_void(
-                "sp_set_package_items",
-                in_params=(package_id, None, None),
-            )
-        else:
-            ids    = [i["menu_item_id"] for i in items]
-            prices = [i["custom_price"]  for i in items]
-            db.callproc_void(
-                "sp_set_package_items",
-                in_params=(package_id, ids, prices),
+        db.execute("DELETE FROM package_items WHERE package_id = %s", (package_id,))
+        for item in items:
+            db.execute(
+                "INSERT INTO package_items (package_id, menu_item_id, custom_price) VALUES (%s, %s, %s)",
+                (package_id, item["menu_item_id"], item["custom_price"]),
             )
         return True
     except Exception as exc:
