@@ -327,7 +327,7 @@ class EditCustomerDialog(QDialog):
         lay.addWidget(addr_lbl)
         if self._existing_addr:
             self._current_addr_lbl = QLabel(f"Current: {self._existing_addr}")
-            self._current_addr_lbl.setStyleSheet("color:#6B7280; font-size:11px;")
+            self._current_addr_lbl.setStyleSheet("color:#9CA3AF; font-size:13px;")
             self._current_addr_lbl.setWordWrap(True)
             lay.addWidget(self._current_addr_lbl)
         lay.addWidget(self.address_widget)
