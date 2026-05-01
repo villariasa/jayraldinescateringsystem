@@ -413,6 +413,26 @@ QComboBox QAbstractItemView {
     selection-color: #E11D48;
     color: #F9FAFB;
     outline: none;
+    padding: 4px;
+}
+QComboBox QAbstractItemView QWidget,
+QComboBox QAbstractItemView QScrollBar {
+    background-color: #1F2937;
+    color: #F9FAFB;
+}
+QComboBox QAbstractItemView::item {
+    padding: 8px 12px;
+    border-radius: 6px;
+    color: #F9FAFB;
+    background-color: #1F2937;
+}
+QComboBox QAbstractItemView::item:hover {
+    background-color: #243244;
+    color: #F9FAFB;
+}
+QComboBox QAbstractItemView::item:selected {
+    background-color: rgba(225,29,72,0.15);
+    color: #E11D48;
 }
 
 /* --- TABS --- */
@@ -462,6 +482,10 @@ QTableWidget {
     color: #F9FAFB;
 }
 
+QHeaderView {
+    background-color: #111827;
+}
+
 QHeaderView::section {
     background-color: #111827;
     color: #6B7280;
@@ -474,6 +498,10 @@ QHeaderView::section {
     letter-spacing: 0.8px;
 }
 
+QHeaderView::section:checked {
+    background-color: #111827;
+}
+
 QTableWidget::item {
     border-bottom: 1px solid rgba(36,50,68,0.6);
     padding: 6px 10px;
@@ -483,8 +511,17 @@ QTableWidget::item:selected {
     background-color: rgba(225,29,72,0.12);
     color: #F9FAFB;
 }
+QTableWidget::item:selected:active {
+    background-color: rgba(225,29,72,0.12);
+    color: #F9FAFB;
+}
+QTableWidget::item:selected:!active {
+    background-color: rgba(225,29,72,0.08);
+    color: #F9FAFB;
+}
 QTableWidget::item:hover {
     background-color: #1F2937;
+    color: #F9FAFB;
 }
 
 /* --- TOOLTIP --- */
@@ -542,6 +579,19 @@ QFrame#scheduleCard {
     padding: 10px;
 }
 QFrame#scheduleCard QLabel { color: #F9FAFB; }
+
+/* --- BOOKING MODAL LABELS --- */
+QLabel#sectionLabel {
+    font-size: 13px;
+    font-weight: 700;
+    color: #F9FAFB;
+    margin-bottom: 2px;
+}
+QLabel#fieldLabel {
+    font-size: 12px;
+    font-weight: 600;
+    color: #9CA3AF;
+}
 
 /* --- CHECKBOX --- */
 QCheckBox { color: #F9FAFB; font-size: 13px; }

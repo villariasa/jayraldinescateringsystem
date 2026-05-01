@@ -246,17 +246,13 @@ class NotificationPopover(QFrame):
 
     def show_anchored(self, anchor_btn):
         self._refresh_list()
-        btn_global_br = anchor_btn.mapToGlobal(QPoint(anchor_btn.width(), anchor_btn.height() + 6))
-        parent = self.parent()
-
-        if parent:
-            local = parent.mapFromGlobal(btn_global_br)
-            x = local.x() - self.width()
-            x = max(4, min(x, parent.width() - self.width() - 4))
-            self.move(x, local.y())
-        else:
-            self.move(btn_global_br.x() - self.width(), btn_global_br.y())
-
+        btn_br = anchor_btn.mapToGlobal(QPoint(anchor_btn.width(), anchor_btn.height() + 6))
+        x = btn_br.x() - self.width()
+        screen = QApplication.screenAt(btn_br) or QApplication.primaryScreen()
+        if screen:
+            sg = screen.availableGeometry()
+            x = max(sg.left() + 4, min(x, sg.right() - self.width() - 4))
+        self.move(x, btn_br.y())
         self.raise_()
         self.show()
 

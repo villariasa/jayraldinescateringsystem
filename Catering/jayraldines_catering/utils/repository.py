@@ -200,6 +200,24 @@ def delete_menu_item(index: int, item_id: int) -> None:
 # OCCASIONS
 # ---------------------------------------------------------------------------
 
+def get_top_occasions(limit: int = 10) -> list[dict]:
+    rows = db.fetchall(
+        """
+        SELECT occasion, COUNT(*) AS count
+        FROM bookings
+        WHERE occasion IS NOT NULL AND occasion <> ''
+          AND status IN ('CONFIRMED', 'COMPLETED')
+        GROUP BY occasion
+        ORDER BY count DESC
+        LIMIT %s
+        """,
+        (limit,)
+    )
+    if not rows:
+        return []
+    return [{"occasion": r["occasion"], "count": int(r["count"])} for r in rows]
+
+
 def get_all_occasions() -> list[str]:
     rows = db.fetchall("SELECT name FROM occasions ORDER BY id")
     if not rows:
@@ -341,7 +359,7 @@ def get_all_bookings(period_filter: str = "") -> list[dict]:
         SELECT id, booking_ref, customer_name, event_date, pax,
                total_amount, status::TEXT, cancellation_reason
         FROM bookings
-        WHERE 1=1 {period_filter}
+        WHERE status IN ('CONFIRMED', 'COMPLETED') {period_filter}
         ORDER BY event_date DESC
         """
     )
@@ -907,9 +925,9 @@ def get_report_kpis(period_filter: str = "") -> dict:
                 COALESCE(SUM(pax),0)::INT                   AS total_pax,
                 COALESCE(SUM(total_amount),0)::FLOAT        AS total_revenue,
                 0::FLOAT                                    AS unpaid_amount,
-                COALESCE((SELECT COUNT(*) FROM bookings WHERE created_at::DATE=CURRENT_DATE),0)::INT AS today_bookings,
-                COALESCE((SELECT COUNT(*) FROM bookings WHERE created_at::DATE BETWEEN date_trunc('week',CURRENT_DATE)::DATE AND (date_trunc('week',CURRENT_DATE)+INTERVAL '6 days')::DATE),0)::INT AS week_bookings
-            FROM bookings WHERE 1=1 {period_filter}
+                COALESCE((SELECT COUNT(*) FROM bookings WHERE created_at::DATE=CURRENT_DATE AND status IN ('CONFIRMED','COMPLETED')),0)::INT AS today_bookings,
+                COALESCE((SELECT COUNT(*) FROM bookings WHERE created_at::DATE BETWEEN date_trunc('week',CURRENT_DATE)::DATE AND (date_trunc('week',CURRENT_DATE)+INTERVAL '6 days')::DATE AND status IN ('CONFIRMED','COMPLETED')),0)::INT AS week_bookings
+            FROM bookings WHERE status IN ('CONFIRMED', 'COMPLETED') {period_filter}
             """
         )
     else:
@@ -1072,10 +1090,13 @@ def delete_expense(expense_id: int) -> None:
 def get_top_locations(limit: int = 10) -> list[dict]:
     rows = db.fetchall(
         """
-        SELECT venue, COUNT(*) AS booking_count
+        SELECT
+            TRIM(SPLIT_PART(address, ',', GREATEST(1, ARRAY_LENGTH(STRING_TO_ARRAY(TRIM(address), ','), 1) - 1))) AS area,
+            COUNT(*) AS booking_count
         FROM bookings
-        WHERE venue IS NOT NULL AND TRIM(venue) != ''
-        GROUP BY venue
+        WHERE address IS NOT NULL AND TRIM(address) != ''
+          AND status IN ('CONFIRMED', 'COMPLETED')
+        GROUP BY area
         ORDER BY booking_count DESC
         LIMIT %s
         """,
@@ -1083,7 +1104,7 @@ def get_top_locations(limit: int = 10) -> list[dict]:
     )
     if not rows:
         return []
-    return [{"venue": r["venue"], "count": int(r["booking_count"])} for r in rows]
+    return [{"venue": r["area"], "count": int(r["booking_count"])} for r in rows]
 
 
 def get_profit_summary() -> list[dict]:

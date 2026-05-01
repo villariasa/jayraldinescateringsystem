@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor
+from utils.theme import ThemeManager
 
 
 class CustomerSearchWidget(QWidget):
@@ -107,6 +108,7 @@ class CustomerSearchWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _open_dropdown(self, count: int):
+        self._dropdown.setStyleSheet(self._style())
         h = min(count * 44 + 8, self._DROPDOWN_MAX_H)
         self._dropdown.setMaximumHeight(h)
 
@@ -177,25 +179,37 @@ class CustomerSearchWidget(QWidget):
 
     @staticmethod
     def _style() -> str:
-        return """
-            QListWidget#customerDropdown {
-                background-color: #1F2937;
-                border: 1px solid #374151;
+        is_light = not ThemeManager().is_dark()
+        if is_light:
+            bg      = "#FFFFFF"
+            border  = "#E2E8F0"
+            text    = "#0F172A"
+            hover   = "#F1F5F9"
+        else:
+            bg      = "#1F2937"
+            border  = "#374151"
+            text    = "#F9FAFB"
+            hover   = "#374151"
+        return f"""
+            QListWidget#customerDropdown {{
+                background-color: {bg};
+                border: 1px solid {border};
                 border-radius: 8px;
                 padding: 4px 0;
-                color: #F9FAFB;
+                color: {text};
                 font-size: 13px;
-            }
-            QListWidget#customerDropdown::item {
+            }}
+            QListWidget#customerDropdown::item {{
                 padding: 10px 14px;
                 border-radius: 6px;
-            }
-            QListWidget#customerDropdown::item:hover {
-                background-color: #374151;
-                color: #F9FAFB;
-            }
-            QListWidget#customerDropdown::item:selected {
+                color: {text};
+            }}
+            QListWidget#customerDropdown::item:hover {{
+                background-color: {hover};
+                color: {text};
+            }}
+            QListWidget#customerDropdown::item:selected {{
                 background-color: #E11D48;
                 color: #FFFFFF;
-            }
+            }}
         """

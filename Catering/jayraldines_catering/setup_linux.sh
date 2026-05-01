@@ -234,6 +234,7 @@ fi
 MAIN_SQL="$SCRIPT_DIR/jayraldines_catering.sql"
 MIG_SQL="$SCRIPT_DIR/cebu_address_migration.sql"
 OCC_MIG_SQL="$SCRIPT_DIR/occasions_migration.sql"
+VIEWS_MIG_SQL="$SCRIPT_DIR/confirmed_only_views_migration.sql"
 
 info "Checking if database '$DB_NAME' already exists..."
 DB_EXISTS=$("$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" -d postgres \
@@ -268,6 +269,13 @@ if [ "$DB_EXISTS" = "1" ]; then
         else
             skip "Occasions table already exists"
         fi
+        # Apply confirmed-only views migration (always re-apply to update views)
+        if [ -f "$VIEWS_MIG_SQL" ]; then
+            info "Applying confirmed-only views migration..."
+            PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
+                -d "$DB_NAME" -f "$VIEWS_MIG_SQL" || info "Views migration had warnings (non-fatal)"
+            ok "Views migration done"
+        fi
         RUN_SQL=false
     fi
 fi
@@ -281,6 +289,11 @@ if [ "$RUN_SQL" = true ]; then
     info "Running Cebu address migration..."
     PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
         -d "$DB_NAME" -f "$MIG_SQL" || info "Migration had warnings (non-fatal)"
+    if [ -f "$VIEWS_MIG_SQL" ]; then
+        info "Applying confirmed-only views migration..."
+        PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
+            -d "$DB_NAME" -f "$VIEWS_MIG_SQL" || info "Views migration had warnings (non-fatal)"
+    fi
     ok "Database '$DB_NAME' is ready"
 fi
 

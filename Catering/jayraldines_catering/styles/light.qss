@@ -288,9 +288,9 @@ QPushButton#pageButtonActive {
 }
 
 QPushButton#segmentLeft {
-    background-color: #F8FAFC;
-    color: #64748B;
-    border: 1px solid #E2E8F0;
+    background-color: #F1F5F9;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
     border-top-left-radius: 8px;
     border-bottom-left-radius: 8px;
     border-top-right-radius: 0px;
@@ -299,9 +299,9 @@ QPushButton#segmentLeft {
     padding: 8px 14px;
 }
 QPushButton#segmentRight {
-    background-color: #F8FAFC;
-    color: #64748B;
-    border: 1px solid #E2E8F0;
+    background-color: #F1F5F9;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
     border-left: none;
     border-top-right-radius: 8px;
     border-bottom-right-radius: 8px;
@@ -309,6 +309,10 @@ QPushButton#segmentRight {
     border-bottom-left-radius: 0px;
     border-radius: 0px;
     padding: 8px 14px;
+}
+QPushButton#segmentLeft:hover, QPushButton#segmentRight:hover {
+    background-color: #E2E8F0;
+    color: #0F172A;
 }
 QPushButton#segmentLeft:checked, QPushButton#segmentRight:checked {
     background-color: #E11D48;
@@ -482,6 +486,10 @@ QTableWidget {
     color: #0F172A;
 }
 
+QHeaderView {
+    background-color: #FFFFFF;
+}
+
 QHeaderView::section {
     background-color: #FFFFFF;
     color: #94A3B8;
@@ -494,6 +502,10 @@ QHeaderView::section {
     letter-spacing: 0.8px;
 }
 
+QHeaderView::section:checked {
+    background-color: #FFFFFF;
+}
+
 QTableWidget::item {
     border-bottom: 1px solid rgba(226,232,240,0.8);
     padding: 6px 10px;
@@ -503,8 +515,17 @@ QTableWidget::item:selected {
     background-color: rgba(225,29,72,0.08);
     color: #0F172A;
 }
+QTableWidget::item:selected:active {
+    background-color: rgba(225,29,72,0.08);
+    color: #0F172A;
+}
+QTableWidget::item:selected:!active {
+    background-color: rgba(225,29,72,0.06);
+    color: #0F172A;
+}
 QTableWidget::item:hover {
     background-color: #F1F5F9;
+    color: #0F172A;
 }
 
 /* --- TOOLTIP --- */
@@ -591,6 +612,19 @@ QMenu::separator {
 /* --- DIALOG --- */
 QDialog {
     background-color: #F8FAFC;
+}
+
+/* --- BOOKING MODAL LABELS --- */
+QLabel#sectionLabel {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0F172A;
+    margin-bottom: 2px;
+}
+QLabel#fieldLabel {
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
 }
 
 /* --- CALENDAR WIDGET (date picker popup) --- */

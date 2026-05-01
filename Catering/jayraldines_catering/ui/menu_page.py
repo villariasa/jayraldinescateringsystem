@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor, QFont
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
 from components.dialogs import confirm, success
+from utils.theme import ThemeManager
 import utils.menu_store as menu_store
 import utils.repository as repo
 
@@ -374,9 +375,12 @@ class PackageDialog(QDialog):
         hint.setStyleSheet("color: #9CA3AF; font-size: 12px;")
         lay.addWidget(hint)
 
+        _is_light = not ThemeManager().is_dark()
+        _sf_border = "#E2E8F0" if _is_light else "#374151"
+        _row_hover = "#F1F5F9" if _is_light else "#1F2937"
         scroll_frame = QFrame()
         scroll_frame.setObjectName("card")
-        scroll_frame.setStyleSheet("#card { border: 1px solid #374151; border-radius: 8px; }")
+        scroll_frame.setStyleSheet(f"#card {{ border: 1px solid {_sf_border}; border-radius: 8px; }}")
         scroll_frame.setFixedHeight(260)
         scroll_frame_lay = QVBoxLayout(scroll_frame)
         scroll_frame_lay.setContentsMargins(0, 0, 0, 0)
@@ -442,7 +446,7 @@ class PackageDialog(QDialog):
             for item in items:
                 item_id = item.get("id")
                 row_widget = QWidget()
-                row_widget.setStyleSheet("QWidget { border-radius: 4px; } QWidget:hover { background: #1F2937; }")
+                row_widget.setStyleSheet(f"QWidget {{ border-radius: 4px; }} QWidget:hover {{ background: {_row_hover}; }}")
                 row_lay = QHBoxLayout(row_widget)
                 row_lay.setContentsMargins(4, 4, 4, 4)
                 row_lay.setSpacing(10)

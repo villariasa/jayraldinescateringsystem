@@ -389,7 +389,7 @@ class TopLocationsChart(QVBoxLayout):
     def __init__(self):
         super().__init__()
 
-        self._title_lbl = QLabel("Top Booking Locations (Venues)")
+        self._title_lbl = QLabel("Top Customer Areas (Where Orders Come From)")
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
@@ -405,7 +405,7 @@ class TopLocationsChart(QVBoxLayout):
         self._venues = venues
         self._counts = counts
 
-        self._bar_set = QBarSet("Bookings")
+        self._bar_set = QBarSet("Orders")
         self._bar_set.setColor(QColor("#8B5CF6"))
         _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
         self._bar_set.setLabelColor(QColor(_lbl_c))
@@ -442,7 +442,7 @@ class TopLocationsChart(QVBoxLayout):
         if state and 0 <= index < len(self._venues):
             QToolTip.showText(
                 QCursor.pos(),
-                f"<b>{self._venues[index]}</b><br>Bookings: <b>{self._counts[index]}</b>"
+                f"<b>{self._venues[index]}</b><br>Orders: <b>{self._counts[index]}</b>"
             )
         else:
             QToolTip.hideText()
@@ -502,6 +502,114 @@ class CustomerFrequencyChart(QVBoxLayout):
                 f"<b style='color:{color};'>{name}</b><br>"
                 f"Orders: <b>{count}</b><br>"
                 f"Share: <b>{pct:.1f}%</b>"
+            )
+        else:
+            QToolTip.hideText()
+
+
+# ─────────────────────────────────────────────
+# CHART 7: Top Occasion Types (Horizontal Bar)
+# ─────────────────────────────────────────────
+class OccasionBreakdownChart(QVBoxLayout):
+    _COLORS = [
+        "#E11D48", "#F59E0B", "#3B82F6", "#22C55E", "#8B5CF6",
+        "#F97316", "#06B6D4", "#EC4899", "#84CC16", "#6366F1",
+    ]
+
+    def __init__(self):
+        super().__init__()
+
+        self._title_lbl = QLabel("Most Popular Event Types")
+        self._title_lbl.setObjectName("h3")
+        self.addWidget(self._title_lbl)
+
+        db_data = repo.get_top_occasions(limit=10)
+        if db_data:
+            occasions = [r["occasion"] for r in db_data]
+            counts    = [r["count"]    for r in db_data]
+        else:
+            occasions = ["No Data"]
+            counts    = [0]
+
+        self._occasions = occasions
+        self._counts    = counts
+
+        _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
+
+        self._series = QBarSeries()
+        for i, (occ, cnt) in enumerate(zip(occasions, counts)):
+            bar_set = QBarSet(occ)
+            bar_set.setColor(QColor(self._COLORS[i % len(self._COLORS)]))
+            bar_set.setLabelColor(QColor(_lbl_c))
+            bar_set.append(cnt)
+            bar_set.hovered.connect(
+                lambda state, idx, o=occ, c=cnt: self._on_hover(state, o, c)
+            )
+            self._series.append(bar_set)
+
+        self._chart = QChart()
+        self._chart.addSeries(self._series)
+        self._chart.setAnimationOptions(QChart.SeriesAnimations)
+        self._chart.legend().setAlignment(Qt.AlignBottom)
+        self._chart.legend().setLabelColor(QColor(_lbl_c))
+
+        self._ax = QBarCategoryAxis()
+        self._ax.append(["Bookings"])
+        _axis_style(self._ax)
+        self._chart.addAxis(self._ax, Qt.AlignBottom)
+        self._series.attachAxis(self._ax)
+
+        self._ay = QValueAxis()
+        self._ay.setRange(0, max(counts) * 1.3 if counts and max(counts) > 0 else 10)
+        self._ay.setLabelFormat("%d")
+        _axis_style(self._ay)
+        self._chart.addAxis(self._ay, Qt.AlignLeft)
+        self._series.attachAxis(self._ay)
+
+        self._view = _chart_view(self._chart)
+        self._view.setMinimumHeight(260)
+        self.addWidget(self._view)
+
+        if db_data:
+            self._add_legend_table(db_data)
+
+    def _add_legend_table(self, db_data: list[dict]):
+        total = sum(r["count"] for r in db_data) or 1
+        grid = QHBoxLayout()
+        grid.setSpacing(8)
+        left_col  = QVBoxLayout()
+        right_col = QVBoxLayout()
+        for i, r in enumerate(db_data):
+            pct = r["count"] / total * 100
+            color = self._COLORS[i % len(self._COLORS)]
+            row_w = QWidget()
+            row_l = QHBoxLayout(row_w)
+            row_l.setContentsMargins(0, 2, 0, 2)
+            row_l.setSpacing(6)
+            dot = QLabel("●")
+            dot.setStyleSheet(f"color:{color}; font-size:14px;")
+            dot.setFixedWidth(16)
+            lbl = QLabel(f"{r['occasion']}  <span style='color:#6B7280;font-size:11px;'>×{r['count']} ({pct:.0f}%)</span>")
+            lbl.setTextFormat(Qt.RichText)
+            lbl.setStyleSheet("font-size:12px;")
+            row_l.addWidget(dot)
+            row_l.addWidget(lbl)
+            row_l.addStretch()
+            if i % 2 == 0:
+                left_col.addWidget(row_w)
+            else:
+                right_col.addWidget(row_w)
+        left_col.addStretch()
+        right_col.addStretch()
+        grid.addLayout(left_col)
+        grid.addLayout(right_col)
+        self.addLayout(grid)
+
+    def _on_hover(self, state: bool, occasion: str, count: int):
+        if state:
+            QToolTip.showText(
+                QCursor.pos(),
+                f"<b>{occasion}</b><br>Bookings: <b>{count}</b>"
             )
         else:
             QToolTip.hideText()
@@ -667,6 +775,14 @@ class ReportsPage(QWidget):
         self._row3.addWidget(self.freq_card, 2)
 
         self.main_layout.addLayout(self._row3)
+
+        # ── ROW 4: Occasion Breakdown ─────────────────────────────────────────
+        self._occasion_chart_layout = OccasionBreakdownChart()
+        self.occasion_card = QFrame(self.scroll_content)
+        self.occasion_card.setObjectName("card")
+        self.occasion_card.setLayout(self._occasion_chart_layout)
+        self.occasion_card.layout().setContentsMargins(28, 24, 28, 20)
+        self.main_layout.addWidget(self.occasion_card)
 
         # ── RECENT BOOKINGS TABLE ────────────────────────────────────────────
         self.table_card = HoverCard(self.scroll_content)

@@ -319,6 +319,11 @@ class BookingPage(QWidget):
             self._populate_table()
             success(self, message="Booking approved successfully.")
             repo.write_audit_log(get_actor(), "APPROVE", "bookings", b.get("db_id"), None, {"status": "CONFIRMED"})
+            if b.get("db_id"):
+                try:
+                    repo.auto_create_invoice(b["db_id"])
+                except Exception as exc:
+                    print(f"[booking] auto_create_invoice failed: {exc}")
             try:
                 repo.push_notification(
                     "success",
@@ -468,12 +473,6 @@ class BookingPage(QWidget):
         else:
             msg = "Booking created successfully."
         success(self, message=msg)
-
-        if db_id:
-            try:
-                repo.auto_create_invoice(db_id)
-            except Exception as exc:
-                print(f"[booking] auto_create_invoice failed: {exc}")
 
         try:
             repo.push_notification(

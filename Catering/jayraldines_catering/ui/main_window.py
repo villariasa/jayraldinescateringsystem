@@ -103,6 +103,9 @@ class MainWindow(QMainWindow):
 
         self.topbar.search_changed.connect(self._on_search)
 
+        from utils.theme import ThemeManager
+        ThemeManager().theme_changed.connect(self._on_theme_changed)
+
         self._navigate(0)
 
     def _get_page(self, index: int):
@@ -202,6 +205,19 @@ class MainWindow(QMainWindow):
         if self._pages[0] is not None:
             self._pages[0].reload()
         self._poll_notifications()
+
+    def _on_theme_changed(self, _theme: str):
+        current_index = self.stack.currentIndex()
+        for i in range(len(self._pages)):
+            page = self._pages[i]
+            if page is not None:
+                self._pages[i] = None
+                ph = _PlaceholderPage()
+                idx = self.stack.indexOf(page)
+                self.stack.insertWidget(idx, ph)
+                self.stack.removeWidget(page)
+                page.deleteLater()
+        self._navigate(current_index)
 
     @property
     def dashboard_page(self):

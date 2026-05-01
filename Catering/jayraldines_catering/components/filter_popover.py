@@ -148,14 +148,15 @@ class FilterPopover(QFrame):
         self.filter_applied.emit({"statuses": [checked], "categories": selected_cats})
 
     def show_anchored(self, anchor_btn):
+        from PySide6.QtWidgets import QApplication
         global_pos = anchor_btn.mapToGlobal(QPoint(0, anchor_btn.height() + 6))
-        parent = self.parent()
-        if parent:
-            local = parent.mapFromGlobal(global_pos)
-            x = max(8, min(local.x(), parent.width() - self.sizeHint().width() - 8))
-            self.move(x, local.y())
-        else:
-            self.move(global_pos)
+        x = global_pos.x()
+        screen = QApplication.screenAt(global_pos) or QApplication.primaryScreen()
+        if screen:
+            sg = screen.availableGeometry()
+            pw = self.sizeHint().width()
+            x = max(sg.left() + 4, min(x, sg.right() - pw - 4))
+        self.move(x, global_pos.y())
         self.raise_()
         self.show()
 

@@ -25,12 +25,18 @@ def _readonly_input_style():
 
 def _package_card_style(selected=False):
     if selected:
-        return "QFrame { background: rgba(225,29,72,0.10); border-radius: 10px; border: 2px solid #E11D48; }"
+        if _is_light():
+            return ("QFrame { background: rgba(225,29,72,0.08); border-radius: 10px; border: 2px solid #E11D48; }"
+                    "QFrame QLabel { color: #0F172A; }")
+        return ("QFrame { background: rgba(225,29,72,0.12); border-radius: 10px; border: 2px solid #E11D48; }"
+                "QFrame QLabel { color: #F9FAFB; }")
     if _is_light():
-        return ("QFrame { background: #F8FAFC; border-radius: 10px; border: 2px solid #E2E8F0; }"
-                "QFrame:hover { border: 2px solid #E11D48; }")
+        return ("QFrame { background: #FFFFFF; border-radius: 10px; border: 2px solid #E2E8F0; }"
+                "QFrame:hover { border: 2px solid #E11D48; background: #FFF5F7; }"
+                "QFrame QLabel { color: #0F172A; }")
     return ("QFrame { background: #1F2937; border-radius: 10px; border: 2px solid #243244; }"
-            "QFrame:hover { border: 2px solid #E11D48; }")
+            "QFrame:hover { border: 2px solid #E11D48; }"
+            "QFrame QLabel { color: #F9FAFB; }")
 
 
 def _package_name_style():
