@@ -2,8 +2,9 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QDateEdit, QTimeEdit, QSpinBox,
     QFrame, QWidget, QStackedWidget, QTextEdit, QCheckBox,
-    QScrollArea, QSizePolicy, QCompleter
+    QScrollArea, QSizePolicy,
 )
+from components.customer_search import CustomerSearchWidget
 from PySide6.QtCore import Qt, QDate, QTime, QSize, Signal
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
@@ -261,19 +262,11 @@ class BookingModal(QDialog):
 
         lay.addWidget(_field_label("Select Customer *"))
         self._customers = repo.get_all_customers() or []
-        self.f_customer_combo = QComboBox()
-        self.f_customer_combo.setFixedHeight(38)
-        self.f_customer_combo.setEditable(True)
-        self.f_customer_combo.setPlaceholderText("Search customer...")
-        self.f_customer_combo.addItem("", None)
-        for c in self._customers:
-            self.f_customer_combo.addItem(c["name"], c)
-        self.f_customer_combo.setCurrentIndex(0)
-        self.f_customer_combo.setEditText("")
-        self.f_customer_combo.completer().setCompletionMode(QCompleter.PopupCompletion)
-        self.f_customer_combo.completer().setFilterMode(Qt.MatchContains)
-        self.f_customer_combo.currentIndexChanged.connect(self._on_customer_selected)
-        lay.addWidget(self.f_customer_combo)
+        self.f_customer_search = CustomerSearchWidget()
+        self.f_customer_search.load_customers(self._customers)
+        self.f_customer_search.customer_selected.connect(self._on_customer_selected)
+        self.f_customer_search.customer_cleared.connect(self._on_customer_cleared)
+        lay.addWidget(self.f_customer_search)
 
         row = QHBoxLayout()
         row.setSpacing(16)
@@ -304,24 +297,23 @@ class BookingModal(QDialog):
 
         if self._edit_mode:
             name = self._booking_data.get("name", "")
-            idx = self.f_customer_combo.findText(name)
-            if idx >= 0:
-                self.f_customer_combo.setCurrentIndex(idx)
-            else:
-                self.f_customer_combo.setEditText(name)
+            match = next((c for c in self._customers if c.get("name") == name), None)
+            if match:
+                self.f_customer_search.set_customer(match)
+                self._on_customer_selected(match)
 
         return w
 
-    def _on_customer_selected(self, index):
-        data = self.f_customer_combo.itemData(index)
-        if data and isinstance(data, dict):
-            self.f_contact.setText(data.get("contact", ""))
-            self.f_email.setText(data.get("email", ""))
-            self.f_address.setText(data.get("address", ""))
-        else:
-            self.f_contact.clear()
-            self.f_email.clear()
-            self.f_address.clear()
+    def _on_customer_selected(self, data: dict):
+        self.f_contact.setText(data.get("contact", ""))
+        self.f_email.setText(data.get("email", ""))
+        self.f_address.setText(data.get("address", ""))
+        self.f_customer_search.clear_error()
+
+    def _on_customer_cleared(self):
+        self.f_contact.clear()
+        self.f_email.clear()
+        self.f_address.clear()
 
     def _build_step1(self):
         w = QWidget()
@@ -336,7 +328,11 @@ class BookingModal(QDialog):
         row1.setSpacing(16)
         v1 = QVBoxLayout()
         v1.addWidget(_field_label("Occasion *"))
-        self.f_occasion = _input("e.g. Wedding, Birthday")
+        self.f_occasion = QComboBox()
+        self.f_occasion.setFixedHeight(38)
+        self.f_occasion.setEditable(False)
+        self._occasions = repo.get_all_occasions()
+        self.f_occasion.addItems(self._occasions)
         v1.addWidget(self.f_occasion)
         v2 = QVBoxLayout()
         v2.addWidget(_field_label("Venue *"))
@@ -397,7 +393,13 @@ class BookingModal(QDialog):
             except (ValueError, TypeError):
                 pass
             self.f_notes.setPlainText(self._booking_data.get("notes", ""))
-            self.f_occasion.setText(self._booking_data.get("occasion", ""))
+            occasion_val = self._booking_data.get("occasion", "")
+            idx = self.f_occasion.findText(occasion_val)
+            if idx >= 0:
+                self.f_occasion.setCurrentIndex(idx)
+            elif occasion_val:
+                self.f_occasion.insertItem(0, occasion_val)
+                self.f_occasion.setCurrentIndex(0)
             self.f_venue.setText(self._booking_data.get("venue", ""))
 
         return w
@@ -574,11 +576,11 @@ class BookingModal(QDialog):
             rate = 0
         total = pax * rate
         try:
-            biz = repo.get_business_info()
-            pct = float(biz.get("min_downpayment_pct", 50))
-            allow_zero = biz.get("allow_zero_downpayment", False)
+            policy = repo.get_business_policy()
+            pct = float(policy.get("min_downpayment_pct", 30))
+            allow_zero = policy.get("allow_zero_downpayment", False)
         except Exception:
-            pct = 50
+            pct = 30
             allow_zero = False
         deposit = round(total * pct / 100, 2)
         self._lbl_base.setText(f"Base Rate: ₱{rate:,} × {pax} pax")
@@ -602,14 +604,14 @@ class BookingModal(QDialog):
 
     def _validate_current(self):
         if self._step == 0:
-            if self.f_customer_combo.currentIndex() <= 0 or self.f_customer_combo.itemData(self.f_customer_combo.currentIndex()) is None:
-                self.f_customer_combo.setStyleSheet("border: 1px solid #EF4444;")
+            if self.f_customer_search.get_selection() is None:
+                self.f_customer_search.set_error()
                 return False
-            self.f_customer_combo.setStyleSheet("")
+            self.f_customer_search.clear_error()
         if self._step == 1:
-            if not self.f_occasion.text().strip():
+            if not self.f_occasion.currentText().strip():
                 self.f_occasion.setFocus()
-                self.f_occasion.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px; padding: 8px 14px;")
+                self.f_occasion.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px;")
                 return False
             self.f_occasion.setStyleSheet("")
             if not self.f_venue.text().strip():
@@ -653,13 +655,13 @@ class BookingModal(QDialog):
         pax = self.f_pax.value()
         total = pax * rate
 
-        selected_customer = self.f_customer_combo.itemData(self.f_customer_combo.currentIndex()) or {}
+        selected_customer = self.f_customer_search.get_selection() or {}
         data = {
             "name":         selected_customer.get("name", ""),
             "contact":      self.f_contact.text().strip(),
             "email":        self.f_email.text().strip(),
             "address":      self.f_address.text().strip(),
-            "occasion":     self.f_occasion.text().strip(),
+            "occasion":     self.f_occasion.currentText().strip(),
             "venue":        self.f_venue.text().strip(),
             "date":         self.f_date.date().toString("MMM dd, yyyy"),
             "time":         self.f_time.time().toString("hh:mm AP"),

@@ -2,8 +2,9 @@ import subprocess
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QFormLayout, QMessageBox, QScrollArea,
-    QTableWidget, QHeaderView, QDoubleSpinBox, QSpinBox, QCheckBox,
-    QFileDialog
+    QTableWidget, QTableWidgetItem, QHeaderView, QDoubleSpinBox,
+    QSpinBox, QCheckBox, QFileDialog, QListWidget, QListWidgetItem,
+    QInputDialog,
 )
 from PySide6.QtCore import Qt, QSize
 
@@ -48,6 +49,7 @@ class SettingsPage(QWidget):
         lay.addWidget(title)
 
         lay.addWidget(self._build_business_card())
+        lay.addWidget(self._build_occasions_card())
         lay.addWidget(self._build_policy_card())
         lay.addWidget(self._build_smtp_card())
         lay.addWidget(self._build_theme_card())
@@ -279,6 +281,94 @@ class SettingsPage(QWidget):
 
         return card
 
+    def _build_occasions_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        head = QHBoxLayout()
+        sec_title = QLabel("Occasion Types")
+        sec_title.setObjectName("h3")
+        head.addWidget(sec_title)
+        head.addStretch()
+        add_btn = QPushButton("  Add")
+        add_btn.setObjectName("primaryButton")
+        add_btn.setFixedHeight(30)
+        add_btn.setIcon(btn_icon_primary("plus"))
+        add_btn.clicked.connect(self._add_occasion)
+        head.addWidget(add_btn)
+        lay.addLayout(head)
+
+        self._occ_list = QListWidget()
+        self._occ_list.setFixedHeight(200)
+        self._occ_list.setFocusPolicy(Qt.NoFocus)
+        lay.addWidget(self._occ_list)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        edit_btn = QPushButton("  Rename")
+        edit_btn.setObjectName("secondaryButton")
+        edit_btn.setFixedHeight(30)
+        edit_btn.clicked.connect(self._edit_occasion)
+        del_btn = QPushButton("  Delete")
+        del_btn.setObjectName("secondaryButton")
+        del_btn.setFixedHeight(30)
+        del_btn.clicked.connect(self._delete_occasion)
+        btn_row.addWidget(edit_btn)
+        btn_row.addWidget(del_btn)
+        lay.addLayout(btn_row)
+
+        self._load_occasions()
+        return card
+
+    def _load_occasions(self):
+        self._occ_list.clear()
+        for name in repo.get_all_occasions():
+            self._occ_list.addItem(QListWidgetItem(name))
+
+    def _add_occasion(self):
+        text, ok = QInputDialog.getText(self, "Add Occasion", "Occasion name:")
+        if ok and text.strip():
+            try:
+                repo.add_occasion(text.strip())
+                self._load_occasions()
+            except Exception as e:
+                QMessageBox.warning(self, "Error", str(e))
+
+    def _edit_occasion(self):
+        item = self._occ_list.currentItem()
+        if not item:
+            QMessageBox.information(self, "Select", "Please select an occasion to rename.")
+            return
+        old_name = item.text()
+        text, ok = QInputDialog.getText(self, "Rename Occasion", "New name:", text=old_name)
+        if ok and text.strip() and text.strip() != old_name:
+            try:
+                repo.update_occasion(old_name, text.strip())
+                self._load_occasions()
+            except Exception as e:
+                QMessageBox.warning(self, "Error", str(e))
+
+    def _delete_occasion(self):
+        item = self._occ_list.currentItem()
+        if not item:
+            QMessageBox.information(self, "Select", "Please select an occasion to delete.")
+            return
+        name = item.text()
+        reply = QMessageBox.question(
+            self, "Delete Occasion",
+            f"Delete '{name}'? Existing bookings using this occasion will not be affected.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            try:
+                repo.delete_occasion(name)
+                self._load_occasions()
+            except Exception as e:
+                QMessageBox.warning(self, "Error", str(e))
+
     def _build_audit_card(self):
         card = QFrame()
         card.setObjectName("card")
@@ -319,7 +409,6 @@ class SettingsPage(QWidget):
         return card
 
     def _load_audit_log(self):
-        from PySide6.QtWidgets import QTableWidgetItem
         logs = repo.get_audit_log(50)
         self._audit_table.setRowCount(0)
         if not logs:

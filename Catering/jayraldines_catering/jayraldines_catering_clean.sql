@@ -319,6 +319,27 @@ CREATE TABLE calendar_events (
 CREATE INDEX idx_calendar_events_date ON calendar_events (event_date);
 
 -- =============================================================================
+-- TABLE: occasions
+-- =============================================================================
+CREATE TABLE occasions (
+    id          SERIAL          PRIMARY KEY,
+    name        VARCHAR(120)    NOT NULL UNIQUE,
+    created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO occasions (name) VALUES
+    ('Wedding'),
+    ('Birthday'),
+    ('Anniversary'),
+    ('Debut'),
+    ('Graduation'),
+    ('Christening / Baptism'),
+    ('Corporate Event'),
+    ('Family Reunion'),
+    ('Holiday Party'),
+    ('Other');
+
+-- =============================================================================
 -- SEQUENCES for reference number generation
 -- =============================================================================
 CREATE SEQUENCE IF NOT EXISTS seq_booking_ref START 1;

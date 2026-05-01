@@ -197,6 +197,34 @@ def delete_menu_item(index: int, item_id: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# OCCASIONS
+# ---------------------------------------------------------------------------
+
+def get_all_occasions() -> list[str]:
+    rows = db.fetchall("SELECT name FROM occasions ORDER BY id")
+    if not rows:
+        return ["Wedding", "Birthday", "Anniversary", "Debut", "Graduation",
+                "Christening / Baptism", "Corporate Event", "Family Reunion",
+                "Holiday Party", "Other"]
+    return [r["name"] for r in rows]
+
+def add_occasion(name: str) -> None:
+    db.execute(
+        "INSERT INTO occasions (name) VALUES (%s) ON CONFLICT (name) DO NOTHING",
+        (name.strip(),)
+    )
+
+def update_occasion(old_name: str, new_name: str) -> None:
+    db.execute(
+        "UPDATE occasions SET name = %s WHERE name = %s",
+        (new_name.strip(), old_name)
+    )
+
+def delete_occasion(name: str) -> None:
+    db.execute("DELETE FROM occasions WHERE name = %s", (name,))
+
+
+# ---------------------------------------------------------------------------
 # PACKAGES
 # ---------------------------------------------------------------------------
 

@@ -98,10 +98,12 @@ class SplashScreen(QWidget):
         outer.addWidget(self._card)
 
     def _center(self):
-        screen = QApplication.primaryScreen().geometry()
+        from PySide6.QtGui import QCursor
+        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        geo = screen.availableGeometry()
         self.move(
-            screen.center().x() - self.width() // 2,
-            screen.center().y() - self.height() // 2,
+            geo.center().x() - self.width() // 2,
+            geo.center().y() - self.height() // 2,
         )
 
     def set_status(self, text: str, progress: int):

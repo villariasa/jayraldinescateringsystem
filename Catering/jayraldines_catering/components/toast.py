@@ -128,7 +128,7 @@ class Toast(QWidget):
             return
         self._dismissing = True
         self._auto_timer.stop()
-        screen = QApplication.primaryScreen()
+        screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()
         target_x = screen.availableGeometry().right() + 20 if screen else self.x() + 400
         self._anim_slide = QPropertyAnimation(self, b"pos")
         self._anim_slide.setDuration(250)
@@ -159,6 +159,7 @@ class ToastManager:
 
     def __init__(self):
         self._stack: list[Toast] = []
+        self._window = None
 
     def show(self, title: str, message: str, color: str = "#3B82F6", duration_ms: int = 7000):
         toast = Toast(title, message, color)
@@ -175,8 +176,18 @@ class ToastManager:
             pass
         self._reposition()
 
+    def set_window(self, window) -> None:
+        self._window = window
+
+    def _active_screen(self):
+        if self._window:
+            screen = QApplication.screenAt(self._window.geometry().center())
+            if screen:
+                return screen
+        return QApplication.primaryScreen()
+
     def _screen_rect(self):
-        screen = QApplication.primaryScreen()
+        screen = self._active_screen()
         if screen:
             return screen.availableGeometry()
         return None

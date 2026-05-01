@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
         self._notif_popover.all_read.connect(self._on_all_read)
 
         self._toast_manager = ToastManager()
+        self._toast_manager.set_window(self)
 
         from utils.notif_scheduler import NotifScheduler
         self._scheduler = NotifScheduler(self)

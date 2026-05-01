@@ -498,7 +498,14 @@ class BookingPage(QWidget):
             if not smtp.get("smtp_host"):
                 return None
             biz = repo.get_business_info()
-            booking_data = {**data, "booking_ref": bkg_ref, "business_contact": biz.get("contact", ""), "business_name": biz.get("name", "Jayraldine's Catering")}
+            booking_data = {
+                **data,
+                "booking_ref":      bkg_ref,
+                "business_contact": biz.get("contact", ""),
+                "business_name":    biz.get("name", "Jayraldine's Catering"),
+                "event_date":       data.get("date", "—"),
+                "event_time":       data.get("time", "—"),
+            }
             from utils.mailer import send_booking_approval_request_email
             ok, err = send_booking_approval_request_email(smtp, email, booking_data)
             if ok:
