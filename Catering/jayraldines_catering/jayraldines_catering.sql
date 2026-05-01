@@ -1614,44 +1614,43 @@ FROM bookings b;
 -- VIEW: v_recent_activity
 -- =============================================================================
 CREATE OR REPLACE VIEW v_recent_activity AS
-SELECT
-    title,
-    description,
-    color,
-    created_at
+SELECT title, description, color, created_at
 FROM (
-    SELECT
-        CASE status
-            WHEN 'CONFIRMED' THEN 'Booking Confirmed'
-            WHEN 'CANCELLED' THEN 'Booking Cancelled'
-            ELSE 'New Booking Request'
-        END AS title,
-        customer_name || ' — ' || occasion || ' (' || pax || ' pax)' AS description,
-        CASE status
-            WHEN 'CONFIRMED' THEN '#22C55E'
-            WHEN 'CANCELLED' THEN '#EF4444'
-            ELSE '#3B82F6'
-        END AS color,
-        created_at
-    FROM bookings
-    UNION ALL
-    SELECT
-        CASE status
-            WHEN 'Paid'    THEN 'Payment Received'
-            WHEN 'Partial' THEN 'Partial Payment'
-            ELSE 'Invoice Unpaid'
-        END AS title,
-        customer_name || ' — Invoice ' || invoice_ref AS description,
-        CASE status
-            WHEN 'Paid'    THEN '#22C55E'
-            WHEN 'Partial' THEN '#F59E0B'
-            ELSE '#EF4444'
-        END AS color,
-        created_at
-    FROM invoices
-) combined
-ORDER BY created_at DESC
-LIMIT 10;
+    SELECT title, description, color, created_at
+    FROM (
+        SELECT
+            CASE status
+                WHEN 'CONFIRMED' THEN 'Booking Confirmed'
+                WHEN 'CANCELLED' THEN 'Booking Cancelled'
+                ELSE 'New Booking Request'
+            END AS title,
+            customer_name || ' - ' || occasion || ' (' || pax || ' pax)' AS description,
+            CASE status
+                WHEN 'CONFIRMED' THEN '#22C55E'
+                WHEN 'CANCELLED' THEN '#EF4444'
+                ELSE '#3B82F6'
+            END AS color,
+            created_at
+        FROM bookings
+        UNION ALL
+        SELECT
+            CASE status
+                WHEN 'Paid'    THEN 'Payment Received'
+                WHEN 'Partial' THEN 'Partial Payment'
+                ELSE 'Invoice Unpaid'
+            END AS title,
+            customer_name || ' - Invoice ' || invoice_ref AS description,
+            CASE status
+                WHEN 'Paid'    THEN '#22C55E'
+                WHEN 'Partial' THEN '#F59E0B'
+                ELSE '#EF4444'
+            END AS color,
+            created_at
+        FROM invoices
+    ) combined
+    ORDER BY created_at DESC
+    LIMIT 10
+) final_result;
 
 -- =============================================================================
 -- VIEW: v_menu_alerts
