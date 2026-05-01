@@ -302,10 +302,8 @@ class EditCustomerDialog(QDialog):
         self.email_field.setPlaceholderText("email@example.com")
         self.email_field.setFixedHeight(38)
 
-        existing_addr = self._customer.get("address", "")
+        self._existing_addr = self._customer.get("address", "")
         self.address_widget = AddressSearchWidget()
-        if existing_addr:
-            self.address_widget.set_value(existing_addr)
 
         self.status_field = QComboBox()
         self.status_field.setFixedHeight(38)
@@ -327,6 +325,11 @@ class EditCustomerDialog(QDialog):
         addr_lbl = QLabel("Address (Cebu)")
         addr_lbl.setStyleSheet("color:#9CA3AF; font-size:12px; font-weight:600;")
         lay.addWidget(addr_lbl)
+        if self._existing_addr:
+            self._current_addr_lbl = QLabel(f"Current: {self._existing_addr}")
+            self._current_addr_lbl.setStyleSheet("color:#6B7280; font-size:11px;")
+            self._current_addr_lbl.setWordWrap(True)
+            lay.addWidget(self._current_addr_lbl)
         lay.addWidget(self.address_widget)
 
         self._err = QLabel("")
@@ -383,7 +386,7 @@ class EditCustomerDialog(QDialog):
         if sel:
             addr_str = f"{street}, {sel['barangay']}, {sel['city']}, Cebu".strip(", ")
         else:
-            addr_str = street or self._customer.get("address", "")
+            addr_str = self._existing_addr
         self._result = {
             "name":         name,
             "contact":      contact,

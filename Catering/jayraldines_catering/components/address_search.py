@@ -153,6 +153,8 @@ class AddressSearchWidget(QWidget):
         self._dropdown.setStyleSheet(self._dropdown_style())
         self._dropdown.itemClicked.connect(self._on_item_clicked)
         self._dropdown.setWindowFlags(Qt.ToolTip)
+        self._dropdown.installEventFilter(self)
+        self._hide_pending = False
         self._dropdown.hide()
 
     # ------------------------------------------------------------------
@@ -220,6 +222,7 @@ class AddressSearchWidget(QWidget):
         self._dropdown.raise_()
 
     def _on_item_clicked(self, item: QListWidgetItem):
+        self._hide_pending = False
         data = item.data(Qt.UserRole)
         if not data:
             return
@@ -244,8 +247,16 @@ class AddressSearchWidget(QWidget):
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
         if obj is self._search and event.type() == QEvent.FocusOut:
-            QTimer.singleShot(150, self._hide_dropdown)
+            self._hide_pending = True
+            QTimer.singleShot(300, self._maybe_hide_dropdown)
+        if obj is self._dropdown and event.type() in (QEvent.Enter, QEvent.MouseButtonPress):
+            self._hide_pending = False
         return super().eventFilter(obj, event)
+
+    def _maybe_hide_dropdown(self):
+        if self._hide_pending:
+            self._hide_dropdown()
+            self._hide_pending = False
 
     # ------------------------------------------------------------------
     # Stylesheet
