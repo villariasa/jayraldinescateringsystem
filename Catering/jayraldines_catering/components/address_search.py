@@ -1,46 +1,15 @@
 from __future__ import annotations
-from typing import Optional, Callable
+from typing import Optional
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel,
     QListWidget, QListWidgetItem, QSizePolicy, QAbstractItemView,
+    QApplication,
 )
-from PySide6.QtCore import Qt, QTimer, Signal, QPoint, QRect
-from PySide6.QtGui import QColor, QMouseEvent
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QColor
 
 import utils.repository as repo
-
-
-class _DropdownPopup(QListWidget):
-    """Floating frameless popup positioned via global screen coords."""
-
-    def __init__(self, on_pick: Callable[[QListWidgetItem], None]):
-        super().__init__(None)
-        self._on_pick = on_pick
-        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.setFocusPolicy(Qt.NoFocus)
-        self.setObjectName("addressDropdown")
-        self.setStyleSheet(_DROPDOWN_STYLE)
-        self.hide()
-
-    def show_below(self, anchor: QWidget, max_h: int):
-        count = self.count()
-        h = min(count * 36 + 8, max_h)
-        gp = anchor.mapToGlobal(QPoint(0, anchor.height() + 2))
-        self.setGeometry(QRect(gp.x(), gp.y(), anchor.width(), h))
-        self.show()
-        self.raise_()
-
-    def mousePressEvent(self, event: QMouseEvent):
-        item = self.itemAt(event.pos())
-        if item and (item.flags() & Qt.ItemIsEnabled):
-            self._on_pick(item)
-        else:
-            super().mousePressEvent(event)
 
 
 class AddressSearchWidget(QWidget):
@@ -52,7 +21,6 @@ class AddressSearchWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._selected: Optional[dict] = None
-        self._closing = False
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._run_search)
@@ -110,12 +78,13 @@ class AddressSearchWidget(QWidget):
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(6)
+        root.setSpacing(0)
 
-        # --- search row ---
-        self._search_container = QWidget()
-        search_row = QHBoxLayout(self._search_container)
-        search_row.setContentsMargins(0, 0, 0, 0)
+        # --- search row (fixed height so it NEVER moves) ---
+        search_wrap = QWidget()
+        search_wrap.setFixedHeight(44)
+        search_row = QHBoxLayout(search_wrap)
+        search_row.setContentsMargins(0, 3, 0, 3)
         search_row.setSpacing(6)
 
         self._search = QLineEdit()
@@ -134,15 +103,25 @@ class AddressSearchWidget(QWidget):
 
         search_row.addWidget(self._search)
         search_row.addWidget(self._clear_btn)
-        root.addWidget(self._search_container)
+        root.addWidget(search_wrap)
 
-        # --- floating dropdown ---
-        self._dropdown = _DropdownPopup(on_pick=self._on_item_picked)
+        # --- inline dropdown (hidden by default via maxHeight=0) ---
+        self._dropdown = QListWidget()
+        self._dropdown.setObjectName("addressDropdown")
+        self._dropdown.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._dropdown.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._dropdown.setStyleSheet(self._dropdown_style())
+        self._dropdown.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._dropdown.setFocusPolicy(Qt.NoFocus)
+        self._dropdown.setMaximumHeight(0)
+        self._dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._dropdown.itemClicked.connect(self._on_item_clicked)
+        root.addWidget(self._dropdown)
 
         # --- street input (hidden until selection) ---
         self._street_row = QWidget()
         street_lay = QVBoxLayout(self._street_row)
-        street_lay.setContentsMargins(0, 0, 0, 0)
+        street_lay.setContentsMargins(0, 4, 0, 0)
         street_lay.setSpacing(4)
 
         lbl = QLabel("Street / House No. *")
@@ -159,7 +138,7 @@ class AddressSearchWidget(QWidget):
         root.addWidget(self._street_row)
 
         self._hint = QLabel("Start typing to search (min 2 characters)")
-        self._hint.setStyleSheet("color:#6B7280; font-size:11px;")
+        self._hint.setStyleSheet("color:#6B7280; font-size:11px; padding-top:2px;")
         self._hint.setMaximumHeight(0)
         self._hint.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         root.addWidget(self._hint)
@@ -174,11 +153,12 @@ class AddressSearchWidget(QWidget):
     def _hide_widget(self, w):
         w.setMaximumHeight(0)
 
-    def _open_dropdown(self):
-        self._dropdown.show_below(self._search_container, self._DROPDOWN_MAX_H)
+    def _open_dropdown(self, count: int):
+        h = min(count * 36 + 8, self._DROPDOWN_MAX_H)
+        self._dropdown.setMaximumHeight(h)
 
     def _close_dropdown(self):
-        self._dropdown.hide()
+        self._dropdown.setMaximumHeight(0)
         self._dropdown.clear()
 
     def _on_text_changed(self, text: str):
@@ -213,6 +193,7 @@ class AddressSearchWidget(QWidget):
             item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
             item.setForeground(QColor("#6B7280"))
             self._dropdown.addItem(item)
+            self._open_dropdown(1)
         else:
             for row in results:
                 display = row.get("display_text") or (
@@ -223,11 +204,9 @@ class AddressSearchWidget(QWidget):
                 item = QListWidgetItem(display)
                 item.setData(Qt.UserRole, row)
                 self._dropdown.addItem(item)
+            self._open_dropdown(len(results))
 
-        self._open_dropdown()
-
-    def _on_item_picked(self, item: QListWidgetItem):
-        """Called directly from popup mousePressEvent — no timing issues."""
+    def _on_item_clicked(self, item: QListWidgetItem):
         data = item.data(Qt.UserRole)
         if not data:
             return
@@ -242,46 +221,52 @@ class AddressSearchWidget(QWidget):
         self.address_selected.emit(data)
 
     # ------------------------------------------------------------------
-    # Event filter — close dropdown on focus-out (only if not clicking popup)
+    # Event filter
     # ------------------------------------------------------------------
 
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
         if obj is self._search and event.type() == QEvent.FocusOut:
-            # Only close if focus did NOT go to our popup
-            QTimer.singleShot(50, self._maybe_close)
+            # Delay close so itemClicked can fire first
+            QTimer.singleShot(200, self._on_search_focus_lost)
         return super().eventFilter(obj, event)
 
-    def _maybe_close(self):
-        from PySide6.QtWidgets import QApplication
-        focused = QApplication.focusWidget()
-        if focused is not self._dropdown and focused is not self._search:
-            self._close_dropdown()
+    def _on_search_focus_lost(self):
+        # Don't close if the dropdown itself has focus or is being interacted with
+        fw = QApplication.focusWidget()
+        if fw is self._search or fw is self._dropdown:
+            return
+        self._close_dropdown()
 
     def hideEvent(self, event):
         self._close_dropdown()
         super().hideEvent(event)
 
+    # ------------------------------------------------------------------
+    # Stylesheet
+    # ------------------------------------------------------------------
 
-_DROPDOWN_STYLE = """
-    QListWidget#addressDropdown {
-        background-color: #1F2937;
-        border: 1px solid #374151;
-        border-radius: 8px;
-        padding: 4px 0;
-        color: #F9FAFB;
-        font-size: 13px;
-    }
-    QListWidget#addressDropdown::item {
-        padding: 8px 14px;
-        border-radius: 6px;
-    }
-    QListWidget#addressDropdown::item:hover {
-        background-color: #374151;
-        color: #F9FAFB;
-    }
-    QListWidget#addressDropdown::item:selected {
-        background-color: #E11D48;
-        color: #FFFFFF;
-    }
-"""
+    @staticmethod
+    def _dropdown_style() -> str:
+        return """
+            QListWidget#addressDropdown {
+                background-color: #1F2937;
+                border: 1px solid #374151;
+                border-radius: 8px;
+                padding: 4px 0;
+                color: #F9FAFB;
+                font-size: 13px;
+            }
+            QListWidget#addressDropdown::item {
+                padding: 8px 14px;
+                border-radius: 6px;
+            }
+            QListWidget#addressDropdown::item:hover {
+                background-color: #374151;
+                color: #F9FAFB;
+            }
+            QListWidget#addressDropdown::item:selected {
+                background-color: #E11D48;
+                color: #FFFFFF;
+            }
+        """
