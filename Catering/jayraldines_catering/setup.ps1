@@ -292,8 +292,10 @@ $dbName  = "jayraldines_catering"
 $dbUser  = "postgres"
 
 # Verify required SQL files exist
-$mainSql    = "jayraldines_catering.sql"
+$mainSql    = "jayraldines_catering_clean.sql"
 $migSql     = "cebu_address_migration.sql"
+$occMigSql  = "occasions_migration.sql"
+$viewsMigSql = "confirmed_only_views_migration.sql"
 
 if (-not (Test-Path $mainSql)) {
     Print-Fail "Required file not found: $mainSql"
@@ -327,14 +329,26 @@ if ($exists -match "1") {
     $choice = Read-Host "  Drop and recreate it? All existing data will be lost. (y/N)"
     if ($choice -ne "y" -and $choice -ne "Y") {
         Print-Skip "Keeping existing database"
-        Write-Host "  Checking if Cebu address tables exist..." -ForegroundColor Yellow
         $addrExists = & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='address_barangays';" 2>&1
         if ($addrExists -notmatch "1") {
-            Print-Info "Address tables missing. Running cebu_address_migration.sql..."
+            Print-Info "Running cebu address migration..."
             & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1
-            Print-OK "Cebu address migration completed"
+            Print-OK "Cebu address migration done"
         } else {
-            Print-Skip "Address tables already exist, skipping migration"
+            Print-Skip "Address tables already exist"
+        }
+        $occExists = & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='occasions';" 2>&1
+        if ($occExists -notmatch "1" -and (Test-Path $occMigSql)) {
+            Print-Info "Running occasions migration..."
+            & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $occMigSql 2>&1
+            Print-OK "Occasions migration done"
+        } else {
+            Print-Skip "Occasions table already exists"
+        }
+        if (Test-Path $viewsMigSql) {
+            Print-Info "Applying confirmed-only views migration..."
+            & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $viewsMigSql 2>&1
+            Print-OK "Views migration done"
         }
         $runSql = $false
     }
@@ -353,12 +367,18 @@ if ($runSql) {
     }
     Print-OK "Main schema applied successfully"
 
-    Print-Info "Running Cebu address migration (cebu_address_migration.sql)..."
+    Print-Info "Running Cebu address migration..."
     & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Print-Info "Address migration had errors but continuing - some address data may be missing."
+        Print-Info "Address migration had warnings (non-fatal)"
     } else {
-        Print-OK "Cebu address migration completed"
+        Print-OK "Cebu address migration done"
+    }
+
+    if (Test-Path $viewsMigSql) {
+        Print-Info "Applying confirmed-only views migration..."
+        & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $viewsMigSql 2>&1
+        Print-OK "Views migration done"
     }
 
     Print-OK "Database '$dbName' is ready"

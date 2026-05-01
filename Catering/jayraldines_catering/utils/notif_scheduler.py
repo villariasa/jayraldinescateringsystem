@@ -28,8 +28,8 @@ class NotifScheduler(QObject):
         super().__init__(parent)
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._check)
-        self._timer.start(10_000)
-        QTimer.singleShot(3_000, self._check)
+        self._timer.start(60_000)
+        QTimer.singleShot(5_000, self._check)
 
     def _check(self):
         try:

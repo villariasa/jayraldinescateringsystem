@@ -88,12 +88,12 @@ class MainWindow(QMainWindow):
 
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._poll_notifications)
-        self._poll_timer.start(5_000)
-        QTimer.singleShot(0, self._poll_notifications)
+        self._poll_timer.start(30_000)
+        QTimer.singleShot(2_000, self._poll_notifications)
 
         self._dash_timer = QTimer(self)
         self._dash_timer.timeout.connect(self._reload_dashboard)
-        self._dash_timer.start(5_000)
+        self._dash_timer.start(60_000)
 
         from utils.signals import app_events
         _ev = app_events()
