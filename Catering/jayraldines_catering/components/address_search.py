@@ -1,22 +1,22 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Callable
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel,
     QListWidget, QListWidgetItem, QSizePolicy, QAbstractItemView,
-    QApplication,
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QPoint, QRect
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QMouseEvent
 
 import utils.repository as repo
 
 
 class _DropdownPopup(QListWidget):
-    """Floating frameless popup that overlays content without pushing layout."""
+    """Floating frameless popup positioned via global screen coords."""
 
-    def __init__(self, parent: QWidget):
+    def __init__(self, on_pick: Callable[[QListWidgetItem], None]):
         super().__init__(None)
+        self._on_pick = on_pick
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -28,14 +28,19 @@ class _DropdownPopup(QListWidget):
         self.hide()
 
     def show_below(self, anchor: QWidget, max_h: int):
-        row_h = 36
         count = self.count()
-        h = min(count * row_h + 8, max_h)
-        # Map anchor bottom-left to global screen coordinates
-        global_pos = anchor.mapToGlobal(QPoint(0, anchor.height() + 2))
-        self.setGeometry(QRect(global_pos.x(), global_pos.y(), anchor.width(), h))
+        h = min(count * 36 + 8, max_h)
+        gp = anchor.mapToGlobal(QPoint(0, anchor.height() + 2))
+        self.setGeometry(QRect(gp.x(), gp.y(), anchor.width(), h))
         self.show()
         self.raise_()
+
+    def mousePressEvent(self, event: QMouseEvent):
+        item = self.itemAt(event.pos())
+        if item and (item.flags() & Qt.ItemIsEnabled):
+            self._on_pick(item)
+        else:
+            super().mousePressEvent(event)
 
 
 class AddressSearchWidget(QWidget):
@@ -47,6 +52,7 @@ class AddressSearchWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._selected: Optional[dict] = None
+        self._closing = False
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._run_search)
@@ -130,9 +136,8 @@ class AddressSearchWidget(QWidget):
         search_row.addWidget(self._clear_btn)
         root.addWidget(self._search_container)
 
-        # --- floating dropdown (attached to window, not in layout) ---
-        self._dropdown = _DropdownPopup(self)
-        self._dropdown.itemPressed.connect(self._on_item_pressed)
+        # --- floating dropdown ---
+        self._dropdown = _DropdownPopup(on_pick=self._on_item_picked)
 
         # --- street input (hidden until selection) ---
         self._street_row = QWidget()
@@ -169,7 +174,7 @@ class AddressSearchWidget(QWidget):
     def _hide_widget(self, w):
         w.setMaximumHeight(0)
 
-    def _open_dropdown(self, count: int):
+    def _open_dropdown(self):
         self._dropdown.show_below(self._search_container, self._DROPDOWN_MAX_H)
 
     def _close_dropdown(self):
@@ -201,7 +206,6 @@ class AddressSearchWidget(QWidget):
             return
 
         results = repo.search_cebu_address(query, limit=10)
-
         self._dropdown.clear()
 
         if not results:
@@ -209,7 +213,6 @@ class AddressSearchWidget(QWidget):
             item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
             item.setForeground(QColor("#6B7280"))
             self._dropdown.addItem(item)
-            self._open_dropdown(1)
         else:
             for row in results:
                 display = row.get("display_text") or (
@@ -220,9 +223,11 @@ class AddressSearchWidget(QWidget):
                 item = QListWidgetItem(display)
                 item.setData(Qt.UserRole, row)
                 self._dropdown.addItem(item)
-            self._open_dropdown(len(results))
 
-    def _on_item_pressed(self, item: QListWidgetItem):
+        self._open_dropdown()
+
+    def _on_item_picked(self, item: QListWidgetItem):
+        """Called directly from popup mousePressEvent — no timing issues."""
         data = item.data(Qt.UserRole)
         if not data:
             return
@@ -237,14 +242,21 @@ class AddressSearchWidget(QWidget):
         self.address_selected.emit(data)
 
     # ------------------------------------------------------------------
-    # Event filter — close dropdown when focus leaves the search field
+    # Event filter — close dropdown on focus-out (only if not clicking popup)
     # ------------------------------------------------------------------
 
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
         if obj is self._search and event.type() == QEvent.FocusOut:
-            QTimer.singleShot(150, self._close_dropdown)
+            # Only close if focus did NOT go to our popup
+            QTimer.singleShot(50, self._maybe_close)
         return super().eventFilter(obj, event)
+
+    def _maybe_close(self):
+        from PySide6.QtWidgets import QApplication
+        focused = QApplication.focusWidget()
+        if focused is not self._dropdown and focused is not self._search:
+            self._close_dropdown()
 
     def hideEvent(self, event):
         self._close_dropdown()
