@@ -246,6 +246,8 @@ class AddressSearchWidget(QWidget):
 
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
+        if not hasattr(self, '_dropdown'):
+            return super().eventFilter(obj, event)
         if obj is self._search and event.type() == QEvent.FocusOut:
             self._hide_pending = True
             QTimer.singleShot(300, self._maybe_hide_dropdown)
