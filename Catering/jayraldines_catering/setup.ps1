@@ -67,54 +67,146 @@ Read-Host
 Print-Step "Step 1 - Check / Install Python 3.11+"
 
 $pythonOk = $false
-if (Command-Exists "python") {
-    $pyver = python --version 2>&1
-    if ($pyver -match "Python 3\.(1[1-9]|[2-9]\d)") {
-        Print-OK "Already installed: $pyver"
-        $pythonOk = $true
-    } else {
-        Print-Info "Found $pyver but need 3.11+. Will install newer version."
+$pythonCmd = $null
+
+# Try all common python command names
+foreach ($cmd in @("python", "python3", "py")) {
+    if (Command-Exists $cmd) {
+        try {
+            $pyver = & $cmd --version 2>&1
+            if ($pyver -match "Python 3\.(1[1-9]|[2-9]\d)") {
+                Print-OK "Already installed: $pyver  (command: $cmd)"
+                $pythonCmd = $cmd
+                $pythonOk = $true
+                break
+            }
+        } catch {}
+    }
+}
+
+# Also search common install paths not necessarily in PATH
+if (-not $pythonOk) {
+    $pySearchPaths = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
+        "C:\Python313\python.exe",
+        "C:\Python312\python.exe",
+        "C:\Python311\python.exe",
+        "C:\Program Files\Python313\python.exe",
+        "C:\Program Files\Python312\python.exe",
+        "C:\Program Files\Python311\python.exe"
+    )
+    foreach ($p in $pySearchPaths) {
+        if (Test-Path $p) {
+            try {
+                $pyver = & $p --version 2>&1
+                if ($pyver -match "Python 3\.(1[1-9]|[2-9]\d)") {
+                    Print-OK "Found Python at: $p ($pyver)"
+                    $pythonCmd = $p
+                    $pythonOk = $true
+                    $pyDir = Split-Path $p
+                    if ($env:Path -notlike "*$pyDir*") {
+                        $env:Path = "$pyDir;" + $env:Path
+                    }
+                    break
+                }
+            } catch {}
+        }
     }
 }
 
 if (-not $pythonOk) {
     $pyInstaller = "$env:TEMP\python-installer.exe"
-    Print-Info "Downloading Python 3.12.4..."
+    Print-Info "Python 3.11+ not found. Downloading Python 3.12.4..."
     Download-File "https://www.python.org/ftp/python/3.12.4/python-3.12.4-amd64.exe" $pyInstaller
     Print-Info "Installing Python (this may take a minute)..."
     Start-Process -FilePath $pyInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1" -Wait
     Remove-Item $pyInstaller -Force
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-    $pyver = python --version 2>&1
+    $pythonCmd = "python"
+    $pyver = & $pythonCmd --version 2>&1
     Print-OK "Python installed: $pyver"
 }
 
 # ------------------------------------------------------------------------------
 # STEP 2 - PostgreSQL
 # ------------------------------------------------------------------------------
-Print-Step "Step 2 - Check / Install PostgreSQL 16"
+Print-Step "Step 2 - Check / Install PostgreSQL"
 
 $pgOk = $false
-$pgPaths = @(
-    "C:\Program Files\PostgreSQL\17\bin\psql.exe",
-    "C:\Program Files\PostgreSQL\16\bin\psql.exe",
-    "C:\Program Files\PostgreSQL\15\bin\psql.exe",
-    "C:\Program Files\PostgreSQL\14\bin\psql.exe"
-)
-$psqlExe = $pgPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+$psqlExe = $null
 
-if ($psqlExe) {
-    Print-OK "Already installed: $psqlExe"
-    $pgOk = $true
-} elseif (Command-Exists "psql") {
+# 1. Check if psql is already in PATH
+if (Command-Exists "psql") {
     $psqlExe = (Get-Command "psql").Source
-    Print-OK "Already installed: $psqlExe"
+    Print-OK "Found psql in PATH: $psqlExe"
     $pgOk = $true
+}
+
+# 2. Search all common install paths (versions 13-17, both Program Files variants)
+if (-not $pgOk) {
+    $pgSearchPaths = @()
+    foreach ($ver in @("17","16","15","14","13")) {
+        $pgSearchPaths += "C:\Program Files\PostgreSQL\$ver\bin\psql.exe"
+        $pgSearchPaths += "C:\Program Files (x86)\PostgreSQL\$ver\bin\psql.exe"
+    }
+    $psqlExe = $pgSearchPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($psqlExe) {
+        Print-OK "Found PostgreSQL at: $psqlExe"
+        $pgOk = $true
+    }
+}
+
+# 3. Search registry for PostgreSQL install location
+if (-not $pgOk) {
+    try {
+        $regPaths = @(
+            "HKLM:\SOFTWARE\PostgreSQL\Installations",
+            "HKLM:\SOFTWARE\Wow6432Node\PostgreSQL\Installations"
+        )
+        foreach ($regBase in $regPaths) {
+            if (Test-Path $regBase) {
+                Get-ChildItem $regBase | ForEach-Object {
+                    $base = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).Base
+                    if ($base) {
+                        $candidate = Join-Path $base "bin\psql.exe"
+                        if (Test-Path $candidate) {
+                            $psqlExe = $candidate
+                            $pgOk = $true
+                        }
+                    }
+                }
+            }
+            if ($pgOk) { break }
+        }
+        if ($pgOk) { Print-OK "Found PostgreSQL via registry: $psqlExe" }
+    } catch {}
+}
+
+# 4. Check if a PostgreSQL Windows service exists (even if psql not in PATH)
+if (-not $pgOk) {
+    $pgService = Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($pgService) {
+        Print-Info "PostgreSQL service found: $($pgService.Name) [$($pgService.Status)]"
+        # Try to find psql from the service binary path
+        try {
+            $svcPath = (Get-WmiObject Win32_Service -Filter "Name='$($pgService.Name)'" -ErrorAction SilentlyContinue).PathName
+            if ($svcPath -match '"?([A-Za-z]:\\[^"]+)\\bin\\') {
+                $candidate = "$($Matches[1])\bin\psql.exe"
+                if (Test-Path $candidate) {
+                    $psqlExe = $candidate
+                    $pgOk = $true
+                    Print-OK "Found psql via service path: $psqlExe"
+                }
+            }
+        } catch {}
+    }
 }
 
 if (-not $pgOk) {
     $pgInstaller = "$env:TEMP\postgresql-installer.exe"
-    Print-Info "Downloading PostgreSQL 16..."
+    Print-Info "PostgreSQL not found. Downloading PostgreSQL 16..."
     Download-File "https://get.enterprisedb.com/postgresql/postgresql-16.3-1-windows-x64.exe" $pgInstaller
     Write-Host ""
     Write-Host "  The installer will open now. Please:" -ForegroundColor Yellow
@@ -127,13 +219,15 @@ if (-not $pgOk) {
     Read-Host "Press ENTER after PostgreSQL is fully installed"
     Remove-Item $pgInstaller -Force -ErrorAction SilentlyContinue
 
-    $psqlExe = $pgPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $psqlExe) {
-        if (Command-Exists "psql") {
-            $psqlExe = (Get-Command "psql").Source
-        }
+    # Re-run detection after install
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    foreach ($ver in @("17","16","15","14","13")) {
+        $candidate = "C:\Program Files\PostgreSQL\$ver\bin\psql.exe"
+        if (Test-Path $candidate) { $psqlExe = $candidate; break }
     }
-
+    if (-not $psqlExe -and (Command-Exists "psql")) {
+        $psqlExe = (Get-Command "psql").Source
+    }
     if ($psqlExe) {
         Print-OK "PostgreSQL installed: $psqlExe"
     } else {
@@ -144,10 +238,12 @@ if (-not $pgOk) {
     }
 }
 
+# Ensure the pg bin dir is in PATH for this session
 $pgBin = Split-Path $psqlExe
 if ($env:Path -notlike "*$pgBin*") {
     $env:Path = "$pgBin;" + $env:Path
 }
+Print-Info "Using psql: $psqlExe"
 
 # ------------------------------------------------------------------------------
 # STEP 3 - Python virtual environment
@@ -164,7 +260,7 @@ if (Test-Path "venv") {
     Print-Skip "venv already exists, skipping creation"
 } else {
     Print-Info "Creating venv..."
-    python -m venv venv
+    & $pythonCmd -m venv venv
     Print-OK "venv created"
 }
 
@@ -195,18 +291,22 @@ Print-Step "Step 5 - Database Setup"
 $dbName  = "jayraldines_catering"
 $dbUser  = "postgres"
 
-# Prefer the file with sample data; fall back to clean schema
-$sqlFile = ""
-if (Test-Path "jayraldines_catering.sql") {
-    $sqlFile = "jayraldines_catering.sql"
-} elseif (Test-Path "jayraldines_catering_clean.sql") {
-    $sqlFile = "jayraldines_catering_clean.sql"
-} else {
-    Print-Fail "No SQL file found (jayraldines_catering.sql or jayraldines_catering_clean.sql)."
+# Verify required SQL files exist
+$mainSql    = "jayraldines_catering.sql"
+$migSql     = "cebu_address_migration.sql"
+
+if (-not (Test-Path $mainSql)) {
+    Print-Fail "Required file not found: $mainSql"
     Read-Host "Press ENTER to exit"
     exit 1
 }
-Print-Info "Using SQL file: $sqlFile"
+if (-not (Test-Path $migSql)) {
+    Print-Fail "Required file not found: $migSql"
+    Read-Host "Press ENTER to exit"
+    exit 1
+}
+Print-Info "Main SQL  : $mainSql"
+Print-Info "Migration : $migSql"
 
 Write-Host ""
 Write-Host "  Enter the PostgreSQL superuser (postgres) password." -ForegroundColor Yellow
@@ -215,6 +315,17 @@ $pgPass = Read-Host "  Password (press ENTER to use 12345678)"
 if ([string]::IsNullOrWhiteSpace($pgPass)) { $pgPass = "12345678" }
 
 $env:PGPASSWORD = $pgPass
+
+function Run-SqlFile($file, $label) {
+    Print-Info "Running $label ..."
+    & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $file 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Print-Fail "$label failed (exit code $LASTEXITCODE) - check output above."
+        return $false
+    }
+    Print-OK "$label completed"
+    return $true
+}
 
 Print-Info "Checking if database '$dbName' already exists..."
 $exists = & $psqlExe -U $dbUser -h localhost -p 5432 -tAc "SELECT 1 FROM pg_database WHERE datname='$dbName';" 2>&1
@@ -226,27 +337,48 @@ if ($exists -match "1") {
     if ($choice -eq "y" -or $choice -eq "Y") {
         Print-Info "Dropping existing database..."
         & $psqlExe -U $dbUser -h localhost -p 5432 -c "DROP DATABASE IF EXISTS $dbName;" 2>&1 | Out-Null
-        Print-Info "Running $sqlFile ..."
-        & $psqlExe -U $dbUser -h localhost -p 5432 -f $sqlFile
-        if ($LASTEXITCODE -eq 0) {
-            Print-OK "Database recreated from $sqlFile"
-        } else {
-            Print-Fail "psql exited with code $LASTEXITCODE - check output above."
+
+        Print-Info "Creating fresh database..."
+        & $psqlExe -U $dbUser -h localhost -p 5432 -c "CREATE DATABASE $dbName;" 2>&1 | Out-Null
+
+        $ok = Run-SqlFile $mainSql "Main schema (jayraldines_catering.sql)"
+        if (-not $ok) {
+            $env:PGPASSWORD = ""
+            Read-Host "Press ENTER to exit"
+            exit 1
         }
+        $ok = Run-SqlFile $migSql "Cebu address migration (cebu_address_migration.sql)"
+        if (-not $ok) {
+            Print-Info "Address migration had errors but continuing - some address data may be missing."
+        }
+        Print-OK "Database recreated successfully"
     } else {
         Print-Skip "Keeping existing database"
+        Write-Host ""
+        Write-Host "  Checking if Cebu address tables exist..." -ForegroundColor Yellow
+        $addrExists = & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='address_barangays';" 2>&1
+        if ($addrExists -notmatch "1") {
+            Print-Info "Address tables missing. Running cebu_address_migration.sql..."
+            Run-SqlFile $migSql "Cebu address migration (cebu_address_migration.sql)" | Out-Null
+        } else {
+            Print-Skip "Address tables already exist, skipping migration"
+        }
     }
 } else {
-    Print-Info "Database not found. Creating from $sqlFile ..."
-    & $psqlExe -U $dbUser -h localhost -p 5432 -f $sqlFile
-    if ($LASTEXITCODE -eq 0) {
-        Print-OK "Database '$dbName' created successfully"
-    } else {
-        Print-Fail "psql exited with code $LASTEXITCODE - check output above."
-        Write-Host "  Make sure PostgreSQL is running and the password is correct." -ForegroundColor Yellow
+    Print-Info "Database not found. Creating '$dbName'..."
+    & $psqlExe -U $dbUser -h localhost -p 5432 -c "CREATE DATABASE $dbName;" 2>&1 | Out-Null
+
+    $ok = Run-SqlFile $mainSql "Main schema (jayraldines_catering.sql)"
+    if (-not $ok) {
+        $env:PGPASSWORD = ""
         Read-Host "Press ENTER to exit"
         exit 1
     }
+    $ok = Run-SqlFile $migSql "Cebu address migration (cebu_address_migration.sql)"
+    if (-not $ok) {
+        Print-Info "Address migration had errors but continuing - some address data may be missing."
+    }
+    Print-OK "Database '$dbName' created successfully"
 }
 
 $env:PGPASSWORD = ""

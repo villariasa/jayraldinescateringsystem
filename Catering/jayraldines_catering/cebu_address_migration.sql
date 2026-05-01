@@ -92,6 +92,7 @@ BEGIN
         (v_prov_id, 'Bantayan'),
         (v_prov_id, 'Barili'),
         (v_prov_id, 'Bogo City'),
+        (v_prov_id, 'Binaliw'),
         (v_prov_id, 'Boljoon'),
         (v_prov_id, 'Borbon'),
         (v_prov_id, 'Carmen'),

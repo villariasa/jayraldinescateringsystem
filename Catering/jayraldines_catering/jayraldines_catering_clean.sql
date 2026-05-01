@@ -1827,7 +1827,7 @@ BEGIN
         (v_prov_id,'Alcoy'),(v_prov_id,'Alegria'),(v_prov_id,'Aloguinsan'),
         (v_prov_id,'Argao'),(v_prov_id,'Asturias'),(v_prov_id,'Badian'),
         (v_prov_id,'Balamban'),(v_prov_id,'Bantayan'),(v_prov_id,'Barili'),
-        (v_prov_id,'Bogo City'),(v_prov_id,'Boljoon'),(v_prov_id,'Borbon'),
+        (v_prov_id,'Binaliw'),(v_prov_id,'Bogo City'),(v_prov_id,'Boljoon'),(v_prov_id,'Borbon'),
         (v_prov_id,'Carmen'),(v_prov_id,'Catmon'),(v_prov_id,'Compostela'),
         (v_prov_id,'Consolacion'),(v_prov_id,'Cordova'),(v_prov_id,'Daanbantayan'),
         (v_prov_id,'Dalaguete'),(v_prov_id,'Dumanjug'),(v_prov_id,'Ginatilan'),
