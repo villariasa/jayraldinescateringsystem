@@ -60,7 +60,7 @@ class AddCustomerDialog(QDialog):
         self.setWindowTitle("Add Customer")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(480)
+        self.setFixedSize(480, 580)
         self.setModal(True)
         self._result = None
         self._build_ui()
@@ -224,7 +224,7 @@ class EditCustomerDialog(QDialog):
         self.setWindowTitle("Edit Customer")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(480)
+        self.setFixedSize(480, 640)
         self.setModal(True)
         self._result = None
         self._build_ui()

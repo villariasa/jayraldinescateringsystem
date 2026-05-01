@@ -83,6 +83,7 @@ class AddressSearchWidget(QWidget):
         # --- search row (fixed height so it NEVER moves) ---
         search_wrap = QWidget()
         search_wrap.setFixedHeight(44)
+        search_wrap.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         search_row = QHBoxLayout(search_wrap)
         search_row.setContentsMargins(0, 3, 0, 3)
         search_row.setSpacing(6)
