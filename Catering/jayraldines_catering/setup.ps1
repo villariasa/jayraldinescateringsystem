@@ -316,69 +316,52 @@ if ([string]::IsNullOrWhiteSpace($pgPass)) { $pgPass = "12345678" }
 
 $env:PGPASSWORD = $pgPass
 
-function Run-SqlFile($file, $label) {
-    Print-Info "Running $label ..."
-    & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $file 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Print-Fail "$label failed (exit code $LASTEXITCODE) - check output above."
-        return $false
-    }
-    Print-OK "$label completed"
-    return $true
-}
-
 Print-Info "Checking if database '$dbName' already exists..."
 $exists = & $psqlExe -U $dbUser -h localhost -p 5432 -tAc "SELECT 1 FROM pg_database WHERE datname='$dbName';" 2>&1
+
+$runSql = $true
 
 if ($exists -match "1") {
     Write-Host ""
     Write-Host "  Database '$dbName' already exists." -ForegroundColor Yellow
     $choice = Read-Host "  Drop and recreate it? All existing data will be lost. (y/N)"
-    if ($choice -eq "y" -or $choice -eq "Y") {
-        Print-Info "Dropping existing database..."
-        & $psqlExe -U $dbUser -h localhost -p 5432 -c "DROP DATABASE IF EXISTS $dbName;" 2>&1 | Out-Null
-
-        Print-Info "Creating fresh database..."
-        & $psqlExe -U $dbUser -h localhost -p 5432 -c "CREATE DATABASE $dbName;" 2>&1 | Out-Null
-
-        $ok = Run-SqlFile $mainSql "Main schema (jayraldines_catering.sql)"
-        if (-not $ok) {
-            $env:PGPASSWORD = ""
-            Read-Host "Press ENTER to exit"
-            exit 1
-        }
-        $ok = Run-SqlFile $migSql "Cebu address migration (cebu_address_migration.sql)"
-        if (-not $ok) {
-            Print-Info "Address migration had errors but continuing - some address data may be missing."
-        }
-        Print-OK "Database recreated successfully"
-    } else {
+    if ($choice -ne "y" -and $choice -ne "Y") {
         Print-Skip "Keeping existing database"
-        Write-Host ""
         Write-Host "  Checking if Cebu address tables exist..." -ForegroundColor Yellow
         $addrExists = & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='address_barangays';" 2>&1
         if ($addrExists -notmatch "1") {
             Print-Info "Address tables missing. Running cebu_address_migration.sql..."
-            Run-SqlFile $migSql "Cebu address migration (cebu_address_migration.sql)" | Out-Null
+            & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1
+            Print-OK "Cebu address migration completed"
         } else {
             Print-Skip "Address tables already exist, skipping migration"
         }
+        $runSql = $false
     }
-} else {
-    Print-Info "Database not found. Creating '$dbName'..."
-    & $psqlExe -U $dbUser -h localhost -p 5432 -c "CREATE DATABASE $dbName;" 2>&1 | Out-Null
+}
 
-    $ok = Run-SqlFile $mainSql "Main schema (jayraldines_catering.sql)"
-    if (-not $ok) {
+if ($runSql) {
+    # The main SQL file handles DROP + CREATE DATABASE internally.
+    # Connect to 'postgres' so we are NOT inside the DB being dropped.
+    Print-Info "Running Main schema (jayraldines_catering.sql)..."
+    & $psqlExe -U $dbUser -h localhost -p 5432 -d postgres -f $mainSql 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Print-Fail "Main schema failed (exit code $LASTEXITCODE) - check output above."
         $env:PGPASSWORD = ""
         Read-Host "Press ENTER to exit"
         exit 1
     }
-    $ok = Run-SqlFile $migSql "Cebu address migration (cebu_address_migration.sql)"
-    if (-not $ok) {
+    Print-OK "Main schema applied successfully"
+
+    Print-Info "Running Cebu address migration (cebu_address_migration.sql)..."
+    & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1
+    if ($LASTEXITCODE -ne 0) {
         Print-Info "Address migration had errors but continuing - some address data may be missing."
+    } else {
+        Print-OK "Cebu address migration completed"
     }
-    Print-OK "Database '$dbName' created successfully"
+
+    Print-OK "Database '$dbName' is ready"
 }
 
 $env:PGPASSWORD = ""
