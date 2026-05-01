@@ -1091,12 +1091,27 @@ def get_top_locations(limit: int = 10) -> list[dict]:
     rows = db.fetchall(
         """
         SELECT
-            TRIM(SPLIT_PART(address, ',', GREATEST(1, ARRAY_LENGTH(STRING_TO_ARRAY(TRIM(address), ','), 1) - 1))) AS area,
+            TRIM(
+                CASE
+                    WHEN address LIKE '%%,%%' THEN
+                        SPLIT_PART(address, ',', ARRAY_LENGTH(STRING_TO_ARRAY(TRIM(address), ','), 1) - 1)
+                    ELSE
+                        TRIM(address)
+                END
+            ) AS area,
             COUNT(*) AS booking_count
         FROM bookings
         WHERE address IS NOT NULL AND TRIM(address) != ''
           AND status IN ('CONFIRMED', 'COMPLETED')
-        GROUP BY area
+        GROUP BY 1
+        HAVING TRIM(
+            CASE
+                WHEN address LIKE '%%,%%' THEN
+                    SPLIT_PART(address, ',', ARRAY_LENGTH(STRING_TO_ARRAY(TRIM(address), ','), 1) - 1)
+                ELSE
+                    TRIM(address)
+            END
+        ) != ''
         ORDER BY booking_count DESC
         LIMIT %s
         """,

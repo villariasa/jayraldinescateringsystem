@@ -9,8 +9,6 @@ if getattr(sys, "frozen", False):
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QCoreApplication
-from utils.theme import ThemeManager
-import utils.db as db
 
 _MUTEX_HANDLE = None
 
@@ -49,13 +47,6 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
-    try:
-        theme = ThemeManager()
-        theme.apply("dark")
-    except Exception:
-        traceback.print_exc()
-        sys.exit(1)
-
     from components.splash import SplashScreen
     splash = SplashScreen()
     splash.show()
@@ -64,7 +55,17 @@ def main():
     try:
         import threading
 
-        splash.set_status("Connecting to database...", 20)
+        splash.set_status("Initializing...", 10)
+        from utils.theme import ThemeManager
+        import utils.db as db
+
+        try:
+            ThemeManager().apply("dark")
+        except Exception:
+            traceback.print_exc()
+            sys.exit(1)
+
+        splash.set_status("Connecting to database...", 25)
         app.processEvents()
 
         _db_result = [False]
@@ -78,21 +79,21 @@ def main():
         db_thread = threading.Thread(target=_db_connect, daemon=True)
         db_thread.start()
 
-        splash.set_status("Loading interface...", 40)
+        splash.set_status("Loading interface...", 50)
         from ui.main_window import MainWindow
         app.processEvents()
 
-        splash.set_status("Waiting for database...", 70)
+        splash.set_status("Waiting for database...", 75)
         app.processEvents()
-        db_thread.join()
+        db_thread.join(timeout=8)
 
         if _db_result[0]:
-            splash.set_status("Database connected.", 80)
+            splash.set_status("Database connected.", 85)
         else:
-            splash.set_status("Running in offline mode.", 80)
+            splash.set_status("Running in offline mode.", 85)
         app.processEvents()
 
-        splash.set_status("Building interface...", 90)
+        splash.set_status("Building interface...", 92)
         window = MainWindow()
 
         splash.set_status("Ready!", 100)

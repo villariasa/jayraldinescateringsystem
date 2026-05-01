@@ -192,6 +192,8 @@ class MainWindow(QMainWindow):
             self._pages[5].reload()
         if self._pages[0] is not None:
             self._pages[0].reload()
+        if self._pages[7] is not None:
+            self._pages[7].reload()
         self._poll_notifications()
 
     def _on_payment_recorded(self):

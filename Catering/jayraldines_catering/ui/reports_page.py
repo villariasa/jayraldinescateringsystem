@@ -438,6 +438,28 @@ class TopLocationsChart(QVBoxLayout):
         self._view.setMinimumHeight(240)
         self.addWidget(self._view)
 
+    def reload(self):
+        db_data = repo.get_top_locations(limit=10)
+        _MAX = 30
+        if db_data:
+            venues = [(r["venue"][:_MAX] + "…") if len(r["venue"]) > _MAX else r["venue"] for r in db_data]
+            counts = [r["count"] for r in db_data]
+        else:
+            venues = ["No Data"]
+            counts = [0]
+
+        self._venues = venues
+        self._counts = counts
+
+        self._bar_set.remove(0, self._bar_set.count())
+        for v in counts:
+            self._bar_set.append(v)
+
+        self._ax.clear()
+        self._ax.append(venues)
+
+        self._ay.setRange(0, max(counts) * 1.2 if max(counts) > 0 else 10)
+
     def _on_hover(self, state, index):
         if state and 0 <= index < len(self._venues):
             QToolTip.showText(
@@ -898,6 +920,7 @@ class ReportsPage(QWidget):
                 )
         self._reload_kpis()
         self._reload_table()
+        self._locations_chart_layout.reload()
 
     def _period_sql_filter(self) -> str:
         p = self._period
@@ -910,6 +933,11 @@ class ReportsPage(QWidget):
         if p == "This Year":
             return "AND EXTRACT(YEAR FROM event_date) = EXTRACT(YEAR FROM CURRENT_DATE)"
         return ""
+
+    def reload(self):
+        self._reload_kpis()
+        self._reload_table()
+        self._locations_chart_layout.reload()
 
     def _reload_kpis(self):
         fltr = self._period_sql_filter()

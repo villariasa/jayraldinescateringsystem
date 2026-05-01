@@ -364,7 +364,7 @@ class DashboardPage(QWidget):
         self.scroll.setWidget(self.content)
         self.root_layout.addWidget(self.scroll)
 
-        self._load_data()
+        QTimer.singleShot(0, self._load_data)
 
     def _build_export_menu(self):
         menu = QMenu(self)
