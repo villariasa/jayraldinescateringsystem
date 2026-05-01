@@ -76,13 +76,13 @@ $python = ".\venv\Scripts\python.exe"
 Print-Step "Step 3 - Installing Dependencies"
 
 Print-Info "Upgrading pip..."
-& $pip install --upgrade pip --quiet
+& $python -m pip install --upgrade pip --quiet 2>&1 | Out-Null
 
 Print-Info "Installing requirements.txt..."
-& $pip install -r requirements.txt --quiet
+& $python -m pip install -r requirements.txt --quiet
 
 Print-Info "Installing PyInstaller and Pillow..."
-& $pip install pyinstaller pillow --quiet
+& $python -m pip install pyinstaller pillow --quiet
 
 Print-OK "All dependencies installed"
 

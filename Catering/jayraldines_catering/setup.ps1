@@ -273,13 +273,13 @@ $python = ".\venv\Scripts\python.exe"
 Print-Step "Step 4 - Installing Python Packages"
 
 Print-Info "Upgrading pip..."
-try { & $pip install --upgrade pip --quiet 2>&1 | Out-Null } catch {}
+try { & $python -m pip install --upgrade pip --quiet 2>&1 | Out-Null } catch {}
 
 Print-Info "Installing from requirements.txt..."
-& $pip install -r requirements.txt --quiet
+& $python -m pip install -r requirements.txt --quiet
 
 Print-Info "Ensuring Pillow is installed..."
-& $pip install pillow --quiet
+& $python -m pip install pillow --quiet
 
 Print-OK "All packages installed"
 
