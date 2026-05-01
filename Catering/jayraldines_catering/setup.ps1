@@ -273,7 +273,7 @@ $python = ".\venv\Scripts\python.exe"
 Print-Step "Step 4 - Installing Python Packages"
 
 Print-Info "Upgrading pip..."
-& $pip install --upgrade pip --quiet 2>&1 | Where-Object { $_ -notmatch "^\[notice\]" } | Write-Host
+& $pip install --upgrade pip --quiet 2>&1 | Out-Null
 
 Print-Info "Installing from requirements.txt..."
 & $pip install -r requirements.txt --quiet
