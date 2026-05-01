@@ -16,7 +16,7 @@ class _DropdownPopup(QListWidget):
     """Floating frameless popup that overlays content without pushing layout."""
 
     def __init__(self, parent: QWidget):
-        super().__init__(parent.window())
+        super().__init__(None)
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -31,10 +31,9 @@ class _DropdownPopup(QListWidget):
         row_h = 36
         count = self.count()
         h = min(count * row_h + 8, max_h)
-        # Map anchor bottom-left to window coords
-        win = self.parent()
-        pos = anchor.mapTo(win, QPoint(0, anchor.height() + 2))
-        self.setGeometry(QRect(pos.x(), pos.y(), anchor.width(), h))
+        # Map anchor bottom-left to global screen coordinates
+        global_pos = anchor.mapToGlobal(QPoint(0, anchor.height() + 2))
+        self.setGeometry(QRect(global_pos.x(), global_pos.y(), anchor.width(), h))
         self.show()
         self.raise_()
 
