@@ -151,9 +151,9 @@ class AddressSearchWidget(QWidget):
         self._dropdown.setObjectName("addressDropdown")
         self._dropdown.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._dropdown.setStyleSheet(self._dropdown_style())
-        self._dropdown.itemClicked.connect(self._on_item_clicked)
-        self._dropdown.setWindowFlags(Qt.ToolTip)
-        self._dropdown.installEventFilter(self)
+        self._dropdown.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+        self._dropdown.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self._dropdown.mousePressEvent = self._on_dropdown_mouse_press
         self._hide_pending = False
         self._dropdown.hide()
 
@@ -221,7 +221,12 @@ class AddressSearchWidget(QWidget):
         self._dropdown.show()
         self._dropdown.raise_()
 
-    def _on_item_clicked(self, item: QListWidgetItem):
+    def _on_dropdown_mouse_press(self, event):
+        item = self._dropdown.itemAt(event.pos())
+        if item:
+            self._select_item(item)
+
+    def _select_item(self, item: QListWidgetItem):
         self._hide_pending = False
         data = item.data(Qt.UserRole)
         if not data:
@@ -250,9 +255,7 @@ class AddressSearchWidget(QWidget):
             return super().eventFilter(obj, event)
         if obj is self._search and event.type() == QEvent.FocusOut:
             self._hide_pending = True
-            QTimer.singleShot(300, self._maybe_hide_dropdown)
-        if obj is self._dropdown and event.type() in (QEvent.Enter, QEvent.MouseButtonPress):
-            self._hide_pending = False
+            QTimer.singleShot(200, self._maybe_hide_dropdown)
         return super().eventFilter(obj, event)
 
     def _maybe_hide_dropdown(self):
