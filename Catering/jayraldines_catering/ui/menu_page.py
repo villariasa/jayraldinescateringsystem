@@ -377,7 +377,8 @@ class PackageDialog(QDialog):
 
         _is_light = not ThemeManager().is_dark()
         _sf_border = "#E2E8F0" if _is_light else "#374151"
-        _row_hover = "#F1F5F9" if _is_light else "#1F2937"
+        self._row_hover = "#F1F5F9" if _is_light else "#1F2937"
+        _row_hover = self._row_hover
         scroll_frame = QFrame()
         scroll_frame.setObjectName("card")
         scroll_frame.setStyleSheet(f"#card {{ border: 1px solid {_sf_border}; border-radius: 8px; }}")
@@ -446,7 +447,7 @@ class PackageDialog(QDialog):
             for item in items:
                 item_id = item.get("id")
                 row_widget = QWidget()
-                row_widget.setStyleSheet(f"QWidget {{ border-radius: 4px; }} QWidget:hover {{ background: {_row_hover}; }}")
+                row_widget.setStyleSheet(f"QWidget {{ border-radius: 4px; }} QWidget:hover {{ background: {self._row_hover}; }}")
                 row_lay = QHBoxLayout(row_widget)
                 row_lay.setContentsMargins(4, 4, 4, 4)
                 row_lay.setSpacing(10)
@@ -573,6 +574,7 @@ class MenuPage(QWidget):
         card_layout.setContentsMargins(0, 0, 0, 0)
 
         self._table = QTableWidget(0, 7)
+        self._table.setObjectName("menuTable")
         self._table.setHorizontalHeaderLabels(["Item", "Category", "Package", "Price", "Status", "", ""])
         _mn_hdr = self._table.horizontalHeader()
         _mn_hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
@@ -582,9 +584,12 @@ class MenuPage(QWidget):
         self._table.setColumnWidth(5, 40)
         self._table.setColumnWidth(6, 40)
         self._table.setAlternatingRowColors(True)
+        self._table.setSelectionMode(QTableWidget.NoSelection)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._table.setMouseTracking(False)
+        self._table.setStyleSheet("QTableWidget::item:hover { background: transparent; } QTableWidget::item:selected { background: transparent; }")
         card_layout.addWidget(self._table)
         lay.addWidget(card)
 
@@ -612,7 +617,8 @@ class MenuPage(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._pkg_table = QTableWidget(0, 6)
+        self._pkg_table = QTableWidget(0, 7)
+        self._pkg_table.setObjectName("menuTable")
         self._pkg_table.setHorizontalHeaderLabels(["Package Name", "Price / Pax", "Min Pax", "Items", "Description", "", ""])
         _hdr = self._pkg_table.horizontalHeader()
         _hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
@@ -624,9 +630,12 @@ class MenuPage(QWidget):
         self._pkg_table.setColumnWidth(5, 40)
         self._pkg_table.setColumnWidth(6, 40)
         self._pkg_table.setAlternatingRowColors(True)
+        self._pkg_table.setSelectionMode(QTableWidget.NoSelection)
         self._pkg_table.setSelectionBehavior(QTableWidget.SelectRows)
         self._pkg_table.verticalHeader().setVisible(False)
         self._pkg_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._pkg_table.setMouseTracking(False)
+        self._pkg_table.setStyleSheet("QTableWidget::item:hover { background: transparent; } QTableWidget::item:selected { background: transparent; }")
         card_layout.addWidget(self._pkg_table)
         lay.addWidget(card)
 

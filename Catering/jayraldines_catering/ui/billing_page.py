@@ -337,6 +337,7 @@ class BillingPage(QWidget):
         card_layout.setContentsMargins(0, 0, 0, 0)
 
         self._table = QTableWidget(0, 10)
+        self._table.setObjectName("billingTable")
         self._table.setHorizontalHeaderLabels(
             ["Invoice #", "Customer", "Event Date", "Total", "Paid", "Balance", "Status", "", "", ""]
         )
@@ -352,10 +353,13 @@ class BillingPage(QWidget):
         # We removed the lines forcing the columns to 38px
         
         self._table.setAlternatingRowColors(True)
+        self._table.setSelectionMode(QTableWidget.NoSelection)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
         self._table.setShowGrid(False)
+        self._table.setMouseTracking(False)
+        self._table.setStyleSheet("QTableWidget::item:hover { background: transparent; } QTableWidget::item:selected { background: transparent; }")
         card_layout.addWidget(self._table)
 
         root.addWidget(card)

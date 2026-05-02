@@ -73,6 +73,36 @@ def _checkbox_item_style():
     return "color: %s; font-size: 13px;" % ("#0F172A" if _is_light() else "#F9FAFB")
 
 
+def _combo_style():
+    if _is_light():
+        return (
+            "QComboBox { padding: 10px 14px; border: 1px solid #E2E8F0; border-radius: 8px;"
+            " background-color: #F8FAFC; color: #0F172A; font-size: 13px; }"
+            "QComboBox:focus { border: 1px solid #E11D48; }"
+            "QComboBox::drop-down { width: 28px; border-left: none; background: transparent; }"
+            "QComboBox QAbstractItemView { background-color: #FFFFFF; color: #0F172A;"
+            " border: 1px solid #E2E8F0; border-radius: 8px; outline: none; padding: 4px;"
+            " selection-background-color: rgba(225,29,72,0.08); selection-color: #E11D48; }"
+            "QComboBox QAbstractItemView::item { padding: 8px 12px; border-radius: 6px;"
+            " color: #0F172A; background-color: #FFFFFF; }"
+            "QComboBox QAbstractItemView::item:hover { background-color: #F1F5F9; color: #0F172A; }"
+            "QComboBox QAbstractItemView::item:selected { background-color: rgba(225,29,72,0.08); color: #E11D48; }"
+        )
+    return (
+        "QComboBox { padding: 10px 14px; border: 1px solid #243244; border-radius: 8px;"
+        " background-color: #1F2937; color: #F9FAFB; font-size: 13px; }"
+        "QComboBox:focus { border: 1px solid #E11D48; }"
+        "QComboBox::drop-down { width: 28px; border-left: none; background: transparent; }"
+        "QComboBox QAbstractItemView { background-color: #1F2937; color: #F9FAFB;"
+        " border: 1px solid #243244; border-radius: 8px; outline: none; padding: 4px;"
+        " selection-background-color: rgba(225,29,72,0.15); selection-color: #E11D48; }"
+        "QComboBox QAbstractItemView::item { padding: 8px 12px; border-radius: 6px;"
+        " color: #F9FAFB; background-color: #1F2937; }"
+        "QComboBox QAbstractItemView::item:hover { background-color: #243244; color: #F9FAFB; }"
+        "QComboBox QAbstractItemView::item:selected { background-color: rgba(225,29,72,0.15); color: #E11D48; }"
+    )
+
+
 def _step_line_inactive():
     return "background: %s; margin-top: 13px;" % ("#E2E8F0" if _is_light() else "#243244")
 
@@ -180,6 +210,9 @@ class BookingModal(QDialog):
 
         self._step = 0
         self._data = {}
+
+        from PySide6.QtWidgets import QApplication
+        self.setStyleSheet(QApplication.instance().styleSheet())
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(20, 20, 20, 20)
@@ -337,6 +370,7 @@ class BookingModal(QDialog):
         self.f_occasion = QComboBox()
         self.f_occasion.setFixedHeight(38)
         self.f_occasion.setEditable(False)
+        self.f_occasion.setStyleSheet(_combo_style())
         self._occasions = repo.get_all_occasions()
         self.f_occasion.addItems(self._occasions)
         v1.addWidget(self.f_occasion)
@@ -619,7 +653,7 @@ class BookingModal(QDialog):
                 self.f_occasion.setFocus()
                 self.f_occasion.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px;")
                 return False
-            self.f_occasion.setStyleSheet("")
+            self.f_occasion.setStyleSheet(_combo_style())
             if not self.f_venue.text().strip():
                 self.f_venue.setFocus()
                 self.f_venue.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px; padding: 8px 14px;")

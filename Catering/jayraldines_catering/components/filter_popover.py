@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QWidget, QButtonGroup, QScrollArea
 )
 from PySide6.QtCore import Qt, QSize, QPoint, QEvent, Signal
@@ -14,7 +14,7 @@ class FilterChip(QPushButton):
         self.value = value
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(28)
+        self.setMinimumHeight(28)
         self._update_style()
         self.toggled.connect(lambda _: self._update_style())
 
@@ -67,7 +67,7 @@ class FilterPopover(QFrame):
 
         inner = QFrame()
         inner.setObjectName("card")
-        inner.setFixedWidth(300)
+        inner.setFixedWidth(340)
         inner_lay = QVBoxLayout(inner)
         inner_lay.setContentsMargins(20, 18, 20, 18)
         inner_lay.setSpacing(14)
@@ -98,22 +98,21 @@ class FilterPopover(QFrame):
             )
             inner_lay.addWidget(status_lbl)
 
-            chips_row = QHBoxLayout()
-            chips_row.setSpacing(6)
-            chips_row.setAlignment(Qt.AlignLeft)
+            chips_grid = QGridLayout()
+            chips_grid.setSpacing(6)
+            chips_grid.setAlignment(Qt.AlignLeft)
             self._status_chips = []
             self._status_group = QButtonGroup(self)
             self._status_group.setExclusive(True)
-            for s in self._statuses:
+            for i, s in enumerate(self._statuses):
                 chip = FilterChip(s, s)
                 if s == "All":
                     chip.setChecked(True)
                 self._status_chips.append(chip)
                 self._status_group.addButton(chip)
                 chip.toggled.connect(lambda checked, c=chip: self._on_chip_toggled(c, checked))
-                chips_row.addWidget(chip)
-            chips_row.addStretch()
-            inner_lay.addLayout(chips_row)
+                chips_grid.addWidget(chip, i // 2, i % 2)
+            inner_lay.addLayout(chips_grid)
 
         if self._categories:
             cat_lbl = QLabel("CATEGORY")

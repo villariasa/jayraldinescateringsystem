@@ -523,6 +523,14 @@ QTableWidget::item:hover {
     background-color: #1F2937;
     color: #F9FAFB;
 }
+QTableWidget#billingTable::item:hover,
+QTableWidget#billingTable::item:selected,
+QTableWidget#billingTable::item:selected:active,
+QTableWidget#billingTable::item:selected:!active,
+QTableWidget#menuTable::item:hover {
+    background-color: transparent;
+    color: #F9FAFB;
+}
 
 /* --- TOOLTIP --- */
 QToolTip {
