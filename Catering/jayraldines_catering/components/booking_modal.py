@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, QDate, QTime, QSize, Signal
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
 from utils.theme import ThemeManager
+from utils.animations import animate_dialog_open, animate_slide_fade_in
 import utils.menu_store as menu_store
 import utils.repository as repo
 
@@ -277,6 +278,10 @@ class BookingModal(QDialog):
         outer.addWidget(self._container)
         self._refresh_step()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        animate_dialog_open(self, duration=260)
+
     def _scrollable(self, inner_widget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -544,12 +549,23 @@ class BookingModal(QDialog):
         scroll_c.setWidget(custom_w)
         self.menu_stack.addWidget(scroll_c)
 
-        self.btn_pkg.clicked.connect(lambda: self.menu_stack.setCurrentIndex(0))
-        self.btn_custom.clicked.connect(lambda: self.menu_stack.setCurrentIndex(1))
+        self.btn_pkg.clicked.connect(lambda: self._set_menu_mode(0))
+        self.btn_custom.clicked.connect(lambda: self._set_menu_mode(1))
 
         lay.addWidget(self.menu_stack, 1)
         self._selected_pkg = 0 if self._db_packages else None
         return w
+
+    def _set_menu_mode(self, index):
+        if self.menu_stack.currentIndex() == index:
+            return
+        direction = 1 if index > self.menu_stack.currentIndex() else -1
+        self.menu_stack.setCurrentIndex(index)
+        animate_slide_fade_in(
+            self.menu_stack.currentWidget(),
+            offset_x=8 * direction,
+            duration=180,
+        )
 
     def _select_package(self, idx, clicked_card):
         self._selected_pkg = idx
@@ -630,8 +646,14 @@ class BookingModal(QDialog):
         else:
             self._lbl_deposit.setText(f"Required {pct:.0f}% Downpayment: ₱{deposit:,.2f}")
 
-    def _refresh_step(self):
+    def _refresh_step(self, direction=0):
         self._stack.setCurrentIndex(self._step)
+        if direction:
+            animate_slide_fade_in(
+                self._stack.currentWidget(),
+                offset_x=10 * direction,
+                duration=200,
+            )
         self._step_indicator.set_step(self._step)
         self._btn_back.setVisible(self._step > 0)
         is_last = self._step == len(_STEPS) - 1
@@ -668,14 +690,14 @@ class BookingModal(QDialog):
             self._step += 1
             if self._step == 3:
                 self._update_cost()
-            self._refresh_step()
+            self._refresh_step(direction=1)
         else:
             self._save()
 
     def _go_back(self):
         if self._step > 0:
             self._step -= 1
-            self._refresh_step()
+            self._refresh_step(direction=-1)
 
     def _save(self):
         custom_items = [chk.text() for chk in self._custom_checks if chk.isChecked()]

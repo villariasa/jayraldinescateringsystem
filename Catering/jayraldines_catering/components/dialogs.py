@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize, QTimer
 from utils.icons import get_icon
+from utils.animations import animate_dialog_open
 
 
 def _base_modal(parent, width=380):
@@ -51,6 +52,10 @@ class ConfirmDialog(QDialog):
         self.setFixedWidth(400)
         self.setModal(True)
         self._build(title, message, confirm_label, danger)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        animate_dialog_open(self, duration=240)
 
     def _build(self, title, message, confirm_label, danger):
         outer = QVBoxLayout(self)
@@ -122,6 +127,10 @@ class SuccessDialog(QDialog):
         self.setModal(True)
         self._build(title, message)
         QTimer.singleShot(auto_close_ms, self.accept)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        animate_dialog_open(self, duration=240)
 
     def _build(self, title, message):
         outer = QVBoxLayout(self)

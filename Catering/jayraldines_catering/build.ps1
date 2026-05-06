@@ -1,7 +1,13 @@
 # ==============================================================================
 #  Jayraldine's Catering - One-Click Build Script
 #  Usage: Right-click build.ps1 -> Run with PowerShell
+#  Optional: .\build.ps1 -Mode onefile
 # ==============================================================================
+
+param(
+    [ValidateSet("onedir", "onefile")]
+    [string]$Mode = "onedir"
+)
 
 $ErrorActionPreference = "Stop"
 $Host.UI.RawUI.WindowTitle = "Jayraldines Catering - Build"
@@ -38,6 +44,7 @@ if (-not (Test-Path "main.py")) {
 
 Write-Host ""
 Write-Host "  Jayraldines Catering - Windows Build Script" -ForegroundColor Magenta
+Write-Host "  Build mode: $Mode" -ForegroundColor Yellow
 Write-Host ""
 
 # ------------------------------------------------------------------------------
@@ -108,20 +115,26 @@ Print-Step "Step 5 - Writing PyInstaller Spec File"
 $spec = "from PyInstaller.utils.hooks import collect_data_files`n"
 $spec += "`n"
 $spec += "block_cipher = None`n"
+$spec += "qt_data = collect_data_files('PySide6', includes=[`n"
+$spec += "    'Qt/plugins/platforms/*',`n"
+$spec += "    'Qt/plugins/imageformats/*',`n"
+$spec += "    'Qt/plugins/iconengines/*',`n"
+$spec += "    'Qt/plugins/styles/*',`n"
+$spec += "    'Qt/translations/qtbase_*.qm',`n"
+$spec += "])`n"
 $spec += "`n"
 $spec += "a = Analysis(`n"
 $spec += "    ['main.py'],`n"
 $spec += "    pathex=['.'],`n"
 $spec += "    binaries=[],`n"
 $spec += "    datas=[`n"
-$spec += "        ('assets',     'assets'),`n"
-$spec += "        ('styles',     'styles'),`n"
-$spec += "        ('components', 'components'),`n"
-$spec += "        ('ui',         'ui'),`n"
-$spec += "        ('utils',      'utils'),`n"
+$spec += "        ('assets', 'assets'),`n"
+$spec += "        ('styles', 'styles'),`n"
 $spec += "        ('jayraldines_catering_clean.sql', '.'),`n"
-$spec += "        *collect_data_files('PySide6'),`n"
-$spec += "    ],`n"
+$spec += "        ('cebu_address_migration.sql', '.'),`n"
+$spec += "        ('occasions_migration.sql', '.'),`n"
+$spec += "        ('confirmed_only_views_migration.sql', '.'),`n"
+$spec += "    ] + qt_data,`n"
 $spec += "    hiddenimports=[`n"
 $spec += "        'psycopg2',`n"
 $spec += "        'psycopg2.extensions',`n"
@@ -142,6 +155,15 @@ $spec += "        'PySide6.QtCharts',`n"
 $spec += "        'PySide6.QtOpenGL',`n"
 $spec += "        'PySide6.QtOpenGLWidgets',`n"
 $spec += "        'PySide6.QtNetwork',`n"
+$spec += "        'ui.dashboard_page',`n"
+$spec += "        'ui.booking_page',`n"
+$spec += "        'ui.customers_page',`n"
+$spec += "        'ui.menu_page',`n"
+$spec += "        'ui.calendar_page',`n"
+$spec += "        'ui.kitchen_page',`n"
+$spec += "        'ui.billing_page',`n"
+$spec += "        'ui.reports_page',`n"
+$spec += "        'ui.settings_page',`n"
 $spec += "    ],`n"
 $spec += "    hookspath=[],`n"
 $spec += "    runtime_hooks=[],`n"
@@ -154,7 +176,8 @@ $spec += "        'PySide6.Qt3DCore', 'PySide6.Qt3DRender', 'PySide6.Qt3DInput',
 $spec += "        'PySide6.Qt3DLogic', 'PySide6.Qt3DAnimation', 'PySide6.Qt3DExtras',`n"
 $spec += "        'PySide6.QtQuick', 'PySide6.QtQuickWidgets', 'PySide6.QtQml',`n"
 $spec += "        'PySide6.QtRemoteObjects', 'PySide6.QtSensors', 'PySide6.QtSerialPort',`n"
-$spec += "        'email', 'html', 'http', 'xmlrpc', 'test', 'unittest',`n"
+$spec += "        'ui.inventory_page', 'ui.test_report', 'test_reports',`n"
+$spec += "        'xmlrpc', 'test', 'unittest',`n"
 $spec += "        'distutils', 'setuptools', 'pkg_resources',`n"
 $spec += "    ],`n"
 $spec += "    noarchive=False,`n"
@@ -164,24 +187,53 @@ $spec += ")`n"
 $spec += "`n"
 $spec += "pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)`n"
 $spec += "`n"
-$spec += "exe = EXE(`n"
-$spec += "    pyz,`n"
-$spec += "    a.scripts,`n"
-$spec += "    a.binaries,`n"
-$spec += "    a.zipfiles,`n"
-$spec += "    a.datas,`n"
-$spec += "    name='JayraldinesCatering',`n"
-$spec += "    debug=False,`n"
-$spec += "    bootloader_ignore_signals=False,`n"
-$spec += "    strip=True,`n"
-$spec += "    upx=True,`n"
-$spec += "    upx_exclude=['vcruntime140.dll', 'python*.dll', 'Qt*.dll'],`n"
-$spec += "    runtime_tmpdir=None,`n"
-$spec += "    console=False,`n"
-if ($iconLine) {
-    $spec += "    $iconLine`n"
+if ($Mode -eq "onedir") {
+    $spec += "exe = EXE(`n"
+    $spec += "    pyz,`n"
+    $spec += "    a.scripts,`n"
+    $spec += "    [],`n"
+    $spec += "    exclude_binaries=True,`n"
+    $spec += "    name='JayraldinesCatering',`n"
+    $spec += "    debug=False,`n"
+    $spec += "    bootloader_ignore_signals=False,`n"
+    $spec += "    strip=True,`n"
+    $spec += "    upx=True,`n"
+    $spec += "    console=False,`n"
+    if ($iconLine) {
+        $spec += "    $iconLine`n"
+    }
+    $spec += ")`n"
+    $spec += "`n"
+    $spec += "coll = COLLECT(`n"
+    $spec += "    exe,`n"
+    $spec += "    a.binaries,`n"
+    $spec += "    a.zipfiles,`n"
+    $spec += "    a.datas,`n"
+    $spec += "    strip=True,`n"
+    $spec += "    upx=True,`n"
+    $spec += "    upx_exclude=['vcruntime140.dll', 'python*.dll', 'Qt*.dll'],`n"
+    $spec += "    name='JayraldinesCatering',`n"
+    $spec += ")`n"
+} else {
+    $spec += "exe = EXE(`n"
+    $spec += "    pyz,`n"
+    $spec += "    a.scripts,`n"
+    $spec += "    a.binaries,`n"
+    $spec += "    a.zipfiles,`n"
+    $spec += "    a.datas,`n"
+    $spec += "    name='JayraldinesCatering',`n"
+    $spec += "    debug=False,`n"
+    $spec += "    bootloader_ignore_signals=False,`n"
+    $spec += "    strip=True,`n"
+    $spec += "    upx=True,`n"
+    $spec += "    upx_exclude=['vcruntime140.dll', 'python*.dll', 'Qt*.dll'],`n"
+    $spec += "    runtime_tmpdir=None,`n"
+    $spec += "    console=False,`n"
+    if ($iconLine) {
+        $spec += "    $iconLine`n"
+    }
+    $spec += ")`n"
 }
-$spec += ")`n"
 
 [System.IO.File]::WriteAllText("$PWD\jayraldines.spec", $spec, [System.Text.Encoding]::UTF8)
 Print-OK "jayraldines.spec written"
@@ -189,7 +241,7 @@ Print-OK "jayraldines.spec written"
 # ------------------------------------------------------------------------------
 # 6. Run PyInstaller
 # ------------------------------------------------------------------------------
-Print-Step "Step 6 - Building Executable (may take a few minutes)"
+Print-Step "Step 6 - Building Executable (mode: $Mode)"
 
 if (Test-Path "dist") {
     Print-Info "Cleaning old dist..."
@@ -201,13 +253,24 @@ if (Test-Path "build") {
 
 & $python -m PyInstaller jayraldines.spec
 
-if (-not (Test-Path "dist\JayraldinesCatering.exe")) {
-    Print-Fail "Build failed - exe not found in dist\"
+$builtExe = if ($Mode -eq "onedir") {
+    "dist\JayraldinesCatering\JayraldinesCatering.exe"
+} else {
+    "dist\JayraldinesCatering.exe"
+}
+
+if (-not (Test-Path $builtExe)) {
+    Print-Fail "Build failed - exe not found: $builtExe"
     Read-Host "Press ENTER to exit"
     exit 1
 }
 
-Print-OK "Build successful: dist\JayraldinesCatering.exe"
+Print-OK "Build successful: $builtExe"
+if ($Mode -eq "onedir") {
+    Print-Info "Default onedir build selected for faster startup after install."
+} else {
+    Print-Info "Portable one-file build created. Note: first startup may be slower."
+}
 
 # ------------------------------------------------------------------------------
 # 7. Write Inno Setup script
@@ -233,7 +296,11 @@ $iss += "[Languages]`r`n"
 $iss += "Name: `"english`"; MessagesFile: `"compiler:Default.isl`"`r`n"
 $iss += "`r`n"
 $iss += "[Files]`r`n"
-$iss += "Source: `"dist\JayraldinesCatering.exe`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
+if ($Mode -eq "onedir") {
+    $iss += "Source: `"dist\JayraldinesCatering\*`"; DestDir: `"{app}`"; Flags: ignoreversion recursesubdirs createallsubdirs`r`n"
+} else {
+    $iss += "Source: `"dist\JayraldinesCatering.exe`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
+}
 $iss += "Source: `"jayraldines_catering_clean.sql`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
 $iss += "Source: `"cebu_address_migration.sql`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
 $iss += "Source: `"occasions_migration.sql`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
@@ -290,8 +357,14 @@ Write-Host "===================================================" -ForegroundColo
 Write-Host "  BUILD COMPLETE" -ForegroundColor Green
 Write-Host "===================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Single EXE  : dist\JayraldinesCatering.exe" -ForegroundColor White
-Write-Host "  Copy this one file anywhere - it is fully self-contained." -ForegroundColor White
+if ($Mode -eq "onedir") {
+    Write-Host "  App Folder  : dist\JayraldinesCatering\" -ForegroundColor White
+    Write-Host "  Main EXE    : dist\JayraldinesCatering\JayraldinesCatering.exe" -ForegroundColor White
+    Write-Host "  This is the recommended faster-startup build for installed use." -ForegroundColor White
+} else {
+    Write-Host "  Single EXE  : dist\JayraldinesCatering.exe" -ForegroundColor White
+    Write-Host "  Portable one-file build. First startup may be slower." -ForegroundColor White
+}
 if (Test-Path "installer_output\JayraldinesSetup.exe") {
     Write-Host "  Installer   : installer_output\JayraldinesSetup.exe" -ForegroundColor White
 }

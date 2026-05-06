@@ -231,8 +231,8 @@ class TopBar(QFrame):
         now = datetime.now()
         self.clock_lbl.setText(now.strftime("%a, %b %d  %I:%M:%S %p"))
 
-    def set_page(self, index: int):
+    def set_page(self, index: int, search_text: str = ""):
         self.page_title.setText(_PAGE_TITLES.get(index, ""))
         self.search_box.blockSignals(True)
-        self.search_box.clear()
+        self.search_box.setText(search_text)
         self.search_box.blockSignals(False)
