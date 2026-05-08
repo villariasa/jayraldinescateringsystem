@@ -231,7 +231,7 @@ if [ -f "$PG_DATA/pg_hba.conf" ]; then
     "$PG_CTL" reload -D "$PG_DATA" &>/dev/null || true
 fi
 
-MAIN_SQL="$SCRIPT_DIR/jayraldines_catering.sql"
+MAIN_SQL="$SCRIPT_DIR/jayraldines_catering_clean.sql"
 MIG_SQL="$SCRIPT_DIR/cebu_address_migration.sql"
 OCC_MIG_SQL="$SCRIPT_DIR/occasions_migration.sql"
 VIEWS_MIG_SQL="$SCRIPT_DIR/confirmed_only_views_migration.sql"
@@ -281,7 +281,7 @@ if [ "$DB_EXISTS" = "1" ]; then
 fi
 
 if [ "$RUN_SQL" = true ]; then
-    info "Running main schema (jayraldines_catering.sql)..."
+    info "Running main schema (jayraldines_catering_clean.sql)..."
     PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
         -d postgres -f "$MAIN_SQL"
     ok "Main schema applied"
