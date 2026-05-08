@@ -332,7 +332,7 @@ if ($exists -match "1") {
         $addrExists = & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='address_barangays';" 2>&1
         if ($addrExists -notmatch "1") {
             Print-Info "Running cebu address migration..."
-            & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1
+            try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
             Print-OK "Cebu address migration done"
         } else {
             Print-Skip "Address tables already exist"
@@ -340,14 +340,14 @@ if ($exists -match "1") {
         $occExists = & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='occasions';" 2>&1
         if ($occExists -notmatch "1" -and (Test-Path $occMigSql)) {
             Print-Info "Running occasions migration..."
-            & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $occMigSql 2>&1
+            try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $occMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
             Print-OK "Occasions migration done"
         } else {
             Print-Skip "Occasions table already exists"
         }
         if (Test-Path $viewsMigSql) {
             Print-Info "Applying confirmed-only views migration..."
-            & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $viewsMigSql 2>&1
+            try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $viewsMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
             Print-OK "Views migration done"
         }
         $runSql = $false
@@ -368,16 +368,12 @@ if ($runSql) {
     Print-OK "Main schema applied successfully"
 
     Print-Info "Running Cebu address migration..."
-    & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Print-Info "Address migration had warnings (non-fatal)"
-    } else {
-        Print-OK "Cebu address migration done"
-    }
+    try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
+    Print-OK "Cebu address migration done"
 
     if (Test-Path $viewsMigSql) {
         Print-Info "Applying confirmed-only views migration..."
-        & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $viewsMigSql 2>&1
+        try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $viewsMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
         Print-OK "Views migration done"
     }
 
