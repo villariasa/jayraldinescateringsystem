@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QSizePolicy, QAbstractItemView,
     QApplication,
 )
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, QPoint, QSize
 from PySide6.QtGui import QColor
 from utils.theme import ThemeManager
 
@@ -16,6 +16,7 @@ class CustomerSearchWidget(QWidget):
     customer_cleared  = Signal()
 
     _DROPDOWN_MAX_H = 240
+    _ITEM_H = 44
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -34,7 +35,6 @@ class CustomerSearchWidget(QWidget):
         return self._selected
 
     def set_customer(self, customer: dict) -> None:
-        """Pre-select a customer (e.g. edit mode)."""
         self._selected = customer
         self._search.blockSignals(True)
         self._search.setText(customer.get("name", ""))
@@ -92,17 +92,18 @@ class CustomerSearchWidget(QWidget):
         row.addWidget(self._clear_btn)
         root.addWidget(search_wrap)
 
+        # Floating dropdown — parented to None so it overlays everything
         self._dropdown = QListWidget()
         self._dropdown.setObjectName("customerDropdown")
+        self._dropdown.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        self._dropdown.setAttribute(Qt.WA_ShowWithoutActivating)
         self._dropdown.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._dropdown.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._dropdown.setStyleSheet(self._style())
         self._dropdown.setSelectionMode(QAbstractItemView.SingleSelection)
         self._dropdown.setFocusPolicy(Qt.NoFocus)
-        self._dropdown.setMaximumHeight(0)
-        self._dropdown.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._dropdown.hide()
         self._dropdown.itemClicked.connect(self._on_item_clicked)
-        root.addWidget(self._dropdown)
 
     # ------------------------------------------------------------------
     # Internals
@@ -110,11 +111,20 @@ class CustomerSearchWidget(QWidget):
 
     def _open_dropdown(self, count: int):
         self._dropdown.setStyleSheet(self._style())
-        h = min(count * 44 + 8, self._DROPDOWN_MAX_H)
-        self._dropdown.setMaximumHeight(h)
+
+        h = min(count * self._ITEM_H + 8, self._DROPDOWN_MAX_H)
+        w = self._search.width() + self._clear_btn.width() + 6
+
+        # Position just below the search bar in global coordinates
+        global_pos: QPoint = self._search.mapToGlobal(QPoint(0, self._search.height() + 2))
+
+        self._dropdown.setFixedSize(QSize(w, h))
+        self._dropdown.move(global_pos)
+        self._dropdown.show()
+        self._dropdown.raise_()
 
     def _close_dropdown(self):
-        self._dropdown.setMaximumHeight(0)
+        self._dropdown.hide()
         self._dropdown.clear()
 
     def _on_text_changed(self, text: str):
@@ -164,9 +174,19 @@ class CustomerSearchWidget(QWidget):
 
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
-        if obj is self._search and event.type() == QEvent.FocusOut:
-            QTimer.singleShot(300, self._on_focus_lost)
+        if obj is self._search:
+            if event.type() == QEvent.FocusOut:
+                QTimer.singleShot(300, self._on_focus_lost)
+            elif event.type() == QEvent.Resize or event.type() == QEvent.Move:
+                if self._dropdown.isVisible():
+                    self._reposition_dropdown()
         return super().eventFilter(obj, event)
+
+    def _reposition_dropdown(self):
+        if not self._dropdown.isVisible():
+            return
+        global_pos = self._search.mapToGlobal(QPoint(0, self._search.height() + 2))
+        self._dropdown.move(global_pos)
 
     def _on_focus_lost(self):
         fw = QApplication.focusWidget()
@@ -181,6 +201,10 @@ class CustomerSearchWidget(QWidget):
     def hideEvent(self, event):
         self._close_dropdown()
         super().hideEvent(event)
+
+    def moveEvent(self, event):
+        self._reposition_dropdown()
+        super().moveEvent(event)
 
     @staticmethod
     def _style() -> str:
