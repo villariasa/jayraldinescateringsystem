@@ -164,12 +164,16 @@ class CustomerSearchWidget(QWidget):
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
         if obj is self._search and event.type() == QEvent.FocusOut:
-            QTimer.singleShot(200, self._on_focus_lost)
+            QTimer.singleShot(300, self._on_focus_lost)
         return super().eventFilter(obj, event)
 
     def _on_focus_lost(self):
         fw = QApplication.focusWidget()
+        if fw is None:
+            return
         if fw is self._search or fw is self._dropdown:
+            return
+        if self._dropdown.isAncestorOf(fw):
             return
         self._close_dropdown()
 
