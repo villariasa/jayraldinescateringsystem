@@ -204,8 +204,10 @@ class BookingModal(QDialog):
         self._booking_data = booking_data or {}
         self._edit_mode = bool(booking_data)
         self.setWindowTitle("Edit Booking" if self._edit_mode else "New Booking")
+        import sys
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        if sys.platform != "win32":
+            self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMinimumSize(680, 620)
         self.setModal(True)
 

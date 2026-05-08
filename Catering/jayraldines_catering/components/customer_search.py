@@ -76,6 +76,7 @@ class CustomerSearchWidget(QWidget):
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search customer name…")
         self._search.setFixedHeight(38)
+        self._search.setFocusPolicy(Qt.StrongFocus)
         self._search.textChanged.connect(self._on_text_changed)
         self._search.installEventFilter(self)
 
