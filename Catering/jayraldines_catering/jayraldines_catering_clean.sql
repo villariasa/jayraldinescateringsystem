@@ -487,14 +487,10 @@ CREATE OR REPLACE PROCEDURE sp_update_booking_status(
 LANGUAGE plpgsql AS $$
 DECLARE
     v_current       booking_status;
-    v_amount_paid   NUMERIC;
-    v_total         NUMERIC;
-    v_min_pct       NUMERIC;
-    v_allow_zero    BOOLEAN;
     v_customer_id   INT;
 BEGIN
-    SELECT status, amount_paid, total_amount
-    INTO v_current, v_amount_paid, v_total
+    SELECT status
+    INTO v_current
     FROM bookings WHERE id = p_booking_id;
 
     IF v_current = 'CANCELLED' THEN
@@ -511,20 +507,6 @@ BEGIN
 
     IF p_new_status = 'COMPLETED' AND v_current != 'CONFIRMED' THEN
         RAISE EXCEPTION 'Only CONFIRMED bookings can be marked as COMPLETED.';
-    END IF;
-
-    IF p_new_status = 'CONFIRMED' THEN
-        SELECT min_downpayment_pct, allow_zero_downpayment
-        INTO v_min_pct, v_allow_zero
-        FROM business_info WHERE id = 1;
-
-        v_min_pct    := COALESCE(v_min_pct, 30);
-        v_allow_zero := COALESCE(v_allow_zero, FALSE);
-
-        IF NOT v_allow_zero AND v_amount_paid < (v_total * v_min_pct / 100) THEN
-            RAISE EXCEPTION 'Downpayment insufficient. Required: % pct. Paid: %.',
-                ROUND(v_total * v_min_pct / 100, 2), v_amount_paid;
-        END IF;
     END IF;
 
     UPDATE bookings

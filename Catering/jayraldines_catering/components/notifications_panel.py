@@ -268,6 +268,8 @@ class NotificationPopover(QFrame):
         super().keyPressEvent(event)
 
     def eventFilter(self, obj, event):
+        if not hasattr(event, 'type') or not callable(event.type):
+            return False
         if event.type() == QEvent.MouseButtonPress and self.isVisible():
             pos = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
             local = self.mapFromGlobal(pos)

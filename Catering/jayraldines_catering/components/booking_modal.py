@@ -118,6 +118,24 @@ def _section_label(text):
     return lbl
 
 
+def _segment_button_style(selected=False, left=True):
+    """Return stylesheet for segment buttons (Packages / Custom Menu).
+    left=True for the left segment, False for the right.
+    """
+    if _is_light():
+        if selected:
+            return ("background: #E11D48; color: #F9FAFB; border: 1px solid #E11D48;"
+                    " padding: 10px 16px; border-radius: 8px;")
+        return ("background: #FFFFFF; color: #0F172A; border: 1px solid #E2E8F0;"
+                " padding: 10px 16px; border-radius: 8px;")
+    else:
+        if selected:
+            return ("background: #E11D48; color: #F9FAFB; border: 1px solid #E11D48;"
+                    " padding: 10px 16px; border-radius: 8px;")
+        return ("background: #111827; color: #F9FAFB; border: 1px solid #243244;"
+                " padding: 10px 16px; border-radius: 8px;")
+
+
 def _field_label(text):
     lbl = QLabel(text)
     lbl.setObjectName("fieldLabel")
@@ -466,9 +484,12 @@ class BookingModal(QDialog):
         self.btn_pkg.setObjectName("segmentLeft")
         self.btn_pkg.setCheckable(True)
         self.btn_pkg.setChecked(True)
+        # apply initial styles for segment buttons
+        self.btn_pkg.setStyleSheet(_segment_button_style(selected=True, left=True))
         self.btn_custom = QPushButton("Custom Menu")
         self.btn_custom.setObjectName("segmentRight")
         self.btn_custom.setCheckable(True)
+        self.btn_custom.setStyleSheet(_segment_button_style(selected=False, left=False))
         type_row.addWidget(self.btn_pkg)
         type_row.addWidget(self.btn_custom)
         lay.addLayout(type_row)
@@ -561,6 +582,34 @@ class BookingModal(QDialog):
     def _set_menu_mode(self, index):
         if self.menu_stack.currentIndex() == index:
             return
+        # Update segment button checked state and styles
+        if index == 0:
+            self.btn_pkg.setChecked(True)
+            self.btn_custom.setChecked(False)
+            self.btn_pkg.setStyleSheet(_segment_button_style(selected=True, left=True))
+            self.btn_custom.setStyleSheet(_segment_button_style(selected=False, left=False))
+            # ensure a package is selected when switching back to packages
+            if getattr(self, "_selected_pkg", None) is None and getattr(self, "_db_packages", None):
+                self._selected_pkg = 0
+                # update visual selection
+                if getattr(self, "_pkg_btns", None):
+                    for i, (card, btn) in enumerate(self._pkg_btns):
+                        if i == 0:
+                            card.setStyleSheet(_package_card_style(selected=True))
+                            btn.setObjectName("primaryButton")
+                            btn.setText("Selected")
+                        else:
+                            card.setStyleSheet(_package_card_style(selected=False))
+                            btn.setObjectName("secondaryButton")
+                            btn.setText("Select")
+        else:
+            self.btn_pkg.setChecked(False)
+            self.btn_custom.setChecked(True)
+            self.btn_pkg.setStyleSheet(_segment_button_style(selected=False, left=True))
+            self.btn_custom.setStyleSheet(_segment_button_style(selected=True, left=False))
+            # when switching to custom menu, clear any selected package so cost uses custom items
+            self._selected_pkg = None
+
         direction = 1 if index > self.menu_stack.currentIndex() else -1
         self.menu_stack.setCurrentIndex(index)
         animate_slide_fade_in(
@@ -570,7 +619,13 @@ class BookingModal(QDialog):
         )
 
     def _select_package(self, idx, clicked_card):
+        # select a package and switch menu mode to Packages
         self._selected_pkg = idx
+        # ensure we're in Packages mode
+        try:
+            self._set_menu_mode(0)
+        except Exception:
+            pass
         for i, (card, btn) in enumerate(self._pkg_btns):
             if i == idx:
                 card.setStyleSheet(_package_card_style(selected=True))
@@ -628,10 +683,22 @@ class BookingModal(QDialog):
         pax = self.f_pax.value() if hasattr(self, "f_pax") else 100
         pkg_idx = getattr(self, "_selected_pkg", None)
         db_pkgs = getattr(self, "_db_packages", [])
-        if pkg_idx is not None and db_pkgs and pkg_idx < len(db_pkgs):
-            rate = db_pkgs[pkg_idx]["price_per_pax"]
-        else:
+        # If user is in Custom Menu mode, compute rate from selected custom items
+        if getattr(self, "menu_stack", None) and self.menu_stack.currentIndex() == 1:
+            # map _custom_checks to menu_store.get_available_items()
+            items = menu_store.get_available_items()
             rate = 0
+            try:
+                for chk, item in zip(getattr(self, "_custom_checks", []), items):
+                    if chk.isChecked():
+                        rate += float(item.get("price", 0))
+            except Exception:
+                rate = 0
+        else:
+            if pkg_idx is not None and db_pkgs and pkg_idx < len(db_pkgs):
+                rate = db_pkgs[pkg_idx]["price_per_pax"]
+            else:
+                rate = 0
         total = pax * rate
         try:
             policy = repo.get_business_policy()
@@ -706,15 +773,30 @@ class BookingModal(QDialog):
         menu_type = "package"
         db_pkgs = getattr(self, "_db_packages", [])
         pkg_idx = getattr(self, "_selected_pkg", None)
+
+        # Default rate from selected package (if any)
         if db_pkgs and pkg_idx is not None and pkg_idx < len(db_pkgs):
             menu_value = db_pkgs[pkg_idx]["name"]
-            rate = db_pkgs[pkg_idx]["price_per_pax"]
+            rate = float(db_pkgs[pkg_idx]["price_per_pax"])
         else:
             menu_value = ""
-            rate = 0
+            rate = 0.0
+
+        # If Custom Menu is active, compute rate by summing selected custom item prices
         if self.btn_custom.isChecked() and custom_items:
             menu_type = "custom"
+            # build menu_value as comma-joined names (minimal, non-breaking)
             menu_value = ", ".join(custom_items)
+            try:
+                items = menu_store.get_available_items()
+                custom_rate = 0.0
+                for chk, item in zip(getattr(self, "_custom_checks", []), items):
+                    if chk.isChecked():
+                        custom_rate += float(item.get("price", 0))
+                rate = custom_rate
+            except Exception:
+                # fallback: leave rate as previously determined (likely 0)
+                rate = float(rate or 0)
 
         pax = self.f_pax.value()
         total = pax * rate
