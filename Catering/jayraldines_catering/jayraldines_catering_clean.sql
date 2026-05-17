@@ -2016,5 +2016,191 @@ VALUES ('Jayraldine''s Catering', '+63 900 000 0000', 'info@jayraldines.com', 'C
 ON CONFLICT DO NOTHING;
 
 -- =============================================================================
+-- SAMPLE DATA: menu_items (10 realistic Filipino catering dishes)
+-- =============================================================================
+-- Columns: name, description, category, package_tier, price, status
+-- price = individual a la carte price per serving (reference price for custom orders)
+-- =============================================================================
+
+INSERT INTO menu_items (name, description, category, package_tier, price, status) VALUES
+(
+    'Lechon de Cebu',
+    'Whole roasted suckling pig seasoned with native herbs and spices, slow-roasted over charcoal until the skin is perfectly crisp. A centerpiece dish for any Cebuano celebration.',
+    'Main Course',
+    'Premium',
+    350.00,
+    'Available'
+),
+(
+    'Chicken Inasal',
+    'Bisaya-style grilled chicken marinated in lemongrass, calamansi, and annatto oil, then flame-grilled to juicy perfection. Served with garlic rice and sukang Iloco dipping sauce.',
+    'Main Course',
+    'Budget',
+    180.00,
+    'Available'
+),
+(
+    'Kare-Kare',
+    'Slow-braised ox tail and tripe in a rich, thick peanut-based sauce with banana blossom, eggplant, and pechay. Served with homemade bagoong alamang on the side.',
+    'Main Course',
+    'Standard',
+    220.00,
+    'Available'
+),
+(
+    'Pancit Canton',
+    'Stir-fried egg noodles tossed with tender slices of chicken, pork, shrimp, cabbage, carrots, and green beans in a savory oyster-soy sauce. A classic Filipino celebration noodle dish.',
+    'Noodles',
+    'Budget',
+    120.00,
+    'Available'
+),
+(
+    'Sinigang na Baboy',
+    'A comforting sour pork soup made with sampaloc (tamarind) broth, pork belly, radish, eggplant, string beans, and kangkong. Bold, tangy, and deeply satisfying.',
+    'Soup',
+    'Standard',
+    160.00,
+    'Available'
+),
+(
+    'Pinakbet',
+    'Traditional Ilocano vegetable medley — ampalaya, okra, eggplant, squash, and sitaw — sautéed with pork belly and shrimp paste (bagoong). Earthy, savory, and homestyle.',
+    'Vegetables',
+    'Budget',
+    110.00,
+    'Available'
+),
+(
+    'Biko',
+    'Sticky rice cake cooked in coconut milk and brown sugar, topped with latik (caramelized coconut cream curds). A beloved Filipino kakanin served at every special occasion.',
+    'Dessert',
+    'Standard',
+    80.00,
+    'Available'
+),
+(
+    'Beef Caldereta',
+    'Tender chunks of beef braised in a rich tomato-liver sauce with potatoes, carrots, bell peppers, olives, and cheese. A fiesta-worthy dish with deep, bold flavors.',
+    'Main Course',
+    'Standard',
+    240.00,
+    'Available'
+),
+(
+    'Pancit Palabok',
+    'Rice noodles blanketed in a smoky shrimp-based golden sauce, topped with smoked tinapa flakes, boiled eggs, chicharron, green onions, and calamansi.',
+    'Noodles',
+    'Standard',
+    140.00,
+    'Available'
+),
+(
+    'Buko Pandan',
+    'A creamy, refreshing dessert salad made with young coconut strips, pandan-flavored gelatin, and sweetened cream. A crowd-pleasing Filipino classic, served chilled.',
+    'Dessert',
+    'Budget',
+    70.00,
+    'Available'
+);
+
+-- =============================================================================
+-- SAMPLE DATA: packages (5 tiers from budget to premium)
+-- =============================================================================
+-- price_per_pax = total package charge per guest (inclusive of all included items)
+-- =============================================================================
+
+INSERT INTO packages (name, price_per_pax, min_pax, description) VALUES
+(
+    'Tipid Package',
+    350.00,
+    50,
+    'Our most affordable catering option — perfect for intimate gatherings and small birthday parties. Includes 2 main dishes, 1 noodle dish, 1 dessert, and steamed rice. Simple, hearty, and budget-friendly.'
+),
+(
+    'Handaan Package',
+    550.00,
+    80,
+    'Our most popular package for debuts, christenings, and family celebrations. Includes 3 main dishes, 1 noodle dish, 1 soup, 1 vegetable dish, 1 dessert, and steamed rice. A complete Filipino spread for your special day.'
+),
+(
+    'Kasalan Package',
+    800.00,
+    100,
+    'Designed for weddings and grand receptions. Includes 4 main dishes, 1 noodle dish, 1 soup, 1 vegetable dish, 2 desserts, and unlimited rice. Comes with free table skirting and basic table centerpiece setup.'
+),
+(
+    'Premium Fiesta Package',
+    1200.00,
+    150,
+    'Our top-tier experience for corporate events and premium celebrations. Includes Lechon de Cebu as centerpiece, 4 additional main dishes, 2 noodle dishes, 1 soup, 1 vegetable dish, 2 desserts, and unlimited rice. Includes full venue set-up coordination.'
+),
+(
+    'Custom Package',
+    1.00,
+    20,
+    'Fully customizable menu tailored to your event needs and preferences. Price is quoted separately based on your chosen dishes and guest count. Ideal for clients with specific dietary requirements or themed events. Contact us to build your dream menu.'
+);
+
+-- =============================================================================
+-- SAMPLE DATA: package_items
+-- Link each package to its included menu items with custom_price per pax
+-- Menu item IDs: 1=Lechon, 2=Chicken Inasal, 3=Kare-Kare, 4=Pancit Canton,
+--                5=Sinigang na Baboy, 6=Pinakbet, 7=Biko, 8=Beef Caldereta,
+--                9=Pancit Palabok, 10=Buko Pandan
+-- =============================================================================
+
+-- Package 1: Tipid Package (₱350/pax)
+-- Includes: Chicken Inasal, Beef Caldereta, Pancit Canton, Buko Pandan + rice
+INSERT INTO package_items (package_id, menu_item_id, custom_price) VALUES
+(1, 2,  70.00),   -- Chicken Inasal
+(1, 8,  80.00),   -- Beef Caldereta
+(1, 4,  50.00),   -- Pancit Canton
+(1, 10, 40.00);   -- Buko Pandan
+
+-- Package 2: Handaan Package (₱550/pax)
+-- Includes: Chicken Inasal, Kare-Kare, Beef Caldereta, Pancit Canton,
+--           Sinigang na Baboy, Pinakbet, Biko
+INSERT INTO package_items (package_id, menu_item_id, custom_price) VALUES
+(2, 2,  70.00),   -- Chicken Inasal
+(2, 3,  80.00),   -- Kare-Kare
+(2, 8,  80.00),   -- Beef Caldereta
+(2, 4,  50.00),   -- Pancit Canton
+(2, 5,  60.00),   -- Sinigang na Baboy
+(2, 6,  40.00),   -- Pinakbet
+(2, 7,  40.00);   -- Biko
+
+-- Package 3: Kasalan Package (₱800/pax)
+-- Includes: Chicken Inasal, Kare-Kare, Beef Caldereta, Sinigang na Baboy,
+--           Pancit Canton, Pancit Palabok, Pinakbet, Biko, Buko Pandan
+INSERT INTO package_items (package_id, menu_item_id, custom_price) VALUES
+(3, 2,  70.00),   -- Chicken Inasal
+(3, 3,  80.00),   -- Kare-Kare
+(3, 8,  90.00),   -- Beef Caldereta
+(3, 5,  65.00),   -- Sinigang na Baboy
+(3, 4,  55.00),   -- Pancit Canton
+(3, 9,  60.00),   -- Pancit Palabok
+(3, 6,  45.00),   -- Pinakbet
+(3, 7,  45.00),   -- Biko
+(3, 10, 45.00);   -- Buko Pandan
+
+-- Package 4: Premium Fiesta Package (₱1,200/pax)
+-- Includes: All 10 menu items — full spread with Lechon as centerpiece
+INSERT INTO package_items (package_id, menu_item_id, custom_price) VALUES
+(4, 1,  200.00),  -- Lechon de Cebu
+(4, 2,  80.00),   -- Chicken Inasal
+(4, 3,  90.00),   -- Kare-Kare
+(4, 8,  100.00),  -- Beef Caldereta
+(4, 5,  70.00),   -- Sinigang na Baboy
+(4, 4,  60.00),   -- Pancit Canton
+(4, 9,  65.00),   -- Pancit Palabok
+(4, 6,  50.00),   -- Pinakbet
+(4, 7,  50.00),   -- Biko
+(4, 10, 50.00);   -- Buko Pandan
+
+-- Package 5: Custom Package — no fixed items, quoted per client request
+-- (No package_items rows — items are added dynamically per booking)
+
+-- =============================================================================
 -- END OF SCHEMA
 -- =============================================================================
