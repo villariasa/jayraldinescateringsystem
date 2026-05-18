@@ -1,0 +1,449 @@
+# ==============================================================================
+#  Jayraldine's Catering - Full Setup Script (New PC)
+#  Run this once on any Windows machine to install everything needed
+#  to run the app with:  python main.py
+#
+#  Usage:
+#    Right-click setup.ps1 -> "Run with PowerShell"
+#    OR in PowerShell:
+#      Set-ExecutionPolicy -Scope Process Bypass
+#      .\setup.ps1
+# ==============================================================================
+
+$ErrorActionPreference = "Stop"
+$Host.UI.RawUI.WindowTitle = "Jayraldines Catering - Setup"
+
+trap {
+    Write-Host ""
+    Write-Host "  [FATAL ERROR]" -ForegroundColor Red
+    Write-Host "  $_" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  The setup script encountered an error. See message above." -ForegroundColor Yellow
+    Write-Host ""
+    Read-Host "Press ENTER to exit"
+    exit 1
+}
+
+function Print-Step($msg) {
+    Write-Host ""
+    Write-Host "===================================================" -ForegroundColor Cyan
+    Write-Host "  $msg" -ForegroundColor Cyan
+    Write-Host "===================================================" -ForegroundColor Cyan
+}
+function Print-OK($msg)   { Write-Host "  [OK] $msg" -ForegroundColor Green }
+function Print-Info($msg) { Write-Host "  [..] $msg" -ForegroundColor Yellow }
+function Print-Fail($msg) { Write-Host "  [!!] $msg" -ForegroundColor Red }
+function Print-Skip($msg) { Write-Host "  [--] $msg" -ForegroundColor DarkGray }
+
+function Command-Exists($name) {
+    return [bool](Get-Command $name -ErrorAction SilentlyContinue)
+}
+
+function Download-File($url, $dest) {
+    Print-Info "Downloading: $url"
+    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+}
+
+Write-Host ""
+Write-Host "  ============================================" -ForegroundColor Magenta
+Write-Host "   Jayraldines Catering - Environment Setup  " -ForegroundColor Magenta
+Write-Host "  ============================================" -ForegroundColor Magenta
+Write-Host ""
+Write-Host "  This script will:" -ForegroundColor White
+Write-Host "    1. Check and install Python 3.11+" -ForegroundColor White
+Write-Host "    2. Check and install PostgreSQL 16" -ForegroundColor White
+Write-Host "    3. Set up a Python virtual environment" -ForegroundColor White
+Write-Host "    4. Install all Python packages" -ForegroundColor White
+Write-Host "    5. Create and initialize the database" -ForegroundColor White
+Write-Host "    6. Verify the app can start" -ForegroundColor White
+Write-Host "    7. Create run.bat launcher" -ForegroundColor White
+Write-Host ""
+Write-Host "  Press ENTER to continue or Ctrl+C to cancel..." -ForegroundColor Yellow
+Read-Host
+
+# ------------------------------------------------------------------------------
+# STEP 1 - Python
+# ------------------------------------------------------------------------------
+Print-Step "Step 1 - Check / Install Python 3.11+"
+
+$pythonOk = $false
+$pythonCmd = $null
+
+# Try all common python command names
+foreach ($cmd in @("python", "python3", "py")) {
+    if (Command-Exists $cmd) {
+        try {
+            $pyver = & $cmd --version 2>&1
+            if ($pyver -match "Python 3\.(1[1-9]|[2-9]\d)") {
+                Print-OK "Already installed: $pyver  (command: $cmd)"
+                $pythonCmd = $cmd
+                $pythonOk = $true
+                break
+            }
+        } catch {}
+    }
+}
+
+# Also search common install paths not necessarily in PATH
+if (-not $pythonOk) {
+    $pySearchPaths = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
+        "C:\Python313\python.exe",
+        "C:\Python312\python.exe",
+        "C:\Python311\python.exe",
+        "C:\Program Files\Python313\python.exe",
+        "C:\Program Files\Python312\python.exe",
+        "C:\Program Files\Python311\python.exe"
+    )
+    foreach ($p in $pySearchPaths) {
+        if (Test-Path $p) {
+            try {
+                $pyver = & $p --version 2>&1
+                if ($pyver -match "Python 3\.(1[1-9]|[2-9]\d)") {
+                    Print-OK "Found Python at: $p ($pyver)"
+                    $pythonCmd = $p
+                    $pythonOk = $true
+                    $pyDir = Split-Path $p
+                    if ($env:Path -notlike "*$pyDir*") {
+                        $env:Path = "$pyDir;" + $env:Path
+                    }
+                    break
+                }
+            } catch {}
+        }
+    }
+}
+
+if (-not $pythonOk) {
+    $pyInstaller = "$env:TEMP\python-installer.exe"
+    Print-Info "Python 3.11+ not found. Downloading Python 3.12.4..."
+    Download-File "https://www.python.org/ftp/python/3.12.4/python-3.12.4-amd64.exe" $pyInstaller
+    Print-Info "Installing Python (this may take a minute)..."
+    Start-Process -FilePath $pyInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1" -Wait
+    Remove-Item $pyInstaller -Force
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    $pythonCmd = "python"
+    $pyver = & $pythonCmd --version 2>&1
+    Print-OK "Python installed: $pyver"
+}
+
+# ------------------------------------------------------------------------------
+# STEP 2 - PostgreSQL
+# ------------------------------------------------------------------------------
+Print-Step "Step 2 - Check / Install PostgreSQL"
+
+$pgOk = $false
+$psqlExe = $null
+
+# 1. Check if psql is already in PATH
+if (Command-Exists "psql") {
+    $psqlExe = (Get-Command "psql").Source
+    Print-OK "Found psql in PATH: $psqlExe"
+    $pgOk = $true
+}
+
+# 2. Search all common install paths (versions 13-17, both Program Files variants)
+if (-not $pgOk) {
+    $pgSearchPaths = @()
+    foreach ($ver in @("17","16","15","14","13")) {
+        $pgSearchPaths += "C:\Program Files\PostgreSQL\$ver\bin\psql.exe"
+        $pgSearchPaths += "C:\Program Files (x86)\PostgreSQL\$ver\bin\psql.exe"
+    }
+    $psqlExe = $pgSearchPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($psqlExe) {
+        Print-OK "Found PostgreSQL at: $psqlExe"
+        $pgOk = $true
+    }
+}
+
+# 3. Search registry for PostgreSQL install location
+if (-not $pgOk) {
+    try {
+        $regPaths = @(
+            "HKLM:\SOFTWARE\PostgreSQL\Installations",
+            "HKLM:\SOFTWARE\Wow6432Node\PostgreSQL\Installations"
+        )
+        foreach ($regBase in $regPaths) {
+            if (Test-Path $regBase) {
+                Get-ChildItem $regBase | ForEach-Object {
+                    $base = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).Base
+                    if ($base) {
+                        $candidate = Join-Path $base "bin\psql.exe"
+                        if (Test-Path $candidate) {
+                            $psqlExe = $candidate
+                            $pgOk = $true
+                        }
+                    }
+                }
+            }
+            if ($pgOk) { break }
+        }
+        if ($pgOk) { Print-OK "Found PostgreSQL via registry: $psqlExe" }
+    } catch {}
+}
+
+# 4. Check if a PostgreSQL Windows service exists (even if psql not in PATH)
+if (-not $pgOk) {
+    $pgService = Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($pgService) {
+        Print-Info "PostgreSQL service found: $($pgService.Name) [$($pgService.Status)]"
+        # Try to find psql from the service binary path
+        try {
+            $svcPath = (Get-WmiObject Win32_Service -Filter "Name='$($pgService.Name)'" -ErrorAction SilentlyContinue).PathName
+            if ($svcPath -match '"?([A-Za-z]:\\[^"]+)\\bin\\') {
+                $candidate = "$($Matches[1])\bin\psql.exe"
+                if (Test-Path $candidate) {
+                    $psqlExe = $candidate
+                    $pgOk = $true
+                    Print-OK "Found psql via service path: $psqlExe"
+                }
+            }
+        } catch {}
+    }
+}
+
+if (-not $pgOk) {
+    $pgInstaller = "$env:TEMP\postgresql-installer.exe"
+    Print-Info "PostgreSQL not found. Downloading PostgreSQL 16..."
+    Download-File "https://get.enterprisedb.com/postgresql/postgresql-16.3-1-windows-x64.exe" $pgInstaller
+    Write-Host ""
+    Write-Host "  The installer will open now. Please:" -ForegroundColor Yellow
+    Write-Host "    - Use default installation directory" -ForegroundColor Yellow
+    Write-Host "    - Set password to: 12345678" -ForegroundColor Yellow
+    Write-Host "    - Keep default port: 5432" -ForegroundColor Yellow
+    Write-Host "    - Click through the rest with defaults" -ForegroundColor Yellow
+    Write-Host ""
+    Start-Process -FilePath $pgInstaller -Wait
+    Read-Host "Press ENTER after PostgreSQL is fully installed"
+    Remove-Item $pgInstaller -Force -ErrorAction SilentlyContinue
+
+    # Re-run detection after install
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    foreach ($ver in @("17","16","15","14","13")) {
+        $candidate = "C:\Program Files\PostgreSQL\$ver\bin\psql.exe"
+        if (Test-Path $candidate) { $psqlExe = $candidate; break }
+    }
+    if (-not $psqlExe -and (Command-Exists "psql")) {
+        $psqlExe = (Get-Command "psql").Source
+    }
+    if ($psqlExe) {
+        Print-OK "PostgreSQL installed: $psqlExe"
+    } else {
+        Print-Fail "psql.exe not found after installation."
+        Print-Fail "Add the PostgreSQL bin folder to PATH and re-run this script."
+        Read-Host "Press ENTER to exit"
+        exit 1
+    }
+}
+
+# Ensure the pg bin dir is in PATH for this session
+$pgBin = Split-Path $psqlExe
+if ($env:Path -notlike "*$pgBin*") {
+    $env:Path = "$pgBin;" + $env:Path
+}
+Print-Info "Using psql: $psqlExe"
+
+# ------------------------------------------------------------------------------
+# STEP 3 - Python virtual environment
+# ------------------------------------------------------------------------------
+Print-Step "Step 3 - Python Virtual Environment"
+
+if (-not (Test-Path "main.py")) {
+    Print-Fail "main.py not found. Run this script from the project folder."
+    Read-Host "Press ENTER to exit"
+    exit 1
+}
+
+if (Test-Path "venv") {
+    Print-Skip "venv already exists, skipping creation"
+} else {
+    Print-Info "Creating venv..."
+    & $pythonCmd -m venv venv
+    Print-OK "venv created"
+}
+
+$pip    = ".\venv\Scripts\pip.exe"
+$python = ".\venv\Scripts\python.exe"
+
+# ------------------------------------------------------------------------------
+# STEP 4 - Python packages
+# ------------------------------------------------------------------------------
+Print-Step "Step 4 - Installing Python Packages"
+
+Print-Info "Upgrading pip..."
+try { & $python -m pip install --upgrade pip --quiet 2>&1 | Out-Null } catch {}
+
+Print-Info "Installing from requirements.txt..."
+& $python -m pip install -r requirements.txt --quiet
+
+Print-Info "Ensuring Pillow is installed..."
+& $python -m pip install pillow --quiet
+
+Print-OK "All packages installed"
+
+# ------------------------------------------------------------------------------
+# STEP 5 - Database setup
+# ------------------------------------------------------------------------------
+Print-Step "Step 5 - Database Setup"
+
+$dbName  = "jayraldines_catering"
+$dbUser  = "postgres"
+
+# Verify required SQL files exist
+$mainSql    = "jayraldines_catering_clean.sql"
+$migSql     = "cebu_address_migration.sql"
+$occMigSql  = "occasions_migration.sql"
+$viewsMigSql = "confirmed_only_views_migration.sql"
+
+if (-not (Test-Path $mainSql)) {
+    Print-Fail "Required file not found: $mainSql"
+    Read-Host "Press ENTER to exit"
+    exit 1
+}
+if (-not (Test-Path $migSql)) {
+    Print-Fail "Required file not found: $migSql"
+    Read-Host "Press ENTER to exit"
+    exit 1
+}
+Print-Info "Main SQL  : $mainSql"
+Print-Info "Migration : $migSql"
+
+Write-Host ""
+Write-Host "  Enter the PostgreSQL superuser (postgres) password." -ForegroundColor Yellow
+Write-Host "  Default password used during PostgreSQL install: 12345678" -ForegroundColor Yellow
+$pgPass = Read-Host "  Password (press ENTER to use 12345678)"
+if ([string]::IsNullOrWhiteSpace($pgPass)) { $pgPass = "12345678" }
+
+$env:PGPASSWORD = $pgPass
+
+Print-Info "Checking if database '$dbName' already exists..."
+$exists = & $psqlExe -U $dbUser -h localhost -p 5432 -tAc "SELECT 1 FROM pg_database WHERE datname='$dbName';" 2>&1
+
+$runSql = $true
+
+if ($exists -match "1") {
+    Write-Host ""
+    Write-Host "  Database '$dbName' already exists." -ForegroundColor Yellow
+    $choice = Read-Host "  Drop and recreate it? All existing data will be lost. (y/N)"
+    if ($choice -ne "y" -and $choice -ne "Y") {
+        Print-Skip "Keeping existing database"
+        $addrExists = & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='address_barangays';" 2>&1
+        if ($addrExists -notmatch "1") {
+            Print-Info "Running cebu address migration..."
+            try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
+            Print-OK "Cebu address migration done"
+        } else {
+            Print-Skip "Address tables already exist"
+        }
+        $occExists = & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='occasions';" 2>&1
+        if ($occExists -notmatch "1" -and (Test-Path $occMigSql)) {
+            Print-Info "Running occasions migration..."
+            try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $occMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
+            Print-OK "Occasions migration done"
+        } else {
+            Print-Skip "Occasions table already exists"
+        }
+        if (Test-Path $viewsMigSql) {
+            Print-Info "Applying confirmed-only views migration..."
+            try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $viewsMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
+            Print-OK "Views migration done"
+        }
+        $runSql = $false
+    }
+}
+
+if ($runSql) {
+    # The main SQL file handles DROP + CREATE DATABASE internally.
+    # Connect to 'postgres' so we are NOT inside the DB being dropped.
+    Print-Info "Running Main schema (jayraldines_catering.sql)..."
+    & $psqlExe -U $dbUser -h localhost -p 5432 -d postgres -f $mainSql 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Print-Fail "Main schema failed (exit code $LASTEXITCODE) - check output above."
+        $env:PGPASSWORD = ""
+        Read-Host "Press ENTER to exit"
+        exit 1
+    }
+    Print-OK "Main schema applied successfully"
+
+    Print-Info "Running Cebu address migration..."
+    try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
+    Print-OK "Cebu address migration done"
+
+    if (Test-Path $viewsMigSql) {
+        Print-Info "Applying confirmed-only views migration..."
+        try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $viewsMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
+        Print-OK "Views migration done"
+    }
+
+    Print-OK "Database '$dbName' is ready"
+}
+
+$env:PGPASSWORD = ""
+
+# ------------------------------------------------------------------------------
+# STEP 6 - Verify DB connection from Python
+# ------------------------------------------------------------------------------
+Print-Step "Step 6 - Verifying Database Connection"
+
+$escapedPass = $pgPass -replace '\\', '\\\\' -replace '"', '\"'
+$testLines  = "import sys, os`n"
+$testLines += 'os.environ["DB_PASSWORD"] = "' + $escapedPass + '"' + "`n"
+$testLines += "sys.path.insert(0, '.')`n"
+$testLines += "import utils.db as db`n"
+$testLines += "ok = db.connect()`n"
+$testLines += "print('DB_OK' if ok else 'DB_FAIL')`n"
+
+$testFile = "$env:TEMP\jc_dbtest.py"
+[System.IO.File]::WriteAllText($testFile, $testLines, [System.Text.Encoding]::UTF8)
+
+$result = & $python $testFile 2>&1
+Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+
+if ($result -like "*DB_OK*") {
+    Print-OK "Database connection successful"
+} else {
+    Print-Fail "Database connection failed."
+    Write-Host "  Output: $result" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Check that PostgreSQL is running and the password is correct." -ForegroundColor Yellow
+    Write-Host "  You can update the default password in utils\db.py" -ForegroundColor Yellow
+}
+
+# ------------------------------------------------------------------------------
+# STEP 7 - Write run.bat launcher
+# ------------------------------------------------------------------------------
+Print-Step "Step 7 - Creating run.bat Launcher"
+
+$bat  = "@echo off`r`n"
+$bat += "cd /d `"%~dp0`"`r`n"
+$bat += "call venv\Scripts\activate`r`n"
+$bat += "set DB_PASSWORD=" + $pgPass + "`r`n"
+$bat += "python main.py`r`n"
+$bat += "pause`r`n"
+
+[System.IO.File]::WriteAllText("$PWD\run.bat", $bat, [System.Text.Encoding]::UTF8)
+Print-OK "run.bat created - double-click it to start the app"
+
+# ------------------------------------------------------------------------------
+# Done
+# ------------------------------------------------------------------------------
+Write-Host ""
+Write-Host "  ============================================" -ForegroundColor Green
+Write-Host "   SETUP COMPLETE" -ForegroundColor Green
+Write-Host "  ============================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "  To start the app:" -ForegroundColor White
+Write-Host "    Double-click run.bat" -ForegroundColor Cyan
+Write-Host "    OR in terminal: venv\Scripts\activate  then  python main.py" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  DB password saved in run.bat - edit if you change it later." -ForegroundColor Yellow
+Write-Host ""
+
+$launch = Read-Host "Launch the app now? (y/N)"
+if ($launch -eq "y" -or $launch -eq "Y") {
+    Start-Process "run.bat"
+}
+
+Read-Host "Press ENTER to exit"

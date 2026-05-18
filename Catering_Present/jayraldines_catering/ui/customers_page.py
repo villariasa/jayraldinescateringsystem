@@ -1,0 +1,926 @@
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
+    QDialog, QFormLayout, QComboBox, QSizePolicy, QTextEdit, QScrollArea
+)
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QColor
+from components.address_search import AddressSearchWidget
+
+
+def _format_phone_input(text: str) -> str:
+    digits = "".join(c for c in text if c.isdigit())
+    if len(digits) <= 3:
+        return digits
+    elif len(digits) <= 6:
+        return f"{digits[:3]} {digits[3:]}"
+    elif len(digits) <= 10:
+        return f"{digits[:3]} {digits[3:6]} {digits[6:]}"
+    return f"{digits[:3]} {digits[3:6]} {digits[6:10]}"
+
+
+_COUNTRY_CODES = [
+    ("+63", "PH  +63"),
+    ("+1",  "US  +1"),
+    ("+44", "UK  +44"),
+    ("+61", "AU  +61"),
+    ("+81", "JP  +81"),
+    ("+82", "KR  +82"),
+    ("+86", "CN  +86"),
+    ("+91", "IN  +91"),
+    ("+65", "SG  +65"),
+    ("+60", "MY  +60"),
+    ("+62", "ID  +62"),
+    ("+66", "TH  +66"),
+    ("+84", "VN  +84"),
+    ("+971","UAE +971"),
+    ("+966","SA  +966"),
+    ("+49", "DE  +49"),
+    ("+33", "FR  +33"),
+    ("+39", "IT  +39"),
+    ("+34", "ES  +34"),
+    ("+7",  "RU  +7"),
+    ("+55", "BR  +55"),
+    ("+52", "MX  +52"),
+    ("+27", "ZA  +27"),
+    ("+234","NG  +234"),
+    ("+20", "EG  +20"),
+]
+
+from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
+from utils.theme import ThemeManager
+from components.dialogs import confirm, success
+import utils.repository as repo
+
+
+
+class AddCustomerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Customer")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(480, 580)
+        self.setModal(True)
+        self._result = None
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+
+        container = QFrame()
+        container.setObjectName("card")
+
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        header = QHBoxLayout()
+        title = QLabel("Add Customer")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        lay.addWidget(div)
+
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignRight)
+
+        self.name_field = QLineEdit()
+        self.name_field.setPlaceholderText("Full name / Company name")
+        self.name_field.setFixedHeight(38)
+
+        contact_row = QHBoxLayout()
+        contact_row.setSpacing(6)
+        self.country_code_combo = QComboBox()
+        self.country_code_combo.setFixedHeight(38)
+        self.country_code_combo.setFixedWidth(110)
+        for code, label in _COUNTRY_CODES:
+            self.country_code_combo.addItem(label, code)
+        self.country_code_combo.setCurrentIndex(0)
+        self.contact_field = QLineEdit()
+        self.contact_field.setPlaceholderText("9XX XXX XXXX")
+        self.contact_field.setFixedHeight(38)
+        self.contact_field.textChanged.connect(self._auto_format_contact)
+        contact_row.addWidget(self.country_code_combo)
+        contact_row.addWidget(self.contact_field)
+        contact_widget = QWidget()
+        contact_widget.setLayout(contact_row)
+
+        self.email_field = QLineEdit()
+        self.email_field.setPlaceholderText("email@example.com")
+        self.email_field.setFixedHeight(38)
+
+        self.address_widget = AddressSearchWidget()
+
+        self.status_field = QComboBox()
+        self.status_field.setFixedHeight(38)
+        self.status_field.addItems(["Active", "Pending", "Inactive"])
+
+        for lbl, widget in [
+            ("Name *",    self.name_field),
+            ("Contact *", contact_widget),
+            ("Email",     self.email_field),
+            ("Status",    self.status_field),
+        ]:
+            form.addRow(QLabel(lbl), widget)
+
+        lay.addLayout(form)
+
+        addr_lbl = QLabel("Address (Cebu)")
+        addr_lbl.setStyleSheet("color:#9CA3AF; font-size:12px; font-weight:600;")
+        lay.addWidget(addr_lbl)
+        lay.addWidget(self.address_widget)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.hide()
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("  Save Customer")
+        save.setObjectName("primaryButton")
+        save.setIcon(btn_icon_primary("check"))
+        save.setIconSize(QSize(15, 15))
+        save.setCursor(Qt.PointingHandCursor)
+        save.clicked.connect(self._save)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(container)
+
+    def _save(self):
+        name   = self.name_field.text().strip()
+        number = self.contact_field.text().strip()
+        if not name or not number:
+            self._err.setText("Name and Contact are required.")
+            self._err.show()
+            if not name:
+                self.name_field.setStyleSheet("border: 1px solid #E11D48;")
+            if not number:
+                self.contact_field.setStyleSheet("border: 1px solid #E11D48;")
+            return
+        code    = self.country_code_combo.currentData()
+        contact = f"{code} {number}"
+        sel    = self.address_widget.get_selection()
+        street = self.address_widget.get_street()
+        if sel and not street:
+            self._err.setText("Street / House No. is required after selecting an address.")
+            self._err.show()
+            self.address_widget.highlight_street_error()
+            return
+        if sel:
+            addr_str = f"{street}, {sel['barangay']}, {sel['city']}, Cebu".strip(", ")
+        else:
+            addr_str = street
+        self._result = {
+            "name":         name,
+            "contact":      contact,
+            "email":        self.email_field.text().strip(),
+            "address":      addr_str,
+            "address_data": sel,
+            "street":       street,
+            "events":       0,
+            "status":       self.status_field.currentText(),
+        }
+        self.accept()
+
+    def _auto_format_contact(self, text):
+        formatted = _format_phone_input(text)
+        if formatted != text:
+            self.contact_field.blockSignals(True)
+            self.contact_field.setText(formatted)
+            self.contact_field.setCursorPosition(len(formatted))
+            self.contact_field.blockSignals(False)
+
+    def get_result(self):
+        return self._result
+
+
+class EditCustomerDialog(QDialog):
+    def __init__(self, parent=None, customer=None):
+        super().__init__(parent)
+        self._customer = customer or {}
+        self.setWindowTitle("Edit Customer")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(480, 640)
+        self.setModal(True)
+        self._result = None
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+
+        container = QFrame()
+        container.setObjectName("card")
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        header = QHBoxLayout()
+        title = QLabel("Edit Customer")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        lay.addWidget(div)
+
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignRight)
+
+        self.name_field = QLineEdit(self._customer.get("name", ""))
+        self.name_field.setPlaceholderText("Full name / Company name")
+        self.name_field.setFixedHeight(38)
+
+        existing_contact = self._customer.get("contact", "")
+        matched_code = "+63"
+        number_part = existing_contact
+        for code, _label in _COUNTRY_CODES:
+            if existing_contact.startswith(code + " "):
+                matched_code = code
+                number_part = existing_contact[len(code) + 1:]
+                break
+            elif existing_contact.startswith(code):
+                matched_code = code
+                number_part = existing_contact[len(code):].lstrip()
+                break
+
+        contact_row = QHBoxLayout()
+        contact_row.setSpacing(6)
+        self.country_code_combo = QComboBox()
+        self.country_code_combo.setFixedHeight(38)
+        self.country_code_combo.setFixedWidth(110)
+        for code, label in _COUNTRY_CODES:
+            self.country_code_combo.addItem(label, code)
+            if code == matched_code:
+                self.country_code_combo.setCurrentIndex(self.country_code_combo.count() - 1)
+        self.contact_field = QLineEdit(_format_phone_input(number_part))
+        self.contact_field.setPlaceholderText("9XX XXX XXXX")
+        self.contact_field.setFixedHeight(38)
+        self.contact_field.textChanged.connect(self._auto_format_contact)
+        contact_row.addWidget(self.country_code_combo)
+        contact_row.addWidget(self.contact_field)
+        contact_widget = QWidget()
+        contact_widget.setLayout(contact_row)
+
+        self.email_field = QLineEdit(self._customer.get("email", ""))
+        self.email_field.setPlaceholderText("email@example.com")
+        self.email_field.setFixedHeight(38)
+
+        self._existing_addr = self._customer.get("address", "")
+        self.address_widget = AddressSearchWidget()
+
+        self.status_field = QComboBox()
+        self.status_field.setFixedHeight(38)
+        self.status_field.addItems(["Active", "Pending", "Inactive"])
+        idx = self.status_field.findText(self._customer.get("status", "Active"))
+        if idx >= 0:
+            self.status_field.setCurrentIndex(idx)
+
+        for lbl, widget in [
+            ("Name *",    self.name_field),
+            ("Contact *", contact_widget),
+            ("Email",     self.email_field),
+            ("Status",    self.status_field),
+        ]:
+            form.addRow(QLabel(lbl), widget)
+
+        lay.addLayout(form)
+
+        addr_lbl = QLabel("Address (Cebu)")
+        addr_lbl.setStyleSheet("color:#9CA3AF; font-size:12px; font-weight:600;")
+        lay.addWidget(addr_lbl)
+        if self._existing_addr:
+            self._current_addr_lbl = QLabel(f"Current: {self._existing_addr}")
+            self._current_addr_lbl.setStyleSheet("color:#9CA3AF; font-size:13px;")
+            self._current_addr_lbl.setWordWrap(True)
+            lay.addWidget(self._current_addr_lbl)
+        lay.addWidget(self.address_widget)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.hide()
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("  Save Changes")
+        save.setObjectName("primaryButton")
+        save.setIcon(btn_icon_primary("check"))
+        save.setIconSize(QSize(15, 15))
+        save.setCursor(Qt.PointingHandCursor)
+        save.clicked.connect(self._save)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(container)
+
+    def _auto_format_contact(self, text):
+        formatted = _format_phone_input(text)
+        if formatted != text:
+            self.contact_field.blockSignals(True)
+            self.contact_field.setText(formatted)
+            self.contact_field.setCursorPosition(len(formatted))
+            self.contact_field.blockSignals(False)
+
+    def _save(self):
+        name   = self.name_field.text().strip()
+        number = self.contact_field.text().strip()
+        if not name or not number:
+            self._err.setText("Name and Contact are required.")
+            self._err.show()
+            if not name:
+                self.name_field.setStyleSheet("border: 1px solid #E11D48;")
+            if not number:
+                self.contact_field.setStyleSheet("border: 1px solid #E11D48;")
+            return
+        code    = self.country_code_combo.currentData()
+        contact = f"{code} {number}"
+        sel    = self.address_widget.get_selection()
+        street = self.address_widget.get_street()
+        if sel and not street:
+            self._err.setText("Street / House No. is required after selecting an address.")
+            self._err.show()
+            self.address_widget.highlight_street_error()
+            return
+        if sel:
+            addr_str = f"{street}, {sel['barangay']}, {sel['city']}, Cebu".strip(", ")
+        else:
+            addr_str = self._existing_addr
+        self._result = {
+            "name":         name,
+            "contact":      contact,
+            "email":        self.email_field.text().strip(),
+            "address":      addr_str,
+            "address_data": sel,
+            "street":       street,
+            "status":       self.status_field.currentText(),
+        }
+        self.accept()
+
+    def get_result(self):
+        return self._result
+
+
+_TIER_COLORS = {
+    "Bronze": ("#CD7F32", "rgba(205,127,50,.15)"),
+    "Silver": ("#C0C0C0", "rgba(192,192,192,.15)"),
+    "Gold":   ("#F59E0B", "rgba(245,158,11,.15)"),
+    "VIP":    ("#A855F7", "rgba(168,85,247,.15)"),
+}
+
+
+def _tier_badge(tier: str) -> QLabel:
+    color, bg = _TIER_COLORS.get(tier, ("#9CA3AF", "rgba(156,163,175,.15)"))
+    lbl = QLabel(tier)
+    lbl.setStyleSheet(
+        f"font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;"
+        f"background:{bg};color:{color};border:1px solid {color};"
+    )
+    lbl.setAlignment(Qt.AlignCenter)
+    return lbl
+
+
+class CustomerLedgerDialog(QDialog):
+    def __init__(self, parent=None, customer=None):
+        super().__init__(parent)
+        self._customer = customer or {}
+        self.setWindowTitle(f"Ledger — {self._customer.get('name', '')}")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setMinimumWidth(820)
+        self.setMinimumHeight(560)
+        self.setModal(True)
+        self._build_ui()
+
+    def _build_ui(self):
+        from utils.icons import get_icon
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+
+        container = QFrame()
+        container.setObjectName("card")
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(28, 24, 28, 24)
+        lay.setSpacing(16)
+
+        header = QHBoxLayout()
+        title = QLabel(f"Customer Ledger")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.accept)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        cust = self._customer
+        info_row = QHBoxLayout()
+        info_row.setSpacing(24)
+        for lbl, val in [
+            ("Customer", cust.get("name", "—")),
+            ("Contact",  cust.get("contact", "—")),
+            ("Email",    cust.get("email", "—")),
+            ("Events",   str(cust.get("events", 0))),
+            ("Tier",     cust.get("loyalty_tier", "Bronze")),
+        ]:
+            col = QVBoxLayout()
+            col.setSpacing(2)
+            l = QLabel(lbl.upper())
+            l.setStyleSheet("font-size: 10px; color: #6B7280; font-weight: 700; letter-spacing: 1px;")
+            v = QLabel(val)
+            v.setStyleSheet("font-size: 13px; font-weight: 600;")
+            col.addWidget(l)
+            col.addWidget(v)
+            info_row.addLayout(col)
+        info_row.addStretch()
+        lay.addLayout(info_row)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        lay.addWidget(div)
+
+        entries = []
+        if cust.get("id"):
+            try:
+                import utils.repository as _repo
+                entries = _repo.get_customer_ledger(cust["id"])
+            except Exception:
+                entries = []
+
+        total_debit  = sum(e["debit"]  for e in entries)
+        total_credit = sum(e["credit"] for e in entries)
+        balance      = total_debit - total_credit
+
+        summary_row = QHBoxLayout()
+        summary_row.setSpacing(20)
+        for lbl, val, color in [
+            ("Total Charged", f"₱ {total_debit:,.2f}",  "#E11D48"),
+            ("Total Paid",    f"₱ {total_credit:,.2f}", "#22C55E"),
+            ("Balance Due",   f"₱ {balance:,.2f}",      "#F59E0B" if balance > 0 else "#22C55E"),
+        ]:
+            card = QFrame()
+            card.setObjectName("card")
+            card.setStyleSheet("QFrame#card { padding: 8px 16px; }")
+            cl = QVBoxLayout(card)
+            cl.setSpacing(2)
+            cl.setContentsMargins(14, 10, 14, 10)
+            l = QLabel(lbl)
+            l.setStyleSheet("font-size: 11px; color: #6B7280;")
+            v = QLabel(val)
+            v.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {color};")
+            cl.addWidget(l)
+            cl.addWidget(v)
+            summary_row.addWidget(card)
+        summary_row.addStretch()
+        lay.addLayout(summary_row)
+
+        tbl = QTableWidget(0, 6)
+        tbl.setHorizontalHeaderLabels(["Date Recorded", "Event Date", "Reference", "Type", "Description", "Amount"])
+        hdr = tbl.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(4, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(5, QHeaderView.Fixed)
+        tbl.setColumnWidth(5, 130)
+        tbl.setAlternatingRowColors(True)
+        tbl.setSelectionBehavior(QTableWidget.SelectRows)
+        tbl.verticalHeader().setVisible(False)
+        tbl.setEditTriggers(QTableWidget.NoEditTriggers)
+        tbl.setMinimumHeight(260)
+
+        _TYPE_COLORS = {
+            "Booking": "#3B82F6",
+            "Invoice": "#F59E0B",
+            "Payment": "#22C55E",
+        }
+        _STATUS_COLORS = {
+            "CONFIRMED": "#22C55E", "COMPLETED": "#16A34A",
+            "PENDING":   "#F59E0B", "CANCELLED": "#EF4444",
+            "Paid":      "#22C55E", "Partial":   "#F59E0B",
+            "Unpaid":    "#EF4444",
+        }
+
+        for row, e in enumerate(entries):
+            tbl.insertRow(row)
+            tbl.setRowHeight(row, 38)
+
+            tbl.setItem(row, 0, QTableWidgetItem(e["recorded_date"]))
+            tbl.setItem(row, 1, QTableWidgetItem(e["event_date"]))
+            tbl.setItem(row, 2, QTableWidgetItem(e["reference"]))
+
+            type_item = QTableWidgetItem(e["entry_type"])
+            type_item.setForeground(QColor(_TYPE_COLORS.get(e["entry_type"], "#9CA3AF")))
+            tbl.setItem(row, 3, type_item)
+
+            desc_item = QTableWidgetItem(e["description"])
+            status_color = _STATUS_COLORS.get(e["status"], "#9CA3AF")
+            desc_lbl = f"{e['description']}  [{e['status']}]"
+            desc_item = QTableWidgetItem(desc_lbl)
+            desc_item.setForeground(QColor(status_color))
+            tbl.setItem(row, 4, desc_item)
+
+            if e["entry_type"] == "Payment":
+                amt_text = f"+ ₱ {e['credit']:,.2f}"
+                amt_color = "#22C55E"
+            elif e["entry_type"] == "Booking":
+                amt_text = f"₱ {e['debit']:,.2f}"
+                amt_color = "#E11D48"
+            else:
+                amt_text = f"₱ {e['debit']:,.2f}"
+                amt_color = "#F59E0B"
+
+            amt_item = QTableWidgetItem(amt_text)
+            amt_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            amt_item.setForeground(QColor(amt_color))
+            tbl.setItem(row, 5, amt_item)
+
+        if not entries:
+            tbl.insertRow(0)
+            empty = QTableWidgetItem("No ledger entries found for this customer.")
+            empty.setForeground(QColor("#9CA3AF"))
+            tbl.setItem(0, 0, empty)
+            tbl.setSpan(0, 0, 1, 6)
+
+        lay.addWidget(tbl)
+
+        close = QPushButton("Close")
+        close.setObjectName("secondaryButton")
+        close.setCursor(Qt.PointingHandCursor)
+        close.clicked.connect(self.accept)
+        lay.addWidget(close, alignment=Qt.AlignRight)
+
+        outer.addWidget(container)
+
+
+class CustomersPage(QWidget):
+    def __init__(self):
+        super().__init__()
+        db_rows = repo.get_all_customers_with_loyalty()
+        if not db_rows:
+            db_rows = repo.get_all_customers() or []
+        self._customers = db_rows
+        self._build_ui()
+        self._populate_table()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(32, 28, 32, 28)
+        root.setSpacing(20)
+
+        header = QHBoxLayout()
+        title = QLabel("Customers")
+        title.setObjectName("pageTitle")
+        header.addWidget(title)
+        header.addStretch()
+
+        add_btn = QPushButton("  Add Customer")
+        add_btn.setObjectName("primaryButton")
+        add_btn.setIcon(btn_icon_primary("plus"))
+        add_btn.setIconSize(QSize(15, 15))
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.clicked.connect(self._open_add_dialog)
+        header.addWidget(add_btn)
+
+        export_btn = QPushButton("  Export")
+        export_btn.setObjectName("secondaryButton")
+        export_btn.setIcon(btn_icon_secondary("export"))
+        export_btn.setIconSize(QSize(15, 15))
+        export_btn.clicked.connect(self._export_csv)
+        header.addWidget(export_btn)
+
+        root.addLayout(header)
+
+        self._search = QLineEdit()
+        self._search.setObjectName("searchBox")
+        self._search.setPlaceholderText("Search customers...")
+        self._search.setFixedHeight(38)
+        self._search.setMaximumWidth(320)
+        self._search.textChanged.connect(self._filter_table)
+        root.addWidget(self._search)
+
+        card = QFrame()
+        card.setObjectName("card")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+
+        # FIX 1: We reduced the column count to 7 (merged actions into 1 column)
+        self._table = QTableWidget(0, 7)
+        self._table.setHorizontalHeaderLabels(["NAME", "CONTACT", "EMAIL", "EVENTS", "TIER", "STATUS", ""])
+        
+        hdr = self._table.horizontalHeader()
+        
+        hdr.setSectionResizeMode(QHeaderView.ResizeToContents) 
+        hdr.setSectionResizeMode(0, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(2, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(4, QHeaderView.Fixed)
+        
+        self._table.setColumnWidth(4, 80)
+        self._table.setAlternatingRowColors(True)
+        self._table.setSelectionBehavior(QTableWidget.SelectRows)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
+        card_layout.addWidget(self._table)
+
+        root.addWidget(card)
+
+    def _populate_table(self, customers=None):
+        data = customers if customers is not None else self._customers
+        self._table.setRowCount(0)
+        for row, c in enumerate(data):
+            self._table.insertRow(row)
+            self._table.setRowHeight(row, 48)
+            self._table.setItem(row, 0, QTableWidgetItem(c["name"]))
+            self._table.setItem(row, 1, QTableWidgetItem(c["contact"]))
+            self._table.setItem(row, 2, QTableWidgetItem(c["email"]))
+            self._table.setItem(row, 3, QTableWidgetItem(str(c.get("events", 0))))
+
+            tier = c.get("loyalty_tier", "Bronze")
+            tier_w = QWidget()
+            tier_l = QHBoxLayout(tier_w)
+            tier_l.setContentsMargins(4, 0, 4, 0)
+            tier_l.addWidget(_tier_badge(tier))
+            tier_l.addStretch()
+            self._table.setCellWidget(row, 4, tier_w)
+
+            status_item = QTableWidgetItem(c["status"])
+            color_map = {"Active": "#22C55E", "Pending": "#F59E0B", "Inactive": "#6B7280"}
+            status_item.setForeground(QColor(color_map.get(c["status"], "#9CA3AF")))
+            self._table.setItem(row, 5, status_item)
+
+            # FIX 2: Group all 3 buttons into a single horizontal layout for Column 6
+            actions_w = QFrame()
+            actions_w.setStyleSheet("background: transparent;")
+            actions_l = QHBoxLayout(actions_w)
+            # Add 16px right margin so the scrollbar doesn't cover the trash icon
+            actions_l.setContentsMargins(4, 0, 16, 0)
+            actions_l.setSpacing(8)
+
+            edit_btn = QPushButton()
+            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
+            edit_btn.setIconSize(QSize(13, 13))
+            edit_btn.setFixedSize(30, 30)
+            edit_btn.setToolTip("Edit customer")
+            edit_btn.setStyleSheet("background: transparent; border: none;")
+            edit_btn.setCursor(Qt.PointingHandCursor)
+            edit_btn.clicked.connect(lambda _, cust=c: self._open_edit_dialog(cust))
+
+            ledger_btn = QPushButton()
+            ledger_btn.setIcon(get_icon("reports", color="#3B82F6", size=QSize(13, 13)))
+            ledger_btn.setIconSize(QSize(13, 13))
+            ledger_btn.setFixedSize(30, 30)
+            ledger_btn.setToolTip("View ledger")
+            ledger_btn.setStyleSheet("background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:6px;")
+            ledger_btn.setCursor(Qt.PointingHandCursor)
+            ledger_btn.clicked.connect(lambda _, cust=c: self._open_ledger(cust))
+
+            fu_btn = QPushButton()
+            fu_btn.setIcon(get_icon("bell", color="#F59E0B", size=QSize(13, 13)))
+            fu_btn.setIconSize(QSize(13, 13))
+            fu_btn.setFixedSize(30, 30)
+            fu_btn.setToolTip("Follow-up reminders")
+            fu_btn.setStyleSheet("background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:6px;")
+            fu_btn.setCursor(Qt.PointingHandCursor)
+            fu_btn.clicked.connect(lambda _, cust=c: self._open_follow_ups(cust))
+            
+            del_btn = QPushButton()
+            del_btn.setIcon(btn_icon_red("trash"))
+            del_btn.setIconSize(QSize(13, 13))
+            del_btn.setFixedSize(30, 30)
+            del_btn.setStyleSheet("background: transparent; border: none;")
+            del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.clicked.connect(lambda _, cust=c: self._delete_customer_by_ref(cust))
+            
+            actions_l.addWidget(edit_btn)
+            actions_l.addWidget(ledger_btn)
+            actions_l.addWidget(fu_btn)
+            actions_l.addWidget(del_btn)
+            
+            # Add the unified actions widget to column 6
+            self._table.setCellWidget(row, 6, actions_w)
+
+
+    def _open_ledger(self, c):
+        dlg = CustomerLedgerDialog(self, customer=c)
+        dlg.exec()
+
+    def _delete_customer_by_ref(self, c):
+        if not confirm(self, title="Delete Customer",
+                       message=f"Are you sure you want to delete '{c['name']}'? This cannot be undone.",
+                       confirm_label="Delete", danger=True):
+            return
+        if c.get("id"):
+            repo.delete_customer(c["id"])
+        self._customers = [x for x in self._customers if x is not c]
+        self._populate_table()
+        success(self, message="Customer deleted successfully.")
+
+    def _open_follow_ups(self, c):
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                       QPushButton, QLineEdit, QDateEdit, QScrollArea, QFrame)
+        from PySide6.QtCore import QDate
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Follow-ups — {c['name']}")
+        dlg.setMinimumWidth(460)
+        dlg.setMinimumHeight(400)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(14)
+        lay.setContentsMargins(20, 20, 20, 20)
+
+        tier = c.get("loyalty_tier", "Bronze")
+        head = QHBoxLayout()
+        head.addWidget(QLabel(f"<b>{c['name']}</b> — {c.get('events', 0)} events"))
+        head.addStretch()
+        head.addWidget(_tier_badge(tier))
+        lay.addLayout(head)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        inner = QWidget()
+        inner_lay = QVBoxLayout(inner)
+        inner_lay.setSpacing(8)
+        inner_lay.setContentsMargins(0, 0, 0, 0)
+        scroll.setWidget(inner)
+        lay.addWidget(scroll)
+
+        def _reload():
+            while inner_lay.count():
+                item = inner_lay.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            fups = repo.get_follow_ups(c["id"]) if c.get("id") else []
+            for fu in fups:
+                fu_row = QHBoxLayout()
+                done_cb_lbl = QLabel(("✓ " if fu["is_done"] else "○ ") + fu["date"] + " — " + fu["note"])
+                _done_color = "#94A3B8" if fu["is_done"] else ("#475569" if not ThemeManager().is_dark() else "#F9FAFB")
+                done_cb_lbl.setStyleSheet(f"color:{_done_color};")
+                done_cb_lbl.setWordWrap(True)
+                fu_row.addWidget(done_cb_lbl, 1)
+                if not fu["is_done"]:
+                    done_btn = QPushButton("Done")
+                    done_btn.setFixedHeight(26)
+                    done_btn.setStyleSheet("background:#16A34A;color:white;border:none;border-radius:5px;font-size:11px;padding:0 8px;")
+                    done_btn.clicked.connect(lambda _, fid=fu["id"]: (repo.complete_follow_up(fid), _reload()))
+                    fu_row.addWidget(done_btn)
+                del_btn2 = QPushButton("✕")
+                del_btn2.setFixedSize(24, 24)
+                del_btn2.setStyleSheet("background:transparent;border:none;font-weight:700;")
+                del_btn2.clicked.connect(lambda _, fid=fu["id"]: (repo.delete_follow_up(fid), _reload()))
+                fu_row.addWidget(del_btn2)
+                row_w = QWidget()
+                row_w.setLayout(fu_row)
+                inner_lay.addWidget(row_w)
+            if not fups:
+                empty = QLabel("No follow-ups yet.")
+                empty.setStyleSheet("color:#64748B;")
+                inner_lay.addWidget(empty)
+            inner_lay.addStretch()
+
+        _reload()
+
+        add_row = QHBoxLayout()
+        date_edit = QDateEdit(QDate.currentDate())
+        date_edit.setCalendarPopup(True)
+        date_edit.setDisplayFormat("MMM dd, yyyy")
+        date_edit.setFixedWidth(140)
+        note_edit = QLineEdit()
+        note_edit.setPlaceholderText("Note / reminder...")
+        add_fu_btn = QPushButton("Add")
+        add_fu_btn.setFixedHeight(30)
+        add_fu_btn.setObjectName("primaryButton")
+
+        def _add_fu():
+            note = note_edit.text().strip()
+            if not note or not c.get("id"):
+                return
+            date_str = date_edit.date().toString("MMM dd, yyyy")
+            repo.add_follow_up(c["id"], date_str, note)
+            note_edit.clear()
+            _reload()
+
+        add_fu_btn.clicked.connect(_add_fu)
+        note_edit.returnPressed.connect(_add_fu)
+        add_row.addWidget(date_edit)
+        add_row.addWidget(note_edit)
+        add_row.addWidget(add_fu_btn)
+        lay.addLayout(add_row)
+
+        dlg.exec()
+
+    def _open_edit_dialog(self, c):
+        dlg = EditCustomerDialog(self, customer=c)
+        if dlg.exec() == QDialog.Accepted:
+            result = dlg.get_result()
+            if result and c.get("id"):
+                repo.update_customer(c["id"], result)
+                addr_data = result.get("address_data")
+                if addr_data:
+                    addr_id = repo.save_address(
+                        result.get("street", ""),
+                        addr_data["barangay_id"],
+                        addr_data["city_id"],
+                        addr_data["province_id"],
+                    )
+                    if addr_id:
+                        repo.link_customer_address(c["id"], addr_id)
+                c["name"]    = result["name"]
+                c["contact"] = result["contact"]
+                c["email"]   = result["email"]
+                c["address"] = result["address"]
+                c["status"]  = result["status"]
+                self._populate_table()
+                success(self, message="Customer updated successfully.")
+
+    def _open_add_dialog(self):
+        dlg = AddCustomerDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            result = dlg.get_result()
+            if result:
+                new_id = repo.add_customer(result)
+                if new_id:
+                    result["id"] = new_id
+                    result["loyalty_tier"] = "Bronze"
+                    repo.recalculate_loyalty(new_id)
+                    addr_data = result.get("address_data")
+                    if addr_data:
+                        addr_id = repo.save_address(
+                            result.get("street", ""),
+                            addr_data["barangay_id"],
+                            addr_data["city_id"],
+                            addr_data["province_id"],
+                        )
+                        if addr_id:
+                            repo.link_customer_address(new_id, addr_id)
+                self._customers.append(result)
+                self._populate_table()
+                success(self, message="Customer added successfully.")
+
+    def _filter_table(self, text):
+        q = text.lower()
+        filtered = [c for c in self._customers if q in c["name"].lower() or q in c["email"].lower() or q in c["contact"].lower()]
+        self._populate_table(filtered)
+
+    def filter_search(self, text):
+        self._search.setText(text)
+
+    def _export_csv(self):
+        import csv
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        path, _ = QFileDialog.getSaveFileName(self, "Export Customers", "customers.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Name", "Contact", "Email", "Total Events", "Status"])
+            for c in self._customers:
+                writer.writerow([
+                    c.get("name", ""), c.get("contact", ""),
+                    c.get("email", ""), c.get("events", 0), c.get("status", ""),
+                ])
+        QMessageBox.information(self, "Export", f"Exported to:\n{path}")
