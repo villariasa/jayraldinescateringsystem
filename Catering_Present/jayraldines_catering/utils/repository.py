@@ -1594,7 +1594,7 @@ def get_invoice_by_ref(invoice_ref: str) -> Optional[dict]:
 def get_customer_ledger(customer_id: int) -> list[dict]:
     rows = db.fetchall(
         """
-        SELECT entry_type, recorded_date, event_date, reference,
+        SELECT entry_type, recorded_date, bk_event_date AS event_date, reference,
                description, debit, credit, entry_status
         FROM v_customer_ledger
         WHERE customer_id = %s
