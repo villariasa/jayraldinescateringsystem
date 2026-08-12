@@ -9,12 +9,17 @@ from utils.theme import ThemeManager
 from utils.paths import resource_path
 
 _NAV_ITEMS = [
-    ("Customers", "customers", 2),
-    ("Menu",      "menu",      3),
-    ("Expenses",  "billing",   8),
-    ("Kitchen",   "kitchen",   5),
-    ("Reports",   "reports",   7),
-    ("Settings",  "settings",  10),
+    ("Dashboard",    "dashboard", 0),
+    ("Orders",       "orders",    1),
+    ("Customers",    "customers", 2),
+    ("Menu",         "menu",      3),
+    ("Calendar",     "calendar",  4),
+    ("Kitchen",      "kitchen",   5),
+    ("Billing",      "billing",   6),
+    ("Reports",      "reports",   7),
+    ("Expenses",     "billing",   8),
+    ("AI Assistant", "search",    9),
+    ("Settings",     "settings",  10),
 ]
 
 EXPANDED_WIDTH  = 240
@@ -80,6 +85,7 @@ class Sidebar(QFrame):
             btn.setIcon(nav_icon(icon_name))
             btn.setProperty("icon_name", icon_name)
             btn.setProperty("nav_label", text)
+            btn.setProperty("page_index", index)
 
             if index == 0:
                 btn.setChecked(True)
@@ -154,10 +160,11 @@ class Sidebar(QFrame):
     def _mark_ready(self):
         self._ready = True
 
-    def handle_click(self, index):
-        for i, btn in enumerate(self.buttons):
+    def handle_click(self, page_index: int):
+        for btn in self.buttons:
+            btn_idx = btn.property("page_index")
             icon_name = btn.property("icon_name")
-            active = (i == index)
+            active = (btn_idx == page_index)
             btn.setChecked(active)
             btn.setIcon(nav_icon_active(icon_name) if active else nav_icon(icon_name))
 
