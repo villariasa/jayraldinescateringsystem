@@ -37,17 +37,17 @@ def _price_style(size=13):
 def _package_card_style(selected=False):
     if selected:
         if _is_light():
-            return ("QFrame { background: rgba(225,29,72,0.06); border-radius: 12px; border: 2px solid #E11D48; }"
-                    "QFrame QLabel { color: #101828; }")
-        return ("QFrame { background: rgba(225,29,72,0.12); border-radius: 12px; border: 2px solid #E11D48; }"
-                "QFrame QLabel { color: #F9FAFB; }")
+            return ("QFrame#packageCard { background: rgba(225,29,72,0.06); border-radius: 12px; border: 2px solid #E11D48; box-sizing: border-box; }"
+                    "QFrame#packageCard QLabel { color: #101828; }")
+        return ("QFrame#packageCard { background: rgba(225,29,72,0.12); border-radius: 12px; border: 2px solid #E11D48; box-sizing: border-box; }"
+                "QFrame#packageCard QLabel { color: #F9FAFB; }")
     if _is_light():
-        return ("QFrame { background: #FFFFFF; border-radius: 12px; border: 2px solid #E4E9F1; }"
-                "QFrame:hover { border: 2px solid #F4A6B8; background: #FFF8F9; }"
-                "QFrame QLabel { color: #101828; }")
-    return ("QFrame { background: #1F2937; border-radius: 12px; border: 2px solid #243244; }"
-            "QFrame:hover { border: 2px solid #E11D48; }"
-            "QFrame QLabel { color: #F9FAFB; }")
+        return ("QFrame#packageCard { background: #FFFFFF; border-radius: 12px; border: 2px solid #E4E9F1; box-sizing: border-box; }"
+                "QFrame#packageCard:hover { border: 2px solid #F4A6B8; background: #FFF8F9; }"
+                "QFrame#packageCard QLabel { color: #101828; }")
+    return ("QFrame#packageCard { background: #1F2937; border-radius: 12px; border: 2px solid #243244; box-sizing: border-box; }"
+            "QFrame#packageCard:hover { border: 2px solid #E11D48; }"
+            "QFrame#packageCard QLabel { color: #F9FAFB; }")
 
 
 def _package_name_style():
@@ -551,10 +551,12 @@ class BookingModal(QDialog):
                 desc = pkg["description"] or ""
                 price_str = f"₱{rate:,.0f}/pax"
                 card = QFrame()
+                card.setObjectName("packageCard")
                 card.setStyleSheet(_package_card_style(selected=(i == 0)))
                 card.setCursor(Qt.PointingHandCursor)
                 card_lay = QHBoxLayout(card)
                 card_lay.setContentsMargins(16, 14, 16, 14)
+                card_lay.setSpacing(12)
                 info = QVBoxLayout()
                 info.setSpacing(2)
                 n_lbl = QLabel(name)
@@ -570,7 +572,7 @@ class BookingModal(QDialog):
                 card_lay.addWidget(p_lbl)
                 sel_btn = QPushButton("Selected" if i == 0 else "Select")
                 sel_btn.setObjectName("primaryButton" if i == 0 else "secondaryButton")
-                sel_btn.setFixedWidth(80)
+                sel_btn.setMinimumWidth(96)
                 sel_btn.clicked.connect(lambda _, idx=i, c=card: self._select_package(idx, c))
                 card_lay.addWidget(sel_btn)
                 self._pkg_btns.append((card, sel_btn))
@@ -581,23 +583,39 @@ class BookingModal(QDialog):
         custom_w = QWidget()
         custom_w.setStyleSheet("background: transparent;")
         cus_lay = QVBoxLayout(custom_w)
-        cus_lay.setSpacing(8)
+        cus_lay.setSpacing(10)
         cus_lay.setContentsMargins(0, 0, 0, 0)
         self._custom_checks = []
-        for item in menu_store.get_available_items():
-            row = QHBoxLayout()
-            chk = QCheckBox(item["item"])
-            chk.setStyleSheet(_checkbox_item_style())
-            cat = QLabel(item["category"])
-            cat.setStyleSheet(_muted_style(11))
-            p = QLabel(f"₱{item['price']:,.0f}")
-            p.setStyleSheet(_price_style(12))
-            row.addWidget(chk)
-            row.addWidget(cat)
-            row.addStretch()
-            row.addWidget(p)
-            self._custom_checks.append(chk)
-            cus_lay.addLayout(row)
+
+        try:
+            custom_items = repo.get_available_menu_items()
+        except Exception as exc:
+            print(f"[BookingModal] Error fetching custom menu items: {exc}")
+            custom_items = []
+
+        if not custom_items:
+            empty_lbl = QLabel("No custom menu items found.")
+            empty_lbl.setObjectName("subtitle")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            empty_lbl.setContentsMargins(0, 20, 0, 20)
+            cus_lay.addWidget(empty_lbl)
+        else:
+            for item in custom_items:
+                row = QHBoxLayout()
+                row.setSpacing(12)
+                chk = QCheckBox(item.get("item") or item.get("name", ""))
+                chk.setStyleSheet(_checkbox_item_style())
+                cat = QLabel(item.get("category", ""))
+                cat.setStyleSheet(_muted_style(11))
+                price_val = float(item.get("price", 0))
+                p = QLabel(f"₱{price_val:,.0f}")
+                p.setStyleSheet(_price_style(12))
+                row.addWidget(chk)
+                row.addWidget(cat)
+                row.addStretch()
+                row.addWidget(p)
+                self._custom_checks.append(chk)
+                cus_lay.addLayout(row)
         cus_lay.addStretch()
         scroll_c = QScrollArea()
         scroll_c.setWidgetResizable(True)
