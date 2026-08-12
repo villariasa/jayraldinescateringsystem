@@ -185,7 +185,6 @@ class AIPage(QWidget):
         lbl = QLabel(text)
         lbl.setObjectName("subtitle")
         lbl.setWordWrap(True)
-        lbl.setMaximumWidth(_ANSWER_MAX_WIDTH)
         lay.addWidget(lbl)
         self._add_to_feed(card)
 
@@ -216,15 +215,13 @@ class AIPage(QWidget):
         if error:
             lbl = QLabel(error)
             lbl.setWordWrap(True)
-            lbl.setMaximumWidth(_ANSWER_MAX_WIDTH)
             lbl.setStyleSheet("color: #DC2626; font-size: 13px;")
             lay.addWidget(lbl)
         else:
             lbl = QLabel(answer or "(no answer)")
             lbl.setWordWrap(True)
-            lbl.setMaximumWidth(_ANSWER_MAX_WIDTH)
             lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            lbl.setStyleSheet("font-size: 13px; line-height: 150%;")
+            lbl.setStyleSheet("font-size: 13px; line-height: 140%;")
             lay.addWidget(lbl)
             if chart_spec:
                 chart_view = self._build_chart(chart_spec)
@@ -246,7 +243,6 @@ class AIPage(QWidget):
                     ob.setObjectName("secondaryButton")
                     ob.setCursor(Qt.PointingHandCursor)
                     ob.setStyleSheet("text-align: left; padding: 8px 14px;")
-                    ob.setMaximumWidth(_ANSWER_MAX_WIDTH)
                     if len(label) > 90:
                         ob.setText(label[:87] + "...")
                         ob.setToolTip(label)
