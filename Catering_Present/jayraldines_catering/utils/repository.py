@@ -916,6 +916,23 @@ def mark_all_notifications_read() -> None:
     db.callproc_void("sp_mark_all_notifications_read")
 
 
+def get_recent_notifications(limit: int = 20) -> list[dict]:
+    """Read + unread, newest first — for a full notification history view."""
+    rows = db.fetchall("""
+        SELECT notif_id         AS id,
+               notif_type       AS type,
+               notif_title      AS title,
+               notif_message    AS message,
+               notif_color      AS color,
+               notif_is_read    AS is_read,
+               notif_created_at AS created_at
+        FROM notifications
+        ORDER BY notif_created_at DESC
+        LIMIT %s
+    """, (limit,))
+    return [dict(r) for r in rows] if rows else []
+
+
 # ---------------------------------------------------------------------------
 # DASHBOARD KPIs
 # ---------------------------------------------------------------------------
@@ -1312,6 +1329,68 @@ def delete_follow_up(follow_up_id: int) -> None:
     db.callproc_void("sp_delete_follow_up", in_params=(follow_up_id,))
 
 
+def get_upcoming_follow_ups(days: int = 7) -> list[dict]:
+    """Open follow-ups due within the next `days` days (today included)."""
+    rows = db.fetchall(
+        """
+        SELECT cf.cfu_id             AS id,
+               c.cus_id              AS customer_id,
+               c.cus_name            AS customer_name,
+               cf.cfu_note           AS note,
+               cf.cfu_follow_up_date AS follow_up_date
+        FROM customer_follow_ups cf
+        JOIN customers c ON c.cus_id = cf.cfu_customer_id
+        WHERE cf.cfu_is_done = FALSE
+          AND cf.cfu_follow_up_date BETWEEN CURRENT_DATE
+              AND CURRENT_DATE + (%s || ' days')::INTERVAL
+        ORDER BY cf.cfu_follow_up_date, c.cus_name
+        """,
+        (days,),
+    )
+    if not rows:
+        return []
+    return [
+        {
+            "id":            r["id"],
+            "customer_id":   r["customer_id"],
+            "customer_name": r["customer_name"],
+            "note":          r["note"],
+            "date":          r["follow_up_date"].strftime("%b %d, %Y")
+                             if hasattr(r["follow_up_date"], "strftime") else str(r["follow_up_date"]),
+        }
+        for r in rows
+    ]
+
+
+def get_overdue_follow_ups() -> list[dict]:
+    """Open follow-ups whose date has already passed."""
+    rows = db.fetchall("""
+        SELECT cf.cfu_id             AS id,
+               c.cus_id              AS customer_id,
+               c.cus_name            AS customer_name,
+               cf.cfu_note           AS note,
+               cf.cfu_follow_up_date AS follow_up_date
+        FROM customer_follow_ups cf
+        JOIN customers c ON c.cus_id = cf.cfu_customer_id
+        WHERE cf.cfu_is_done = FALSE
+          AND cf.cfu_follow_up_date < CURRENT_DATE
+        ORDER BY cf.cfu_follow_up_date, c.cus_name
+    """)
+    if not rows:
+        return []
+    return [
+        {
+            "id":            r["id"],
+            "customer_id":   r["customer_id"],
+            "customer_name": r["customer_name"],
+            "note":          r["note"],
+            "date":          r["follow_up_date"].strftime("%b %d, %Y")
+                             if hasattr(r["follow_up_date"], "strftime") else str(r["follow_up_date"]),
+        }
+        for r in rows
+    ]
+
+
 # ---------------------------------------------------------------------------
 # AUDIT LOG
 # ---------------------------------------------------------------------------
@@ -1676,14 +1755,19 @@ def get_recent_addresses(limit: int = 5) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# MISC STUBS (non-fatal — tables may not exist in all deployments)
+# COMMUNICATION LOGS
+# cl_log_type is one of: receipt, booking_confirm, follow_up
+# cl_method   is one of: email, sms, print
 # ---------------------------------------------------------------------------
 
 def log_confirmation_sent(booking_id: int, method: str) -> None:
     try:
+        row = db.fetchone("SELECT bk_email AS email FROM bookings WHERE bk_id = %s", (booking_id,))
         db.execute(
-            "INSERT INTO confirmation_log (booking_id, method, sent_at) VALUES (%s, %s, NOW()) ON CONFLICT DO NOTHING",
-            (booking_id, method),
+            "INSERT INTO communication_logs "
+            "(cl_log_type, cl_method, cl_recipient, cl_booking_id, cl_status) "
+            "VALUES ('booking_confirm', %s, %s, %s, 'sent')",
+            (method, (row or {}).get("email", "") or "", booking_id),
         )
     except Exception:
         pass
@@ -1691,12 +1775,89 @@ def log_confirmation_sent(booking_id: int, method: str) -> None:
 
 def log_receipt_sent(invoice_id: int, method: str) -> None:
     try:
+        row = db.fetchone(
+            "SELECT COALESCE(c.cus_email, '') AS email FROM invoices i "
+            "LEFT JOIN customers c ON c.cus_name = i.inv_customer_name WHERE i.inv_id = %s",
+            (invoice_id,),
+        )
         db.execute(
-            "INSERT INTO receipt_log (invoice_id, method, sent_at) VALUES (%s, %s, NOW()) ON CONFLICT DO NOTHING",
-            (invoice_id, method),
+            "INSERT INTO communication_logs "
+            "(cl_log_type, cl_method, cl_recipient, cl_invoice_id, cl_status) "
+            "VALUES ('receipt', %s, %s, %s, 'sent')",
+            (method, (row or {}).get("email", "") or "", invoice_id),
         )
     except Exception:
         pass
+
+
+def log_follow_up_sent(customer_id: int, method: str, note: str = "") -> None:
+    """Log a follow-up contact attempt (call/SMS/email) against a customer.
+    Resolved through their most recent booking, since communication_logs
+    only links to bookings/invoices, not customers directly."""
+    try:
+        row = db.fetchone(
+            "SELECT bk_id, bk_email FROM bookings WHERE bk_customer_id = %s "
+            "ORDER BY bk_created_at DESC LIMIT 1",
+            (customer_id,),
+        )
+        booking_id = row.get("bk_id") if row else None
+        recipient = (row or {}).get("bk_email", "") or ""
+        db.execute(
+            "INSERT INTO communication_logs "
+            "(cl_log_type, cl_method, cl_recipient, cl_booking_id, cl_status, cl_note) "
+            "VALUES ('follow_up', %s, %s, %s, 'sent', %s)",
+            (method, recipient, booking_id, note or None),
+        )
+    except Exception:
+        pass
+
+
+def get_communication_logs(customer_id: int = None, limit: int = 20) -> list[dict]:
+    """Communication history, optionally scoped to one customer (via their
+    bookings/invoices — communication_logs has no direct customer FK)."""
+    rows = db.fetchall(
+        """
+        SELECT cl.cl_id          AS id,
+               cl.cl_log_type    AS log_type,
+               cl.cl_method      AS method,
+               cl.cl_recipient   AS recipient,
+               cl.cl_status      AS status,
+               cl.cl_note        AS note,
+               cl.cl_created_at  AS created_at,
+               COALESCE(b.bk_customer_name, b2.bk_customer_name, '') AS customer_name
+        FROM communication_logs cl
+        LEFT JOIN bookings b  ON b.bk_id  = cl.cl_booking_id
+        LEFT JOIN invoices i  ON i.inv_id = cl.cl_invoice_id
+        LEFT JOIN bookings b2 ON b2.bk_id = i.inv_booking_id
+        WHERE (%(cid)s::INT IS NULL
+               OR b.bk_customer_id = %(cid)s
+               OR b2.bk_customer_id = %(cid)s)
+        ORDER BY cl.cl_created_at DESC
+        LIMIT %(lim)s
+        """,
+        {"cid": customer_id, "lim": limit},
+    )
+    if not rows:
+        return []
+    return [
+        {
+            "id":            r["id"],
+            "log_type":      r["log_type"],
+            "method":        r["method"],
+            "recipient":     r["recipient"],
+            "status":        r["status"],
+            "note":          r["note"] or "",
+            "customer_name": r["customer_name"],
+            "created_at":    r["created_at"].strftime("%b %d, %Y %I:%M %p")
+                             if hasattr(r["created_at"], "strftime") else str(r["created_at"]),
+        }
+        for r in rows
+    ]
+
+
+def get_last_contact(customer_id: int) -> Optional[dict]:
+    logs = get_communication_logs(customer_id, limit=1)
+    return logs[0] if logs else None
 
 
 # ---------------------------------------------------------------------------

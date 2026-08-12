@@ -19,7 +19,7 @@ an `action` dict the UI shows with Confirm/Cancel buttons, and only
 execute_action() (called on Confirm) touches the database.
 """
 import re
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 import utils.repository as repo
 
@@ -444,6 +444,52 @@ def _answer_customer(q: str, customer: dict) -> dict:
     return {"ok": True, "chart": None, "error": "", "answer": " ".join(parts)}
 
 
+def _answer_ledger(q: str, customer: dict) -> dict:
+    entries = _safe(lambda: repo.get_customer_ledger(customer["id"]), [])
+    if not entries:
+        return {"ok": True, "chart": None, "error": "",
+                "answer": f"No ledger entries found for {customer['name']} yet — "
+                          f"bookings, invoices, and payments will appear here "
+                          f"automatically. Full detail is in Customers > Ledger."}
+    total_debit = sum(e["debit"] for e in entries)
+    total_credit = sum(e["credit"] for e in entries)
+    balance = total_debit - total_credit
+    recent = "; ".join(
+        f"{e['entry_type']} {e['reference']} ({e['recorded_date']}): "
+        f"{'+' + _peso(e['credit']) if e['entry_type'] == 'Payment' else _peso(e['debit'])}"
+        for e in entries[:5])
+    return {"ok": True, "chart": None, "error": "",
+            "answer": f"{customer['name']}'s ledger — total charged {_peso(total_debit)}, "
+                      f"total paid {_peso(total_credit)}, balance due {_peso(balance)}. "
+                      f"Recent: {recent}. Full history is in Customers > Ledger."}
+
+
+def _answer_last_contact(q: str, customer: dict) -> dict:
+    log = _safe(lambda: repo.get_last_contact(customer["id"]), None)
+    if not log:
+        return {"ok": True, "chart": None, "error": "",
+                "answer": f"No recorded contact history for {customer['name']} yet — "
+                          f"receipts, booking confirmations, and follow-ups sent "
+                          f"through the app are logged here automatically."}
+    kind = str(log["log_type"]).replace("_", " ")
+    return {"ok": True, "chart": None, "error": "",
+            "answer": f"Last contact with {customer['name']}: {kind} via "
+                      f"{log['method']} on {log['created_at']} ({log['status']})."}
+
+
+def _answer_communication_history(q: str, customer: dict) -> dict:
+    logs = _safe(lambda: repo.get_communication_logs(customer["id"], limit=8), [])
+    if not logs:
+        return {"ok": True, "chart": None, "error": "",
+                "answer": f"No communication history recorded for {customer['name']} yet."}
+    listing = "; ".join(
+        f"{str(l['log_type']).replace('_', ' ')} via {l['method']} on {l['created_at']}"
+        for l in logs)
+    return {"ok": True, "chart": None, "error": "",
+            "answer": f"Communication history with {customer['name']} "
+                      f"({len(logs)} most recent): {listing}."}
+
+
 def _answer_top_customers(q: str) -> dict:
     rows = _safe(repo.get_customer_order_frequency, [])
     rows = [r for r in rows if r.get("name") != "Others"][:5]
@@ -584,6 +630,79 @@ def _answer_pending(q: str) -> dict:
                 "answer": "No pending bookings — everything has been reviewed."}
     return {"ok": True, "chart": None, "error": "",
             "answer": f"There are {n} pending booking(s) waiting for review in the Orders page."}
+
+
+def _followup_line(f: dict) -> str:
+    return f"{f['customer_name']} — {f['note']} (due {f['date']})"
+
+
+def _answer_follow_ups(q: str) -> dict:
+    overdue = _safe(repo.get_overdue_follow_ups, [])
+    if re.search(r"\bover ?due\b|\blate\b|\bmissed\b", q):
+        if not overdue:
+            return {"ok": True, "chart": None, "error": "",
+                    "answer": "No overdue follow-ups — you're all caught up."}
+        listing = "; ".join(_followup_line(f) for f in overdue[:8])
+        return {"ok": True, "chart": None, "error": "",
+                "answer": f"{len(overdue)} overdue follow-up(s): {listing}."}
+
+    days = 0 if re.search(r"\btoday\b", q) else (
+        1 if re.search(r"\btomorrow\b", q) else 7)
+    upcoming = _safe(lambda: repo.get_upcoming_follow_ups(days), [])
+    if not upcoming and not overdue:
+        window = "today" if days == 0 else f"the next {days} day(s)"
+        return {"ok": True, "chart": None, "error": "",
+                "answer": f"No follow-ups due {window}, and none overdue."}
+    parts = []
+    if overdue:
+        parts.append(f"⚠ {len(overdue)} overdue: " +
+                     "; ".join(_followup_line(f) for f in overdue[:5]))
+    if upcoming:
+        window = "today" if days == 0 else f"the next {days} day(s)"
+        parts.append(f"Due within {window}: " +
+                     "; ".join(_followup_line(f) for f in upcoming[:8]))
+    return {"ok": True, "chart": None, "error": "", "answer": " ".join(parts)}
+
+
+def _answer_notifications(q: str) -> dict:
+    unread = _safe(repo.get_unread_notifications, [])
+    if not unread:
+        return {"ok": True, "chart": None, "action": None, "options": [], "error": "",
+                "answer": "No unread notifications — you're all caught up."}
+    listing = "; ".join(f"{n['title']}: {n['message']}" for n in unread[:8])
+    options = [{"label": "Mark all as read", "send": "mark all notifications read"}]
+    return {"ok": True, "chart": None, "action": None, "options": options, "error": "",
+            "answer": f"You have {len(unread)} unread notification(s): {listing}."}
+
+
+def _answer_daily_briefing(q: str) -> dict:
+    k = _safe(repo.get_dashboard_kpis, {})
+    overdue = _safe(repo.get_overdue_follow_ups, [])
+    due_today = _safe(repo.get_todays_follow_ups, [])
+    unread = _safe(repo.get_unread_notifications, [])
+    invoices = _safe(repo.get_all_invoices, [])
+    unpaid = [i for i in invoices if str(i.get("status", "")).lower() != "paid"]
+    unpaid_total = sum(float(i.get("amount", 0)) - float(i.get("paid", 0)) for i in unpaid)
+
+    parts = [
+        f"Good day! Here's your briefing — "
+        f"{k.get('todays_events', 0)} event(s) today ({k.get('todays_pax', 0)} pax), "
+        f"{k.get('pending_bookings', 0)} pending booking(s) to review, "
+        f"{_peso(float(k.get('weekly_revenue', 0)))} revenue this week."
+    ]
+    if unpaid:
+        parts.append(f"{len(unpaid)} unpaid invoice(s) totaling {_peso(unpaid_total)}.")
+    if overdue:
+        parts.append(f"⚠ {len(overdue)} OVERDUE follow-up(s): " +
+                     "; ".join(_followup_line(f) for f in overdue[:5]) + ".")
+    if due_today:
+        listing = "; ".join(f"{f['customer_name']} — {f['note']}" for f in due_today[:5])
+        parts.append(f"{len(due_today)} follow-up(s) due today: {listing}.")
+    if unread:
+        parts.append(f"{len(unread)} unread notification(s) — ask \"notifications\" to see them.")
+    if not (unpaid or overdue or due_today or unread):
+        parts.append("Nothing else needs your attention right now.")
+    return {"ok": True, "chart": None, "error": "", "answer": " ".join(parts)}
 
 
 def _answer_payment_methods(q: str) -> dict:
@@ -760,6 +879,11 @@ def _answer_help() -> dict:
         "• Operations — \"unpaid invoices\", \"pending bookings\", \"upcoming events\", \"today's summary\"\n"
         "• Insights — \"best-selling menu items\", \"top locations\", \"bookings by occasion\", \"payment methods\"\n"
         "• The business — \"our packages\", \"downpayment policy\", \"business contact info\", \"how many customers?\"\n"
+        "• Follow-ups — \"follow-ups today\", \"overdue follow-ups\", \"follow-ups this week\"\n"
+        "• Notifications — \"notifications\", \"anything new?\"\n"
+        "• A customer's ledger — \"Maria's ledger\", \"balance history for Juan\"\n"
+        "• Contact history — \"last contact with Maria\", \"communication history for Juan\"\n"
+        "• Daily briefing — \"brief me\", \"daily summary\", \"catch me up\"\n"
         "• How-to — \"how do I add an expense / make a booking / print a receipt / backup?\"\n"
         "I can also DO things (with your confirmation):\n"
         "• \"Approve the booking of Maria\" / \"approve BKG-007\"\n"
@@ -771,6 +895,10 @@ def _answer_help() -> dict:
         "• \"Delete expense\" — pick from the recent ones\n"
         "• \"Add booking\" — guided: customer → date → pax → package → Confirm\n"
         "• \"List bookings\" / \"list pending bookings\" for full details\n"
+        "• \"Schedule a follow-up with Maria tomorrow about final headcount\" / \"mark follow-up with Maria done\"\n"
+        "• \"Recalculate loyalty for Maria\"\n"
+        "• \"Mark all notifications as read\"\n"
+        "• \"Export report as PDF\" / \"export report as Excel\" — saves to your home folder\n"
         "You can ask in English or Bisaya."
     )}
 
@@ -1094,6 +1222,116 @@ def _answer_expense_action(q: str) -> dict:
     return _expense_confirm(category, amount, description)
 
 
+def _answer_loyalty_recalc_action(q: str) -> dict:
+    global _PENDING
+    cust = _find_customer(_strip_cmd_words(q))
+    if cust is None:
+        _PENDING = {"kind": "loyalty_pick"}
+        options = _customer_options("recalculate loyalty for",
+                                    _safe(repo.get_all_customers_with_loyalty, []))
+        return _plain("Recalculate loyalty for which customer? Pick one or type the name.",
+                      options)
+    _PENDING = {}
+    action = {"type": "loyalty_recalc", "customer_id": cust["id"], "name": cust["name"],
+              "label": f"Recalculate loyalty tier for {cust['name']}"}
+    return _ok_action(
+        f"Ready to recalculate {cust['name']}'s loyalty tier from their event "
+        f"history (currently {cust.get('loyalty_tier', 'Bronze')}). "
+        f"Press Confirm to proceed.", action)
+
+
+def _answer_notifications_mark_read_action(q: str) -> dict:
+    unread = _safe(repo.get_unread_notifications, [])
+    if not unread:
+        return _plain("There's nothing to mark — no unread notifications.")
+    action = {"type": "notifications_mark_read",
+              "label": f"Mark {len(unread)} notification(s) as read"}
+    return _ok_action(
+        f"Ready to mark all {len(unread)} unread notification(s) as read. "
+        f"Press Confirm to proceed.", action)
+
+
+def _answer_export_report_action(q: str) -> dict:
+    fmt = "excel" if re.search(r"\bexcel\b|\bxlsx\b|\bspreadsheet\b", q) else "pdf"
+    action = {"type": "export_report", "format": fmt,
+              "label": f"Export business report as {fmt.upper()}"}
+    return _ok_action(
+        f"Ready to export the full business report (KPIs, bookings, and all "
+        f"analytics sections) as {fmt.upper()} to your home folder. "
+        f"Press Confirm to proceed.", action)
+
+
+def _answer_followup_add_action(q: str, raw: str) -> dict:
+    cust = _find_customer(q)
+    if cust is None:
+        return _plain(
+            "To schedule a follow-up, tell me the customer and when — e.g. "
+            "\"add a follow-up for Maria Cruz on Aug 20 about final headcount\" "
+            "or \"follow up with Juan tomorrow\".")
+    date_str = None
+    if re.search(r"\btoday\b", q):
+        date_str = date.today().strftime("%b %d, %Y")
+    elif re.search(r"\btomorrow\b", q):
+        date_str = (date.today() + timedelta(days=1)).strftime("%b %d, %Y")
+    else:
+        date_str = _parse_booking_date(q)
+    if not date_str:
+        return _plain(
+            f"When should I follow up with {cust['name']}? Try \"today\", "
+            f"\"tomorrow\", or a date like \"Aug 20\".")
+    note_m = re.search(r"\b(?:about|regarding|re|note)\b[:\s]+(.{3,120})", raw, re.IGNORECASE)
+    note = note_m.group(1).strip() if note_m else "Follow up via AI assistant"
+    action = {"type": "follow_up_add", "customer_id": cust["id"], "name": cust["name"],
+              "date": date_str, "note": note,
+              "label": f"Schedule follow-up with {cust['name']} on {date_str}"}
+    return _ok_action(
+        f"Ready to schedule a follow-up:\n• {cust['name']} — {date_str}: {note}\n"
+        f"Press Confirm to proceed.", action)
+
+
+def _answer_followup_complete_action(q: str) -> dict:
+    open_items = _safe(repo.get_overdue_follow_ups, []) + \
+                 _safe(lambda: repo.get_upcoming_follow_ups(365), [])
+    cust = _find_customer(q)
+    if cust is None:
+        if not open_items:
+            return _plain("There are no open follow-ups to complete.")
+        options = [{"label": _followup_line(f), "send": f"complete follow-up {f['id']}"}
+                  for f in open_items[:8]]
+        return _plain("Which follow-up should I mark done? Pick one:", options)
+    hits = [f for f in open_items if f["customer_id"] == cust["id"]]
+    if not hits:
+        return _plain(f"No open follow-ups found for {cust['name']}.")
+    if len(hits) > 1:
+        options = [{"label": _followup_line(f), "send": f"complete follow-up {f['id']}"}
+                  for f in hits[:8]]
+        return _plain(f"{cust['name']} has {len(hits)} open follow-ups — which one?", options)
+    f = hits[0]
+    action = {"type": "follow_up_complete", "follow_up_id": f["id"],
+              "label": f"Mark follow-up with {f['customer_name']} as done"}
+    return _ok_action(
+        f"Ready to mark this follow-up done:\n• {_followup_line(f)}\n"
+        f"Press Confirm to proceed.", action)
+
+
+def _answer_followup_complete_by_id(q: str) -> dict | None:
+    """Direct 'complete follow-up <id>' from a picker click."""
+    m = re.search(r"\bcomplete follow-up (\d+)\b", q)
+    if not m:
+        return None
+    fid = int(m.group(1))
+    open_items = _safe(repo.get_overdue_follow_ups, []) + \
+                 _safe(lambda: repo.get_upcoming_follow_ups(365), [])
+    f = next((x for x in open_items if x["id"] == fid), None)
+    if f is None:
+        return _plain("That follow-up is no longer open.")
+    action = {"type": "follow_up_complete", "follow_up_id": f["id"],
+              "label": f"Mark follow-up with {f['customer_name']} as done"}
+    return _ok_action(
+        f"Ready to mark this follow-up done:\n• {_followup_line(f)}\n"
+        f"Press Confirm to proceed.", action)
+
+
 def _answer_list_bookings(q: str) -> dict:
     """Bulleted list of bookings — ref, customer, date, pax, total, status."""
     rows = _safe(repo.get_bookings_any_status, [])
@@ -1135,6 +1373,12 @@ def _audit(action_desc: str, table: str, record_id):
                              new_value={"via": "ai_assistant"})
     except Exception:
         pass
+
+
+def daily_briefing() -> dict:
+    """Proactive summary (today's events, overdue/due follow-ups, unread
+    notifications, unpaid invoices) — for the AI page to show on open."""
+    return _answer_daily_briefing("")
 
 
 def execute_action(action: dict) -> dict:
@@ -1265,6 +1509,66 @@ def execute_action(action: dict) -> dict:
                     "message": f"✅ Done ({stamp}) — {_peso(float(action['amount']))} "
                                f"{action['category']} expense recorded. You can edit or "
                                f"delete it in the Expenses page."}
+
+        if kind == "loyalty_recalc":
+            repo.recalculate_loyalty(action["customer_id"])
+            _audit("Loyalty tier recalculated via AI assistant", "customers",
+                   action["customer_id"])
+            try:
+                from utils.signals import app_events
+                app_events().customer_saved.emit()
+            except Exception:
+                pass
+            cust = next((c for c in _safe(repo.get_all_customers_with_loyalty, [])
+                        if c.get("id") == action["customer_id"]), None)
+            tier = cust.get("loyalty_tier", "?") if cust else "?"
+            return {"ok": True,
+                    "message": f"✅ Done ({stamp}) — {action.get('name')}'s loyalty "
+                               f"tier recalculated. Current tier: {tier}."}
+
+        if kind == "notifications_mark_read":
+            repo.mark_all_notifications_read()
+            return {"ok": True,
+                    "message": f"✅ Done ({stamp}) — all notifications marked as read."}
+
+        if kind == "follow_up_add":
+            fu_id = repo.add_follow_up(action["customer_id"], action["date"], action["note"])
+            _audit("Follow-up added via AI assistant", "customer_follow_ups",
+                   fu_id or 0)
+            return {"ok": True,
+                    "message": f"✅ Done ({stamp}) — follow-up with "
+                               f"{action.get('name')} scheduled for {action['date']}."}
+
+        if kind == "follow_up_complete":
+            repo.complete_follow_up(action["follow_up_id"])
+            _audit("Follow-up completed via AI assistant", "customer_follow_ups",
+                   action["follow_up_id"])
+            return {"ok": True,
+                    "message": f"✅ Done ({stamp}) — follow-up marked complete."}
+
+        if kind == "export_report":
+            import os
+            import utils.exporter as _exporter
+            fmt = action.get("format", "pdf")
+            kpis = _safe(lambda: repo.get_report_kpis(), {})
+            bookings = _safe(repo.get_all_bookings, [])
+            sections = _safe(_exporter.build_analytics_sections, [])
+            biz = _safe(repo.get_business_info, {})
+            biz_name = biz.get("name") or "Jayraldine's Catering"
+            fname = f"jayraldines_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{'xlsx' if fmt == 'excel' else 'pdf'}"
+            path = os.path.join(os.path.expanduser("~"), fname)
+            ok = (_exporter.export_excel(path, kpis, bookings, "Business Report",
+                                         "All Time", biz_name, sections=sections)
+                  if fmt == "excel" else
+                  _exporter.export_pdf(path, kpis, bookings, "Business Report",
+                                       "All Time", biz_name, sections=sections))
+            if ok:
+                return {"ok": True,
+                        "message": f"✅ Done ({stamp}) — report exported to:\n{path}"}
+            lib = "openpyxl" if fmt == "excel" else "reportlab"
+            return {"ok": False,
+                    "message": f"Export failed — make sure {lib} is installed "
+                               f"(pip install {lib})."}
 
         return {"ok": False, "message": "Unknown action type."}
     except Exception as e:
@@ -1796,6 +2100,21 @@ def _resolve_pending(q: str, raw: str = ""):
         return _plain(f"How much should I record for {pending['ref']}? Type the "
                       f"amount (e.g. 5000) or \"full\" — or say \"never mind\".")
 
+    if pending.get("kind") == "loyalty_pick":
+        hits = _find_customers_all(_strip_cmd_words(q))
+        if len(hits) == 1:
+            _PENDING = {}
+            return _answer_loyalty_recalc_action(f"recalculate loyalty for {hits[0]['name']}")
+        if len(hits) > 1:
+            _PENDING = {"kind": "loyalty_pick"}
+            options = _customer_options("recalculate loyalty for", hits)
+            return _plain(f"{len(hits)} customers match — pick one:", options)
+        if _is_new_request(q):
+            _PENDING = {}
+            return None
+        return _plain("I couldn't find that customer — type part of their name, "
+                      "or say \"never mind\".")
+
     _PENDING = {}
     return None
 
@@ -1929,6 +2248,17 @@ def _answer_expense_delete(q: str) -> dict:
 
 def _detect_action(q: str):
     """Route action-style requests. Returns a result dict or None."""
+    # follow-up actions — checked first: "mark ... done" and "complete ..."
+    # are generic enough to otherwise be grabbed by the booking-completion
+    # check further down whenever the message happens to mention a follow-up.
+    if re.search(r"\bcomplete follow-up \d+\b", q):
+        return _answer_followup_complete_by_id(q)
+    if (re.search(r"\bfollow[\s-]?up", q) and
+            re.search(r"\b(complete|finish|done)\b", q)):
+        return _answer_followup_complete_action(q)
+    if re.search(r"\b(add|schedule|create|set|make)\b.{0,24}\bfollow[\s-]?up"
+                 r"|\bfollow[\s-]?up\b.{0,20}\bwith\b", q):
+        return _answer_followup_add_action(q, q)
     # edit / delete customer (checked early so "customer" keywords don't
     # fall into the top-customers lookup)
     if re.search(r"\b(delete|remove|erase)\b.{0,24}\bcustomer\b"
@@ -1968,6 +2298,15 @@ def _detect_action(q: str):
         return _answer_payment_action(q)
     if re.search(r"\b(add|record|log)\b.{0,20}\bexpense\b", q):
         return _answer_expense_action(q)
+    if re.search(r"\brecalculat\w*\b.{0,30}\bloyalty\b|\bloyalty\b.{0,20}\brecalculat", q):
+        return _answer_loyalty_recalc_action(q)
+    if re.search(r"\bmark\b.{0,20}\bnotifications?\b.{0,16}\bread\b"
+                 r"|\bclear\b.{0,16}\bnotifications?\b"
+                 r"|\bnotifications?\b.{0,16}\bread\b", q):
+        return _answer_notifications_mark_read_action(q)
+    if re.search(r"\bexport\b.{0,24}\breport\b|\breport\b.{0,16}\bexport\b"
+                 r"|\bdownload\b.{0,16}\breport\b", q):
+        return _answer_export_report_action(q)
     return None
 
 
@@ -1986,6 +2325,9 @@ _INTENTS = [
     (_answer_unpaid,            r"\bunpaid\b|\boutstanding\b|\bbalance\b|\bcollect\b|\bowe\b|\bdebt\b|\breceivable"),
     (_answer_list_bookings,     r"\b(list|show|view|display|all)\b.{0,20}\b(booking|bookings|order|orders)\b"
                                 r"|\bbookings?\b.{0,12}\bdetails\b|^\s*(bookings?|orders?)\s*$"),
+    (_answer_daily_briefing,    r"\bbriefing\b|\bbrief me\b|\bmorning summary\b|\bdaily summary\b|\bcatch me up\b|\bwhat's on today\b"),
+    (_answer_follow_ups,        r"\bfollow[\s-]?ups?\b"),
+    (_answer_notifications,     r"\bnotifications?\b|\bunread\b|\banything new\b"),
     (_answer_pending,           r"\bpending\b|\bwaiting\b|\bfor review\b|\bto approve\b"),
     (_answer_today,             r"\btoday\b|\btodays\b|\bright now\b|\bsummary of the day\b"),
     (_answer_upcoming,          r"\bupcoming\b|\bnext event|\bschedule\b|\bevents\b|\bcalendar\b"),
@@ -2019,6 +2361,9 @@ _KEYWORD_HANDLERS = {
     _answer_payment_methods:   {"payment", "gcash", "cash", "bank"},
     _answer_business_info:     {"business", "contact", "address", "downpayment", "policy"},
     _answer_total:             {"revenue", "profit", "income", "sales", "total", "much"},
+    _answer_follow_ups:        {"followup", "followups", "overdue"},
+    _answer_notifications:     {"notification", "notifications", "unread", "alerts"},
+    _answer_daily_briefing:    {"briefing", "brief"},
 }
 
 
@@ -2074,6 +2419,25 @@ def ask(question: str) -> dict:
         category = _find_category(q)
         if category:
             return _answer_category_expense(q, category)
+
+        # 2b. Ledger / balance history / communication history for a named
+        #     customer — checked before the generic customer profile so
+        #     these specific asks don't get swallowed by _answer_customer.
+        if re.search(r"\bledger\b|\bbalance history\b", q):
+            customer = _find_customer(q)
+            return _answer_ledger(q, customer) if customer else _plain(
+                "Whose ledger do you want to see? Include their name, e.g. "
+                "\"Maria's ledger\".")
+        if re.search(r"\blast contact\b|\blast contacted\b|\bwhen.{0,16}contact", q):
+            customer = _find_customer(q)
+            return _answer_last_contact(q, customer) if customer else _plain(
+                "Last contact with whom? Include their name, e.g. "
+                "\"last contact with Maria\".")
+        if re.search(r"\bcommunication\b.{0,16}(history|log)|\bcontact history\b", q):
+            customer = _find_customer(q)
+            return _answer_communication_history(q, customer) if customer else _plain(
+                "Communication history for whom? Include their name, e.g. "
+                "\"communication history for Maria\".")
 
         # 3. Customer name mentioned → customer profile
         customer = _find_customer(q)
