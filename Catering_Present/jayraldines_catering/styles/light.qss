@@ -162,6 +162,33 @@ QLabel#badgeGold    { background-color: rgba(245,158,11,0.10);  color: #D97706; 
     padding: 1px 5px;
 }
 
+/* Top Navigation Tabs (Facebook Style) */
+QPushButton#topNavTab {
+    background-color: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #5B6B84;
+}
+QPushButton#topNavTab:hover {
+    background-color: #F1F5F9;
+    color: #0F172A;
+    border-bottom: 3px solid transparent;
+}
+QPushButton#topNavTabActive {
+    background-color: rgba(225, 29, 72, 0.08);
+    border: none;
+    border-bottom: 3px solid #E11D48;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #D31647;
+}
+
 /* --- CARDS & CONTAINERS --- */
 QFrame#card, QFrame#saasCard {
     background-color: #FFFFFF;

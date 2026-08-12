@@ -245,7 +245,7 @@ class BookingModal(QDialog):
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         if sys.platform != "win32":
             self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setMinimumSize(680, 620)
+        self.setMinimumSize(700, 660)
         self.setModal(True)
 
         self._step = 0
@@ -296,10 +296,10 @@ class BookingModal(QDialog):
         container_layout.addWidget(div)
 
         self._stack = QStackedWidget()
-        self._stack.addWidget(self._scrollable(self._build_step0()))
-        self._stack.addWidget(self._scrollable(self._build_step1()))
-        self._stack.addWidget(self._scrollable(self._build_step2()))
-        self._stack.addWidget(self._scrollable(self._build_step3()))
+        self._stack.addWidget(self._build_step0())
+        self._stack.addWidget(self._build_step1())
+        self._stack.addWidget(self._build_step2())
+        self._stack.addWidget(self._build_step3())
         container_layout.addWidget(self._stack, 1)
 
         footer_div = QFrame()
@@ -341,14 +341,6 @@ class BookingModal(QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         animate_dialog_open(self, duration=260)
-
-    def _scrollable(self, inner_widget):
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("background: transparent;")
-        scroll.setWidget(inner_widget)
-        return scroll
 
     def _build_step0(self):
         w = QWidget()

@@ -352,7 +352,11 @@ CREATE SEQUENCE IF NOT EXISTS seq_order_ref   START 1;
 CREATE OR REPLACE PROCEDURE sp_next_booking_ref(OUT p_ref TEXT)
 LANGUAGE plpgsql AS $$
 BEGIN
-    p_ref := 'BKG-' || LPAD(nextval('seq_booking_ref')::TEXT, 3, '0');
+    -- loop past refs already taken by seed data / manual inserts
+    LOOP
+        p_ref := 'BKG-' || LPAD(nextval('seq_booking_ref')::TEXT, 3, '0');
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM bookings WHERE bk_booking_ref = p_ref);
+    END LOOP;
 END;
 $$;
 
@@ -362,7 +366,10 @@ $$;
 CREATE OR REPLACE PROCEDURE sp_next_invoice_ref(OUT p_ref TEXT)
 LANGUAGE plpgsql AS $$
 BEGIN
-    p_ref := 'INV-' || LPAD(nextval('seq_invoice_ref')::TEXT, 3, '0');
+    LOOP
+        p_ref := 'INV-' || LPAD(nextval('seq_invoice_ref')::TEXT, 3, '0');
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM invoices WHERE inv_invoice_ref = p_ref);
+    END LOOP;
 END;
 $$;
 
@@ -372,7 +379,10 @@ $$;
 CREATE OR REPLACE PROCEDURE sp_next_order_ref(OUT p_ref TEXT)
 LANGUAGE plpgsql AS $$
 BEGIN
-    p_ref := 'ORD-' || LPAD(nextval('seq_order_ref')::TEXT, 3, '0');
+    LOOP
+        p_ref := 'ORD-' || LPAD(nextval('seq_order_ref')::TEXT, 3, '0');
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM kitchen_orders WHERE ko_order_ref = p_ref);
+    END LOOP;
 END;
 $$;
 

@@ -1166,6 +1166,36 @@ class ReportsPage(QWidget):
         bookings = repo.get_all_bookings(period_filter=fltr) or []
         return kpis, bookings, self._period
 
+    def _grab_chart_images(self) -> list:
+        """Screenshot each chart card into a temp PNG: [(title, png_path)]."""
+        import tempfile
+        cards = [
+            ("Income Trend",              "line_card"),
+            ("Payment Methods",           "donut_card"),
+            ("Monthly Revenue",           "monthly_card"),
+            ("Top Menu Items",            "top_menu_card"),
+            ("Year vs Year Comparison",   "year_cmp_card"),
+            ("Top Event Locations",       "locations_card"),
+            ("Customer Order Frequency",  "freq_card"),
+            ("Bookings by Occasion",      "occasion_card"),
+        ]
+        images = []
+        tmp_dir = tempfile.mkdtemp(prefix="jc_report_")
+        for title, attr in cards:
+            card = getattr(self, attr, None)
+            if card is None or card.width() < 10:
+                continue
+            try:
+                pixmap = card.grab()
+                if pixmap.isNull():
+                    continue
+                png = os.path.join(tmp_dir, f"{attr}.png")
+                if pixmap.save(png, "PNG"):
+                    images.append((title, png))
+            except Exception:
+                continue
+        return images
+
     def _export_pdf(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Export PDF", "jayraldines_report.pdf", "PDF Files (*.pdf)"
@@ -1173,7 +1203,10 @@ class ReportsPage(QWidget):
         if not path:
             return
         kpis, bookings, period = self._get_export_data()
-        ok = _exporter.export_pdf(path, kpis, bookings, "Business Report", period)
+        sections = _exporter.build_analytics_sections()
+        chart_images = self._grab_chart_images()
+        ok = _exporter.export_pdf(path, kpis, bookings, "Business Report", period,
+                                  sections=sections, chart_images=chart_images)
         if ok:
             QMessageBox.information(self, "Export", f"PDF exported to:\n{path}")
         else:
@@ -1187,7 +1220,9 @@ class ReportsPage(QWidget):
         if not path:
             return
         kpis, bookings, period = self._get_export_data()
-        ok = _exporter.export_excel(path, kpis, bookings, "Business Report", period)
+        sections = _exporter.build_analytics_sections()
+        ok = _exporter.export_excel(path, kpis, bookings, "Business Report", period,
+                                    sections=sections)
         if ok:
             QMessageBox.information(self, "Export", f"Excel exported to:\n{path}")
         else:

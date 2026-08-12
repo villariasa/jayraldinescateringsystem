@@ -552,7 +552,19 @@ class DashboardPage(QWidget):
             return
         kpis = repo.get_report_kpis()
         bookings = repo.get_all_bookings() or []
-        ok = _exporter.export_pdf(path, kpis, bookings, "Dashboard Report", "All Time")
+        sections = _exporter.build_analytics_sections()
+        chart_images = []
+        try:
+            import tempfile, os as _os
+            pixmap = self.summary_card.grab()
+            if not pixmap.isNull():
+                png = _os.path.join(tempfile.mkdtemp(prefix="jc_dash_"), "summary.png")
+                if pixmap.save(png, "PNG"):
+                    chart_images.append(("Revenue Summary", png))
+        except Exception:
+            pass
+        ok = _exporter.export_pdf(path, kpis, bookings, "Dashboard Report", "All Time",
+                                  sections=sections, chart_images=chart_images)
         if ok:
             QMessageBox.information(self, "Export", f"PDF exported to:\n{path}")
         else:
@@ -567,7 +579,9 @@ class DashboardPage(QWidget):
             return
         kpis = repo.get_report_kpis()
         bookings = repo.get_all_bookings() or []
-        ok = _exporter.export_excel(path, kpis, bookings, "Dashboard Report", "All Time")
+        sections = _exporter.build_analytics_sections()
+        ok = _exporter.export_excel(path, kpis, bookings, "Dashboard Report", "All Time",
+                                    sections=sections)
         if ok:
             QMessageBox.information(self, "Export", f"Excel exported to:\n{path}")
         else:

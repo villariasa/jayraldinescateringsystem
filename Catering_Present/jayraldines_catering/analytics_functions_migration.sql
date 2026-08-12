@@ -176,3 +176,39 @@ $$;
 -- -----------------------------------------------------------------------------
 ALTER TYPE expense_category ADD VALUE IF NOT EXISTS 'Salary';
 ALTER TYPE expense_category ADD VALUE IF NOT EXISTS 'Service';
+
+-- -----------------------------------------------------------------------------
+-- Collision-proof reference generators.
+-- Seed data inserts explicit refs (BKG-001…) without advancing the sequences,
+-- so plain nextval() can regenerate an existing ref and violate the unique
+-- constraint. Loop until a free ref is found.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE sp_next_booking_ref(OUT p_ref TEXT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    LOOP
+        p_ref := 'BKG-' || LPAD(nextval('seq_booking_ref')::TEXT, 3, '0');
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM bookings WHERE bk_booking_ref = p_ref);
+    END LOOP;
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE sp_next_invoice_ref(OUT p_ref TEXT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    LOOP
+        p_ref := 'INV-' || LPAD(nextval('seq_invoice_ref')::TEXT, 3, '0');
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM invoices WHERE inv_invoice_ref = p_ref);
+    END LOOP;
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE sp_next_order_ref(OUT p_ref TEXT)
+LANGUAGE plpgsql AS $$
+BEGIN
+    LOOP
+        p_ref := 'ORD-' || LPAD(nextval('seq_order_ref')::TEXT, 3, '0');
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM kitchen_orders WHERE ko_order_ref = p_ref);
+    END LOOP;
+END;
+$$;

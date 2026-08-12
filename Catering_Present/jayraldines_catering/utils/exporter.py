@@ -238,9 +238,95 @@ def _footer(story, styles, biz_name: str = "Jayraldine's Catering"):
     ))
 
 
+def build_analytics_sections() -> list:
+    """Analytics data tables for exports: (title, headers, rows).
+    Mirrors what the Reports page charts show."""
+    import utils.repository as repo
+    sections = []
+
+    def _safe(fn):
+        try:
+            return fn() or []
+        except Exception:
+            return []
+
+    rows = _safe(repo.get_profit_summary)
+    if rows:
+        sections.append((
+            "Monthly Revenue, Expenses & Profit (This Year)",
+            ["Month", "Revenue", "Expenses", "Net Profit"],
+            [[r["month"], f"PHP {r['revenue']:,.0f}", f"PHP {r['expense']:,.0f}",
+              f"PHP {r['profit']:,.0f}"] for r in rows]))
+
+    rows = _safe(repo.get_payment_methods)
+    if rows:
+        sections.append(("Payment Methods", ["Method", "Bookings"],
+                         [[r["method"], str(r["total"])] for r in rows]))
+
+    rows = _safe(repo.get_top_menu_items)
+    if rows:
+        sections.append(("Top Menu Items", ["Item", "Orders"],
+                         [[r["item"], str(r["count"])] for r in rows]))
+
+    rows = _safe(lambda: repo.get_top_locations(limit=10))
+    if rows:
+        sections.append((
+            "Top Event Locations", ["Location", "Bookings"],
+            [[str(r.get("location") or r.get("name") or "?"),
+              str(r.get("count") or r.get("total") or 0)] for r in rows]))
+
+    rows = _safe(lambda: repo.get_top_occasions(limit=10))
+    if rows:
+        sections.append((
+            "Bookings by Occasion", ["Occasion", "Bookings"],
+            [[str(r.get("occasion") or r.get("name") or "?"),
+              str(r.get("count") or r.get("total") or 0)] for r in rows]))
+
+    rows = _safe(repo.get_customer_order_frequency)
+    if rows:
+        sections.append(("Customer Order Frequency", ["Customer", "Bookings"],
+                         [[r["name"], str(r["count"])] for r in rows]))
+
+    rows = _safe(lambda: repo.get_expense_breakdown(datetime.now().year))
+    if rows:
+        sections.append(("Expenses by Category (This Year)", ["Category", "Amount"],
+                         [[r["category"], f"PHP {r['total']:,.0f}"] for r in rows]))
+
+    rows = _safe(repo.get_yearly_summary)
+    if rows:
+        sections.append((
+            "Year-over-Year Summary", ["Year", "Revenue", "Expenses", "Net Profit"],
+            [[str(r["year"]), f"PHP {r['revenue']:,.0f}", f"PHP {r['expense']:,.0f}",
+              f"PHP {r['profit']:,.0f}"] for r in rows]))
+
+    return sections
+
+
+def _section_table(story, styles, title: str, headers: list, rows: list):
+    story.append(Paragraph(title, styles["SectionHead"]))
+    data = [[Paragraph(h, styles["TableHead"]) for h in headers]]
+    for r in rows:
+        data.append([Paragraph(str(c), styles["TableCell"]) for c in r])
+    tbl = Table(data, colWidths=[_CONTENT_W / len(headers)] * len(headers),
+                repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), _C_DARK),
+        ("GRID", (0, 0), (-1, -1), 0.4, _C_BORDER),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [_C_WHITE, _C_LIGHT]),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(tbl)
+    story.append(Spacer(1, 10))
+
+
 def export_pdf(path: str, kpis: dict, bookings: list,
                title: str = "Business Report", period: str = "All Time",
-               biz_name: str = "Jayraldine's Catering") -> bool:
+               biz_name: str = "Jayraldine's Catering",
+               sections: list = None, chart_images: list = None) -> bool:
+    """sections: [(title, headers, rows)] — analytics tables.
+    chart_images: [(title, png_path)] — chart screenshots from the live page."""
     if not REPORTLAB_OK:
         return False
     try:
@@ -256,7 +342,30 @@ def export_pdf(path: str, kpis: dict, bookings: list,
         _header_block(story, styles, biz_name, title, period)
         story.append(Paragraph("Key Performance Indicators", styles["SectionHead"]))
         _kpi_row(story, styles, kpis)
+
+        # Charts, as images grabbed from the live Reports page
+        for chart_title, png in (chart_images or []):
+            try:
+                from reportlab.lib.utils import ImageReader
+                iw, ih = ImageReader(png).getSize()
+                w = _CONTENT_W
+                h = ih * (w / iw)
+                if h > 9 * cm:
+                    h = 9 * cm
+                    w = iw * (h / ih)
+                story.append(KeepTogether([
+                    Paragraph(chart_title, styles["SectionHead"]),
+                    Image(png, width=w, height=h),
+                    Spacer(1, 8),
+                ]))
+            except Exception as exc:
+                print(f"[exporter] chart image skipped ({chart_title}): {exc}")
+
         _bookings_table(story, styles, bookings)
+
+        for sec_title, headers, rows in (sections or []):
+            _section_table(story, styles, sec_title, headers, rows)
+
         _footer(story, styles, biz_name)
         doc.build(story)
         return True
@@ -452,7 +561,8 @@ def export_receipt_pdf(path: str, inv: dict, business: dict) -> bool:
 
 def export_excel(path: str, kpis: dict, bookings: list,
                  title: str = "Business Report", period: str = "All Time",
-                 biz_name: str = "Jayraldine's Catering") -> bool:
+                 biz_name: str = "Jayraldine's Catering",
+                 sections: list = None) -> bool:
     if not OPENPYXL_OK:
         return False
     try:
@@ -570,6 +680,40 @@ def export_excel(path: str, kpis: dict, bookings: list,
         c.value = f"{biz_name}  •  System-generated report  •  Confidential"
         c.font = Font(name="Calibri", size=8, italic=True, color=GRAY)
         c.alignment = Alignment(horizontal="center")
+
+        # Analytics sections — one worksheet per section
+        for sec_title, sec_headers, sec_rows in (sections or []):
+            sheet_name = sec_title[:28].replace("/", "-")
+            ws2 = wb.create_sheet(sheet_name)
+            for col in range(1, len(sec_headers) + 1):
+                ws2.column_dimensions[get_column_letter(col)].width = 24
+            r2 = 1
+            ws2.merge_cells(start_row=r2, start_column=1,
+                            end_row=r2, end_column=len(sec_headers))
+            tc = ws2.cell(row=r2, column=1, value=sec_title.upper())
+            tc.font = Font(name="Calibri", bold=True, size=11, color=WHITE)
+            tc.fill = _fill(DARK)
+            tc.alignment = Alignment(horizontal="center", vertical="center")
+            ws2.row_dimensions[r2].height = 20
+            r2 += 1
+            for col, hdr in enumerate(sec_headers, 1):
+                hc = ws2.cell(row=r2, column=col, value=hdr)
+                hc.font = Font(name="Calibri", bold=True, size=9, color=WHITE)
+                hc.fill = _fill(GRAY)
+                hc.border = _border()
+                hc.alignment = Alignment(horizontal="center", vertical="center")
+            r2 += 1
+            for i, sec_row in enumerate(sec_rows):
+                bg = LIGHT if i % 2 == 0 else WHITE
+                for col, val in enumerate(sec_row, 1):
+                    cc = ws2.cell(row=r2, column=col, value=val)
+                    cc.font = Font(name="Calibri", size=9)
+                    cc.fill = _fill(bg)
+                    cc.border = _border()
+                    cc.alignment = Alignment(
+                        horizontal="left" if col == 1 else "right",
+                        vertical="center", indent=1)
+                r2 += 1
 
         wb.save(path)
         return True

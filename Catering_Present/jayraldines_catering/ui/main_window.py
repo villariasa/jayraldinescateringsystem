@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.right_widget)
 
         self.sidebar.page_changed.connect(self._navigate)
+        self.topbar.tab_selected.connect(self._navigate)
 
         self._notif_popover = NotificationPopover(parent=self)
         self.topbar.notif_btn.clicked.connect(self._open_notif_popover)

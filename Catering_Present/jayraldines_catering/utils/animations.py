@@ -20,18 +20,28 @@ def create_soft_shadow(widget, radius=15, y_offset=4, opacity=20):
     return shadow
 
 def apply_fade_in(widget, duration=600):
-    """Applies a smooth fade-in effect to a widget on load."""
+    """Applies a smooth fade-in effect to a widget on load.
+    The effect is removed once the fade completes (see animate_slide_fade_in)."""
     # FIX: Attach to the widget so Python doesn't garbage collect them!
     widget._opacity_effect = QGraphicsOpacityEffect(widget)
     widget.setGraphicsEffect(widget._opacity_effect)
-    
+
     widget._fade_anim = QPropertyAnimation(widget._opacity_effect, b"opacity", widget)
     widget._fade_anim.setDuration(duration)
     widget._fade_anim.setStartValue(0.0)
     widget._fade_anim.setEndValue(1.0)
     widget._fade_anim.setEasingCurve(QEasingCurve.OutCubic)
+
+    def _cleanup():
+        try:
+            widget.setGraphicsEffect(None)
+        except RuntimeError:
+            pass
+        widget._opacity_effect = None
+
+    widget._fade_anim.finished.connect(_cleanup)
     widget._fade_anim.start()
-    
+
     return widget._fade_anim
 
 
@@ -45,33 +55,33 @@ def _opacity_effect(widget):
     return effect
 
 
-def animate_slide_fade_in(widget, offset_x=10, offset_y=0, duration=220):
-    """Lightweight slide/fade animation used for stacked content changes."""
+def animate_slide_fade_in(widget, offset_x=0, offset_y=0, duration=220):
+    """Lightweight fade animation used for stacked content changes.
+
+    The QGraphicsOpacityEffect is REMOVED when the fade completes — a
+    lingering effect forces the widget to render through an offscreen
+    buffer, which corrupts child repaints (inputs vanishing on hover).
+    """
     effect = _opacity_effect(widget)
-    final_pos = widget.pos()
-    start_pos = final_pos + QPoint(offset_x, offset_y)
-
-    widget.move(start_pos)
-    widget.show()
-
+    if effect is None:
+        return None
+    effect.setOpacity(0.0)
     group = QParallelAnimationGroup(widget)
+    fade_anim = QPropertyAnimation(effect, b"opacity", group)
+    fade_anim.setDuration(duration)
+    fade_anim.setStartValue(0.0)
+    fade_anim.setEndValue(1.0)
+    fade_anim.setEasingCurve(QEasingCurve.OutCubic)
+    group.addAnimation(fade_anim)
 
-    pos_anim = QPropertyAnimation(widget, b"pos", group)
-    pos_anim.setDuration(duration)
-    pos_anim.setStartValue(start_pos)
-    pos_anim.setEndValue(final_pos)
-    pos_anim.setEasingCurve(QEasingCurve.OutCubic)
-    group.addAnimation(pos_anim)
+    def _cleanup():
+        try:
+            widget.setGraphicsEffect(None)
+        except RuntimeError:
+            pass  # widget already destroyed
+        widget._slide_fade_group = None
 
-    if effect is not None:
-        effect.setOpacity(0.0)
-        fade_anim = QPropertyAnimation(effect, b"opacity", group)
-        fade_anim.setDuration(duration)
-        fade_anim.setStartValue(0.0)
-        fade_anim.setEndValue(1.0)
-        fade_anim.setEasingCurve(QEasingCurve.OutCubic)
-        group.addAnimation(fade_anim)
-
+    group.finished.connect(_cleanup)
     widget._slide_fade_group = group
     group.start()
     return group

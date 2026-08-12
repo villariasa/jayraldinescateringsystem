@@ -23,9 +23,19 @@ _PAGE_TITLES = {
     10: "Settings",
 }
 
+_TOP_NAV_ITEMS = [
+    ("Dashboard",    "dashboard", 0),
+    ("Orders",       "orders",    1),
+    ("Calendar",     "calendar",  4),
+    ("Billing",      "billing",   6),
+    ("AI Assistant", "search",    9),
+]
+
 
 class TopBar(QFrame):
     search_changed = Signal(str)
+    tab_selected = Signal(int)
+
     def __init__(self):
         super().__init__()
         self.setObjectName("topBar")
@@ -33,13 +43,38 @@ class TopBar(QFrame):
         self._theme = ThemeManager()
 
         self.main_layout = QHBoxLayout(self)
-        self.main_layout.setContentsMargins(24, 0, 24, 0)
-        self.main_layout.setSpacing(16)
+        self.main_layout.setContentsMargins(16, 0, 16, 0)
+        self.main_layout.setSpacing(12)
 
         self.page_title = QLabel("Dashboard", self)
         self.page_title.setObjectName("h2")
+        self.page_title.setMinimumWidth(130)
         self.main_layout.addWidget(self.page_title)
 
+        self.main_layout.addStretch()
+
+        # ── Facebook-Style Main Navigation Tabs ──────────────────────────────
+        self.top_nav_wrap = QWidget(self)
+        self.top_nav_layout = QHBoxLayout(self.top_nav_wrap)
+        self.top_nav_layout.setContentsMargins(0, 0, 0, 0)
+        self.top_nav_layout.setSpacing(6)
+
+        self.top_tab_btns = {}
+        for text, icon_name, index in _TOP_NAV_ITEMS:
+            btn = QPushButton(f"  {text}", self.top_nav_wrap)
+            btn.setObjectName("topNavTab")
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFixedHeight(42)
+            btn.setIconSize(QSize(17, 17))
+            btn.setIcon(get_icon(icon_name, color="#6B7280" if self._theme.is_dark() else "#5B6B84", size=QSize(17, 17)))
+            btn.setProperty("icon_name", icon_name)
+            btn.setProperty("tab_index", index)
+            btn.clicked.connect(lambda _, idx=index: self.tab_selected.emit(idx))
+            self.top_nav_layout.addWidget(btn)
+            self.top_tab_btns[index] = btn
+
+        self.main_layout.addWidget(self.top_nav_wrap)
         self.main_layout.addStretch()
 
         # ✅ FIX: Attached search_wrap to self
@@ -250,3 +285,16 @@ class TopBar(QFrame):
         self.search_box.blockSignals(True)
         self.search_box.setText(search_text)
         self.search_box.blockSignals(False)
+
+        dark = self._theme.is_dark()
+        active_color = "#E11D48"
+        inactive_color = "#9CA3AF" if dark else "#5B6B84"
+
+        for idx, btn in self.top_tab_btns.items():
+            icon_name = btn.property("icon_name")
+            is_active = (idx == index)
+            btn.setChecked(is_active)
+            btn.setObjectName("topNavTabActive" if is_active else "topNavTab")
+            btn.setIcon(get_icon(icon_name, color=active_color if is_active else inactive_color, size=QSize(17, 17)))
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)

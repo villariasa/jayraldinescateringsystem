@@ -483,14 +483,19 @@ def _answer_upcoming(q: str) -> dict:
                 "answer": "No upcoming events on the calendar. New bookings appear here automatically."}
     formatted_items = []
     for e in events:
-        name = e.get("customer_name") or e.get("name") or "Unknown"
-        raw_d = e.get("event_date") or e.get("date")
+        # v_upcoming_events returns raw prefixed columns (bk_customer_name,
+        # bk_event_date, bk_pax) — accept aliased forms as fallbacks.
+        name = (e.get("bk_customer_name") or e.get("customer_name")
+                or e.get("name") or "Unknown")
+        raw_d = e.get("bk_event_date") or e.get("event_date") or e.get("date")
         if hasattr(raw_d, "strftime"):
             date_str = raw_d.strftime("%b %d, %Y")
         else:
             date_str = str(raw_d or "TBD")
-        pax = e.get("pax", 0)
-        formatted_items.append(f"{name} on {date_str} ({pax} pax)")
+        pax = e.get("bk_pax") or e.get("pax") or 0
+        occasion = e.get("bk_occasion") or e.get("occasion") or ""
+        occ = f", {occasion}" if occasion else ""
+        formatted_items.append(f"{name} on {date_str} ({pax} pax{occ})")
     listing = "; ".join(formatted_items)
     return {"ok": True, "chart": None, "error": "",
             "answer": f"Next events: {listing}. See the Calendar page for the full schedule."}
