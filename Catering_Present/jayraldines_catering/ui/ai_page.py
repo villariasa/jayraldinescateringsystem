@@ -16,12 +16,22 @@ from PySide6.QtGui import QColor, QPainter
 from utils.theme import ThemeManager
 import utils.ai_client as ai_client
 
+# Longer answers (ledger summaries, communication history, daily briefings)
+# are a single long QLabel line. Without a cap, QLabel's wordWrap-aware
+# sizeHint still reports its *unwrapped* natural width to the layout, which
+# then demands that width all the way up to the page/window — this is what
+# was making the whole AI page (and window) grow wider. Capping the label's
+# width forces it to wrap and grow vertically instead.
+_ANSWER_MAX_WIDTH = 760
+
 _SUGGESTIONS = [
     "Compare revenue last year vs this year",
     "Which month earned the most this year?",
     "Who are our top customers?",
     "Any unpaid invoices I should follow up?",
     "Approve a pending booking",
+    "Any follow-ups due today?",
+    "Show my notifications",
 ]
 
 
@@ -38,6 +48,16 @@ class _AskWorker(QObject):
 
     def run(self):
         self.finished.emit(ai_client.ask(self._question))
+
+
+class _BriefingWorker(QObject):
+    finished = Signal(dict)
+
+    def run(self):
+        try:
+            self.finished.emit(ai_client.daily_briefing())
+        except Exception:
+            self.finished.emit({})
 
 
 class AIPage(QWidget):
@@ -60,12 +80,24 @@ class AIPage(QWidget):
                      "comparisons, trends — or how to use the app. Answers come straight "
                      "from your data, fully offline.")
         sub.setObjectName("subtitle")
+        sub.setWordWrap(True)
         head.addWidget(title)
         head.addWidget(sub)
         root.addLayout(head)
 
         # ── Suggestion chips ────────────────────────────────────────────────
-        chip_row = QHBoxLayout()
+        chip_scroll = QScrollArea(self)
+        chip_scroll.setWidgetResizable(True)
+        chip_scroll.setFrameShape(QFrame.NoFrame)
+        chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        chip_scroll.setFixedHeight(44)
+        chip_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        chip_w = QWidget()
+        chip_w.setStyleSheet("background: transparent;")
+        chip_row = QHBoxLayout(chip_w)
+        chip_row.setContentsMargins(0, 0, 0, 0)
         chip_row.setSpacing(8)
         for s in _SUGGESTIONS:
             chip = QPushButton(s)
@@ -74,7 +106,8 @@ class AIPage(QWidget):
             chip.clicked.connect(lambda _, q=s: self._ask(q))
             chip_row.addWidget(chip)
         chip_row.addStretch()
-        root.addLayout(chip_row)
+        chip_scroll.setWidget(chip_w)
+        root.addWidget(chip_scroll)
 
         # ── Conversation area ───────────────────────────────────────────────
         self._scroll = QScrollArea(self)
@@ -118,6 +151,24 @@ class AIPage(QWidget):
             "Ask in English or Bisaya. Type \"help\" to see what it can do."
         )
 
+        self._start_briefing()
+
+    def _start_briefing(self):
+        """Proactively surface today's events, due/overdue follow-ups, unread
+        notifications, and unpaid invoices as soon as the page opens."""
+        self._briefing_thread = QThread()
+        self._briefing_worker = _BriefingWorker()
+        self._briefing_worker.moveToThread(self._briefing_thread)
+        self._briefing_thread.started.connect(self._briefing_worker.run)
+        self._briefing_worker.finished.connect(self._on_briefing)
+        self._briefing_worker.finished.connect(self._briefing_thread.quit)
+        self._briefing_thread.start()
+
+    def _on_briefing(self, result: dict):
+        answer = (result or {}).get("answer")
+        if answer:
+            self._add_answer_card(answer, None, "")
+
     # ── Feed helpers ─────────────────────────────────────────────────────────
 
     def _add_to_feed(self, w: QWidget):
@@ -134,6 +185,7 @@ class AIPage(QWidget):
         lbl = QLabel(text)
         lbl.setObjectName("subtitle")
         lbl.setWordWrap(True)
+        lbl.setMaximumWidth(_ANSWER_MAX_WIDTH)
         lay.addWidget(lbl)
         self._add_to_feed(card)
 
@@ -164,11 +216,13 @@ class AIPage(QWidget):
         if error:
             lbl = QLabel(error)
             lbl.setWordWrap(True)
+            lbl.setMaximumWidth(_ANSWER_MAX_WIDTH)
             lbl.setStyleSheet("color: #DC2626; font-size: 13px;")
             lay.addWidget(lbl)
         else:
             lbl = QLabel(answer or "(no answer)")
             lbl.setWordWrap(True)
+            lbl.setMaximumWidth(_ANSWER_MAX_WIDTH)
             lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
             lbl.setStyleSheet("font-size: 13px; line-height: 150%;")
             lay.addWidget(lbl)
@@ -187,10 +241,15 @@ class AIPage(QWidget):
                     self._ask(send_text)
 
                 for opt in options:
-                    ob = QPushButton(opt.get("label", ""))
+                    label = opt.get("label", "")
+                    ob = QPushButton(label)
                     ob.setObjectName("secondaryButton")
                     ob.setCursor(Qt.PointingHandCursor)
                     ob.setStyleSheet("text-align: left; padding: 8px 14px;")
+                    ob.setMaximumWidth(_ANSWER_MAX_WIDTH)
+                    if len(label) > 90:
+                        ob.setText(label[:87] + "...")
+                        ob.setToolTip(label)
                     ob.clicked.connect(lambda _, s=opt.get("send", ""): _pick(s))
                     opt_buttons.append(ob)
                     opt_col.addWidget(ob)
