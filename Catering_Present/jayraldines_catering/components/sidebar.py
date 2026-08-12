@@ -9,17 +9,12 @@ from utils.theme import ThemeManager
 from utils.paths import resource_path
 
 _NAV_ITEMS = [
-    ("Dashboard",    "dashboard", 0),
-    ("Orders",       "orders",    1),
-    ("Customers",    "customers", 2),
-    ("Menu",         "menu",      3),
-    ("Calendar",     "calendar",  4),
-    ("Kitchen",      "kitchen",   5),
-    ("Billing",      "billing",   6),
-    ("Reports",      "reports",   7),
-    ("Expenses",     "billing",   8),
-    ("AI Assistant", "search",    9),
-    ("Settings",     "settings",  10),
+    ("Customers", "customers", 2),
+    ("Menu",      "menu",      3),
+    ("Expenses",  "billing",   8),
+    ("Kitchen",   "kitchen",   5),
+    ("Reports",   "reports",   7),
+    ("Settings",  "settings",  10),
 ]
 
 EXPANDED_WIDTH  = 240
