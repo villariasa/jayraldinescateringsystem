@@ -938,7 +938,22 @@ def get_dashboard_kpis() -> dict:
 
 def get_upcoming_events(limit: int = 10) -> list[dict]:
     rows = db.fetchall("SELECT * FROM v_upcoming_events LIMIT %s", (limit,))
-    return [dict(r) for r in rows] if rows else []
+    if not rows:
+        return []
+    return [
+        {
+            "id":            r.get("bk_id") if r.get("bk_id") is not None else r.get("id"),
+            "booking_ref":   r.get("bk_booking_ref") or r.get("booking_ref", ""),
+            "customer_name": r.get("bk_customer_name") or r.get("customer_name", ""),
+            "occasion":      r.get("bk_occasion") or r.get("occasion", ""),
+            "venue":         r.get("bk_venue") or r.get("venue", ""),
+            "event_date":    r.get("bk_event_date") if r.get("bk_event_date") is not None else r.get("event_date"),
+            "event_time":    r.get("bk_event_time") if r.get("bk_event_time") is not None else r.get("event_time"),
+            "pax":           r.get("bk_pax") if r.get("bk_pax") is not None else r.get("pax", 0),
+            "status":        r.get("bk_status") or r.get("status", "PENDING"),
+        }
+        for r in rows
+    ]
 
 
 def get_report_kpis(period_filter: str = "") -> dict:
