@@ -234,6 +234,7 @@ fi
 MAIN_SQL="$SCRIPT_DIR/jayraldines_catering_clean.sql"
 OCC_MIG_SQL="$SCRIPT_DIR/occasions_migration.sql"
 VIEWS_MIG_SQL="$SCRIPT_DIR/confirmed_only_views_migration.sql"
+ANALYTICS_MIG_SQL="$SCRIPT_DIR/analytics_functions_migration.sql"
 # NOTE: cebu_address_migration.sql is intentionally NOT used here.
 # Address tables (address_regions/provinces/cities/barangays/addresses) are now
 # fully defined inside jayraldines_catering_clean.sql with the correct prefixed
@@ -367,6 +368,12 @@ if [ "$RUN_SQL" = true ]; then
         info "Applying confirmed-only views migration..."
         PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
             -d "$DB_NAME" -f "$VIEWS_MIG_SQL" || info "Views migration had warnings (non-fatal)"
+    fi
+
+    if [ -f "$ANALYTICS_MIG_SQL" ]; then
+        info "Applying analytics functions migration (year comparisons, weekly summaries)..."
+        PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
+            -d "$DB_NAME" -f "$ANALYTICS_MIG_SQL" || info "Analytics migration had warnings (non-fatal)"
     fi
     ok "Database '$DB_NAME' is ready"
 fi

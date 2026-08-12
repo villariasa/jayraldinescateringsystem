@@ -6,6 +6,19 @@ from PySide6.QtCore import Qt, QSize, QPoint, QEvent, Signal
 from PySide6.QtGui import QColor
 
 from utils.icons import get_icon
+from utils.theme import ThemeManager
+from utils.animations import create_soft_shadow
+
+
+def _is_light():
+    return not ThemeManager().is_dark()
+
+
+def _section_label_style():
+    return (
+        "color: %s; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
+        % ("#7A879E" if _is_light() else "#6B7280")
+    )
 
 
 class FilterChip(QPushButton):
@@ -21,9 +34,15 @@ class FilterChip(QPushButton):
     def _update_style(self):
         if self.isChecked():
             self.setStyleSheet(
-                "background: rgba(225,29,72,0.15); color: #E11D48;"
-                " border: 1px solid rgba(225,29,72,0.4); border-radius: 14px;"
+                "background: rgba(225,29,72,0.12); color: #D31647;"
+                " border: 1px solid rgba(225,29,72,0.45); border-radius: 14px;"
                 " font-size: 12px; font-weight: 700; padding: 0 12px;"
+            )
+        elif _is_light():
+            self.setStyleSheet(
+                "background: #FFFFFF; color: #46536B;"
+                " border: 1px solid #D8DFEA; border-radius: 14px;"
+                " font-size: 12px; font-weight: 600; padding: 0 12px;"
             )
         else:
             self.setStyleSheet(
@@ -68,6 +87,7 @@ class FilterPopover(QFrame):
         inner = QFrame()
         inner.setObjectName("card")
         inner.setFixedWidth(340)
+        create_soft_shadow(inner, radius=28, y_offset=8, opacity=45)
         inner_lay = QVBoxLayout(inner)
         inner_lay.setContentsMargins(20, 18, 20, 18)
         inner_lay.setSpacing(14)
@@ -92,11 +112,9 @@ class FilterPopover(QFrame):
         inner_lay.addWidget(div)
 
         if self._statuses:
-            status_lbl = QLabel("STATUS")
-            status_lbl.setStyleSheet(
-                "color: #6B7280; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
-            )
-            inner_lay.addWidget(status_lbl)
+            self._status_lbl = QLabel("STATUS")
+            self._status_lbl.setStyleSheet(_section_label_style())
+            inner_lay.addWidget(self._status_lbl)
 
             chips_grid = QGridLayout()
             chips_grid.setSpacing(6)
@@ -115,11 +133,9 @@ class FilterPopover(QFrame):
             inner_lay.addLayout(chips_grid)
 
         if self._categories:
-            cat_lbl = QLabel("CATEGORY")
-            cat_lbl.setStyleSheet(
-                "color: #6B7280; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
-            )
-            inner_lay.addWidget(cat_lbl)
+            self._cat_lbl = QLabel("CATEGORY")
+            self._cat_lbl.setStyleSheet(_section_label_style())
+            inner_lay.addWidget(self._cat_lbl)
 
             cat_wrap = QWidget()
             cat_lay = QHBoxLayout(cat_wrap)
@@ -148,6 +164,13 @@ class FilterPopover(QFrame):
 
     def show_anchored(self, anchor_btn):
         from PySide6.QtWidgets import QApplication
+        # Re-apply theme-dependent styles in case the theme was toggled
+        for chip in self._status_chips + self._cat_chips:
+            chip._update_style()
+        if hasattr(self, "_status_lbl"):
+            self._status_lbl.setStyleSheet(_section_label_style())
+        if hasattr(self, "_cat_lbl"):
+            self._cat_lbl.setStyleSheet(_section_label_style())
         global_pos = anchor_btn.mapToGlobal(QPoint(0, anchor_btn.height() + 6))
         x = global_pos.x()
         screen = QApplication.screenAt(global_pos) or QApplication.primaryScreen()

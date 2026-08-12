@@ -6,6 +6,27 @@ from PySide6.QtCore import Qt, QPoint, Signal, QTimer, QThread, QObject
 from PySide6.QtGui import QKeyEvent
 
 import utils.repository as repo
+from utils.theme import ThemeManager
+
+
+def _palette() -> dict:
+    if ThemeManager().is_dark():
+        return {
+            "card_bg":     "#111827",
+            "card_border": "#374151",
+            "text":        "#F9FAFB",
+            "muted":       "#6B7280",
+            "faint":       "#4B5563",
+            "row_hover":   "#1F2937",
+        }
+    return {
+        "card_bg":     "#FFFFFF",
+        "card_border": "#D8DFEA",
+        "text":        "#101828",
+        "muted":       "#5B6B84",
+        "faint":       "#7A879E",
+        "row_hover":   "#F3F5F9",
+    }
 
 _PAGE_MAP = {
     "Booking":   1,
@@ -179,19 +200,11 @@ class SearchDropdown(QFrame):
 
         self._card = QFrame()
         self._card.setObjectName("searchCard")
-        self._card.setStyleSheet("""
-            QFrame#searchCard {
-                background: #111827;
-                border: 1px solid #374151;
-                border-radius: 12px;
-            }
-        """)
         card_lay = QVBoxLayout(self._card)
         card_lay.setContentsMargins(0, 6, 0, 6)
         card_lay.setSpacing(0)
 
         self._loading_lbl = QLabel("  Searching...")
-        self._loading_lbl.setStyleSheet("color: #6B7280; font-size: 12px; padding: 10px 16px;")
         self._loading_lbl.hide()
         card_lay.addWidget(self._loading_lbl)
 
@@ -212,11 +225,23 @@ class SearchDropdown(QFrame):
         card_lay.addWidget(self._scroll)
 
         self._footer = QLabel()
-        self._footer.setStyleSheet("color: #4B5563; font-size: 10px; padding: 4px 16px 6px;")
         self._footer.hide()
         card_lay.addWidget(self._footer)
 
         outer.addWidget(self._card)
+        self._apply_theme()
+
+    def _apply_theme(self):
+        p = _palette()
+        self._card.setStyleSheet(f"""
+            QFrame#searchCard {{
+                background: {p['card_bg']};
+                border: 1px solid {p['card_border']};
+                border-radius: 12px;
+            }}
+        """)
+        self._loading_lbl.setStyleSheet(f"color: {p['muted']}; font-size: 12px; padding: 10px 16px;")
+        self._footer.setStyleSheet(f"color: {p['faint']}; font-size: 10px; padding: 4px 16px 6px;")
 
     def search(self, query: str):
         self._pending_query = query
@@ -248,7 +273,7 @@ class SearchDropdown(QFrame):
 
         if not results:
             lbl = QLabel("No results found")
-            lbl.setStyleSheet("color: #6B7280; font-size: 12px; padding: 14px 8px;")
+            lbl.setStyleSheet(f"color: {_palette()['muted']}; font-size: 12px; padding: 14px 8px;")
             lbl.setAlignment(Qt.AlignCenter)
             self._list_lay.addWidget(lbl)
             self._footer.hide()
@@ -263,7 +288,7 @@ class SearchDropdown(QFrame):
                     continue
                 grp = QLabel(f"  {type_name.upper()}")
                 grp.setStyleSheet(
-                    "color: #4B5563; font-size: 10px; font-weight: 700;"
+                    f"color: {_palette()['faint']}; font-size: 10px; font-weight: 700;"
                     " letter-spacing: 1px; padding: 8px 4px 3px 4px;"
                     " background: transparent;"
                 )
@@ -287,13 +312,14 @@ class SearchDropdown(QFrame):
                 item.widget().deleteLater()
 
     def _build_row(self, item: dict) -> QWidget:
+        p = _palette()
         color = _TYPE_COLOR.get(item["type"], "#9CA3AF")
         w = QWidget()
         w.setProperty("result_data", item)
         w.setCursor(Qt.PointingHandCursor)
-        w.setStyleSheet("""
-            QWidget { border-radius: 7px; background: transparent; }
-            QWidget:hover { background: #1F2937; }
+        w.setStyleSheet(f"""
+            QWidget {{ border-radius: 7px; background: transparent; }}
+            QWidget:hover {{ background: {p['row_hover']}; }}
         """)
         lay = QHBoxLayout(w)
         lay.setContentsMargins(8, 7, 8, 7)
@@ -308,13 +334,13 @@ class SearchDropdown(QFrame):
         text_col.setSpacing(1)
 
         label_lbl = QLabel(item["label"])
-        label_lbl.setStyleSheet("font-size: 13px; font-weight: 600; background: transparent;")
+        label_lbl.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {p['text']}; background: transparent;")
         label_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         text_col.addWidget(label_lbl)
 
         if item.get("sub"):
             sub_lbl = QLabel(item["sub"])
-            sub_lbl.setStyleSheet("font-size: 11px; color: #6B7280; background: transparent;")
+            sub_lbl.setStyleSheet(f"font-size: 11px; color: {p['muted']}; background: transparent;")
             text_col.addWidget(sub_lbl)
 
         lay.addLayout(text_col, 1)
@@ -336,11 +362,12 @@ class SearchDropdown(QFrame):
         self.result_selected.emit(item)
 
     def _highlight_row(self, idx: int):
+        hover = _palette()["row_hover"]
         for i, row in enumerate(self._rows):
             if i == idx:
-                row.setStyleSheet("QWidget { border-radius: 7px; background: #1F2937; }")
+                row.setStyleSheet(f"QWidget {{ border-radius: 7px; background: {hover}; }}")
             else:
-                row.setStyleSheet("QWidget { border-radius: 7px; background: transparent; } QWidget:hover { background: #1F2937; }")
+                row.setStyleSheet(f"QWidget {{ border-radius: 7px; background: transparent; }} QWidget:hover {{ background: {hover}; }}")
 
         if 0 <= idx < len(self._rows):
             self._scroll.ensureWidgetVisible(self._rows[idx])
@@ -367,6 +394,7 @@ class SearchDropdown(QFrame):
         return False
 
     def show_below(self, anchor: QWidget):
+        self._apply_theme()
         global_pos = anchor.mapToGlobal(QPoint(0, anchor.height() + 6))
         self.move(global_pos)
         self.raise_()

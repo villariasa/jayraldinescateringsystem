@@ -100,7 +100,7 @@ def nav_icon_active(name: str) -> QIcon:
 
 
 def btn_icon_primary(name: str) -> QIcon:
-    return get_icon(name, color=COLOR_DARK, size=QSize(15, 15))
+    return get_icon(name, color="#FFFFFF", size=QSize(15, 15))
 
 
 def btn_icon_secondary(name: str) -> QIcon:

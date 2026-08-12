@@ -6,11 +6,21 @@ from PySide6.QtCore import Qt, QMargins
 from PySide6.QtGui import QColor  # <--- THIS WAS MISSING
 from PySide6.QtWidgets import QVBoxLayout, QLabel
 
+from utils.theme import ThemeManager
+
+
+def _chart_colors():
+    if ThemeManager().is_dark():
+        return {"title": "#F9FAFB", "labels": QColor("#9CA3AF"), "grid": QColor("#243244")}
+    return {"title": "#101828", "labels": QColor("#5B6B84"), "grid": QColor("#EDF1F7")}
+
+
 class AreaChartCard(QVBoxLayout):
     """Line chart with a modern gradient fill underneath."""
     def __init__(self, title):
         super().__init__()
-        self.addWidget(QLabel(f"<span style='font-size:16px; font-weight:700; color:#0F172A;'>{title}</span>"))
+        colors = _chart_colors()
+        self.addWidget(QLabel(f"<span style='font-size:16px; font-weight:700; color:{colors['title']};'>{title}</span>"))
         
         # FIX: Use self. for ALL chart components to prevent C++ Segfaults
         self.upper_series = QLineSeries()
@@ -45,15 +55,17 @@ class AreaChartCard(QVBoxLayout):
         self.axis_x.append(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"])
         self.axis_x.setLinePenColor(Qt.transparent)
         self.axis_x.setGridLineColor(Qt.transparent)
+        self.axis_x.setLabelsColor(colors["labels"])
         self.chart.addAxis(self.axis_x, Qt.AlignBottom)
         self.area.attachAxis(self.axis_x)
         self.upper_series.attachAxis(self.axis_x)
 
         self.axis_y = QValueAxis()
         self.axis_y.setRange(0, 100)
-        self.axis_y.setLabelFormat("₱%ik")
-        self.axis_y.setGridLineColor(QColor("#F1F5F9"))
+        self.axis_y.setLabelFormat("P%ik")
+        self.axis_y.setGridLineColor(colors["grid"])
         self.axis_y.setLinePenColor(Qt.transparent)
+        self.axis_y.setLabelsColor(colors["labels"])
         self.chart.addAxis(self.axis_y, Qt.AlignLeft)
         self.area.attachAxis(self.axis_y)
         self.upper_series.attachAxis(self.axis_y)
@@ -68,8 +80,9 @@ class DonutChartCard(QVBoxLayout):
     """Donut chart with a simulated center label."""
     def __init__(self, title):
         super().__init__()
-        self.addWidget(QLabel(f"<span style='font-size:16px; font-weight:700; color:#0F172A;'>{title}</span>"))
-        
+        colors = _chart_colors()
+        self.addWidget(QLabel(f"<span style='font-size:16px; font-weight:700; color:{colors['title']};'>{title}</span>"))
+
         # FIX: Use self. to prevent garbage collection
         self.series = QPieSeries()
         self.series.setHoleSize(0.55) 
@@ -87,6 +100,7 @@ class DonutChartCard(QVBoxLayout):
         self.chart.setBackgroundBrush(Qt.transparent)
         self.chart.legend().setAlignment(Qt.AlignRight)
         self.chart.legend().setMarkerShape(QLegend.MarkerShape.MarkerShapeCircle)
+        self.chart.legend().setLabelColor(colors["labels"])
         
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)

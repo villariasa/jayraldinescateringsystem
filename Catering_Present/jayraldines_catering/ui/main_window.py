@@ -17,6 +17,8 @@ _PAGE_MODULES = [
     ("ui.kitchen_page",    "KitchenPage"),
     ("ui.billing_page",    "BillingPage"),
     ("ui.reports_page",    "ReportsPage"),
+    ("ui.expenses_page",   "ExpensesPage"),
+    ("ui.ai_page",         "AIPage"),
     ("ui.settings_page",   "SettingsPage"),
 ]
 

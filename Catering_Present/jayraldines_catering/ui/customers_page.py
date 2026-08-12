@@ -521,18 +521,18 @@ class CustomerLedgerDialog(QDialog):
         summary_row.addStretch()
         lay.addLayout(summary_row)
 
-        tbl = QTableWidget(0, 6)
-        tbl.setHorizontalHeaderLabels(["Date Recorded", "Event Date", "Reference", "Type", "Description", "Amount"])
-        hdr = tbl.horizontalHeader()
-        hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(4, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(5, QHeaderView.Fixed)
-        tbl.setColumnWidth(5, 130)
-        tbl.setAlternatingRowColors(True)
-        tbl.setSelectionBehavior(QTableWidget.SelectRows)
-        tbl.verticalHeader().setVisible(False)
-        tbl.setEditTriggers(QTableWidget.NoEditTriggers)
-        tbl.setMinimumHeight(260)
+        # Ledger Cards List
+        ledger_scroll = QScrollArea()
+        ledger_scroll.setWidgetResizable(True)
+        ledger_scroll.setFrameShape(QFrame.NoFrame)
+        ledger_scroll.setStyleSheet("background: transparent;")
+        ledger_scroll.setMinimumHeight(260)
+
+        ledger_container = QWidget()
+        ledger_container.setStyleSheet("background: transparent;")
+        ledger_lay = QVBoxLayout(ledger_container)
+        ledger_lay.setContentsMargins(0, 0, 0, 0)
+        ledger_lay.setSpacing(8)
 
         _TYPE_COLORS = {
             "Booking": "#3B82F6",
@@ -546,48 +546,63 @@ class CustomerLedgerDialog(QDialog):
             "Unpaid":    "#EF4444",
         }
 
-        for row, e in enumerate(entries):
-            tbl.insertRow(row)
-            tbl.setRowHeight(row, 38)
-
-            tbl.setItem(row, 0, QTableWidgetItem(e["recorded_date"]))
-            tbl.setItem(row, 1, QTableWidgetItem(e["event_date"]))
-            tbl.setItem(row, 2, QTableWidgetItem(e["reference"]))
-
-            type_item = QTableWidgetItem(e["entry_type"])
-            type_item.setForeground(QColor(_TYPE_COLORS.get(e["entry_type"], "#9CA3AF")))
-            tbl.setItem(row, 3, type_item)
-
-            desc_item = QTableWidgetItem(e["description"])
-            status_color = _STATUS_COLORS.get(e["status"], "#9CA3AF")
-            desc_lbl = f"{e['description']}  [{e['status']}]"
-            desc_item = QTableWidgetItem(desc_lbl)
-            desc_item.setForeground(QColor(status_color))
-            tbl.setItem(row, 4, desc_item)
-
-            if e["entry_type"] == "Payment":
-                amt_text = f"+ ₱ {e['credit']:,.2f}"
-                amt_color = "#22C55E"
-            elif e["entry_type"] == "Booking":
-                amt_text = f"₱ {e['debit']:,.2f}"
-                amt_color = "#E11D48"
-            else:
-                amt_text = f"₱ {e['debit']:,.2f}"
-                amt_color = "#F59E0B"
-
-            amt_item = QTableWidgetItem(amt_text)
-            amt_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            amt_item.setForeground(QColor(amt_color))
-            tbl.setItem(row, 5, amt_item)
-
         if not entries:
-            tbl.insertRow(0)
-            empty = QTableWidgetItem("No ledger entries found for this customer.")
-            empty.setForeground(QColor("#9CA3AF"))
-            tbl.setItem(0, 0, empty)
-            tbl.setSpan(0, 0, 1, 6)
+            empty_card = QFrame()
+            empty_card.setObjectName("entryCard")
+            empty_lay = QVBoxLayout(empty_card)
+            empty_lbl = QLabel("No ledger entries found for this customer.")
+            empty_lbl.setObjectName("subtitle")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            empty_lay.addWidget(empty_lbl)
+            ledger_lay.addWidget(empty_card)
+        else:
+            for e in entries:
+                entry_card = QFrame()
+                entry_card.setObjectName("entryCard")
+                el = QHBoxLayout(entry_card)
+                el.setContentsMargins(12, 10, 12, 10)
+                el.setSpacing(14)
 
-        lay.addWidget(tbl)
+                col1 = QVBoxLayout()
+                col1.setSpacing(2)
+                ref_l = QLabel(e["reference"])
+                ref_l.setStyleSheet("font-weight: 700; font-size: 13px;")
+                date_l = QLabel(f"Rec: {e['recorded_date']} | Event: {e['event_date']}")
+                date_l.setObjectName("subtitle")
+                col1.addWidget(ref_l)
+                col1.addWidget(date_l)
+                el.addLayout(col1, 2)
+
+                t_color = _TYPE_COLORS.get(e["entry_type"], "#9CA3AF")
+                type_lbl = QLabel(e["entry_type"])
+                type_lbl.setStyleSheet(f"font-weight: 700; font-size: 11px; color: {t_color}; padding: 3px 8px; background: rgba(255,255,255,0.05); border-radius: 6px;")
+                el.addWidget(type_lbl)
+
+                desc_l = QLabel(f"{e['description']}  <span style='color:{_STATUS_COLORS.get(e['status'], '#9CA3AF')}; font-weight:700;'>[{e['status']}]</span>")
+                desc_l.setStyleSheet("font-size: 12px;")
+                desc_l.setTextFormat(Qt.RichText)
+                el.addWidget(desc_l, 3)
+
+                if e["entry_type"] == "Payment":
+                    amt_text = f"+ ₱ {e['credit']:,.2f}"
+                    amt_color = "#22C55E"
+                elif e["entry_type"] == "Booking":
+                    amt_text = f"₱ {e['debit']:,.2f}"
+                    amt_color = "#E11D48"
+                else:
+                    amt_text = f"₱ {e['debit']:,.2f}"
+                    amt_color = "#F59E0B"
+
+                amt_lbl = QLabel(amt_text)
+                amt_lbl.setStyleSheet(f"font-weight: 800; font-size: 14px; color: {amt_color};")
+                amt_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                el.addWidget(amt_lbl, 1)
+
+                ledger_lay.addWidget(entry_card)
+
+        ledger_lay.addStretch()
+        ledger_scroll.setWidget(ledger_container)
+        lay.addWidget(ledger_scroll)
 
         close = QPushButton("Close")
         close.setObjectName("secondaryButton")
@@ -647,102 +662,140 @@ class CustomersPage(QWidget):
         card = QFrame()
         card.setObjectName("card")
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setContentsMargins(20, 20, 20, 20)
 
-        # FIX 1: We reduced the column count to 7 (merged actions into 1 column)
-        self._table = QTableWidget(0, 7)
-        self._table.setHorizontalHeaderLabels(["NAME", "CONTACT", "EMAIL", "EVENTS", "TIER", "STATUS", ""])
-        
-        hdr = self._table.horizontalHeader()
-        
-        hdr.setSectionResizeMode(QHeaderView.ResizeToContents) 
-        hdr.setSectionResizeMode(0, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(2, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(4, QHeaderView.Fixed)
-        
-        self._table.setColumnWidth(4, 80)
-        self._table.setAlternatingRowColors(True)
-        self._table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
-        card_layout.addWidget(self._table)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setStyleSheet("background: transparent;")
 
+        self.cards_container = QWidget()
+        self.cards_container.setStyleSheet("background: transparent;")
+        self.cards_layout = QVBoxLayout(self.cards_container)
+        self.cards_layout.setContentsMargins(0, 0, 10, 0)
+        self.cards_layout.setSpacing(12)
+
+        self.scroll_area.setWidget(self.cards_container)
+        card_layout.addWidget(self.scroll_area)
         root.addWidget(card)
 
     def _populate_table(self, customers=None):
+        while self.cards_layout.count():
+            item = self.cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         data = customers if customers is not None else self._customers
-        self._table.setRowCount(0)
-        for row, c in enumerate(data):
-            self._table.insertRow(row)
-            self._table.setRowHeight(row, 48)
-            self._table.setItem(row, 0, QTableWidgetItem(c["name"]))
-            self._table.setItem(row, 1, QTableWidgetItem(c["contact"]))
-            self._table.setItem(row, 2, QTableWidgetItem(c["email"]))
-            self._table.setItem(row, 3, QTableWidgetItem(str(c.get("events", 0))))
 
-            tier = c.get("loyalty_tier", "Bronze")
-            tier_w = QWidget()
-            tier_l = QHBoxLayout(tier_w)
-            tier_l.setContentsMargins(4, 0, 4, 0)
-            tier_l.addWidget(_tier_badge(tier))
-            tier_l.addStretch()
-            self._table.setCellWidget(row, 4, tier_w)
+        if not data:
+            empty_lbl = QLabel("No customers found.")
+            empty_lbl.setObjectName("subtitle")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            self.cards_layout.addWidget(empty_lbl)
+        else:
+            for c in data:
+                c_card = self._create_customer_card(c)
+                self.cards_layout.addWidget(c_card)
 
-            status_item = QTableWidgetItem(c["status"])
-            color_map = {"Active": "#22C55E", "Pending": "#F59E0B", "Inactive": "#6B7280"}
-            status_item.setForeground(QColor(color_map.get(c["status"], "#9CA3AF")))
-            self._table.setItem(row, 5, status_item)
+        self.cards_layout.addStretch()
 
-            # FIX 2: Group all 3 buttons into a single horizontal layout for Column 6
-            actions_w = QFrame()
-            actions_w.setStyleSheet("background: transparent;")
-            actions_l = QHBoxLayout(actions_w)
-            # Add 16px right margin so the scrollbar doesn't cover the trash icon
-            actions_l.setContentsMargins(4, 0, 16, 0)
-            actions_l.setSpacing(8)
+    def _create_customer_card(self, c: dict) -> QFrame:
+        card = QFrame()
+        card.setObjectName("entryCard")
+        lay = QHBoxLayout(card)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(16)
 
-            edit_btn = QPushButton()
-            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
-            edit_btn.setIconSize(QSize(13, 13))
-            edit_btn.setFixedSize(30, 30)
-            edit_btn.setToolTip("Edit customer")
-            edit_btn.setStyleSheet("background: transparent; border: none;")
-            edit_btn.setCursor(Qt.PointingHandCursor)
-            edit_btn.clicked.connect(lambda _, cust=c: self._open_edit_dialog(cust))
+        # Col 1: Customer Name, Contact, Email
+        c1 = QVBoxLayout()
+        c1.setSpacing(2)
+        name_lbl = QLabel(c["name"])
+        name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
+        info_lbl = QLabel(f"📞 {c['contact']}  |  ✉ {c['email']}")
+        info_lbl.setObjectName("subtitle")
+        c1.addWidget(name_lbl)
+        c1.addWidget(info_lbl)
+        if c.get("address"):
+            addr_l = QLabel(f"📍 {c['address']}")
+            addr_l.setStyleSheet("font-size: 11px; color: #6B7280;")
+            c1.addWidget(addr_l)
+        lay.addLayout(c1, 3)
 
-            ledger_btn = QPushButton()
-            ledger_btn.setIcon(get_icon("reports", color="#3B82F6", size=QSize(13, 13)))
-            ledger_btn.setIconSize(QSize(13, 13))
-            ledger_btn.setFixedSize(30, 30)
-            ledger_btn.setToolTip("View ledger")
-            ledger_btn.setStyleSheet("background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:6px;")
-            ledger_btn.setCursor(Qt.PointingHandCursor)
-            ledger_btn.clicked.connect(lambda _, cust=c: self._open_ledger(cust))
+        # Col 2: Events Count & Tier
+        c2 = QHBoxLayout()
+        c2.setSpacing(12)
+        events_box = QVBoxLayout()
+        events_box.setSpacing(2)
+        ev_title = QLabel("EVENTS")
+        ev_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280; letter-spacing: 0.5px;")
+        ev_val = QLabel(str(c.get("events", 0)))
+        ev_val.setStyleSheet("font-weight: 800; font-size: 14px; color: #F9FAFB;")
+        events_box.addWidget(ev_title)
+        events_box.addWidget(ev_val)
+        c2.addLayout(events_box)
 
-            fu_btn = QPushButton()
-            fu_btn.setIcon(get_icon("bell", color="#F59E0B", size=QSize(13, 13)))
-            fu_btn.setIconSize(QSize(13, 13))
-            fu_btn.setFixedSize(30, 30)
-            fu_btn.setToolTip("Follow-up reminders")
-            fu_btn.setStyleSheet("background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:6px;")
-            fu_btn.setCursor(Qt.PointingHandCursor)
-            fu_btn.clicked.connect(lambda _, cust=c: self._open_follow_ups(cust))
-            
-            del_btn = QPushButton()
-            del_btn.setIcon(btn_icon_red("trash"))
-            del_btn.setIconSize(QSize(13, 13))
-            del_btn.setFixedSize(30, 30)
-            del_btn.setStyleSheet("background: transparent; border: none;")
-            del_btn.setCursor(Qt.PointingHandCursor)
-            del_btn.clicked.connect(lambda _, cust=c: self._delete_customer_by_ref(cust))
-            
-            actions_l.addWidget(edit_btn)
-            actions_l.addWidget(ledger_btn)
-            actions_l.addWidget(fu_btn)
-            actions_l.addWidget(del_btn)
-            
-            # Add the unified actions widget to column 6
-            self._table.setCellWidget(row, 6, actions_w)
+        tier = c.get("loyalty_tier", "Bronze")
+        c2.addWidget(_tier_badge(tier), alignment=Qt.AlignVCenter)
+        lay.addLayout(c2, 2)
+
+        # Col 3: Status
+        status_lbl = QLabel(c["status"])
+        color_map = {"Active": "#22C55E", "Pending": "#F59E0B", "Inactive": "#6B7280"}
+        s_color = color_map.get(c["status"], "#9CA3AF")
+        status_lbl.setStyleSheet(f"font-weight: 700; font-size: 12px; color: {s_color}; padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 8px;")
+        lay.addWidget(status_lbl, alignment=Qt.AlignVCenter)
+
+        # Col 4: Action Buttons
+        actions_w = QFrame()
+        actions_w.setStyleSheet("background: transparent;")
+        actions_l = QHBoxLayout(actions_w)
+        actions_l.setContentsMargins(0, 0, 0, 0)
+        actions_l.setSpacing(6)
+
+        edit_btn = QPushButton()
+        edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
+        edit_btn.setIconSize(QSize(13, 13))
+        edit_btn.setFixedSize(30, 30)
+        edit_btn.setToolTip("Edit customer")
+        edit_btn.setStyleSheet("background: transparent; border: none;")
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.clicked.connect(lambda _, cust=c: self._open_edit_dialog(cust))
+
+        ledger_btn = QPushButton()
+        ledger_btn.setIcon(get_icon("reports", color="#3B82F6", size=QSize(13, 13)))
+        ledger_btn.setIconSize(QSize(13, 13))
+        ledger_btn.setFixedSize(30, 30)
+        ledger_btn.setToolTip("View ledger")
+        ledger_btn.setStyleSheet("background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:6px;")
+        ledger_btn.setCursor(Qt.PointingHandCursor)
+        ledger_btn.clicked.connect(lambda _, cust=c: self._open_ledger(cust))
+
+        fu_btn = QPushButton()
+        fu_btn.setIcon(get_icon("bell", color="#F59E0B", size=QSize(13, 13)))
+        fu_btn.setIconSize(QSize(13, 13))
+        fu_btn.setFixedSize(30, 30)
+        fu_btn.setToolTip("Follow-up reminders")
+        fu_btn.setStyleSheet("background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:6px;")
+        fu_btn.setCursor(Qt.PointingHandCursor)
+        fu_btn.clicked.connect(lambda _, cust=c: self._open_follow_ups(cust))
+
+        del_btn = QPushButton()
+        del_btn.setIcon(btn_icon_red("trash"))
+        del_btn.setIconSize(QSize(13, 13))
+        del_btn.setFixedSize(30, 30)
+        del_btn.setStyleSheet("background: transparent; border: none;")
+        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.clicked.connect(lambda _, cust=c: self._delete_customer_by_ref(cust))
+
+        actions_l.addWidget(edit_btn)
+        actions_l.addWidget(ledger_btn)
+        actions_l.addWidget(fu_btn)
+        actions_l.addWidget(del_btn)
+
+        lay.addWidget(actions_w)
+
+        return card
 
 
     def _open_ledger(self, c):

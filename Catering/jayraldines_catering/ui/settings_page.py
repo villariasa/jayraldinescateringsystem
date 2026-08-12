@@ -388,41 +388,77 @@ class SettingsPage(QWidget):
         head.addWidget(refresh_btn)
         lay.addLayout(head)
 
-        self._audit_table = QTableWidget(0, 4)
-        self._audit_table.setHorizontalHeaderLabels(["TIME", "ACTOR", "ACTION", "DESCRIPTION"])
-        self._audit_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self._audit_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self._audit_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        self._audit_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
-        self._audit_table.setColumnWidth(0, 150)
-        self._audit_table.setColumnWidth(1, 100)
-        self._audit_table.setColumnWidth(2, 100)
-        self._audit_table.verticalHeader().setVisible(False)
-        self._audit_table.setShowGrid(False)
-        self._audit_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self._audit_table.setFocusPolicy(Qt.NoFocus)
-        self._audit_table.setSelectionMode(QTableWidget.NoSelection)
-        self._audit_table.setMinimumHeight(260)
-        lay.addWidget(self._audit_table)
+        self.audit_scroll = QScrollArea()
+        self.audit_scroll.setWidgetResizable(True)
+        self.audit_scroll.setFrameShape(QFrame.NoFrame)
+        self.audit_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.audit_scroll.setStyleSheet("background: transparent;")
+        self.audit_scroll.setMinimumHeight(260)
+
+        self.audit_cards_container = QWidget()
+        self.audit_cards_container.setStyleSheet("background: transparent;")
+        self.audit_cards_layout = QVBoxLayout(self.audit_cards_container)
+        self.audit_cards_layout.setContentsMargins(0, 0, 10, 0)
+        self.audit_cards_layout.setSpacing(8)
+
+        self.audit_scroll.setWidget(self.audit_cards_container)
+        lay.addWidget(self.audit_scroll)
 
         self._load_audit_log()
         return card
 
     def _load_audit_log(self):
+        while self.audit_cards_layout.count():
+            item = self.audit_cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         logs = repo.get_audit_log(50)
-        self._audit_table.setRowCount(0)
         if not logs:
-            self._audit_table.insertRow(0)
-            self._audit_table.setItem(0, 3, QTableWidgetItem("No audit entries yet."))
-            return
-        for log in logs:
-            row = self._audit_table.rowCount()
-            self._audit_table.insertRow(row)
-            self._audit_table.setRowHeight(row, 40)
-            self._audit_table.setItem(row, 0, QTableWidgetItem(log["created_at"]))
-            self._audit_table.setItem(row, 1, QTableWidgetItem(log["actor"]))
-            self._audit_table.setItem(row, 2, QTableWidgetItem(log["action"]))
-            self._audit_table.setItem(row, 3, QTableWidgetItem(log["description"]))
+            empty_card = QFrame()
+            empty_card.setObjectName("entryCard")
+            el = QVBoxLayout(empty_card)
+            item = QLabel("No audit entries yet.")
+            item.setObjectName("subtitle")
+            item.setAlignment(Qt.AlignCenter)
+            el.addWidget(item)
+            self.audit_cards_layout.addWidget(empty_card)
+        else:
+            action_colors = {
+                "APPROVE": "#22C55E", "CREATE": "#3B82F6", "CANCEL": "#EF4444",
+                "PAYMENT": "#F59E0B", "DELETE": "#EF4444", "UPDATE": "#8B5CF6",
+            }
+            for log in logs:
+                card = QFrame()
+                card.setObjectName("entryCard")
+                cl = QHBoxLayout(card)
+                cl.setContentsMargins(12, 10, 12, 10)
+                cl.setSpacing(14)
+
+                c1 = QVBoxLayout()
+                c1.setSpacing(2)
+                act_str = log.get("action", "LOG")
+                act_color = action_colors.get(act_str, "#9CA3AF")
+                act_lbl = QLabel(act_str)
+                act_lbl.setStyleSheet(f"font-weight: 800; font-size: 11px; color: {act_color}; padding: 2px 6px; background: rgba(255,255,255,0.05); border-radius: 4px;")
+                actor_lbl = QLabel(f"By: {log.get('actor', 'User')}")
+                actor_lbl.setObjectName("subtitle")
+                c1.addWidget(act_lbl, alignment=Qt.AlignLeft)
+                c1.addWidget(actor_lbl)
+                cl.addLayout(c1, 1)
+
+                desc_lbl = QLabel(log.get("description", ""))
+                desc_lbl.setStyleSheet("font-size: 12px;")
+                desc_lbl.setWordWrap(True)
+                cl.addWidget(desc_lbl, 4)
+
+                time_lbl = QLabel(log.get("created_at", ""))
+                time_lbl.setStyleSheet("font-size: 11px; color: #6B7280;")
+                cl.addWidget(time_lbl, 2)
+
+                self.audit_cards_layout.addWidget(card)
+
+        self.audit_cards_layout.addStretch()
 
     def _save_business(self):
         _BUSINESS_INFO["name"]    = self._name_f.text().strip()

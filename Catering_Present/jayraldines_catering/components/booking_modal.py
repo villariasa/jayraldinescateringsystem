@@ -20,74 +20,85 @@ def _is_light():
 
 def _readonly_input_style():
     if _is_light():
-        return "background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0;border-radius:8px;padding:8px 14px;"
-    return "background:#111827;color:#9CA3AF;border:1px solid #243244;border-radius:8px;padding:8px 14px;"
+        return "background:#F3F5F9;color:#5B6B84;border:1px solid #E4E9F1;border-radius:9px;padding:8px 14px;"
+    return "background:#111827;color:#9CA3AF;border:1px solid #243244;border-radius:9px;padding:8px 14px;"
+
+
+def _muted_style(size=12):
+    return "color: %s; font-size: %dpx;" % ("#7A879E" if _is_light() else "#9CA3AF", size)
+
+
+def _price_style(size=13):
+    return "font-weight: 700; color: %s; font-size: %dpx;" % (
+        "#B45309" if _is_light() else "#F59E0B", size
+    )
 
 
 def _package_card_style(selected=False):
     if selected:
         if _is_light():
-            return ("QFrame { background: rgba(225,29,72,0.08); border-radius: 10px; border: 2px solid #E11D48; }"
-                    "QFrame QLabel { color: #0F172A; }")
-        return ("QFrame { background: rgba(225,29,72,0.12); border-radius: 10px; border: 2px solid #E11D48; }"
+            return ("QFrame { background: rgba(225,29,72,0.06); border-radius: 12px; border: 2px solid #E11D48; }"
+                    "QFrame QLabel { color: #101828; }")
+        return ("QFrame { background: rgba(225,29,72,0.12); border-radius: 12px; border: 2px solid #E11D48; }"
                 "QFrame QLabel { color: #F9FAFB; }")
     if _is_light():
-        return ("QFrame { background: #FFFFFF; border-radius: 10px; border: 2px solid #E2E8F0; }"
-                "QFrame:hover { border: 2px solid #E11D48; background: #FFF5F7; }"
-                "QFrame QLabel { color: #0F172A; }")
-    return ("QFrame { background: #1F2937; border-radius: 10px; border: 2px solid #243244; }"
+        return ("QFrame { background: #FFFFFF; border-radius: 12px; border: 2px solid #E4E9F1; }"
+                "QFrame:hover { border: 2px solid #F4A6B8; background: #FFF8F9; }"
+                "QFrame QLabel { color: #101828; }")
+    return ("QFrame { background: #1F2937; border-radius: 12px; border: 2px solid #243244; }"
             "QFrame:hover { border: 2px solid #E11D48; }"
             "QFrame QLabel { color: #F9FAFB; }")
 
 
 def _package_name_style():
-    return "font-weight: 700; color: %s; font-size: 13px;" % ("#0F172A" if _is_light() else "#F9FAFB")
+    return "font-weight: 700; color: %s; font-size: 13px;" % ("#101828" if _is_light() else "#F9FAFB")
 
 
 def _package_desc_style():
-    return "color: %s; font-size: 12px;" % ("#64748B" if _is_light() else "#9CA3AF")
+    return "color: %s; font-size: 12px;" % ("#5B6B84" if _is_light() else "#9CA3AF")
 
 
 def _notes_style():
     if _is_light():
-        return ("background: #F8FAFC; color: #0F172A; border: 1px solid #E2E8F0; "
-                "border-radius: 8px; padding: 8px; font-size: 13px;")
+        return ("background: #FFFFFF; color: #101828; border: 1px solid #D8DFEA; "
+                "border-radius: 9px; padding: 8px; font-size: 13px;")
     return ("background: #1F2937; color: #F9FAFB; border: 1px solid #243244; "
-            "border-radius: 8px; padding: 8px; font-size: 13px;")
+            "border-radius: 9px; padding: 8px; font-size: 13px;")
 
 
 def _cost_breakdown_style():
     return "color: %s; font-size: 11px; font-weight: 700; letter-spacing: 1px;" % (
-        "#64748B" if _is_light() else "#6B7280"
+        "#5B6B84" if _is_light() else "#6B7280"
     )
 
 
 def _cost_base_style():
-    return "color: %s; font-size: 13px;" % ("#475569" if _is_light() else "#9CA3AF")
+    return "color: %s; font-size: 13px;" % ("#46536B" if _is_light() else "#9CA3AF")
 
 
 def _cost_total_style():
-    return "color: %s; font-size: 15px; font-weight: 800;" % ("#0F172A" if _is_light() else "#F9FAFB")
+    return "color: %s; font-size: 15px; font-weight: 800;" % ("#101828" if _is_light() else "#F9FAFB")
 
 
 def _checkbox_item_style():
-    return "color: %s; font-size: 13px;" % ("#0F172A" if _is_light() else "#F9FAFB")
+    return "color: %s; font-size: 13px;" % ("#101828" if _is_light() else "#F9FAFB")
 
 
 def _combo_style():
     if _is_light():
         return (
-            "QComboBox { padding: 10px 14px; border: 1px solid #E2E8F0; border-radius: 8px;"
-            " background-color: #F8FAFC; color: #0F172A; font-size: 13px; }"
+            "QComboBox { padding: 10px 14px; border: 1px solid #D8DFEA; border-radius: 9px;"
+            " background-color: #FFFFFF; color: #101828; font-size: 13px; }"
+            "QComboBox:hover { border: 1px solid #B9C4D4; }"
             "QComboBox:focus { border: 1px solid #E11D48; }"
             "QComboBox::drop-down { width: 28px; border-left: none; background: transparent; }"
-            "QComboBox QAbstractItemView { background-color: #FFFFFF; color: #0F172A;"
-            " border: 1px solid #E2E8F0; border-radius: 8px; outline: none; padding: 4px;"
-            " selection-background-color: rgba(225,29,72,0.08); selection-color: #E11D48; }"
+            "QComboBox QAbstractItemView { background-color: #FFFFFF; color: #101828;"
+            " border: 1px solid #E4E9F1; border-radius: 9px; outline: none; padding: 4px;"
+            " selection-background-color: rgba(225,29,72,0.08); selection-color: #D31647; }"
             "QComboBox QAbstractItemView::item { padding: 8px 12px; border-radius: 6px;"
-            " color: #0F172A; background-color: #FFFFFF; }"
-            "QComboBox QAbstractItemView::item:hover { background-color: #F1F5F9; color: #0F172A; }"
-            "QComboBox QAbstractItemView::item:selected { background-color: rgba(225,29,72,0.08); color: #E11D48; }"
+            " color: #101828; background-color: #FFFFFF; }"
+            "QComboBox QAbstractItemView::item:hover { background-color: #F3F5F9; color: #101828; }"
+            "QComboBox QAbstractItemView::item:selected { background-color: rgba(225,29,72,0.08); color: #D31647; }"
         )
     return (
         "QComboBox { padding: 10px 14px; border: 1px solid #243244; border-radius: 8px;"
@@ -104,8 +115,12 @@ def _combo_style():
     )
 
 
+def _step_inactive_fg():
+    return "#98A2B3" if _is_light() else "#6B7280"
+
+
 def _step_line_inactive():
-    return "background: %s; margin-top: 13px;" % ("#E2E8F0" if _is_light() else "#243244")
+    return "background: %s; margin-top: 13px;" % ("#E4E9F1" if _is_light() else "#243244")
 
 
 _STEPS = ["Customer", "Event", "Menu", "Payment"]
@@ -122,18 +137,18 @@ def _segment_button_style(selected=False, left=True):
     """Return stylesheet for segment buttons (Packages / Custom Menu).
     left=True for the left segment, False for the right.
     """
+    radius = ("border-top-left-radius: 9px; border-bottom-left-radius: 9px;"
+              " border-top-right-radius: 0px; border-bottom-right-radius: 0px;") if left else \
+             ("border-top-right-radius: 9px; border-bottom-right-radius: 9px;"
+              " border-top-left-radius: 0px; border-bottom-left-radius: 0px;")
+    if selected:
+        return ("background: #E11D48; color: #FFFFFF; border: 1px solid #E11D48;"
+                " font-weight: 700; padding: 10px 16px; " + radius)
     if _is_light():
-        if selected:
-            return ("background: #E11D48; color: #F9FAFB; border: 1px solid #E11D48;"
-                    " padding: 10px 16px; border-radius: 8px;")
-        return ("background: #FFFFFF; color: #0F172A; border: 1px solid #E2E8F0;"
-                " padding: 10px 16px; border-radius: 8px;")
-    else:
-        if selected:
-            return ("background: #E11D48; color: #F9FAFB; border: 1px solid #E11D48;"
-                    " padding: 10px 16px; border-radius: 8px;")
-        return ("background: #111827; color: #F9FAFB; border: 1px solid #243244;"
-                " padding: 10px 16px; border-radius: 8px;")
+        return ("background: #FFFFFF; color: #46536B; border: 1px solid #D8DFEA;"
+                " padding: 10px 16px; " + radius)
+    return ("background: #111827; color: #F9FAFB; border: 1px solid #243244;"
+            " padding: 10px 16px; " + radius)
 
 
 def _field_label(text):
@@ -164,15 +179,16 @@ class StepIndicator(QWidget):
             col.setSpacing(4)
             col.setAlignment(Qt.AlignHCenter)
 
+            fg = _step_inactive_fg()
             dot = QLabel()
             dot.setFixedSize(28, 28)
             dot.setAlignment(Qt.AlignCenter)
-            dot.setStyleSheet("border-radius: 14px; background: transparent; color: #6B7280; font-weight: 700; font-size: 12px; border: 2px solid #6B7280;")
+            dot.setStyleSheet(f"border-radius: 14px; background: transparent; color: {fg}; font-weight: 700; font-size: 12px; border: 2px solid {fg};")
             dot.setText(str(i + 1))
 
             lbl = QLabel(step)
             lbl.setAlignment(Qt.AlignHCenter)
-            lbl.setStyleSheet("color: #6B7280; font-size: 11px; font-weight: 600;")
+            lbl.setStyleSheet(f"color: {fg}; font-size: 11px; font-weight: 600;")
             lbl.setObjectName("stepLblInactive")
 
             col.addWidget(dot, alignment=Qt.AlignHCenter)
@@ -195,23 +211,26 @@ class StepIndicator(QWidget):
                 self._lines.append(line)
 
     def set_step(self, index):
+        fg = _step_inactive_fg()
+        done_fg = "#16A34A" if _is_light() else "#22C55E"
         for i, (dot, lbl) in enumerate(zip(self._dots, self._labels)):
             if i < index:
-                dot.setStyleSheet("border-radius: 14px; background: #22C55E; color: #F9FAFB; font-weight: 700; font-size: 12px; border: 2px solid #22C55E;")
+                dot.setStyleSheet(f"border-radius: 14px; background: {done_fg}; color: #FFFFFF; font-weight: 700; font-size: 12px; border: 2px solid {done_fg};")
                 dot.setText("✓")
-                lbl.setStyleSheet("color: #22C55E; font-size: 11px; font-weight: 600;")
+                lbl.setStyleSheet(f"color: {done_fg}; font-size: 11px; font-weight: 600;")
             elif i == index:
-                dot.setStyleSheet("border-radius: 14px; background: #E11D48; color: #F9FAFB; font-weight: 700; font-size: 12px; border: 2px solid #E11D48;")
+                dot.setStyleSheet("border-radius: 14px; background: #E11D48; color: #FFFFFF; font-weight: 700; font-size: 12px; border: 2px solid #E11D48;")
                 dot.setText(str(i + 1))
                 lbl.setStyleSheet("color: #E11D48; font-size: 11px; font-weight: 700;")
             else:
-                dot.setStyleSheet("border-radius: 14px; background: transparent; color: #6B7280; font-weight: 700; font-size: 12px; border: 2px solid #6B7280;")
+                dot.setStyleSheet(f"border-radius: 14px; background: transparent; color: {fg}; font-weight: 700; font-size: 12px; border: 2px solid {fg};")
                 dot.setText(str(i + 1))
-                lbl.setStyleSheet("color: #6B7280; font-size: 11px; font-weight: 600;")
+                lbl.setStyleSheet(f"color: {fg}; font-size: 11px; font-weight: 600;")
 
         for i, line in enumerate(self._lines):
-            color = "#22C55E" if i < index else "#6B7280"
-            line.setStyleSheet(f"background: {color}; margin-top: 13px;")
+            line.setStyleSheet(
+                f"background: {done_fg}; margin-top: 13px;" if i < index else _step_line_inactive()
+            )
 
 
 class BookingModal(QDialog):
@@ -239,26 +258,34 @@ class BookingModal(QDialog):
         outer.setContentsMargins(20, 20, 20, 20)
 
         self._container = QFrame()
-        self._container.setObjectName("card")
-        self._container.setStyleSheet("")
+        self._container.setObjectName("modalCard")
+        if sys.platform != "win32":
+            from utils.animations import create_soft_shadow
+            create_soft_shadow(self._container, radius=36, y_offset=10, opacity=50)
 
         container_layout = QVBoxLayout(self._container)
-        container_layout.setContentsMargins(32, 28, 32, 28)
-        container_layout.setSpacing(24)
+        container_layout.setContentsMargins(32, 28, 32, 24)
+        container_layout.setSpacing(22)
 
         title_row = QHBoxLayout()
+        title_col = QVBoxLayout()
+        title_col.setSpacing(3)
         self._title_lbl = QLabel("Edit Booking" if self._edit_mode else "New Booking")
         self._title_lbl.setObjectName("h2")
-        title_row.addWidget(self._title_lbl)
+        title_col.addWidget(self._title_lbl)
+        self._subtitle_lbl = QLabel()
+        self._subtitle_lbl.setObjectName("subtitle")
+        title_col.addWidget(self._subtitle_lbl)
+        title_row.addLayout(title_col)
         title_row.addStretch()
         close_btn = QPushButton()
-        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(16, 16)))
+        close_btn.setIcon(get_icon("close", color="#98A2B3", size=QSize(16, 16)))
         close_btn.setIconSize(QSize(16, 16))
         close_btn.setFixedSize(32, 32)
-        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setObjectName("modalCloseBtn")
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self.reject)
-        title_row.addWidget(close_btn)
+        title_row.addWidget(close_btn, alignment=Qt.AlignTop)
         container_layout.addLayout(title_row)
 
         self._step_indicator = StepIndicator(_STEPS)
@@ -269,11 +296,15 @@ class BookingModal(QDialog):
         container_layout.addWidget(div)
 
         self._stack = QStackedWidget()
-        self._stack.addWidget(self._build_step0())
-        self._stack.addWidget(self._build_step1())
-        self._stack.addWidget(self._build_step2())
-        self._stack.addWidget(self._build_step3())
+        self._stack.addWidget(self._scrollable(self._build_step0()))
+        self._stack.addWidget(self._scrollable(self._build_step1()))
+        self._stack.addWidget(self._scrollable(self._build_step2()))
+        self._stack.addWidget(self._scrollable(self._build_step3()))
         container_layout.addWidget(self._stack, 1)
+
+        footer_div = QFrame()
+        footer_div.setObjectName("divider")
+        container_layout.addWidget(footer_div)
 
         nav_row = QHBoxLayout()
         nav_row.setSpacing(12)
@@ -281,16 +312,25 @@ class BookingModal(QDialog):
         self._btn_back.setObjectName("secondaryButton")
         self._btn_back.setIcon(btn_icon_secondary("chevron-left"))
         self._btn_back.setIconSize(QSize(14, 14))
+        self._btn_back.setMinimumWidth(96)
+        self._btn_back.setCursor(Qt.PointingHandCursor)
         self._btn_back.setVisible(False)
         self._btn_back.clicked.connect(self._go_back)
+
+        self._step_hint = QLabel()
+        self._step_hint.setObjectName("muted")
 
         self._btn_next = QPushButton("Next  ")
         self._btn_next.setObjectName("primaryButton")
         self._btn_next.setIcon(get_icon("chevron-right", color="#F9FAFB", size=QSize(14, 14)))
         self._btn_next.setIconSize(QSize(14, 14))
+        self._btn_next.setMinimumWidth(130)
+        self._btn_next.setCursor(Qt.PointingHandCursor)
         self._btn_next.clicked.connect(self._go_next)
 
         nav_row.addWidget(self._btn_back)
+        nav_row.addStretch()
+        nav_row.addWidget(self._step_hint)
         nav_row.addStretch()
         nav_row.addWidget(self._btn_next)
         container_layout.addLayout(nav_row)
@@ -320,7 +360,9 @@ class BookingModal(QDialog):
         lay.addWidget(_section_label("Customer Information"))
 
         note = QLabel("Select an existing customer. To add a new customer, go to the Customers module first.")
-        note.setStyleSheet("color:#F59E0B;font-size:11px;")
+        note.setStyleSheet(
+            "color:%s;font-size:11px;" % ("#B45309" if _is_light() else "#F59E0B")
+        )
         note.setWordWrap(True)
         lay.addWidget(note)
 
@@ -532,7 +574,7 @@ class BookingModal(QDialog):
                 card_lay.addLayout(info)
                 card_lay.addStretch()
                 p_lbl = QLabel(price_str)
-                p_lbl.setStyleSheet("font-weight: 700; color: #F59E0B; font-size: 13px;")
+                p_lbl.setStyleSheet(_price_style(13))
                 card_lay.addWidget(p_lbl)
                 sel_btn = QPushButton("Selected" if i == 0 else "Select")
                 sel_btn.setObjectName("primaryButton" if i == 0 else "secondaryButton")
@@ -555,9 +597,9 @@ class BookingModal(QDialog):
             chk = QCheckBox(item["item"])
             chk.setStyleSheet(_checkbox_item_style())
             cat = QLabel(item["category"])
-            cat.setStyleSheet("color: #6B7280; font-size: 11px;")
+            cat.setStyleSheet(_muted_style(11))
             p = QLabel(f"₱{item['price']:,.0f}")
-            p.setStyleSheet("color: #F59E0B; font-size: 12px; font-weight: 700;")
+            p.setStyleSheet(_price_style(12))
             row.addWidget(chk)
             row.addWidget(cat)
             row.addStretch()
@@ -661,11 +703,11 @@ class BookingModal(QDialog):
         self._lbl_total   = QLabel()
         self._lbl_total.setStyleSheet(_cost_total_style())
         self._lbl_deposit = QLabel()
-        self._lbl_deposit.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: 700;")
+        self._lbl_deposit.setStyleSheet(_price_style(13))
 
         note = QLabel("Payments are recorded in the Billing module after booking is created.")
         note.setWordWrap(True)
-        note.setStyleSheet("color: #9CA3AF; font-size: 12px; padding-top: 4px;")
+        note.setStyleSheet(_muted_style(12) + " padding-top: 4px;")
 
         cb_lay.addWidget(self._lbl_base)
         cb_lay.addWidget(self._lbl_total)
@@ -724,6 +766,8 @@ class BookingModal(QDialog):
                 duration=200,
             )
         self._step_indicator.set_step(self._step)
+        self._subtitle_lbl.setText(f"Step {self._step + 1} of {len(_STEPS)} — {_STEPS[self._step]}")
+        self._step_hint.setText(f"{self._step + 1} / {len(_STEPS)}")
         self._btn_back.setVisible(self._step > 0)
         is_last = self._step == len(_STEPS) - 1
         if is_last:

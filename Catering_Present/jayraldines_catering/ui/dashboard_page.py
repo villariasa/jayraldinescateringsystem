@@ -60,6 +60,159 @@ class KPICard(AnimatedCard):
         self._trend_lbl.setText(text)
 
 
+class PeriodSummaryCard(AnimatedCard):
+    """Revenue vs Expenses bar chart with a Weekly / Monthly / Yearly toggle.
+
+    Weekly  = weeks of the current month
+    Monthly = months of the current year
+    Yearly  = every year with data (needs analytics_functions_migration.sql)
+    """
+
+    _PERIODS = ["Weekly", "Monthly", "Yearly"]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._period = "Monthly"
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(14)
+
+        head = QHBoxLayout()
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+        title = QLabel("Revenue Summary")
+        title.setObjectName("h3")
+        self._range_lbl = QLabel("")
+        self._range_lbl.setObjectName("subtitle")
+        title_col.addWidget(title)
+        title_col.addWidget(self._range_lbl)
+        head.addLayout(title_col)
+        head.addStretch()
+
+        self._period_btns = {}
+        for p in self._PERIODS:
+            btn = QPushButton(p)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setObjectName("pageButtonActive" if p == self._period else "pageButton")
+            btn.clicked.connect(lambda _, name=p: self.set_period(name))
+            self._period_btns[p] = btn
+            head.addWidget(btn)
+        lay.addLayout(head)
+
+        self._empty_lbl = QLabel("No data for this period yet.")
+        self._empty_lbl.setObjectName("subtitle")
+        self._empty_lbl.setAlignment(Qt.AlignCenter)
+        self._empty_lbl.hide()
+        lay.addWidget(self._empty_lbl)
+
+        self._chart_holder = QVBoxLayout()
+        lay.addLayout(self._chart_holder, 1)
+        self._chart_view = None
+
+        self.refresh()
+
+    def set_period(self, period: str):
+        if period == self._period:
+            return
+        self._period = period
+        for p, btn in self._period_btns.items():
+            btn.setObjectName("pageButtonActive" if p == period else "pageButton")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+        self.refresh()
+
+    def _fetch(self):
+        now = datetime.now()
+        if self._period == "Weekly":
+            rows = repo.get_weekly_summary(now.year, now.month)
+            self._range_lbl.setText(now.strftime("Weeks of %B %Y"))
+            return [(r["week"], r["revenue"], r["expense"]) for r in rows]
+        if self._period == "Yearly":
+            rows = repo.get_yearly_summary()
+            self._range_lbl.setText("All years")
+            return [(str(r["year"]), r["revenue"], r["expense"]) for r in rows]
+        try:
+            rows = repo.get_profit_summary_for_year(now.year)
+        except Exception:
+            rows = repo.get_profit_summary()
+        self._range_lbl.setText(str(now.year))
+        return [(r["month"], r["revenue"], r["expense"]) for r in rows]
+
+    def refresh(self):
+        try:
+            data = self._fetch()
+        except Exception:
+            data = []
+
+        if self._chart_view is not None:
+            self._chart_holder.removeWidget(self._chart_view)
+            self._chart_view.deleteLater()
+            self._chart_view = None
+
+        if not data:
+            self._empty_lbl.show()
+            return
+        self._empty_lbl.hide()
+
+        from PySide6.QtCharts import (
+            QChart, QChartView, QBarSeries, QBarSet, QBarCategoryAxis, QValueAxis
+        )
+        from PySide6.QtGui import QPainter, QColor
+        from PySide6.QtCore import QMargins
+
+        dark = ThemeManager().is_dark()
+        label_color = QColor("#9CA3AF" if dark else "#5B6B84")
+        grid_color = QColor("#243244" if dark else "#EDF1F7")
+
+        rev_set = QBarSet("Revenue")
+        exp_set = QBarSet("Expenses")
+        rev_set.setColor(QColor("#E11D48"))
+        exp_set.setColor(QColor("#F59E0B" if dark else "#F4A93C"))
+        labels = []
+        max_val = 0.0
+        for label, revenue, expense in data:
+            labels.append(label)
+            rev_set.append(revenue)
+            exp_set.append(expense)
+            max_val = max(max_val, revenue, expense)
+
+        series = QBarSeries()
+        series.append(rev_set)
+        series.append(exp_set)
+
+        chart = QChart()
+        chart.addSeries(series)
+        chart.setBackgroundBrush(Qt.transparent)
+        chart.setMargins(QMargins(0, 0, 0, 0))
+        chart.legend().setVisible(True)
+        chart.legend().setAlignment(Qt.AlignBottom)
+        chart.legend().setLabelColor(label_color)
+
+        axis_x = QBarCategoryAxis()
+        axis_x.append(labels)
+        axis_x.setLabelsColor(label_color)
+        axis_x.setGridLineVisible(False)
+        axis_x.setLinePenColor(Qt.transparent)
+        chart.addAxis(axis_x, Qt.AlignBottom)
+        series.attachAxis(axis_x)
+
+        axis_y = QValueAxis()
+        axis_y.setRange(0, max(max_val * 1.15, 1))
+        axis_y.setLabelFormat("P%.0f")
+        axis_y.setLabelsColor(label_color)
+        axis_y.setGridLineColor(grid_color)
+        axis_y.setLinePenColor(Qt.transparent)
+        chart.addAxis(axis_y, Qt.AlignLeft)
+        series.attachAxis(axis_y)
+
+        self._chart_view = QChartView(chart)
+        self._chart_view.setRenderHint(QPainter.Antialiasing)
+        self._chart_view.setStyleSheet("background: transparent;")
+        self._chart_view.setMinimumHeight(260)
+        self._chart_holder.addWidget(self._chart_view)
+
+
 class ActivityItem(QWidget):
     def __init__(self, title, desc, time, dot_color="#22C55E", parent=None):
         super().__init__(parent)
@@ -243,6 +396,9 @@ class DashboardPage(QWidget):
         for card in [self._kpi_today, self._kpi_pending, self._kpi_revenue, self._kpi_unpaid, self._kpi_profit]:
             kpi_row.addWidget(card)
         self.lay.addLayout(kpi_row)
+
+        self.summary_card = PeriodSummaryCard(self.content)
+        self.lay.addWidget(self.summary_card)
 
         mid_row = QHBoxLayout()
         mid_row.setSpacing(16)
@@ -454,14 +610,17 @@ class DashboardPage(QWidget):
             self._kpi_profit.update_value("—")
             self._kpi_profit.update_trend("No expense data")
 
+        _pax_color = "#F9FAFB" if ThemeManager().is_dark() else "#101828"
         self._pax_lbl.setText(
-            f'<span style="font-size:28px;font-weight:800;color:#F9FAFB;">{pax}</span>'
-            f'<span style="color:#6B7280;font-size:16px;"> / 600</span>'
+            f'<span style="font-size:28px;font-weight:800;color:{_pax_color};">{pax}</span>'
+            f'<span style="color:#7A879E;font-size:16px;"> / 600</span>'
         )
         self.prog.setValue(min(pax, 600))
         pct = round((pax / 600) * 100, 1)
         self._cap_pct_lbl.setText(f"{pct}% Capacity")
         self._cap_rem_lbl.setText(f"{max(0, 600 - pax)} slots remaining")
+
+        self.summary_card.refresh()
 
         self._cached_events = repo.get_upcoming_events(limit=20)
         self._cached_activity = repo.get_recent_activity(limit=10)

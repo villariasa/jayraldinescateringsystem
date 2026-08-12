@@ -571,26 +571,22 @@ class MenuPage(QWidget):
         card = QFrame()
         card.setObjectName("card")
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setContentsMargins(20, 20, 20, 20)
 
-        self._table = QTableWidget(0, 7)
-        self._table.setObjectName("menuTable")
-        self._table.setHorizontalHeaderLabels(["Item", "Category", "Package", "Price", "Status", "", ""])
-        _mn_hdr = self._table.horizontalHeader()
-        _mn_hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
-        _mn_hdr.setSectionResizeMode(0, QHeaderView.Stretch)
-        _mn_hdr.setSectionResizeMode(5, QHeaderView.Fixed)
-        _mn_hdr.setSectionResizeMode(6, QHeaderView.Fixed)
-        self._table.setColumnWidth(5, 40)
-        self._table.setColumnWidth(6, 40)
-        self._table.setAlternatingRowColors(True)
-        self._table.setSelectionMode(QTableWidget.NoSelection)
-        self._table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self._table.setMouseTracking(False)
-        self._table.setStyleSheet("QTableWidget::item:hover { background: transparent; } QTableWidget::item:selected { background: transparent; }")
-        card_layout.addWidget(self._table)
+        self.menu_scroll = QScrollArea()
+        self.menu_scroll.setWidgetResizable(True)
+        self.menu_scroll.setFrameShape(QFrame.NoFrame)
+        self.menu_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.menu_scroll.setStyleSheet("background: transparent;")
+
+        self.menu_container = QWidget()
+        self.menu_container.setStyleSheet("background: transparent;")
+        self.menu_cards_layout = QVBoxLayout(self.menu_container)
+        self.menu_cards_layout.setContentsMargins(0, 0, 10, 0)
+        self.menu_cards_layout.setSpacing(12)
+
+        self.menu_scroll.setWidget(self.menu_container)
+        card_layout.addWidget(self.menu_scroll)
         lay.addWidget(card)
 
         self._tabs.addTab(tab, "Menu Items")
@@ -615,101 +611,126 @@ class MenuPage(QWidget):
         card = QFrame()
         card.setObjectName("card")
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setContentsMargins(20, 20, 20, 20)
 
-        self._pkg_table = QTableWidget(0, 7)
-        self._pkg_table.setObjectName("menuTable")
-        self._pkg_table.setHorizontalHeaderLabels(["Package Name", "Price / Pax", "Min Pax", "Items", "Description", "", ""])
-        _hdr = self._pkg_table.horizontalHeader()
-        _hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
-        _hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        _hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        _hdr.setSectionResizeMode(4, QHeaderView.Stretch)
-        _hdr.setSectionResizeMode(5, QHeaderView.Fixed)
-        _hdr.setSectionResizeMode(6, QHeaderView.Fixed)
-        self._pkg_table.setColumnWidth(5, 40)
-        self._pkg_table.setColumnWidth(6, 40)
-        self._pkg_table.setAlternatingRowColors(True)
-        self._pkg_table.setSelectionMode(QTableWidget.NoSelection)
-        self._pkg_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._pkg_table.verticalHeader().setVisible(False)
-        self._pkg_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self._pkg_table.setMouseTracking(False)
-        self._pkg_table.setStyleSheet("QTableWidget::item:hover { background: transparent; } QTableWidget::item:selected { background: transparent; }")
-        card_layout.addWidget(self._pkg_table)
+        self.pkg_scroll = QScrollArea()
+        self.pkg_scroll.setWidgetResizable(True)
+        self.pkg_scroll.setFrameShape(QFrame.NoFrame)
+        self.pkg_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.pkg_scroll.setStyleSheet("background: transparent;")
+
+        self.pkg_container = QWidget()
+        self.pkg_container.setStyleSheet("background: transparent;")
+        self.pkg_cards_layout = QVBoxLayout(self.pkg_container)
+        self.pkg_cards_layout.setContentsMargins(0, 0, 10, 0)
+        self.pkg_cards_layout.setSpacing(12)
+
+        self.pkg_scroll.setWidget(self.pkg_container)
+        card_layout.addWidget(self.pkg_scroll)
         lay.addWidget(card)
 
         self._tabs.addTab(tab, "Packages")
 
     def _populate_table(self):
+        while self.menu_cards_layout.count():
+            item = self.menu_cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         q = getattr(self, "_filter_q", "")
         db_items = repo.get_all_menu_items()
         items = db_items if db_items else menu_store.all_items()
         if q:
             items = [i for i in items if q in i["item"].lower() or q in i["category"].lower() or q in i["package"].lower()]
-        self._table.setRowCount(0)
+
+        if not items:
+            empty_lbl = QLabel("No menu items found.")
+            empty_lbl.setObjectName("subtitle")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            self.menu_cards_layout.addWidget(empty_lbl)
+        else:
+            for item in items:
+                m_card = self._create_menu_item_card(item)
+                self.menu_cards_layout.addWidget(m_card)
+
+        self.menu_cards_layout.addStretch()
+
+    def _create_menu_item_card(self, item: dict) -> QFrame:
+        card = QFrame()
+        card.setObjectName("entryCard")
+        lay = QHBoxLayout(card)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(16)
+
+        c1 = QVBoxLayout()
+        c1.setSpacing(2)
+        name_lbl = QLabel(item["item"])
+        name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
+        cat_lbl = QLabel(f"Category: {item['category']}  |  Package: {item['package']}")
+        cat_lbl.setObjectName("subtitle")
+        c1.addWidget(name_lbl)
+        c1.addWidget(cat_lbl)
+        lay.addLayout(c1, 3)
+
+        price_lbl = QLabel(f"₱{item['price']:,.2f}")
+        price_lbl.setStyleSheet("font-weight: 800; font-size: 15px; color: #F59E0B;")
+        lay.addWidget(price_lbl, alignment=Qt.AlignVCenter)
+
         status_colors = {"Available": "#22C55E", "Unavailable": "#EF4444", "Out of Stock": "#F97316", "Seasonal": "#F59E0B"}
-        for row, item in enumerate(items):
-            self._table.insertRow(row)
-            self._table.setItem(row, 0, QTableWidgetItem(item["item"]))
-            self._table.setItem(row, 1, QTableWidgetItem(item["category"]))
-            self._table.setItem(row, 2, QTableWidgetItem(item["package"]))
-            self._table.setItem(row, 3, QTableWidgetItem(f"₱{item['price']:,.2f}"))
+        s_color = status_colors.get(item["status"], "#9CA3AF")
+        status_lbl = QLabel(item["status"])
+        status_lbl.setStyleSheet(f"font-weight: 700; font-size: 11px; color: {s_color}; padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 8px;")
+        lay.addWidget(status_lbl, alignment=Qt.AlignVCenter)
 
-            status_item = QTableWidgetItem(item["status"])
-            status_item.setForeground(QColor(status_colors.get(item["status"], "#9CA3AF")))
-            self._table.setItem(row, 4, status_item)
+        actions_w = QFrame()
+        actions_w.setStyleSheet("background: transparent;")
+        actions_l = QHBoxLayout(actions_w)
+        actions_l.setContentsMargins(0, 0, 0, 0)
+        actions_l.setSpacing(6)
 
-            edit_btn = QPushButton()
-            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(14, 14)))
-            edit_btn.setIconSize(QSize(14, 14))
-            edit_btn.setFixedSize(32, 32)
-            edit_btn.setStyleSheet("background: transparent; border: none;")
-            edit_btn.setCursor(Qt.PointingHandCursor)
-            edit_btn.setToolTip("Edit item")
-            edit_btn.clicked.connect(self._edit_item)
-            self._table.setCellWidget(row, 5, edit_btn)
+        edit_btn = QPushButton()
+        edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
+        edit_btn.setIconSize(QSize(13, 13))
+        edit_btn.setFixedSize(30, 30)
+        edit_btn.setStyleSheet("background: transparent; border: none;")
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.setToolTip("Edit item")
+        edit_btn.clicked.connect(lambda _, it=item: self._edit_item_dict(it))
 
-            del_btn = QPushButton()
-            del_btn.setIcon(btn_icon_red("trash"))
-            del_btn.setIconSize(QSize(15, 15))
-            del_btn.setFixedSize(32, 32)
-            del_btn.setStyleSheet("background: transparent; border: none;")
-            del_btn.setCursor(Qt.PointingHandCursor)
-            del_btn.clicked.connect(self._delete_item)
-            self._table.setCellWidget(row, 6, del_btn)
+        del_btn = QPushButton()
+        del_btn.setIcon(btn_icon_red("trash"))
+        del_btn.setIconSize(QSize(14, 14))
+        del_btn.setFixedSize(30, 30)
+        del_btn.setStyleSheet("background: transparent; border: none;")
+        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.setToolTip("Delete item")
+        del_btn.clicked.connect(lambda _, it=item: self._delete_item_dict(it))
 
-    def _edit_item(self):
-        btn = self.sender()
-        for r in range(self._table.rowCount()):
-            if self._table.cellWidget(r, 5) is btn:
-                items = repo.get_all_menu_items() or menu_store.all_items()
-                item = items[r] if r < len(items) else {}
-                dlg = MenuItemDialog(self, item_data=item)
-                if dlg.exec() == QDialog.Accepted:
-                    result = dlg.get_result()
-                    if result and item.get("id"):
-                        repo.update_menu_item(item["id"], result)
-                        self._populate_table()
-                        success(self, message="Menu item updated successfully.")
-                return
+        actions_l.addWidget(edit_btn)
+        actions_l.addWidget(del_btn)
+        lay.addWidget(actions_w)
 
-    def _delete_item(self):
-        btn = self.sender()
-        for r in range(self._table.rowCount()):
-            if self._table.cellWidget(r, 6) is btn:
-                items = repo.get_all_menu_items() or menu_store.all_items()
-                item = items[r] if r < len(items) else {}
-                item_name = item.get("item", "")
-                item_id = item.get("id")
-                if not confirm(self, title="Delete Menu Item",
-                               message=f"Are you sure you want to delete '{item_name}'? This cannot be undone.",
-                               confirm_label="Delete", danger=True):
-                    return
-                repo.delete_menu_item(r, item_id)
+        return card
+
+    def _edit_item_dict(self, item: dict):
+        dlg = MenuItemDialog(self, item_data=item)
+        if dlg.exec() == QDialog.Accepted:
+            result = dlg.get_result()
+            if result and item.get("id"):
+                repo.update_menu_item(item["id"], result)
                 self._populate_table()
-                success(self, message="Menu item deleted successfully.")
-                return
+                success(self, message="Menu item updated successfully.")
+
+    def _delete_item_dict(self, item: dict):
+        item_name = item.get("item", "")
+        item_id = item.get("id")
+        if not confirm(self, title="Delete Menu Item",
+                       message=f"Are you sure you want to delete '{item_name}'? This cannot be undone.",
+                       confirm_label="Delete", danger=True):
+            return
+        repo.delete_menu_item(0, item_id)
+        self._populate_table()
+        success(self, message="Menu item deleted successfully.")
 
     def _open_add_dialog(self):
         dlg = MenuItemDialog(self)
@@ -721,54 +742,97 @@ class MenuPage(QWidget):
                 success(self, message="Menu item added successfully.")
 
     def _populate_packages_table(self):
+        while self.pkg_cards_layout.count():
+            item = self.pkg_cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         packages = repo.get_all_packages()
-        self._pkg_table.setRowCount(0)
         self._packages_data = packages
-        for row, pkg in enumerate(packages):
-            self._pkg_table.insertRow(row)
-            self._pkg_table.setItem(row, 0, QTableWidgetItem(pkg["name"]))
 
-            price_item = QTableWidgetItem(f"₱{float(pkg['price_per_pax']):,.2f}")
-            price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self._pkg_table.setItem(row, 1, price_item)
+        if not packages:
+            empty_lbl = QLabel("No packages found.")
+            empty_lbl.setStyleSheet("color: #9CA3AF; font-size: 13px; padding: 24px;")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            self.pkg_cards_layout.addWidget(empty_lbl)
+        else:
+            for pkg in packages:
+                p_card = self._create_package_card(pkg)
+                self.pkg_cards_layout.addWidget(p_card)
 
-            min_pax_item = QTableWidgetItem(f"{pkg.get('min_pax', 1)} pax")
-            min_pax_item.setTextAlignment(Qt.AlignCenter)
-            self._pkg_table.setItem(row, 2, min_pax_item)
+        self.pkg_cards_layout.addStretch()
 
-            pkg_items = repo.get_package_items(pkg["id"]) if pkg.get("id") else []
-            item_count = len(pkg_items)
-            if item_count > 0:
-                names = ", ".join(i["item_name"] for i in pkg_items[:3])
-                if item_count > 3:
-                    names += f" +{item_count - 3} more"
-                items_cell = QTableWidgetItem(f"{item_count} ({names})")
-            else:
-                items_cell = QTableWidgetItem("No items")
-                items_cell.setForeground(QColor("#6B7280"))
-            self._pkg_table.setItem(row, 3, items_cell)
+    def _create_package_card(self, pkg: dict) -> QFrame:
+        card = QFrame()
+        card.setObjectName("entryCard")
+        lay = QHBoxLayout(card)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(16)
 
-            self._pkg_table.setItem(row, 4, QTableWidgetItem(pkg.get("description", "")))
+        c1 = QVBoxLayout()
+        c1.setSpacing(2)
+        name_lbl = QLabel(pkg["name"])
+        name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
+        desc_lbl = QLabel(pkg.get("description", "No description"))
+        desc_lbl.setObjectName("subtitle")
+        desc_lbl.setWordWrap(True)
+        c1.addWidget(name_lbl)
+        c1.addWidget(desc_lbl)
+        lay.addLayout(c1, 3)
 
-            edit_btn = QPushButton()
-            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(14, 14)))
-            edit_btn.setIconSize(QSize(14, 14))
-            edit_btn.setFixedSize(32, 32)
-            edit_btn.setStyleSheet("background: transparent; border: none;")
-            edit_btn.setCursor(Qt.PointingHandCursor)
-            edit_btn.setToolTip("Edit package")
-            edit_btn.clicked.connect(self._edit_package)
-            self._pkg_table.setCellWidget(row, 5, edit_btn)
+        pkg_items = repo.get_package_items(pkg["id"]) if pkg.get("id") else []
+        item_count = len(pkg_items)
+        if item_count > 0:
+            names = ", ".join(i["item_name"] for i in pkg_items[:3])
+            if item_count > 3:
+                names += f" +{item_count - 3} more"
+            items_str = f"📦 {item_count} items ({names})"
+        else:
+            items_str = "📦 No items"
+        items_lbl = QLabel(items_str)
+        items_lbl.setObjectName("subtitle")
+        items_lbl.setWordWrap(True)
+        lay.addWidget(items_lbl, 2)
 
-            del_btn = QPushButton()
-            del_btn.setIcon(btn_icon_red("trash"))
-            del_btn.setIconSize(QSize(15, 15))
-            del_btn.setFixedSize(32, 32)
-            del_btn.setStyleSheet("background: transparent; border: none;")
-            del_btn.setCursor(Qt.PointingHandCursor)
-            del_btn.setToolTip("Delete package")
-            del_btn.clicked.connect(self._delete_package)
-            self._pkg_table.setCellWidget(row, 6, del_btn)
+        p_info = QVBoxLayout()
+        p_info.setSpacing(2)
+        p_val = QLabel(f"₱{float(pkg['price_per_pax']):,.2f} / pax")
+        p_val.setStyleSheet("font-weight: 800; font-size: 14px; color: #F59E0B;")
+        min_p = QLabel(f"Min: {pkg.get('min_pax', 1)} pax")
+        min_p.setStyleSheet("font-size: 11px; color: #6B7280;")
+        p_info.addWidget(p_val)
+        p_info.addWidget(min_p)
+        lay.addLayout(p_info, 2)
+
+        actions_w = QFrame()
+        actions_w.setStyleSheet("background: transparent;")
+        actions_l = QHBoxLayout(actions_w)
+        actions_l.setContentsMargins(0, 0, 0, 0)
+        actions_l.setSpacing(6)
+
+        edit_btn = QPushButton()
+        edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
+        edit_btn.setIconSize(QSize(13, 13))
+        edit_btn.setFixedSize(30, 30)
+        edit_btn.setStyleSheet("background: transparent; border: none;")
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.setToolTip("Edit package")
+        edit_btn.clicked.connect(lambda _, p=pkg: self._edit_package_dict(p))
+
+        del_btn = QPushButton()
+        del_btn.setIcon(btn_icon_red("trash"))
+        del_btn.setIconSize(QSize(14, 14))
+        del_btn.setFixedSize(30, 30)
+        del_btn.setStyleSheet("background: transparent; border: none;")
+        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.setToolTip("Delete package")
+        del_btn.clicked.connect(lambda _, p=pkg: self._delete_package_dict(p))
+
+        actions_l.addWidget(edit_btn)
+        actions_l.addWidget(del_btn)
+        lay.addWidget(actions_w)
+
+        return card
 
     def _open_add_package_dialog(self):
         dlg = PackageDialog(self)
@@ -783,42 +847,32 @@ class MenuPage(QWidget):
                 else:
                     QMessageBox.warning(self, "Error", "Failed to add package. Name may already exist.")
 
-    def _edit_package(self):
-        btn = self.sender()
-        for r in range(self._pkg_table.rowCount()):
-            if self._pkg_table.cellWidget(r, 5) is btn:
-                pkg = self._packages_data[r] if r < len(self._packages_data) else {}
-                dlg = PackageDialog(self, pkg_data=pkg)
-                if dlg.exec() == QDialog.Accepted:
-                    result = dlg.get_result()
-                    if result and pkg.get("id"):
-                        ok = repo.update_package(pkg["id"], result)
-                        if ok:
-                            repo.set_package_items(pkg["id"], result.get("items", []))
-                            self._populate_packages_table()
-                            success(self, message="Package updated successfully.")
-                        else:
-                            QMessageBox.warning(self, "Error", "Failed to update package.")
-                return
-
-    def _delete_package(self):
-        btn = self.sender()
-        for r in range(self._pkg_table.rowCount()):
-            if self._pkg_table.cellWidget(r, 6) is btn:
-                pkg = self._packages_data[r] if r < len(self._packages_data) else {}
-                pkg_name = pkg.get("name", "")
-                if not confirm(self, title="Delete Package",
-                               message=f"Delete package '{pkg_name}'? Packages linked to existing bookings cannot be deleted.",
-                               confirm_label="Delete", danger=True):
-                    return
-                ok = repo.delete_package(pkg.get("id"))
+    def _edit_package_dict(self, pkg: dict):
+        dlg = PackageDialog(self, pkg_data=pkg)
+        if dlg.exec() == QDialog.Accepted:
+            result = dlg.get_result()
+            if result and pkg.get("id"):
+                ok = repo.update_package(pkg["id"], result)
                 if ok:
+                    repo.set_package_items(pkg["id"], result.get("items", []))
                     self._populate_packages_table()
-                    success(self, message="Package deleted successfully.")
+                    success(self, message="Package updated successfully.")
                 else:
-                    QMessageBox.warning(self, "Cannot Delete",
-                                        "This package is linked to existing bookings and cannot be deleted.")
-                return
+                    QMessageBox.warning(self, "Error", "Failed to update package.")
+
+    def _delete_package_dict(self, pkg: dict):
+        pkg_name = pkg.get("name", "")
+        if not confirm(self, title="Delete Package",
+                       message=f"Delete package '{pkg_name}'? Packages linked to existing bookings cannot be deleted.",
+                       confirm_label="Delete", danger=True):
+            return
+        ok = repo.delete_package(pkg.get("id"))
+        if ok:
+            self._populate_packages_table()
+            success(self, message="Package deleted successfully.")
+        else:
+            QMessageBox.warning(self, "Cannot Delete",
+                                "This package is linked to existing bookings and cannot be deleted.")
 
     def filter_search(self, text):
         q = text.lower()

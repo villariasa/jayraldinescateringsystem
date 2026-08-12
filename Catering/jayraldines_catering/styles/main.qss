@@ -174,10 +174,23 @@ QLabel#badgeGold    { background-color: rgba(245,158,11,0.15);  color: #F59E0B; 
 }
 
 /* --- CARDS & CONTAINERS --- */
-QFrame#card {
+QFrame#card, QFrame#saasCard {
     background-color: #111827;
     border-radius: 14px;
     border: 1px solid #243244;
+}
+
+QFrame#entryCard {
+    background-color: #111827;
+    border-radius: 10px;
+    border: 1px solid #243244;
+}
+QFrame#entryCard:hover {
+    border: 1px solid #374151;
+    background-color: #162032;
+}
+QFrame#entryCard QLabel {
+    color: #F9FAFB;
 }
 
 QFrame#cardElevated {
@@ -197,6 +210,15 @@ QFrame#accentCard {
     background-color: #E11D48;
     border-radius: 14px;
     border: none;
+}
+
+QFrame#modalCard {
+    background-color: #1F2937;
+    border-radius: 16px;
+    border: 1px solid #374151;
+}
+QFrame#modalCard QLabel {
+    color: #F9FAFB;
 }
 
 QFrame#divider {
@@ -225,17 +247,25 @@ QPushButton:pressed {
     background-color: #111827;
 }
 
-QPushButton#primaryButton {
-    background-color: #E11D48;
-    color: #F9FAFB;
-    border: none;
-    font-weight: 700;
+QPushButton#primaryButton,
+QFrame QPushButton#primaryButton,
+QWidget QPushButton#primaryButton {
+    background-color: #E11D48 !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
 }
-QPushButton#primaryButton:hover {
-    background-color: #BE123C;
+QPushButton#primaryButton:hover,
+QFrame QPushButton#primaryButton:hover,
+QWidget QPushButton#primaryButton:hover {
+    background-color: #BE123C !important;
+    color: #FFFFFF !important;
 }
-QPushButton#primaryButton:pressed {
-    background-color: #9F1239;
+QPushButton#primaryButton:pressed,
+QFrame QPushButton#primaryButton:pressed,
+QWidget QPushButton#primaryButton:pressed {
+    background-color: #9F1239 !important;
 }
 
 QPushButton#secondaryButton {
@@ -264,7 +294,26 @@ QPushButton#dangerButton {
     border: 1px solid rgba(239,68,68,0.3);
 }
 QPushButton#dangerButton:hover {
-    background-color: rgba(239,68,68,0.1);
+    background-color: rgba(239,68,68,0.12);
+}
+
+QPushButton#dangerFilledButton,
+QFrame QPushButton#dangerFilledButton,
+QWidget QPushButton#dangerFilledButton {
+    background-color: #DC2626 !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+}
+QPushButton#dangerFilledButton:hover,
+QFrame QPushButton#dangerFilledButton:hover,
+QWidget QPushButton#dangerFilledButton:hover {
+    background-color: #B91C1C !important;
+    color: #FFFFFF !important;
+}
+QPushButton#dangerFilledButton:pressed {
+    background-color: #991B1B !important;
 }
 
 QPushButton#goldButton {

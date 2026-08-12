@@ -2,6 +2,8 @@ from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushBu
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PySide6.QtGui import QMouseEvent
 
+from utils.theme import ThemeManager
+
 
 _COLOR_MAP = {
     "#F59E0B": "#F59E0B",
@@ -23,11 +25,16 @@ class Toast(QWidget):
 
         accent = _COLOR_MAP.get(color, color)
 
+        if ThemeManager().is_dark():
+            bg, title_color, msg_color, close_color = "#1F2937", "#F9FAFB", "#9CA3AF", "#6B7280"
+        else:
+            bg, title_color, msg_color, close_color = "#FFFFFF", "#101828", "#46536B", "#98A2B3"
+
         container = QWidget(self)
         container.setObjectName("toastContainer")
         container.setStyleSheet(f"""
             QWidget#toastContainer {{
-                background: #1F2937;
+                background: {bg};
                 border: 1px solid {accent};
                 border-left: 4px solid {accent};
                 border-radius: 10px;
@@ -47,21 +54,21 @@ class Toast(QWidget):
         dot = QLabel("●")
         dot.setStyleSheet(f"color: {accent}; font-size: 10px;")
         title_lbl = QLabel(title)
-        title_lbl.setStyleSheet("color: #F9FAFB; font-weight: 700; font-size: 13px;")
+        title_lbl.setStyleSheet(f"color: {title_color}; font-weight: 700; font-size: 13px;")
         title_lbl.setWordWrap(True)
         top_row.addWidget(dot)
         top_row.addWidget(title_lbl, 1)
 
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(18, 18)
-        close_btn.setStyleSheet("background: transparent; border: none; color: #6B7280; font-size: 11px;")
+        close_btn.setStyleSheet(f"background: transparent; border: none; color: {close_color}; font-size: 11px;")
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self._dismiss)
         top_row.addWidget(close_btn)
         lay.addLayout(top_row)
 
         msg_lbl = QLabel(message)
-        msg_lbl.setStyleSheet("color: #9CA3AF; font-size: 13px;")
+        msg_lbl.setStyleSheet(f"color: {msg_color}; font-size: 13px;")
         msg_lbl.setWordWrap(True)
         msg_lbl.setMinimumHeight(20)
         lay.addWidget(msg_lbl)

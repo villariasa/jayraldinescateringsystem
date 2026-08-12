@@ -11,7 +11,7 @@ from PySide6.QtGui import QColor, QPainter, QLinearGradient, QPen, QCursor
 
 from utils import exporter as _exporter
 
-from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted
+from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red
 from utils.theme import ThemeManager
 import utils.repository as repo
 
@@ -807,6 +807,7 @@ class ReportsPage(QWidget):
         self.main_layout.addWidget(self.occasion_card)
 
         # ── RECENT BOOKINGS TABLE ────────────────────────────────────────────
+        # ── RECENT BOOKINGS CARDS ────────────────────────────────────────────
         self.table_card = HoverCard(self.scroll_content)
         self._t_layout = QVBoxLayout(self.table_card)
         self._t_layout.setContentsMargins(24, 24, 24, 24)
@@ -819,40 +820,10 @@ class ReportsPage(QWidget):
         self._t_head.addStretch()
         self._t_layout.addLayout(self._t_head)
 
-        self.table = QTableWidget(5, 5, self.table_card)
-        self.table.setHorizontalHeaderLabels(["ID & DATE", "CLIENT", "PACKAGE", "PAX", "STATUS"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setShowGrid(False)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setFocusPolicy(Qt.NoFocus)
-        self.table.setSelectionMode(QTableWidget.NoSelection)
-        self.table.setAlternatingRowColors(True)
-        self.table.setMinimumHeight(320)
-
-        db_bookings = repo.get_all_bookings() or []
-        self.table.setRowCount(len(db_bookings))
-        self._table_widgets = []
-        for row, b in enumerate(db_bookings):
-            self.table.setRowHeight(row, 64)
-            pax_val = int(b.get("pax", 0))
-            limit_status = "LIMIT REACHED" if pax_val >= 600 else ("NEAR LIMIT" if pax_val >= 400 else "")
-            id_lbl = QLabel(
-                f"<span style='font-weight:700;font-size:13px;'>{b.get('id','')}</span>"
-                f"<br><span style='font-size:11px;'>{b.get('date','')}</span>"
-            )
-            client_lbl   = QLabel(f"<span style='font-weight:600;font-size:13px;'>{b.get('name','')}</span>")
-            package_lbl  = QLabel(f"<span style='font-size:13px;'>{b.get('package','—')}</span>")
-            pax_badge    = create_pax_limit_badge(pax_val, limit_status)
-            status_badge = create_status_badge(b.get('status','').capitalize())
-            self._table_widgets.extend([id_lbl, client_lbl, package_lbl, pax_badge, status_badge])
-            self.table.setCellWidget(row, 0, id_lbl)
-            self.table.setCellWidget(row, 1, client_lbl)
-            self.table.setCellWidget(row, 2, package_lbl)
-            self.table.setCellWidget(row, 3, pax_badge)
-            self.table.setCellWidget(row, 4, status_badge)
-
-        self._t_layout.addWidget(self.table)
+        self.table_cards_layout = QVBoxLayout()
+        self.table_cards_layout.setContentsMargins(0, 0, 0, 0)
+        self.table_cards_layout.setSpacing(10)
+        self._t_layout.addLayout(self.table_cards_layout)
         self.main_layout.addWidget(self.table_card)
 
         # ── EXPENSES SECTION ──────────────────────────────────────────────────
@@ -866,35 +837,28 @@ class ReportsPage(QWidget):
         exp_title.setObjectName("h2")
         exp_head.addWidget(exp_title)
         exp_head.addStretch()
-        btn_add_exp = QPushButton("  + Add Expense")
+        btn_add_exp = QPushButton("  Add Expense")
         btn_add_exp.setObjectName("primaryButton")
-        btn_add_exp.setFixedHeight(32)
+        btn_add_exp.setIcon(btn_icon_secondary("plus"))
+        btn_add_exp.setIconSize(QSize(15, 15))
+        btn_add_exp.setFixedHeight(34)
+        btn_add_exp.setCursor(Qt.PointingHandCursor)
+        btn_add_exp.setStyleSheet("QPushButton#primaryButton { background-color: #E11D48; color: #FFFFFF; border: none; font-weight: 700; border-radius: 8px; padding: 6px 16px; } QPushButton#primaryButton:hover { background-color: #BE123C; }")
         btn_add_exp.clicked.connect(self._open_add_expense)
         exp_head.addWidget(btn_add_exp)
         exp_lay.addLayout(exp_head)
 
-        self._exp_table = QTableWidget(0, 5, self._expense_card)
-        self._exp_table.setHorizontalHeaderLabels(["DATE", "CATEGORY", "DESCRIPTION", "AMOUNT", ""])
-        _exp_hdr = self._exp_table.horizontalHeader()
-        _exp_hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
-        _exp_hdr.setSectionResizeMode(2, QHeaderView.Stretch)
-        _exp_hdr.setSectionResizeMode(4, QHeaderView.Fixed)
-        self._exp_table.setColumnWidth(4, 40)
-        self._exp_table.verticalHeader().setVisible(False)
-        self._exp_table.setShowGrid(False)
-        self._exp_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self._exp_table.setFocusPolicy(Qt.NoFocus)
-        self._exp_table.setSelectionMode(QTableWidget.NoSelection)
-        self._exp_table.setAlternatingRowColors(True)
-        self._exp_table.setMinimumHeight(200)
-        self._exp_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.MinimumExpanding)
-        exp_lay.addWidget(self._exp_table, 1)
+        self.exp_cards_layout = QVBoxLayout()
+        self.exp_cards_layout.setContentsMargins(0, 0, 0, 0)
+        self.exp_cards_layout.setSpacing(10)
+        exp_lay.addLayout(self.exp_cards_layout)
 
         self._profit_lbl = QLabel("", self._expense_card)
         self._profit_lbl.setStyleSheet("font-size:14px;font-weight:700;color:#22C55E;")
         exp_lay.addWidget(self._profit_lbl)
 
         self.main_layout.addWidget(self._expense_card)
+        self._reload_table()
         self._load_expenses()
         self.main_layout.addStretch(1)
 
@@ -964,26 +928,58 @@ class ReportsPage(QWidget):
                     w.setText(sub)
 
     def _reload_table(self):
+        while self.table_cards_layout.count():
+            item = self.table_cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         fltr = self._period_sql_filter()
         db_bookings = repo.get_all_bookings(period_filter=fltr) or []
-        self.table.setRowCount(len(db_bookings))
-        for row, b in enumerate(db_bookings):
-            self.table.setRowHeight(row, 64)
-            pax_val = int(b.get("pax", 0))
-            limit_status = "LIMIT REACHED" if pax_val >= 600 else ("NEAR LIMIT" if pax_val >= 400 else "")
-            id_lbl       = QLabel(
-                f"<span style='font-weight:700;font-size:13px;'>{b.get('id','')}</span>"
-                f"<br><span style='font-size:11px;'>{b.get('date','')}</span>"
-            )
-            client_lbl   = QLabel(f"<span style='font-weight:600;font-size:13px;'>{b.get('name','')}</span>")
-            package_lbl  = QLabel(f"<span style='font-size:13px;'>{b.get('package','—')}</span>")
-            pax_badge    = create_pax_limit_badge(pax_val, limit_status)
-            status_badge = create_status_badge(b.get("status", "").capitalize())
-            self.table.setCellWidget(row, 0, id_lbl)
-            self.table.setCellWidget(row, 1, client_lbl)
-            self.table.setCellWidget(row, 2, package_lbl)
-            self.table.setCellWidget(row, 3, pax_badge)
-            self.table.setCellWidget(row, 4, status_badge)
+
+        if not db_bookings:
+            empty_lbl = QLabel("No booking statistics for this period.")
+            empty_lbl.setObjectName("subtitle")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            self.table_cards_layout.addWidget(empty_lbl)
+        else:
+            for b in db_bookings:
+                pax_val = int(b.get("pax", 0))
+                limit_status = "LIMIT REACHED" if pax_val >= 600 else ("NEAR LIMIT" if pax_val >= 400 else "")
+                card = QFrame()
+                card.setObjectName("entryCard")
+                cl = QHBoxLayout(card)
+                cl.setContentsMargins(16, 12, 16, 12)
+                cl.setSpacing(16)
+
+                # Col 1: Ref & Date
+                c1 = QVBoxLayout()
+                c1.setSpacing(2)
+                id_lbl = QLabel(b.get("id", ""))
+                id_lbl.setStyleSheet("font-weight: 800; font-size: 13px; color: #E11D48;")
+                d_lbl = QLabel(b.get("date", ""))
+                d_lbl.setObjectName("subtitle")
+                c1.addWidget(id_lbl)
+                c1.addWidget(d_lbl)
+                cl.addLayout(c1, 2)
+
+                # Col 2: Client Name & Package
+                c2 = QVBoxLayout()
+                c2.setSpacing(2)
+                client_lbl = QLabel(b.get("name", ""))
+                client_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
+                pkg_lbl = QLabel(f"Package: {b.get('package', '—')}")
+                pkg_lbl.setObjectName("subtitle")
+                c2.addWidget(client_lbl)
+                c2.addWidget(pkg_lbl)
+                cl.addLayout(c2, 3)
+
+                # Col 3: Pax Badge & Status Badge
+                pax_badge = create_pax_limit_badge(pax_val, limit_status)
+                status_badge = create_status_badge(b.get("status", "").capitalize())
+                cl.addWidget(pax_badge, alignment=Qt.AlignVCenter)
+                cl.addWidget(status_badge, alignment=Qt.AlignVCenter)
+
+                self.table_cards_layout.addWidget(card)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -1013,27 +1009,58 @@ class ReportsPage(QWidget):
         return card
 
     def _load_expenses(self):
+        while self.exp_cards_layout.count():
+            item = self.exp_cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         expenses = repo.get_all_expenses()
         self._expenses = expenses
-        self._exp_table.setRowCount(0)
         total_exp = 0.0
-        for exp in expenses:
-            row = self._exp_table.rowCount()
-            self._exp_table.insertRow(row)
-            self._exp_table.setRowHeight(row, 44)
-            self._exp_table.setCellWidget(row, 0, QLabel(f"  {exp['date']}"))
-            self._exp_table.setCellWidget(row, 1, QLabel(f"  {exp['category']}"))
-            self._exp_table.setCellWidget(row, 2, QLabel(f"  {exp['description']}"))
-            amt_lbl = QLabel(f"  ₱ {exp['amount']:,.2f}")
-            amt_lbl.setStyleSheet("color:#EF4444;font-weight:600;")
-            self._exp_table.setCellWidget(row, 3, amt_lbl)
-            del_btn = QPushButton("✕")
-            del_btn.setFixedSize(28, 28)
-            del_btn.setStyleSheet("background:transparent;border:none;font-weight:700;")
-            del_btn.setCursor(Qt.PointingHandCursor)
-            del_btn.clicked.connect(lambda _, eid=exp["id"]: self._delete_expense(eid))
-            self._exp_table.setCellWidget(row, 4, del_btn)
-            total_exp += exp["amount"]
+
+        if not expenses:
+            empty_lbl = QLabel("No expenses recorded.")
+            empty_lbl.setObjectName("subtitle")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            self.exp_cards_layout.addWidget(empty_lbl)
+        else:
+            for exp in expenses:
+                card = QFrame()
+                card.setObjectName("entryCard")
+                el = QHBoxLayout(card)
+                el.setContentsMargins(16, 12, 16, 12)
+                el.setSpacing(14)
+
+                c1 = QVBoxLayout()
+                c1.setSpacing(2)
+                d_lbl = QLabel(exp["date"])
+                d_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
+                cat_lbl = QLabel(f"Category: {exp['category']}")
+                cat_lbl.setObjectName("subtitle")
+                c1.addWidget(d_lbl)
+                c1.addWidget(cat_lbl)
+                el.addLayout(c1, 2)
+
+                desc_lbl = QLabel(exp["description"])
+                desc_lbl.setStyleSheet("font-size: 12px;")
+                el.addWidget(desc_lbl, 3)
+
+                amt_lbl = QLabel(f"₱ {exp['amount']:,.2f}")
+                amt_lbl.setStyleSheet("font-weight: 800; font-size: 14px; color: #EF4444;")
+                el.addWidget(amt_lbl, 2)
+
+                del_btn = QPushButton()
+                del_btn.setIcon(btn_icon_red("trash"))
+                del_btn.setIconSize(QSize(14, 14))
+                del_btn.setFixedSize(32, 32)
+                del_btn.setStyleSheet("background: transparent; border: none;")
+                del_btn.setCursor(Qt.PointingHandCursor)
+                del_btn.setToolTip("Delete expense")
+                del_btn.clicked.connect(lambda _, eid=exp["id"]: self._delete_expense(eid))
+                el.addWidget(del_btn)
+
+                self.exp_cards_layout.addWidget(card)
+                total_exp += exp["amount"]
 
         profit_data = repo.get_profit_summary()
         total_rev = sum(r["revenue"] for r in profit_data)

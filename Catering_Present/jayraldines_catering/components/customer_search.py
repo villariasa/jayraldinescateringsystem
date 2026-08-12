@@ -211,9 +211,9 @@ class CustomerSearchWidget(QWidget):
         is_light = not ThemeManager().is_dark()
         if is_light:
             bg      = "#FFFFFF"
-            border  = "#E2E8F0"
-            text    = "#0F172A"
-            hover   = "#F1F5F9"
+            border  = "#D8DFEA"
+            text    = "#101828"
+            hover   = "#F3F5F9"
         else:
             bg      = "#1F2937"
             border  = "#374151"

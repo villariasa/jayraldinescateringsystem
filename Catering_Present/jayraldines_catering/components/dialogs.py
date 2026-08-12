@@ -9,29 +9,19 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize, QTimer
 from utils.icons import get_icon
-from utils.animations import animate_dialog_open
+from utils.animations import animate_dialog_open, create_soft_shadow
 
 
-def _base_modal(parent, width=380):
-    dlg = QDialog(parent)
-    dlg.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-    dlg.setAttribute(Qt.WA_TranslucentBackground)
-    dlg.setFixedWidth(width)
-    dlg.setModal(True)
-
-    outer = QVBoxLayout(dlg)
-    outer.setContentsMargins(16, 16, 16, 16)
-
-    container = QFrame()
-    container.setObjectName("card")
-    container.setStyleSheet("")
-
-    inner = QVBoxLayout(container)
-    inner.setContentsMargins(28, 28, 28, 28)
-    inner.setSpacing(16)
-
-    outer.addWidget(container)
-    return dlg, inner
+def _icon_chip(text: str, fg: str, bg: str, size: int = 40) -> QLabel:
+    """Round tinted circle holding a glyph — theme-neutral accent colors."""
+    chip = QLabel(text)
+    chip.setFixedSize(size, size)
+    chip.setAlignment(Qt.AlignCenter)
+    chip.setStyleSheet(
+        f"background-color: {bg}; color: {fg}; border-radius: {size // 2}px;"
+        f" font-size: {size // 2 - 2}px; font-weight: 800; border: none;"
+    )
+    return chip
 
 
 class ConfirmDialog(QDialog):
@@ -49,7 +39,7 @@ class ConfirmDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(400)
+        self.setFixedWidth(420)
         self.setModal(True)
         self._build(title, message, confirm_label, danger)
 
@@ -59,38 +49,49 @@ class ConfirmDialog(QDialog):
 
     def _build(self, title, message, confirm_label, danger):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setContentsMargins(20, 20, 20, 20)
 
         container = QFrame()
-        container.setObjectName("card")
+        container.setObjectName("modalCard")
+        create_soft_shadow(container, radius=32, y_offset=8, opacity=45)
         inner = QVBoxLayout(container)
-        inner.setContentsMargins(28, 28, 28, 28)
-        inner.setSpacing(16)
+        inner.setContentsMargins(24, 24, 24, 20)
+        inner.setSpacing(0)
 
+        # --- header: icon chip + title/message + close ---
         header = QHBoxLayout()
+        header.setSpacing(16)
+
+        if danger:
+            chip = _icon_chip("!", "#DC2626", "rgba(220,38,38,0.12)")
+        else:
+            chip = _icon_chip("?", "#D97706", "rgba(217,119,6,0.12)")
+        header.addWidget(chip, alignment=Qt.AlignTop)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(6)
         title_lbl = QLabel(title)
         title_lbl.setObjectName("h3")
-        header.addWidget(title_lbl)
-        header.addStretch()
-        close_btn = QPushButton()
-        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
-        close_btn.setIconSize(QSize(14, 14))
-        close_btn.setFixedSize(28, 28)
-        close_btn.setStyleSheet("background: transparent; border: none;")
-        close_btn.setCursor(Qt.PointingHandCursor)
-        close_btn.clicked.connect(self.reject)
-        header.addWidget(close_btn)
-        inner.addLayout(header)
-
-        div = QFrame()
-        div.setObjectName("divider")
-        inner.addWidget(div)
-
+        text_col.addWidget(title_lbl)
         msg_lbl = QLabel(message)
         msg_lbl.setObjectName("subtitle")
         msg_lbl.setWordWrap(True)
-        inner.addWidget(msg_lbl)
+        text_col.addWidget(msg_lbl)
+        header.addLayout(text_col, 1)
 
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#98A2B3", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setObjectName("modalCloseBtn")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn, alignment=Qt.AlignTop)
+
+        inner.addLayout(header)
+        inner.addSpacing(22)
+
+        # --- footer buttons ---
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
         btn_row.addStretch()
@@ -98,12 +99,15 @@ class ConfirmDialog(QDialog):
         cancel = QPushButton("Cancel")
         cancel.setObjectName("secondaryButton")
         cancel.setCursor(Qt.PointingHandCursor)
+        cancel.setMinimumWidth(96)
         cancel.clicked.connect(self.reject)
         btn_row.addWidget(cancel)
 
-        ok_btn = QPushButton(f"  {confirm_label}")
-        ok_btn.setObjectName("dangerButton" if danger else "primaryButton")
+        ok_btn = QPushButton(confirm_label)
+        ok_btn.setObjectName("dangerFilledButton" if danger else "primaryButton")
         ok_btn.setCursor(Qt.PointingHandCursor)
+        ok_btn.setMinimumWidth(110)
+        ok_btn.setDefault(True)
         ok_btn.clicked.connect(self.accept)
         btn_row.addWidget(ok_btn)
 
@@ -123,7 +127,7 @@ class SuccessDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(360)
+        self.setFixedWidth(380)
         self.setModal(True)
         self._build(title, message)
         QTimer.singleShot(auto_close_ms, self.accept)
@@ -134,23 +138,30 @@ class SuccessDialog(QDialog):
 
     def _build(self, title, message):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setContentsMargins(20, 20, 20, 20)
 
         container = QFrame()
-        container.setObjectName("card")
+        container.setObjectName("modalCard")
+        create_soft_shadow(container, radius=32, y_offset=8, opacity=45)
         inner = QVBoxLayout(container)
-        inner.setContentsMargins(28, 24, 28, 24)
+        inner.setContentsMargins(28, 30, 28, 28)
         inner.setSpacing(12)
 
         icon_row = QHBoxLayout()
         icon_row.addStretch()
-        icon_lbl = QLabel()
-        icon_lbl.setPixmap(
-            get_icon("check", color="#22C55E", size=QSize(28, 28)).pixmap(QSize(28, 28))
+        chip = QLabel()
+        chip.setFixedSize(52, 52)
+        chip.setAlignment(Qt.AlignCenter)
+        chip.setStyleSheet(
+            "background-color: rgba(34,197,94,0.12); border-radius: 26px; border: none;"
         )
-        icon_row.addWidget(icon_lbl)
+        chip.setPixmap(
+            get_icon("check", color="#16A34A", size=QSize(26, 26)).pixmap(QSize(26, 26))
+        )
+        icon_row.addWidget(chip)
         icon_row.addStretch()
         inner.addLayout(icon_row)
+        inner.addSpacing(4)
 
         title_lbl = QLabel(title)
         title_lbl.setObjectName("h3")

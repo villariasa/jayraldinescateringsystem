@@ -2,7 +2,7 @@ import csv
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QTableWidget, QHeaderView,
-    QDialog, QFileDialog, QMessageBox, QInputDialog
+    QDialog, QFileDialog, QMessageBox, QInputDialog, QScrollArea
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
@@ -141,28 +141,20 @@ class BookingPage(QWidget):
         t_head.addWidget(btn_export)
         table_layout.addLayout(t_head)
 
-        self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["DATE", "CLIENT NAME", "PAX", "TOTAL AMOUNT", "STATUS", "APPROVAL", "ACTIONS"])
-        _bk_hdr = self.table.horizontalHeader()
-        
-        # --- FIX: Set DATE column to Fixed and increase width to 150px to prevent cutoff ---
-        _bk_hdr.setSectionResizeMode(0, QHeaderView.Fixed)
-        _bk_hdr.setSectionResizeMode(1, QHeaderView.Stretch)
-        _bk_hdr.setSectionResizeMode(4, QHeaderView.Fixed) # Status Badge
-        _bk_hdr.setSectionResizeMode(5, QHeaderView.Fixed) # Approval buttons
-        _bk_hdr.setSectionResizeMode(6, QHeaderView.ResizeToContents) # The dynamic grouped actions
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setStyleSheet("background: transparent;")
 
-        self.table.setColumnWidth(0, 150) # Generous room for full date + padding
-        self.table.setColumnWidth(4, 120) 
-        self.table.setColumnWidth(5, 90)
+        self.cards_container = QWidget()
+        self.cards_container.setStyleSheet("background: transparent;")
+        self.cards_layout = QVBoxLayout(self.cards_container)
+        self.cards_layout.setContentsMargins(0, 0, 10, 0)
+        self.cards_layout.setSpacing(12)
 
-        _bk_hdr.setMinimumSectionSize(80)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setFocusPolicy(Qt.NoFocus)
-        self.table.setSelectionMode(QTableWidget.NoSelection)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setShowGrid(False)
-        table_layout.addWidget(self.table)
+        self.scroll_area.setWidget(self.cards_container)
+        table_layout.addWidget(self.scroll_area)
         layout.addWidget(table_card)
 
         self._populate_table()
@@ -176,108 +168,133 @@ class BookingPage(QWidget):
         return [b for b in self._bookings if b["status"] == f]
 
     def _populate_table(self, data=None):
+        # Clear existing cards
+        while self.cards_layout.count():
+            item = self.cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         rows = data if data is not None else self._visible_bookings()
-        self.table.setRowCount(0)
-        for b in rows:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            self.table.setRowHeight(row, 56)
 
-            date_lbl = QLabel(
-                f"<span style='font-weight:700;font-size:13px;'>{b['date']}</span>"
-                f"<br><span style='font-size:11px;'>{b['id']}</span>"
-            )
-            date_lbl.setContentsMargins(8, 0, 0, 0)
-            self.table.setCellWidget(row, 0, date_lbl)
+        if not rows:
+            empty_lbl = QLabel("No bookings found.")
+            empty_lbl.setObjectName("subtitle")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            self.cards_layout.addWidget(empty_lbl)
+        else:
+            for b in rows:
+                card = self._create_booking_card(b)
+                self.cards_layout.addWidget(card)
 
-            name_lbl = QLabel(f"<span style='font-weight:700;font-size:13px;'>{b['name']}</span>")
-            name_lbl.setContentsMargins(8, 0, 0, 0)
-            self.table.setCellWidget(row, 1, name_lbl)
+        self.cards_layout.addStretch()
 
-            pax_lbl = QLabel(f"<span style='font-weight:600;font-size:13px;'>{b['pax']}</span>")
-            pax_lbl.setContentsMargins(8, 0, 0, 0)
-            self.table.setCellWidget(row, 2, pax_lbl)
+    def _create_booking_card(self, b: dict) -> QFrame:
+        card = QFrame()
+        card.setObjectName("entryCard")
+        lay = QHBoxLayout(card)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(16)
 
-            amt_lbl = QLabel(f"<span style='font-weight:700;font-size:13px;'>{b['total']}</span>")
-            amt_lbl.setContentsMargins(8, 0, 0, 0)
-            self.table.setCellWidget(row, 3, amt_lbl)
+        # Col 1: Date & Reference ID
+        c1 = QVBoxLayout()
+        c1.setSpacing(2)
+        ref_lbl = QLabel(b["id"])
+        ref_lbl.setStyleSheet("font-weight: 800; font-size: 13px; color: #E11D48;")
+        date_lbl = QLabel(b["date"])
+        date_lbl.setObjectName("subtitle")
+        c1.addWidget(ref_lbl)
+        c1.addWidget(date_lbl)
+        lay.addLayout(c1, 1)
 
+        # Col 2: Client Name & Pax
+        c2 = QVBoxLayout()
+        c2.setSpacing(2)
+        name_lbl = QLabel(b["name"])
+        name_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
+        pax_lbl = QLabel(f"{b['pax']} pax")
+        pax_lbl.setObjectName("subtitle")
+        c2.addWidget(name_lbl)
+        c2.addWidget(pax_lbl)
+        lay.addLayout(c2, 2)
+
+        # Col 3: Total Amount
+        c3 = QVBoxLayout()
+        c3.setSpacing(2)
+        tot_title = QLabel("TOTAL")
+        tot_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280; letter-spacing: 0.5px;")
+        tot_val = QLabel(str(b["total"]))
+        tot_val.setStyleSheet("font-weight: 800; font-size: 14px; color: #F59E0B;")
+        c3.addWidget(tot_title)
+        c3.addWidget(tot_val)
+        lay.addLayout(c3, 1)
+
+        # Col 4: Status Badge & Reason/Approvals
+        c4 = QVBoxLayout()
+        c4.setSpacing(4)
+        c4.setAlignment(Qt.AlignCenter)
+        c4.addWidget(_status_badge(b["status"]), alignment=Qt.AlignLeft)
+        if b["status"] == "CANCELLED" and b.get("cancellation_reason"):
+            reason_lbl = QLabel(b["cancellation_reason"])
+            reason_lbl.setStyleSheet("color:#DC2626;font-size:10px;font-style:italic;")
+            reason_lbl.setWordWrap(True)
+            c4.addWidget(reason_lbl)
+        elif b["status"] == "PENDING":
             bref = b["id"]
-            if b["status"] == "CANCELLED" and b.get("cancellation_reason"):
-                status_col = QWidget()
-                sc_lay = QVBoxLayout(status_col)
-                sc_lay.setContentsMargins(4, 2, 4, 2)
-                sc_lay.setSpacing(2)
-                
-                badge_w = QWidget()
-                badge_l = QHBoxLayout(badge_w)
-                badge_l.setContentsMargins(0, 0, 0, 0)
-                badge_l.addWidget(_status_badge(b["status"]), alignment=Qt.AlignLeft)
-                sc_lay.addWidget(badge_w)
-                
-                reason_lbl = QLabel(b["cancellation_reason"])
-                reason_lbl.setStyleSheet("color:#DC2626;font-size:10px;font-style:italic;")
-                reason_lbl.setWordWrap(True)
-                sc_lay.addWidget(reason_lbl)
-                self.table.setCellWidget(row, 4, status_col)
-            else:
-                badge_w = QWidget()
-                badge_l = QHBoxLayout(badge_w)
-                badge_l.setContentsMargins(4, 0, 4, 0)
-                badge_l.addWidget(_status_badge(b["status"]), alignment=Qt.AlignLeft | Qt.AlignVCenter)
-                self.table.setCellWidget(row, 4, badge_w)
-
-            approvals = _action_buttons(
+            c4.addWidget(_action_buttons(
                 b["status"],
                 on_approve=lambda _, r=bref: self._approve_booking(r),
-                on_decline=lambda _, r=bref: self._decline_booking(r),
-            )
-            self.table.setCellWidget(row, 5, approvals)
+                on_decline=lambda _, r=bref: self._decline_booking(r)
+            ))
+        lay.addLayout(c4, 2)
 
-            actions_w = QFrame()
-            actions_w.setStyleSheet("background: transparent;")
-            actions_l = QHBoxLayout(actions_w)
-            actions_l.setContentsMargins(4, 0, 16, 0) 
-            actions_l.setSpacing(8)
+        # Col 5: Actions (Edit, Delete, Confirmation)
+        actions_w = QFrame()
+        actions_w.setStyleSheet("background: transparent;")
+        actions_l = QHBoxLayout(actions_w)
+        actions_l.setContentsMargins(0, 0, 0, 0)
+        actions_l.setSpacing(6)
 
-            edit_btn = QPushButton()
-            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
-            edit_btn.setIconSize(QSize(13, 13))
-            edit_btn.setFixedSize(30, 30)
-            edit_btn.setStyleSheet("background:transparent;border:none;")
-            edit_btn.setCursor(Qt.PointingHandCursor)
-            edit_btn.setToolTip("Edit booking")
-            edit_btn.setEnabled(b["status"] == "PENDING")
-            if b["status"] != "PENDING":
-                edit_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
-            edit_btn.clicked.connect(lambda _, r=bref: self._edit_booking(r))
-            
-            del_btn = QPushButton()
-            del_btn.setIcon(btn_icon_red("trash"))
-            del_btn.setIconSize(QSize(13, 13))
-            del_btn.setFixedSize(30, 30)
-            del_btn.setStyleSheet("border:none;background:transparent;")
-            del_btn.setCursor(Qt.PointingHandCursor)
-            del_btn.setToolTip("Delete booking")
-            del_btn.clicked.connect(lambda _, r=bref: self._delete_booking(r))
-            
-            confirm_btn = QPushButton()
-            confirm_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(13, 13)))
-            confirm_btn.setIconSize(QSize(13, 13))
-            confirm_btn.setFixedSize(30, 30)
-            confirm_btn.setStyleSheet("background:transparent;border:none;")
-            confirm_btn.setCursor(Qt.PointingHandCursor)
-            confirm_btn.setToolTip("Send Confirmation Email")
-            confirm_btn.setEnabled(b["status"] == "CONFIRMED")
-            if b["status"] != "CONFIRMED":
-                confirm_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
-            confirm_btn.clicked.connect(lambda _, r=bref: self._send_confirmation(r))
-            
-            actions_l.addWidget(edit_btn)
-            actions_l.addWidget(del_btn)
-            actions_l.addWidget(confirm_btn)
-            
-            self.table.setCellWidget(row, 6, actions_w)
+        bref = b["id"]
+
+        edit_btn = QPushButton()
+        edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
+        edit_btn.setIconSize(QSize(13, 13))
+        edit_btn.setFixedSize(30, 30)
+        edit_btn.setStyleSheet("background:transparent;border:none;")
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.setToolTip("Edit booking")
+        edit_btn.setEnabled(b["status"] == "PENDING")
+        if b["status"] != "PENDING":
+            edit_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
+        edit_btn.clicked.connect(lambda _, r=bref: self._edit_booking(r))
+
+        del_btn = QPushButton()
+        del_btn.setIcon(btn_icon_red("trash"))
+        del_btn.setIconSize(QSize(13, 13))
+        del_btn.setFixedSize(30, 30)
+        del_btn.setStyleSheet("border:none;background:transparent;")
+        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.setToolTip("Delete booking")
+        del_btn.clicked.connect(lambda _, r=bref: self._delete_booking(r))
+
+        confirm_btn = QPushButton()
+        confirm_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(13, 13)))
+        confirm_btn.setIconSize(QSize(13, 13))
+        confirm_btn.setFixedSize(30, 30)
+        confirm_btn.setStyleSheet("background:transparent;border:none;")
+        confirm_btn.setCursor(Qt.PointingHandCursor)
+        confirm_btn.setToolTip("Send Confirmation Email")
+        confirm_btn.setEnabled(b["status"] == "CONFIRMED")
+        if b["status"] != "CONFIRMED":
+            confirm_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
+        confirm_btn.clicked.connect(lambda _, r=bref: self._send_confirmation(r))
+
+        actions_l.addWidget(edit_btn)
+        actions_l.addWidget(del_btn)
+        actions_l.addWidget(confirm_btn)
+        lay.addWidget(actions_w)
+
+        return card
 
     def _approve_booking(self, ref):
         b = next((x for x in self._bookings if x["id"] == ref), None)

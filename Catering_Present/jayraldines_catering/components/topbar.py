@@ -18,7 +18,9 @@ _PAGE_TITLES = {
     5: "Kitchen",
     6: "Billing",
     7: "Reports",
-    8: "Settings",
+    8: "Expenses",
+    9: "AI Assistant",
+    10: "Settings",
 }
 
 
@@ -56,7 +58,6 @@ class TopBar(QFrame):
 
         self.clock_lbl = QLabel(self)
         self.clock_lbl.setObjectName("subtitle")
-        self.clock_lbl.setStyleSheet("font-size: 13px; font-weight: 600; color: #9CA3AF; min-width: 160px;")
         self.clock_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.main_layout.addWidget(self.clock_lbl)
 
@@ -97,7 +98,6 @@ class TopBar(QFrame):
 
         self.divider = QFrame(self)
         self.divider.setFrameShape(QFrame.VLine)
-        self.divider.setStyleSheet("color: #E2E8F0;")
         self.divider.setFixedHeight(24)
         self.main_layout.addWidget(self.divider)
 
@@ -125,6 +125,20 @@ class TopBar(QFrame):
         )
         self.close_btn.clicked.connect(self._confirm_close)
         self.main_layout.addWidget(self.close_btn)
+
+        self._apply_theme_styles()
+        self._theme.theme_changed.connect(lambda _t: self._apply_theme_styles())
+
+    def _apply_theme_styles(self):
+        dark = self._theme.is_dark()
+        self.clock_lbl.setStyleSheet(
+            "font-size: 13px; font-weight: 600; min-width: 160px; color: %s;"
+            % ("#9CA3AF" if dark else "#5B6B84")
+        )
+        self.divider.setStyleSheet("color: %s;" % ("#243244" if dark else "#E4E9F1"))
+        self.notif_btn.setIcon(get_icon(
+            "bell", color="#9CA3AF" if dark else "#5B6B84", size=QSize(18, 18)
+        ))
 
     def _confirm_close(self):
         reply = QMessageBox.question(
@@ -224,7 +238,7 @@ class TopBar(QFrame):
             self.theme_btn.setToolTip("Switch to Dark theme")
             self.theme_btn.setStyleSheet(
                 "QPushButton { background: transparent; border: none; font-size: 16px; border-radius: 8px; }"
-                "QPushButton:hover { background: #F1F5F9; }"
+                "QPushButton:hover { background: #EDF1F7; }"
             )
 
     def _tick_clock(self):

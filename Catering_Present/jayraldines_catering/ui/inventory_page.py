@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
-    QDialog, QFormLayout, QComboBox, QLineEdit, QDoubleSpinBox, QSizePolicy
+    QDialog, QFormLayout, QComboBox, QLineEdit, QDoubleSpinBox, QSizePolicy, QScrollArea
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
@@ -169,7 +169,7 @@ class AdjustStockDialog(QDialog):
         lay.addWidget(div)
 
         current_lbl = QLabel(f"Current stock: {self._item['stock']} {self._item['unit']}")
-        current_lbl.setStyleSheet("font-size: 12px;"
+        current_lbl.setStyleSheet("font-size: 12px;")
         lay.addWidget(current_lbl)
 
         form = QFormLayout()
@@ -186,7 +186,7 @@ class AdjustStockDialog(QDialog):
         lay.addLayout(form)
 
         hint = QLabel("Positive = restock   |   Negative = usage")
-        hint.setStyleSheet("font-size: 11px;"
+        hint.setStyleSheet("font-size: 11px;")
         lay.addWidget(hint)
 
         btn_row = QHBoxLayout()
@@ -252,60 +252,123 @@ class InventoryPage(QWidget):
         card = QFrame()
         card.setObjectName("card")
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setContentsMargins(20, 20, 20, 20)
 
-        self._table = QTableWidget(0, 6)
-        self._table.setHorizontalHeaderLabels(["Ingredient", "Unit", "Stock", "Min. Stock", "Status", ""])
-        _inv_hdr = self._table.horizontalHeader()
-        _inv_hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
-        _inv_hdr.setSectionResizeMode(0, QHeaderView.Stretch)
-        _inv_hdr.setSectionResizeMode(5, QHeaderView.Fixed)
-        self._table.setColumnWidth(5, 110)
-        self._table.setAlternatingRowColors(True)
-        self._table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
-        card_layout.addWidget(self._table)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setStyleSheet("background: transparent;")
 
+        self.cards_container = QWidget()
+        self.cards_container.setStyleSheet("background: transparent;")
+        self.cards_layout = QVBoxLayout(self.cards_container)
+        self.cards_layout.setContentsMargins(0, 0, 10, 0)
+        self.cards_layout.setSpacing(12)
+
+        self.scroll_area.setWidget(self.cards_container)
+        card_layout.addWidget(self.scroll_area)
         root.addWidget(card)
 
     def _populate_table(self, items=None):
+        while self.cards_layout.count():
+            item = self.cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         data = items if items is not None else self._items
-        self._table.setRowCount(0)
-        for row, item in enumerate(data):
-            self._table.insertRow(row)
-            self._table.setItem(row, 0, QTableWidgetItem(item["ingredient"]))
-            self._table.setItem(row, 1, QTableWidgetItem(item["unit"]))
-            self._table.setItem(row, 2, QTableWidgetItem(str(item["stock"])))
-            self._table.setItem(row, 3, QTableWidgetItem(str(item["min_stock"])))
 
-            status = item.get("status", "OK")
-            status_item = QTableWidgetItem(status)
-            status_item.setForeground(QColor("#EF4444" if status == "Low Stock" else "#22C55E"))
-            self._table.setItem(row, 4, status_item)
+        if not data:
+            empty_lbl = QLabel("No inventory items found.")
+            empty_lbl.setObjectName("subtitle")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            self.cards_layout.addWidget(empty_lbl)
+        else:
+            for item in data:
+                i_card = self._create_inventory_card(item)
+                self.cards_layout.addWidget(i_card)
 
-            btn_widget = QWidget()
-            btn_layout = QHBoxLayout(btn_widget)
-            btn_layout.setContentsMargins(4, 2, 4, 2)
-            btn_layout.setSpacing(4)
+        self.cards_layout.addStretch()
 
-            adj_btn = QPushButton("Adjust")
-            adj_btn.setObjectName("secondaryButton")
-            adj_btn.setFixedHeight(26)
-            adj_btn.setCursor(Qt.PointingHandCursor)
-            adj_btn.clicked.connect(lambda checked=False, i=item: self._adjust_stock(i))
-            btn_layout.addWidget(adj_btn)
+    def _create_inventory_card(self, item: dict) -> QFrame:
+        card = QFrame()
+        card.setObjectName("entryCard")
+        lay = QHBoxLayout(card)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(16)
 
-            del_btn = QPushButton()
-            del_btn.setIcon(btn_icon_red("trash"))
-            del_btn.setIconSize(QSize(15, 15))
-            del_btn.setFixedSize(28, 28)
-            del_btn.setStyleSheet("background: transparent; border: none;")
-            del_btn.setCursor(Qt.PointingHandCursor)
-            del_btn.clicked.connect(lambda checked=False, i=item: self._delete_item(i))
-            btn_layout.addWidget(del_btn)
+        # Col 1: Ingredient & Unit
+        c1 = QVBoxLayout()
+        c1.setSpacing(2)
+        name_lbl = QLabel(item["ingredient"])
+        name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
+        unit_lbl = QLabel(f"Unit: {item['unit']}")
+        unit_lbl.setObjectName("subtitle")
+        c1.addWidget(name_lbl)
+        c1.addWidget(unit_lbl)
+        lay.addLayout(c1, 3)
 
-            self._table.setCellWidget(row, 5, btn_widget)
+        # Col 2: Stock / Min Stock
+        c2 = QHBoxLayout()
+        c2.setSpacing(16)
+        stock_box = QVBoxLayout()
+        stock_box.setSpacing(2)
+        s_title = QLabel("CURRENT STOCK")
+        s_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280; letter-spacing: 0.5px;")
+        s_val = QLabel(f"{item['stock']} {item['unit']}")
+        s_val.setStyleSheet("font-weight: 800; font-size: 14px;")
+        stock_box.addWidget(s_title)
+        stock_box.addWidget(s_val)
+        c2.addLayout(stock_box)
+
+        min_box = QVBoxLayout()
+        min_box.setSpacing(2)
+        m_title = QLabel("MIN. STOCK")
+        m_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280; letter-spacing: 0.5px;")
+        m_val = QLabel(f"{item['min_stock']} {item['unit']}")
+        m_val.setStyleSheet("font-size: 13px; color: #9CA3AF; font-weight: 600;")
+        min_box.addWidget(m_title)
+        min_box.addWidget(m_val)
+        c2.addLayout(min_box)
+
+        lay.addLayout(c2, 3)
+
+        # Col 3: Status Badge
+        status = item.get("status", "OK")
+        is_low = status == "Low Stock" or item["stock"] < item["min_stock"]
+        status_text = "Low Stock" if is_low else "OK"
+        status_lbl = QLabel(status_text)
+        if is_low:
+            status_lbl.setStyleSheet("font-weight: 700; font-size: 11px; padding: 4px 10px; background: rgba(239,68,68,0.15); color: #EF4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 12px;")
+        else:
+            status_lbl.setStyleSheet("font-weight: 700; font-size: 11px; padding: 4px 10px; background: rgba(34,197,94,0.15); color: #22C55E; border: 1px solid rgba(34,197,94,0.3); border-radius: 12px;")
+        lay.addWidget(status_lbl, alignment=Qt.AlignVCenter)
+
+        # Col 4: Action Buttons
+        btn_widget = QWidget()
+        btn_layout = QHBoxLayout(btn_widget)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(8)
+
+        adj_btn = QPushButton("Adjust")
+        adj_btn.setObjectName("secondaryButton")
+        adj_btn.setFixedHeight(30)
+        adj_btn.setCursor(Qt.PointingHandCursor)
+        adj_btn.clicked.connect(lambda checked=False, i=item: self._adjust_stock(i))
+        btn_layout.addWidget(adj_btn)
+
+        del_btn = QPushButton()
+        del_btn.setIcon(btn_icon_red("trash"))
+        del_btn.setIconSize(QSize(14, 14))
+        del_btn.setFixedSize(30, 30)
+        del_btn.setStyleSheet("background: transparent; border: none;")
+        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.clicked.connect(lambda checked=False, i=item: self._delete_item(i))
+        btn_layout.addWidget(del_btn)
+
+        lay.addWidget(btn_widget)
+
+        return card
 
     def _open_add_dialog(self):
         dlg = AddInventoryDialog(self)

@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QDialog, QFormLayout, QComboBox, QLineEdit, QDoubleSpinBox,
-    QFileDialog, QMessageBox, QDateEdit
+    QFileDialog, QMessageBox, QDateEdit, QScrollArea
 )
 from PySide6.QtCore import Qt, QSize, QDate
 from datetime import date as _date_type
@@ -250,35 +250,61 @@ class PaymentHistoryDialog(QDialog):
             except Exception:
                 records = []
 
-        tbl = QTableWidget(len(records), 4)
-        tbl.setHorizontalHeaderLabels(["Date", "Method", "Amount", "Note"])
-        tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        tbl.verticalHeader().setVisible(False)
-        tbl.setEditTriggers(QTableWidget.NoEditTriggers)
-        tbl.setSelectionMode(QTableWidget.NoSelection)
-        tbl.setShowGrid(False)
-        tbl.setAlternatingRowColors(True)
-        tbl.setMinimumHeight(200)
+        # Scrollable Cards List for Payment History
+        p_scroll = QScrollArea()
+        p_scroll.setWidgetResizable(True)
+        p_scroll.setFrameShape(QFrame.NoFrame)
+        p_scroll.setStyleSheet("background: transparent;")
+        p_scroll.setMinimumHeight(200)
+
+        p_container = QWidget()
+        p_container.setStyleSheet("background: transparent;")
+        p_lay = QVBoxLayout(p_container)
+        p_lay.setContentsMargins(0, 0, 0, 0)
+        p_lay.setSpacing(8)
 
         if records:
-            for i, r in enumerate(records):
-                tbl.setRowHeight(i, 38)
-                tbl.setItem(i, 0, QTableWidgetItem(r["payment_date"]))
-                tbl.setItem(i, 1, QTableWidgetItem(r["method"]))
-                amt = QTableWidgetItem(f"₱ {r['amount']:,.2f}")
-                amt.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                tbl.setItem(i, 2, amt)
-                tbl.setItem(i, 3, QTableWidgetItem(r["note"]))
-        else:
-            tbl.insertRow(0)
-            item = QTableWidgetItem("No payment records found.")
-            item.setForeground(QColor("#9CA3AF"))
-            tbl.setItem(0, 0, item)
+            for r in records:
+                p_card = QFrame()
+                p_card.setObjectName("entryCard")
+                pl = QHBoxLayout(p_card)
+                pl.setContentsMargins(12, 10, 12, 10)
+                pl.setSpacing(14)
 
-        lay.addWidget(tbl)
+                c1 = QVBoxLayout()
+                c1.setSpacing(2)
+                d_lbl = QLabel(r["payment_date"])
+                d_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
+                m_lbl = QLabel(f"Method: {r['method']}")
+                m_lbl.setObjectName("subtitle")
+                c1.addWidget(d_lbl)
+                c1.addWidget(m_lbl)
+                pl.addLayout(c1, 2)
+
+                note_text = r.get("note", "") or "—"
+                note_lbl = QLabel(f"Note: {note_text}")
+                note_lbl.setObjectName("subtitle")
+                pl.addWidget(note_lbl, 3)
+
+                amt_lbl = QLabel(f"₱ {r['amount']:,.2f}")
+                amt_lbl.setStyleSheet("font-weight: 800; font-size: 14px; color: #22C55E;")
+                amt_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                pl.addWidget(amt_lbl, 2)
+
+                p_lay.addWidget(p_card)
+        else:
+            empty_card = QFrame()
+            empty_card.setObjectName("entryCard")
+            el = QVBoxLayout(empty_card)
+            item = QLabel("No payment records found.")
+            item.setObjectName("subtitle")
+            item.setAlignment(Qt.AlignCenter)
+            el.addWidget(item)
+            p_lay.addWidget(empty_card)
+
+        p_lay.addStretch()
+        p_scroll.setWidget(p_container)
+        lay.addWidget(p_scroll)
 
         close = QPushButton("Close")
         close.setObjectName("secondaryButton")
@@ -287,8 +313,6 @@ class PaymentHistoryDialog(QDialog):
         lay.addWidget(close, alignment=Qt.AlignRight)
 
         outer.addWidget(container)
-
-
 
 
 class BillingPage(QWidget):
@@ -334,119 +358,276 @@ class BillingPage(QWidget):
         card = QFrame()
         card.setObjectName("card")
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setContentsMargins(20, 20, 20, 20)
 
-        self._table = QTableWidget(0, 10)
-        self._table.setObjectName("billingTable")
-        self._table.setHorizontalHeaderLabels(
-            ["Invoice #", "Customer", "Event Date", "Total", "Paid", "Balance", "Status", "", "", ""]
-        )
-        
-        hdr = self._table.horizontalHeader()
-        hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.Stretch)
-        
-        # --- FIX 3: Let the action columns resize automatically to fit without cutting off ---
-        hdr.setSectionResizeMode(7, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(8, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(9, QHeaderView.ResizeToContents)
-        # We removed the lines forcing the columns to 38px
-        
-        self._table.setAlternatingRowColors(True)
-        self._table.setSelectionMode(QTableWidget.NoSelection)
-        self._table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self._table.setShowGrid(False)
-        self._table.setMouseTracking(False)
-        self._table.setStyleSheet("QTableWidget::item:hover { background: transparent; } QTableWidget::item:selected { background: transparent; }")
-        card_layout.addWidget(self._table)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setStyleSheet("background: transparent;")
 
+        self.cards_container = QWidget()
+        self.cards_container.setStyleSheet("background: transparent;")
+        self.cards_layout = QVBoxLayout(self.cards_container)
+        self.cards_layout.setContentsMargins(0, 0, 10, 0)
+        self.cards_layout.setSpacing(12)
+
+        self.scroll_area.setWidget(self.cards_container)
+        card_layout.addWidget(self.scroll_area)
         root.addWidget(card)
 
     def _populate_table(self):
-        self._table.setRowCount(0)
-        for row, inv in enumerate(self._invoices):
-            self._table.insertRow(row)
-            self._table.setRowHeight(row, 44)
+        while self.cards_layout.count():
+            item = self.cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-            inv_item = QTableWidgetItem(inv.get("invoice", ""))
-            self._table.setItem(row, 0, inv_item)
-            self._table.setItem(row, 1, QTableWidgetItem(inv.get("customer", "")))
-            self._table.setItem(row, 2, QTableWidgetItem(_fmt_date(inv.get("event_date", ""))))
+        if not self._invoices:
+            empty_lbl = QLabel("No invoices found.")
+            empty_lbl.setObjectName("subtitle")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            self.cards_layout.addWidget(empty_lbl)
+        else:
+            for inv in self._invoices:
+                i_card = self._create_invoice_card(inv)
+                self.cards_layout.addWidget(i_card)
 
-            total = float(inv.get("amount", 0))
-            paid  = float(inv.get("paid", 0))
-            bal   = total - paid
+        self.cards_layout.addStretch()
 
-            self._table.setItem(row, 3, QTableWidgetItem(f"₱{total:,.2f}"))
-            self._table.setItem(row, 4, QTableWidgetItem(f"₱{paid:,.2f}"))
+    def _create_invoice_card(self, inv: dict) -> QFrame:
+        card = QFrame()
+        card.setObjectName("entryCard")
+        lay = QHBoxLayout(card)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(16)
 
-            bal_item = QTableWidgetItem(f"₱{bal:,.2f}")
-            if bal > 0:
-                bal_item.setForeground(QColor("#EF4444"))
+        # Col 1: Invoice #, Customer, Event Date
+        c1 = QVBoxLayout()
+        c1.setSpacing(2)
+        inv_lbl = QLabel(inv.get("invoice", ""))
+        inv_lbl.setStyleSheet("font-weight: 800; font-size: 13px; color: #E11D48;")
+        cust_lbl = QLabel(inv.get("customer", ""))
+        cust_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
+        date_lbl = QLabel(f"Event: {_fmt_date(inv.get('event_date', ''))}")
+        date_lbl.setObjectName("subtitle")
+        c1.addWidget(inv_lbl)
+        c1.addWidget(cust_lbl)
+        c1.addWidget(date_lbl)
+        lay.addLayout(c1, 3)
+
+        # Col 2: Total, Paid, Balance
+        total = float(inv.get("amount", 0))
+        paid  = float(inv.get("paid", 0))
+        bal   = total - paid
+
+        c2 = QHBoxLayout()
+        c2.setSpacing(14)
+        t_box = QVBoxLayout()
+        t_box.setSpacing(2)
+        t_title = QLabel("TOTAL")
+        t_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280;")
+        t_val = QLabel(f"₱{total:,.2f}")
+        t_val.setStyleSheet("font-weight: 700; font-size: 13px;")
+        t_box.addWidget(t_title)
+        t_box.addWidget(t_val)
+        c2.addLayout(t_box)
+
+        p_box = QVBoxLayout()
+        p_box.setSpacing(2)
+        p_title = QLabel("PAID")
+        p_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280;")
+        p_val = QLabel(f"₱{paid:,.2f}")
+        p_val.setStyleSheet("font-weight: 700; font-size: 13px; color: #22C55E;")
+        p_box.addWidget(p_title)
+        p_box.addWidget(p_val)
+        c2.addLayout(p_box)
+
+        b_box = QVBoxLayout()
+        b_box.setSpacing(2)
+        b_title = QLabel("BALANCE")
+        b_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280;")
+        b_val = QLabel(f"₱{bal:,.2f}")
+        b_color = "#EF4444" if bal > 0 else "#22C55E"
+        b_val.setStyleSheet(f"font-weight: 800; font-size: 14px; color: {b_color};")
+        b_box.addWidget(b_title)
+        b_box.addWidget(b_val)
+        c2.addLayout(b_box)
+
+        lay.addLayout(c2, 4)
+
+        # Col 3: Status
+        status = inv.get("status", "")
+        s_color = _STATUS_COLORS.get(status, "#9CA3AF")
+        status_lbl = QLabel(status)
+        status_lbl.setStyleSheet(f"font-weight: 700; font-size: 11px; color: {s_color}; padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 8px;")
+        lay.addWidget(status_lbl, alignment=Qt.AlignVCenter)
+
+        # Col 4: Action Buttons
+        actions_w = QFrame()
+        actions_w.setStyleSheet("background: transparent;")
+        actions_l = QHBoxLayout(actions_w)
+        actions_l.setContentsMargins(0, 0, 0, 0)
+        actions_l.setSpacing(6)
+
+        pay_btn = QPushButton()
+        pay_btn.setIcon(get_icon("check", color="#22C55E", size=QSize(14, 14)))
+        pay_btn.setIconSize(QSize(14, 14))
+        pay_btn.setFixedSize(32, 32)
+        pay_btn.setStyleSheet("background: transparent; border: none;")
+        pay_btn.setCursor(Qt.PointingHandCursor)
+        pay_btn.setToolTip("Record Payment")
+        pay_btn.setEnabled(bal > 0.005 and bool(inv.get("booking_id")))
+        pay_btn.clicked.connect(lambda _, invoice=inv: self._record_payment_dict(invoice))
+
+        hist_btn = QPushButton()
+        hist_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(14, 14)))
+        hist_btn.setIconSize(QSize(14, 14))
+        hist_btn.setFixedSize(32, 32)
+        hist_btn.setStyleSheet("background: transparent; border: none;")
+        hist_btn.setCursor(Qt.PointingHandCursor)
+        hist_btn.setToolTip("Payment History")
+        hist_btn.clicked.connect(lambda _, invoice=inv: PaymentHistoryDialog(self, inv=invoice).exec())
+
+        print_btn = QPushButton()
+        print_btn.setIcon(get_icon("export", color="#9CA3AF", size=QSize(14, 14)))
+        print_btn.setIconSize(QSize(14, 14))
+        print_btn.setFixedSize(32, 32)
+        print_btn.setStyleSheet("background: transparent; border: none;")
+        print_btn.setCursor(Qt.PointingHandCursor)
+        print_btn.setToolTip("Print / Save Receipt PDF")
+        print_btn.clicked.connect(lambda _, invoice=inv: self._print_receipt_dict(invoice))
+
+        email_btn = QPushButton()
+        email_btn.setIcon(get_icon("bell", color="#3B82F6", size=QSize(14, 14)))
+        email_btn.setIconSize(QSize(14, 14))
+        email_btn.setFixedSize(32, 32)
+        email_btn.setStyleSheet("background: transparent; border: none;")
+        email_btn.setCursor(Qt.PointingHandCursor)
+        email_btn.setToolTip("Email Receipt")
+        email_btn.clicked.connect(lambda _, invoice=inv: self._email_receipt_dict(invoice))
+
+        del_btn = QPushButton()
+        del_btn.setIcon(btn_icon_red("trash"))
+        del_btn.setIconSize(QSize(14, 14))
+        del_btn.setFixedSize(32, 32)
+        del_btn.setStyleSheet("background: transparent; border: none;")
+        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.setToolTip("Delete invoice")
+        del_btn.clicked.connect(lambda _, invoice=inv: self._delete_invoice_dict(invoice))
+
+        actions_l.addWidget(pay_btn)
+        actions_l.addWidget(hist_btn)
+        actions_l.addWidget(print_btn)
+        actions_l.addWidget(email_btn)
+        actions_l.addWidget(del_btn)
+
+        lay.addWidget(actions_w)
+
+        return card
+
+    def _record_payment_dict(self, inv: dict):
+        if not inv.get("booking_id"):
+            QMessageBox.warning(self, "Not Allowed",
+                "This invoice is not linked to a booking and cannot accept payments through this flow.")
+            return
+        dlg = RecordPaymentDialog(self, inv=inv)
+        if dlg.exec() == QDialog.Accepted:
+            result = dlg.get_result()
+            if result:
+                try:
+                    pr = repo.pay_invoice(
+                        inv["booking_id"],
+                        result["amount"],
+                        result["payment_date"],
+                        result["method"],
+                        result["note"],
+                    )
+                    inv["paid"]   = pr["new_paid"]
+                    inv["status"] = pr["new_invoice_status"]
+                    self._populate_table()
+                    repo.write_audit_log(get_actor(), "PAYMENT", "invoices", inv["db_id"],
+                        None, {"amount": result["amount"], "method": result["method"]})
+                    try:
+                        repo.push_notification(
+                            "success",
+                            "Payment Recorded",
+                            f"₱{result['amount']:,.2f} via {result['method']} recorded for {inv.get('customer', '')} — {inv.get('invoice', '')}.",
+                            "#22C55E",
+                        )
+                    except Exception:
+                        pass
+                    app_events().payment_recorded.emit()
+                    success(self, message=f"Payment of ₱{result['amount']:,.2f} recorded.")
+                except Exception as exc:
+                    QMessageBox.warning(self, "Payment Error", str(exc))
+
+    def _delete_invoice_dict(self, inv: dict):
+        if not confirm(self, title="Delete Invoice",
+                       message=f"Are you sure you want to delete invoice '{inv.get('invoice', '')}'? This cannot be undone.",
+                       confirm_label="Delete", danger=True):
+            return
+        if inv.get("db_id"):
+            repo.delete_invoice(inv["db_id"])
+        if inv in self._invoices:
+            self._invoices.remove(inv)
+        self._populate_table()
+        success(self, message="Invoice deleted successfully.")
+
+    def _print_receipt_dict(self, inv: dict):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Receipt PDF",
+            f"receipt_{inv.get('invoice', 'receipt')}.pdf",
+            "PDF Files (*.pdf)",
+        )
+        if not path:
+            return
+        business = repo.get_business_info()
+        ok = exporter.export_receipt_pdf(path, inv, business)
+        if ok:
+            if inv.get("db_id"):
+                repo.log_receipt_sent(inv["db_id"], "print")
+            success(self, message=f"Receipt saved to:\n{path}")
+        else:
+            QMessageBox.warning(self, "Export Failed",
+                "Could not generate PDF. Make sure reportlab is installed.")
+
+    def _email_receipt_dict(self, inv: dict):
+        to_email = inv.get("customer_email", "").strip()
+        if not to_email:
+            to_email = repo.get_customer_email_by_name(inv.get("customer", "")).strip()
+        if not to_email or "@" not in to_email:
+            QMessageBox.warning(self, "No Email",
+                f"No email address found for {inv.get('customer', 'this customer')}.\n"
+                "Please update the customer's email in the Customers page.")
+            return
+        business = repo.get_business_info()
+        smtp = repo.get_smtp_config()
+        if not smtp.get("smtp_host"):
+            QMessageBox.warning(self, "SMTP Not Configured",
+                "Please configure SMTP settings in the Settings page before sending emails.")
+            return
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            pdf_ok = exporter.export_receipt_pdf(tmp_path, inv, business)
+            if not pdf_ok:
+                QMessageBox.warning(self, "PDF Error",
+                    "Could not generate receipt PDF. Make sure reportlab is installed.")
+                return
+            from utils.mailer import send_receipt_email
+            inv_for_email = {**inv, "business_name": business.get("name", "Jayraldine's Catering")}
+            sent, err = send_receipt_email(smtp, to_email, inv_for_email, tmp_path)
+            if sent:
+                if inv.get("db_id"):
+                    repo.log_receipt_sent(inv["db_id"], "email")
+                success(self, message=f"Receipt emailed to {to_email}.")
             else:
-                bal_item.setForeground(QColor("#22C55E"))
-            self._table.setItem(row, 5, bal_item)
-
-            status = inv.get("status", "")
-            status_item = QTableWidgetItem(status)
-            status_item.setForeground(QColor(_STATUS_COLORS.get(status, "#9CA3AF")))
-            self._table.setItem(row, 6, status_item)
-
-            pay_btn = QPushButton()
-            pay_btn.setIcon(get_icon("check", color="#22C55E", size=QSize(14, 14)))
-            pay_btn.setIconSize(QSize(14, 14))
-            pay_btn.setFixedSize(34, 34)
-            pay_btn.setStyleSheet("background: transparent; border: none;")
-            pay_btn.setCursor(Qt.PointingHandCursor)
-            pay_btn.setToolTip("Record Payment")
-            pay_btn.setEnabled(bal > 0.005 and bool(inv.get("booking_id")))
-            pay_btn.clicked.connect(self._record_payment)
-            self._table.setCellWidget(row, 7, pay_btn)
-
-            hist_btn = QPushButton()
-            hist_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(14, 14)))
-            hist_btn.setIconSize(QSize(14, 14))
-            hist_btn.setFixedSize(34, 34)
-            hist_btn.setStyleSheet("background: transparent; border: none;")
-            hist_btn.setCursor(Qt.PointingHandCursor)
-            hist_btn.setToolTip("Payment History")
-            hist_btn.clicked.connect(self._show_payment_history)
-            self._table.setCellWidget(row, 8, hist_btn)
-
-            actions_frame = QFrame()
-            actions_frame.setStyleSheet("background: transparent;")
-            actions_lay = QHBoxLayout(actions_frame)
-            actions_lay.setContentsMargins(2, 2, 2, 2)
-            actions_lay.setSpacing(2)
-
-            print_btn = QPushButton()
-            print_btn.setIcon(get_icon("export", color="#9CA3AF", size=QSize(14, 14)))
-            print_btn.setIconSize(QSize(14, 14))
-            print_btn.setFixedSize(28, 28)
-            print_btn.setStyleSheet("background: transparent; border: none;")
-            print_btn.setCursor(Qt.PointingHandCursor)
-            print_btn.setToolTip("Print / Save Receipt PDF")
-            print_btn.clicked.connect(self._print_receipt)
-
-            email_btn = QPushButton()
-            email_btn.setIcon(get_icon("bell", color="#3B82F6", size=QSize(14, 14)))
-            email_btn.setIconSize(QSize(14, 14))
-            email_btn.setFixedSize(28, 28)
-            email_btn.setStyleSheet("background: transparent; border: none;")
-            email_btn.setCursor(Qt.PointingHandCursor)
-            email_btn.setToolTip("Email Receipt")
-            email_btn.clicked.connect(self._email_receipt)
-
-            del_btn = QPushButton()
-            del_btn.setIcon(btn_icon_red("trash"))
-            del_btn.setIconSize(QSize(14, 14))
-            del_btn.setFixedSize(28, 28)
-            del_btn.setStyleSheet("background: transparent; border: none;")
-            del_btn.setCursor(Qt.PointingHandCursor)
-            del_btn.setToolTip("Delete invoice")
-            del_btn.clicked.connect(self._delete_invoice)
+                QMessageBox.warning(self, "Email Failed", err)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
             actions_lay.addWidget(print_btn)
             actions_lay.addWidget(email_btn)

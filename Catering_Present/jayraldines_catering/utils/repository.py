@@ -1714,3 +1714,107 @@ def _parse_amount(s) -> float:
         return float(cleaned)
     except ValueError:
         return 0.0
+
+# ---------------------------------------------------------------------------
+# ANALYTICS (year-parameterized — requires analytics_functions_migration.sql)
+# ---------------------------------------------------------------------------
+
+def get_available_years() -> list[int]:
+    """Every year that has invoice or expense data, newest first."""
+    try:
+        rows = db.fetchall("SELECT year FROM fn_available_years()")
+    except Exception:
+        return [datetime.now().year]
+    years = [int(r["year"]) for r in rows] if rows else []
+    return years or [datetime.now().year]
+
+
+def get_monthly_income_for_year(year: int) -> list[dict]:
+    rows = db.fetchall(
+        "SELECT month_label, month_num, total_revenue, total_paid"
+        " FROM fn_monthly_income(%s)", (year,)
+    )
+    if not rows:
+        return []
+    return [{"month": r["month_label"], "month_num": int(r["month_num"]),
+             "revenue": float(r["total_revenue"]), "paid": float(r["total_paid"])}
+            for r in rows]
+
+
+def get_profit_summary_for_year(year: int) -> list[dict]:
+    rows = db.fetchall(
+        "SELECT month_num, month_label, revenue, total_expense, net_profit"
+        " FROM fn_profit_summary(%s)", (year,)
+    )
+    if not rows:
+        return []
+    return [{"month": r["month_label"], "month_num": int(r["month_num"]),
+             "revenue": float(r["revenue"]), "expense": float(r["total_expense"]),
+             "profit": float(r["net_profit"])}
+            for r in rows]
+
+
+def get_weekly_summary(year: int, month: int) -> list[dict]:
+    """Revenue/expense/profit per week-of-month (Week 1 = days 1-7, ...)."""
+    rows = db.fetchall(
+        "SELECT week_num, week_label, revenue, total_expense, net_profit"
+        " FROM fn_weekly_summary(%s, %s)", (year, month)
+    )
+    if not rows:
+        return []
+    return [{"week": r["week_label"], "week_num": int(r["week_num"]),
+             "revenue": float(r["revenue"]), "expense": float(r["total_expense"]),
+             "profit": float(r["net_profit"])}
+            for r in rows]
+
+
+def get_yearly_summary() -> list[dict]:
+    """Revenue/expense/profit per year across all history."""
+    rows = db.fetchall(
+        "SELECT year, revenue, total_expense, net_profit FROM fn_yearly_summary()"
+    )
+    if not rows:
+        return []
+    return [{"year": int(r["year"]), "revenue": float(r["revenue"]),
+             "expense": float(r["total_expense"]), "profit": float(r["net_profit"])}
+            for r in rows]
+
+
+def get_expense_breakdown(year: int, month: Optional[int] = None) -> list[dict]:
+    """Expense totals per category for a year (or one month of it)."""
+    rows = db.fetchall(
+        "SELECT category, total FROM fn_expense_breakdown(%s, %s)", (year, month)
+    )
+    return [{"category": r["category"], "total": float(r["total"])} for r in rows] if rows else []
+
+
+def get_bookings_any_status() -> list[dict]:
+    """All bookings regardless of status — used by the AI assistant to
+    resolve approve/cancel/complete targets (incl. PENDING ones)."""
+    rows = db.fetchall(
+        """
+        SELECT bk_id             AS id,
+               bk_booking_ref   AS booking_ref,
+               bk_customer_name AS customer_name,
+               bk_event_date    AS event_date,
+               bk_pax           AS pax,
+               bk_total_amount  AS total_amount,
+               bk_status::TEXT  AS status
+        FROM bookings
+        ORDER BY bk_event_date DESC
+        """
+    )
+    if not rows:
+        return []
+    return [
+        {
+            "db_id":  r["id"],
+            "ref":    r["booking_ref"],
+            "name":   r["customer_name"],
+            "date":   r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], date) else str(r["event_date"]),
+            "pax":    int(r["pax"]),
+            "total":  float(r["total_amount"]),
+            "status": r["status"],
+        }
+        for r in rows
+    ]

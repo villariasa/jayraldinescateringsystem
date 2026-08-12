@@ -296,6 +296,7 @@ $mainSql    = "jayraldines_catering_clean.sql"
 $migSql     = "cebu_address_migration.sql"
 $occMigSql  = "occasions_migration.sql"
 $viewsMigSql = "confirmed_only_views_migration.sql"
+$analyticsMigSql = "analytics_functions_migration.sql"
 
 if (-not (Test-Path $mainSql)) {
     Print-Fail "Required file not found: $mainSql"
@@ -375,6 +376,12 @@ if ($runSql) {
         Print-Info "Applying confirmed-only views migration..."
         try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $viewsMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
         Print-OK "Views migration done"
+    }
+
+    if (Test-Path $analyticsMigSql) {
+        Print-Info "Applying analytics functions migration (year comparisons, weekly summaries)..."
+        try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $analyticsMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
+        Print-OK "Analytics migration done"
     }
 
     Print-OK "Database '$dbName' is ready"

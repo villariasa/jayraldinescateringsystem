@@ -126,7 +126,7 @@ class AddressSearchWidget(QWidget):
         street_lay.setSpacing(4)
 
         lbl = QLabel("Street / House No. *")
-        lbl.setStyleSheet("color:#9CA3AF; font-size:12px;")
+        lbl.setObjectName("fieldLabel")
         self._street = QLineEdit()
         self._street.setPlaceholderText("e.g. Block 5 Lot 3, Rizal St.")
         self._street.setFixedHeight(38)
@@ -139,7 +139,8 @@ class AddressSearchWidget(QWidget):
         root.addWidget(self._street_row)
 
         self._hint = QLabel("Start typing to search (min 2 characters)")
-        self._hint.setStyleSheet("color:#6B7280; font-size:11px; padding-top:2px;")
+        self._hint.setObjectName("muted")
+        self._hint.setStyleSheet("font-size:11px; padding-top:2px;")
         self._hint.setMaximumHeight(0)
         self._hint.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         root.addWidget(self._hint)
@@ -155,6 +156,7 @@ class AddressSearchWidget(QWidget):
         w.setMaximumHeight(0)
 
     def _open_dropdown(self, count: int):
+        self._dropdown.setStyleSheet(self._dropdown_style())
         h = min(count * 36 + 8, self._DROPDOWN_MAX_H)
         self._dropdown.setMaximumHeight(h)
 
@@ -249,25 +251,31 @@ class AddressSearchWidget(QWidget):
 
     @staticmethod
     def _dropdown_style() -> str:
-        return """
-            QListWidget#addressDropdown {
-                background-color: #1F2937;
-                border: 1px solid #374151;
+        from utils.theme import ThemeManager
+        if ThemeManager().is_dark():
+            bg, border, text, hover = "#1F2937", "#374151", "#F9FAFB", "#374151"
+        else:
+            bg, border, text, hover = "#FFFFFF", "#D8DFEA", "#101828", "#F3F5F9"
+        return f"""
+            QListWidget#addressDropdown {{
+                background-color: {bg};
+                border: 1px solid {border};
                 border-radius: 8px;
                 padding: 4px 0;
-                color: #F9FAFB;
+                color: {text};
                 font-size: 13px;
-            }
-            QListWidget#addressDropdown::item {
+            }}
+            QListWidget#addressDropdown::item {{
                 padding: 8px 14px;
                 border-radius: 6px;
-            }
-            QListWidget#addressDropdown::item:hover {
-                background-color: #374151;
-                color: #F9FAFB;
-            }
-            QListWidget#addressDropdown::item:selected {
+                color: {text};
+            }}
+            QListWidget#addressDropdown::item:hover {{
+                background-color: {hover};
+                color: {text};
+            }}
+            QListWidget#addressDropdown::item:selected {{
                 background-color: #E11D48;
                 color: #FFFFFF;
-            }
+            }}
         """

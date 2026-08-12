@@ -4,6 +4,7 @@ from PySide6.QtCore import Signal, Qt, QSize, QPropertyAnimation, QEasingCurve, 
 from PySide6.QtGui import QPixmap
 
 from utils.icons import nav_icon, nav_icon_active, get_icon
+from utils.theme import ThemeManager
 
 from utils.paths import resource_path
 
@@ -16,7 +17,9 @@ _NAV_ITEMS = [
     ("Kitchen",   "kitchen",   5),
     ("Billing",   "billing",   6),
     ("Reports",   "reports",   7),
-    ("Settings",  "settings",  8),
+    ("Expenses",  "billing",   8),
+    ("AI Assistant", "search", 9),
+    ("Settings",  "settings",  10),
 ]
 
 EXPANDED_WIDTH  = 240
@@ -81,6 +84,7 @@ class Sidebar(QFrame):
             btn.setIconSize(QSize(18, 18))
             btn.setIcon(nav_icon(icon_name))
             btn.setProperty("icon_name", icon_name)
+            btn.setProperty("nav_label", text)
 
             if index == 0:
                 btn.setChecked(True)
@@ -109,9 +113,7 @@ class Sidebar(QFrame):
         self.user_info = QVBoxLayout()
         self.user_info.setSpacing(0)
         self.name_lbl  = QLabel("Owner", self.user_frame)
-        self.name_lbl.setStyleSheet("color: #F9FAFB; font-weight: 700; font-size: 13px;")
         self.email_lbl = QLabel("admin@jayraldines.com", self.user_frame)
-        self.email_lbl.setStyleSheet("color: #6B7280; font-size: 11px;")
         self.user_info.addWidget(self.name_lbl)
         self.user_info.addWidget(self.email_lbl)
         self.user_layout.addLayout(self.user_info)
@@ -134,7 +136,25 @@ class Sidebar(QFrame):
         self._anim2.setDuration(200)
         self._anim2.setEasingCurve(QEasingCurve.OutCubic)
 
+        self._apply_theme_styles()
+        ThemeManager().theme_changed.connect(lambda _t: self._apply_theme_styles())
+
         QTimer.singleShot(0, self._mark_ready)
+
+    def _apply_theme_styles(self):
+        dark = ThemeManager().is_dark()
+        self.name_lbl.setStyleSheet(
+            "font-weight: 700; font-size: 13px; color: %s;"
+            % ("#F9FAFB" if dark else "#101828")
+        )
+        self.email_lbl.setStyleSheet(
+            "font-size: 11px; color: %s;" % ("#6B7280" if dark else "#7A879E")
+        )
+        muted = "#6B7280" if dark else "#7A879E"
+        self.collapse_btn.setIcon(get_icon("menu-collapse", color=muted, size=QSize(18, 18)))
+        self.logout_lbl.setPixmap(
+            get_icon("log-out", color=muted, size=QSize(15, 15)).pixmap(QSize(15, 15))
+        )
 
     def _mark_ready(self):
         self._ready = True
@@ -169,4 +189,4 @@ class Sidebar(QFrame):
                 w.setVisible(not self._collapsed)
 
         for btn in self.buttons:
-            btn.setText("   " + btn.property("icon_name").capitalize() if not self._collapsed else "")
+            btn.setText("   " + btn.property("nav_label") if not self._collapsed else "")

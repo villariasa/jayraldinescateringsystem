@@ -6,7 +6,21 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QPoint, QEvent, QTimer, Signal
 
 from utils.icons import get_icon
+from utils.theme import ThemeManager
+from utils.animations import create_soft_shadow
 import utils.repository as repo
+
+
+def _is_light():
+    return not ThemeManager().is_dark()
+
+
+def _muted(size=11):
+    return "font-size: %dpx; color: %s;" % (size, "#7A879E" if _is_light() else "#6B7280")
+
+
+def _secondary(size=12):
+    return "font-size: %dpx; color: %s;" % (size, "#46536B" if _is_light() else "#9CA3AF")
 
 
 
@@ -92,6 +106,7 @@ class NotificationPopover(QFrame):
 
         inner = QFrame()
         inner.setObjectName("card")
+        create_soft_shadow(inner, radius=28, y_offset=8, opacity=45)
         inner_lay = QVBoxLayout(inner)
         inner_lay.setContentsMargins(20, 18, 20, 18)
         inner_lay.setSpacing(0)
@@ -174,8 +189,7 @@ class NotificationPopover(QFrame):
             for group_name, items in grouped.items():
                 grp_lbl = QLabel(group_name.upper())
                 grp_lbl.setStyleSheet(
-                    "color: #6B7280; font-size: 10px; font-weight: 700;"
-                    " letter-spacing: 1px; padding: 10px 0 4px 0;"
+                    _muted(10) + " font-weight: 700; letter-spacing: 1px; padding: 10px 0 4px 0;"
                 )
                 self._list_lay.addWidget(grp_lbl)
 
@@ -210,10 +224,10 @@ class NotificationPopover(QFrame):
         msg_lbl.setObjectName("subtitle")
         msg_lbl.setWordWrap(True)
         msg_lbl.setMinimumHeight(18)
-        msg_lbl.setStyleSheet("font-size: 12px; color: #9CA3AF;")
+        msg_lbl.setStyleSheet(_secondary(12))
         time_lbl = QLabel(notif["time"])
         time_lbl.setObjectName("muted")
-        time_lbl.setStyleSheet("font-size: 11px; color: #6B7280;")
+        time_lbl.setStyleSheet(_muted(11))
 
         text_col.addWidget(title_lbl)
         text_col.addWidget(msg_lbl)

@@ -215,7 +215,7 @@ class AreaChartCard(QVBoxLayout):
 
         self.axis_y = QValueAxis()
         self.axis_y.setRange(0, 100)
-        self.axis_y.setLabelFormat("₱%ik")
+        self.axis_y.setLabelFormat("P%ik")
         self.axis_y.setGridLineColor(QColor("#F1F5F9"))
         self.axis_y.setLinePenColor(Qt.transparent)
         self.chart.addAxis(self.axis_y, Qt.AlignLeft)
