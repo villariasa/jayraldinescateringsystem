@@ -351,8 +351,16 @@ CREATE SEQUENCE IF NOT EXISTS seq_order_ref   START 1;
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_next_booking_ref(OUT p_ref TEXT)
 LANGUAGE plpgsql AS $$
+DECLARE
+    v_max INT;
 BEGIN
-    -- loop past refs already taken by seed data / manual inserts
+    SELECT COALESCE(MAX(NULLIF(regexp_replace(bk_booking_ref, '\D', '', 'g'), '')::INT), 0)
+    INTO v_max FROM bookings;
+
+    IF v_max > 0 THEN
+        PERFORM setval('seq_booking_ref', v_max, true);
+    END IF;
+
     LOOP
         p_ref := 'BKG-' || LPAD(nextval('seq_booking_ref')::TEXT, 3, '0');
         EXIT WHEN NOT EXISTS (SELECT 1 FROM bookings WHERE bk_booking_ref = p_ref);
@@ -365,7 +373,16 @@ $$;
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_next_invoice_ref(OUT p_ref TEXT)
 LANGUAGE plpgsql AS $$
+DECLARE
+    v_max INT;
 BEGIN
+    SELECT COALESCE(MAX(NULLIF(regexp_replace(inv_invoice_ref, '\D', '', 'g'), '')::INT), 0)
+    INTO v_max FROM invoices;
+
+    IF v_max > 0 THEN
+        PERFORM setval('seq_invoice_ref', v_max, true);
+    END IF;
+
     LOOP
         p_ref := 'INV-' || LPAD(nextval('seq_invoice_ref')::TEXT, 3, '0');
         EXIT WHEN NOT EXISTS (SELECT 1 FROM invoices WHERE inv_invoice_ref = p_ref);
@@ -378,7 +395,16 @@ $$;
 -- =============================================================================
 CREATE OR REPLACE PROCEDURE sp_next_order_ref(OUT p_ref TEXT)
 LANGUAGE plpgsql AS $$
+DECLARE
+    v_max INT;
 BEGIN
+    SELECT COALESCE(MAX(NULLIF(regexp_replace(ko_order_ref, '\D', '', 'g'), '')::INT), 0)
+    INTO v_max FROM kitchen_orders;
+
+    IF v_max > 0 THEN
+        PERFORM setval('seq_order_ref', v_max, true);
+    END IF;
+
     LOOP
         p_ref := 'ORD-' || LPAD(nextval('seq_order_ref')::TEXT, 3, '0');
         EXIT WHEN NOT EXISTS (SELECT 1 FROM kitchen_orders WHERE ko_order_ref = p_ref);

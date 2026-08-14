@@ -629,175 +629,19 @@ class BillingPage(QWidget):
             except Exception:
                 pass
 
-            actions_lay.addWidget(print_btn)
-            actions_lay.addWidget(email_btn)
-            actions_lay.addWidget(del_btn)
-            self._table.setCellWidget(row, 9, actions_frame)
-
-    def _row_from_sender(self, col):
-        btn = self.sender()
-        for r in range(self._table.rowCount()):
-            w = self._table.cellWidget(r, col)
-            if w is btn:
-                return r
-            if w is not None and hasattr(w, "layout"):
-                layout = w.layout()
-                if layout:
-                    for i in range(layout.count()):
-                        item = layout.itemAt(i)
-                        if item and item.widget() is btn:
-                            return r
-        return -1
-
-    def _row_from_sender_any(self):
-        btn = self.sender()
-        for r in range(self._table.rowCount()):
-            for col in range(self._table.columnCount()):
-                w = self._table.cellWidget(r, col)
-                if w is btn:
-                    return r
-                if w is not None:
-                    layout = getattr(w, "layout", None)
-                    if callable(layout):
-                        lay = layout()
-                        if lay:
-                            for i in range(lay.count()):
-                                item = lay.itemAt(i)
-                                if item and item.widget() is btn:
-                                    return r
-        return -1
-
-    def _record_payment(self):
-        row = self._row_from_sender(7)
-        if row < 0:
-            return
-        inv = self._invoices[row]
-        if not inv.get("booking_id"):
-            QMessageBox.warning(self, "Not Allowed",
-                "This invoice is not linked to a booking and cannot accept payments through this flow.")
-            return
-        dlg = RecordPaymentDialog(self, inv=inv)
-        if dlg.exec() == QDialog.Accepted:
-            result = dlg.get_result()
-            if result:
-                try:
-                    pr = repo.pay_invoice(
-                        inv["booking_id"],
-                        result["amount"],
-                        result["payment_date"],
-                        result["method"],
-                        result["note"],
-                    )
-                    inv["paid"]   = pr["new_paid"]
-                    inv["status"] = pr["new_invoice_status"]
-                    self._populate_table()
-                    repo.write_audit_log(get_actor(), "PAYMENT", "invoices", inv["db_id"],
-                        None, {"amount": result["amount"], "method": result["method"]})
-                    try:
-                        repo.push_notification(
-                            "success",
-                            "Payment Recorded",
-                            f"₱{result['amount']:,.2f} via {result['method']} recorded for {inv.get('customer', '')} — {inv.get('invoice', '')}.",
-                            "#22C55E",
-                        )
-                    except Exception:
-                        pass
-                    app_events().payment_recorded.emit()
-                    success(self, message=f"Payment of ₱{result['amount']:,.2f} recorded.")
-                except Exception as exc:
-                    QMessageBox.warning(self, "Payment Error", str(exc))
-
-    def _show_payment_history(self):
-        row = self._row_from_sender(8)
-        if row < 0:
-            return
-        inv = self._invoices[row]
-        PaymentHistoryDialog(self, inv=inv).exec()
-
-    def _delete_invoice(self):
-        row = self._row_from_sender_any()
-        if row < 0:
-            return
-        inv = self._invoices[row]
-        if not confirm(self, title="Delete Invoice",
-                       message=f"Are you sure you want to delete invoice '{inv.get('invoice', '')}'? This cannot be undone.",
-                       confirm_label="Delete", danger=True):
-            return
-        if inv.get("db_id"):
-            repo.delete_invoice(inv["db_id"])
-        self._invoices.pop(row)
-        self._populate_table()
-        success(self, message="Invoice deleted successfully.")
-
-    def _print_receipt(self):
-        row = self._row_from_sender_any()
-        if row < 0:
-            return
-        inv = self._invoices[row]
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save Receipt PDF",
-            f"receipt_{inv.get('invoice', 'receipt')}.pdf",
-            "PDF Files (*.pdf)",
-        )
-        if not path:
-            return
-        business = repo.get_business_info()
-        ok = exporter.export_receipt_pdf(path, inv, business)
-        if ok:
-            if inv.get("db_id"):
-                repo.log_receipt_sent(inv["db_id"], "print")
-            success(self, message=f"Receipt saved to:\n{path}")
-        else:
-            QMessageBox.warning(self, "Export Failed",
-                "Could not generate PDF. Make sure reportlab is installed.")
-
-    def _email_receipt(self):
-        row = self._row_from_sender_any()
-        if row < 0:
-            return
-        inv = self._invoices[row]
-        to_email = inv.get("customer_email", "").strip()
-        if not to_email:
-            to_email = repo.get_customer_email_by_name(inv.get("customer", "")).strip()
-        if not to_email or "@" not in to_email:
-            QMessageBox.warning(self, "No Email",
-                f"No email address found for {inv.get('customer', 'this customer')}.\n"
-                "Please update the customer's email in the Customers page.")
-            return
-        business = repo.get_business_info()
-        smtp = repo.get_smtp_config()
-        if not smtp.get("smtp_host"):
-            QMessageBox.warning(self, "SMTP Not Configured",
-                "Please configure SMTP settings in the Settings page before sending emails.")
-            return
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp_path = tmp.name
-        try:
-            pdf_ok = exporter.export_receipt_pdf(tmp_path, inv, business)
-            if not pdf_ok:
-                QMessageBox.warning(self, "PDF Error",
-                    "Could not generate receipt PDF. Make sure reportlab is installed.")
-                return
-            from utils.mailer import send_receipt_email
-            inv_for_email = {**inv, "business_name": business.get("name", "Jayraldine's Catering")}
-            sent, err = send_receipt_email(smtp, to_email, inv_for_email, tmp_path)
-            if sent:
-                if inv.get("db_id"):
-                    repo.log_receipt_sent(inv["db_id"], "email")
-                success(self, message=f"Receipt emailed to {to_email}.")
-            else:
-                QMessageBox.warning(self, "Email Failed", err)
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-
     def filter_search(self, text):
-        q = text.lower()
+        q = text.lower().strip()
+        if not q:
+            self._populate_table()
+            return
         orig = self._invoices
-        filtered = [i for i in orig if q in i.get("customer", "").lower() or q in i.get("invoice", "").lower()]
-        self._table.setRowCount(0)
+        filtered = [
+            i for i in orig
+            if q in i.get("customer", "").lower()
+            or q in i.get("invoice", "").lower()
+            or q in i.get("status", "").lower()
+            or q in _fmt_date(i.get("event_date", "")).lower()
+        ]
         saved = self._invoices
         self._invoices = filtered
         self._populate_table()

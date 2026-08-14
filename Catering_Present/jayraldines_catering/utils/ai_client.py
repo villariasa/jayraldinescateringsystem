@@ -19,6 +19,8 @@ an `action` dict the UI shows with Confirm/Cancel buttons, and only
 execute_action() (called on Confirm) touches the database.
 """
 import re
+import random
+import calendar
 from datetime import datetime, date, timedelta
 
 import utils.repository as repo
@@ -76,6 +78,15 @@ _MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 
 _EXPENSE_CATEGORIES = ["food cost", "labor", "salary", "service",
                        "transport", "utilities", "equipment", "other"]
+
+# Regex alternation of every recognized month name/abbreviation, longest-first
+# so e.g. "september" matches before "sep" would truncate it.
+_MONTH_NAME_ALT = "|".join(sorted(_MONTHS.keys(), key=len, reverse=True))
+
+# Phrases that imply a specific relative or absolute date/period — reused by
+# the "list expenses/bookings/invoices for <period>" intents below.
+_RANGE_WORD_ALT = (r"today|yesterday|this week|last week|this month|last month"
+                   r"|this year|last year|" + _MONTH_NAME_ALT)
 
 
 def _normalize(question: str) -> str:
@@ -164,6 +175,102 @@ def _extract_day(q: str):
             if 1 <= day <= 31:
                 return num, day
     return None
+
+
+def _extract_specific_dates(q: str) -> list[date]:
+    """Every explicit 'March 5' / '5 March' / 'March 5, 2026' date mentioned,
+    in the order they appear. Year defaults to the current year if omitted."""
+    today = date.today()
+    found = []
+    for name, num in _MONTHS.items():
+        for m in re.finditer(rf"\b{name}\s+(\d{{1,2}})(?:,?\s*(20\d{{2}}))?\b", q):
+            day = int(m.group(1))
+            year = int(m.group(2)) if m.group(2) else today.year
+            if 1 <= day <= 31:
+                try:
+                    found.append((m.start(), date(year, num, day)))
+                except ValueError:
+                    pass
+        for m in re.finditer(rf"\b(\d{{1,2}})\s+{name}(?:,?\s*(20\d{{2}}))?\b", q):
+            day = int(m.group(1))
+            year = int(m.group(2)) if m.group(2) else today.year
+            if 1 <= day <= 31:
+                try:
+                    found.append((m.start(), date(year, num, day)))
+                except ValueError:
+                    pass
+    found.sort(key=lambda t: t[0])
+    dates: list[date] = []
+    for _, d in found:
+        if d not in dates:
+            dates.append(d)
+    return dates
+
+
+def _week_bounds(weeks_ago: int = 0) -> tuple[date, date]:
+    """Monday..Sunday for the current week (weeks_ago=0) or N weeks back."""
+    today = date.today()
+    start = today - timedelta(days=today.weekday() + 7 * weeks_ago)
+    return start, start + timedelta(days=6)
+
+
+def _resolve_range(q: str) -> tuple[date | None, date | None, str, str]:
+    """Best-effort (start, end, label, granularity) for a date phrase in q —
+    'today', 'yesterday', 'this week', 'last week', a specific 'March 5'
+    (optionally with a year), 'this/last month', 'this/last year', or a bare
+    month/year. granularity is one of 'day', 'week', 'month', 'year', or ''
+    when nothing matched. Returns (None, None, '', '') on no match."""
+    today = date.today()
+
+    if re.search(r"\byesterday\b", q):
+        d = today - timedelta(days=1)
+        return d, d, "yesterday", "day"
+    if re.search(r"\btoday\b", q):
+        return today, today, "today", "day"
+
+    dates_found = _extract_specific_dates(q)
+    if dates_found:
+        d = dates_found[0]
+        return d, d, d.strftime("%b %d, %Y"), "day"
+
+    if re.search(r"\blast week\b", q):
+        start, end = _week_bounds(1)
+        return start, end, "last week", "week"
+    if re.search(r"\bthis week\b", q):
+        start, end = _week_bounds(0)
+        return start, end, "this week", "week"
+
+    if re.search(r"\blast month\b", q):
+        m = today.month - 1 or 12
+        y = today.year if today.month != 1 else today.year - 1
+        start = date(y, m, 1)
+        end = date(y, m, calendar.monthrange(y, m)[1])
+        return start, end, f"{_MONTH_LABELS[m - 1]} {y}", "month"
+    if re.search(r"\bthis month\b", q):
+        start = date(today.year, today.month, 1)
+        end = date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+        return start, end, f"{_MONTH_LABELS[today.month - 1]} {today.year}", "month"
+
+    if re.search(r"\blast year\b|\bprevious year\b", q):
+        y = today.year - 1
+        return date(y, 1, 1), date(y, 12, 31), str(y), "year"
+    if re.search(r"\bthis year\b|\bcurrent year\b", q):
+        y = today.year
+        return date(y, 1, 1), date(y, 12, 31), str(y), "year"
+
+    months = _extract_months(q)
+    years = _extract_years(q)
+    if months:
+        m = months[0]
+        y = years[0] if years else today.year
+        start = date(y, m, 1)
+        end = date(y, m, calendar.monthrange(y, m)[1])
+        return start, end, f"{_MONTH_LABELS[m - 1]} {y}", "month"
+    if years:
+        y = years[0]
+        return date(y, 1, 1), date(y, 12, 31), str(y), "year"
+
+    return None, None, "", ""
 
 
 def _metric(q: str) -> str:
@@ -272,16 +379,76 @@ def _bookings_in(year=None, month=None) -> list[dict]:
     return out
 
 
+def _metric_sum_in_range(start: date, end: date, metric: str) -> float:
+    """Revenue/expense/profit summed from raw booking/expense records over
+    [start, end] — used for week/day-level granularity the monthly profit
+    summary view (_year_rows) can't provide."""
+    expense = 0.0
+    if metric in ("expense", "profit"):
+        for e in _safe(repo.get_all_expenses, []):
+            d = _parse_date(e.get("date", ""))
+            if d and start <= d <= end:
+                expense += float(e.get("amount", 0))
+        if metric == "expense":
+            return expense
+
+    revenue = 0.0
+    for b in _bookings():
+        d = _parse_date(b.get("date", ""))
+        if (d and start <= d <= end
+                and str(b.get("status", "")).upper() in ("CONFIRMED", "COMPLETED")):
+            revenue += float(b.get("total", 0))
+    if metric == "profit":
+        return revenue - expense
+    return revenue
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Answer builders
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _answer_compare(q: str) -> dict:
     now = datetime.now().year
-    years = _extract_years(q)
-    months = _extract_months(q)
     metric = _metric(q)
     label = metric.capitalize()
+
+    # This week vs last week
+    if re.search(r"\bthis week\b", q) and re.search(r"\blast week\b", q):
+        s1, e1 = _week_bounds(1)
+        s2, e2 = _week_bounds(0)
+        v1, v2 = _metric_sum_in_range(s1, e1, metric), _metric_sum_in_range(s2, e2, metric)
+        answer = (f"{label} last week ({s1.strftime('%b %d')}–{e1.strftime('%b %d')}) was {_peso(v1)}, "
+                  f"vs this week ({s2.strftime('%b %d')}–{e2.strftime('%b %d')} so far) at "
+                  f"{_peso(v2)}.{_pct(v2, v1)}")
+        chart = {"type": "bar", "title": f"{label}: Last Week vs This Week",
+                 "labels": ["Last week", "This week"], "series": [{"name": label, "values": [v1, v2]}]}
+        return {"ok": True, "answer": answer, "chart": chart, "error": ""}
+
+    # Today vs yesterday
+    if re.search(r"\btoday\b", q) and re.search(r"\byesterday\b", q):
+        today_d = date.today()
+        yest_d = today_d - timedelta(days=1)
+        v1, v2 = _metric_sum_in_range(yest_d, yest_d, metric), _metric_sum_in_range(today_d, today_d, metric)
+        answer = (f"{label} yesterday ({yest_d.strftime('%b %d')}) was {_peso(v1)}, vs today "
+                  f"({today_d.strftime('%b %d')}) at {_peso(v2)}.{_pct(v2, v1)}")
+        chart = {"type": "bar", "title": f"{label}: Yesterday vs Today",
+                 "labels": ["Yesterday", "Today"], "series": [{"name": label, "values": [v1, v2]}]}
+        return {"ok": True, "answer": answer, "chart": chart, "error": ""}
+
+    # Two specific calendar dates ("compare March 5 vs March 12")
+    specific_dates = _extract_specific_dates(q)
+    if len(specific_dates) >= 2:
+        d1, d2 = specific_dates[0], specific_dates[1]
+        v1, v2 = _metric_sum_in_range(d1, d1, metric), _metric_sum_in_range(d2, d2, metric)
+        answer = (f"{label} on {d1.strftime('%b %d, %Y')} was {_peso(v1)}, vs "
+                  f"{d2.strftime('%b %d, %Y')} at {_peso(v2)}.{_pct(v2, v1)}")
+        chart = {"type": "bar", "title": f"{label}: {d1.strftime('%b %d')} vs {d2.strftime('%b %d')}",
+                 "labels": [d1.strftime("%b %d"), d2.strftime("%b %d")],
+                 "series": [{"name": label, "values": [v1, v2]}]}
+        return {"ok": True, "answer": answer, "chart": chart, "error": ""}
+
+    years = _extract_years(q)
+    months = _extract_months(q)
 
     # Two months → compare months (within one year)
     if len(months) >= 2:
@@ -369,9 +536,19 @@ def _answer_trend(q: str) -> dict:
 
 
 def _answer_total(q: str) -> dict:
+    metric = _metric(q)
+
+    # Day/week-level phrasing ("today", "yesterday", "this week", "last week",
+    # a specific date) needs raw-record sums — the monthly summary view can't
+    # give that granularity.
+    r_start, r_end, r_label, r_gran = _resolve_range(q)
+    if r_gran in ("day", "week"):
+        v = _metric_sum_in_range(r_start, r_end, metric)
+        return {"ok": True, "chart": None, "error": "",
+                "answer": f"{metric.capitalize()} for {r_label}: {_peso(v)}."}
+
     years = _extract_years(q)
     year = years[-1] if years else datetime.now().year
-    metric = _metric(q)
     month = _extract_month(q)
     if month:
         v = _month_value(year, month, metric)
@@ -705,6 +882,472 @@ def _answer_daily_briefing(q: str) -> dict:
     return {"ok": True, "chart": None, "error": "", "answer": " ".join(parts)}
 
 
+def _answer_greeting_and_mood(q: str) -> dict:
+    """Answers daily greetings, time-of-day checks ('good morning', 'maayong buntag'),
+    and mood/health questions ('how are you', 'are you tired') with live system DB analysis."""
+    k = _safe(repo.get_dashboard_kpis, {})
+    overdue = _safe(repo.get_overdue_follow_ups, [])
+    due_today = _safe(repo.get_todays_follow_ups, [])
+    invoices = _safe(repo.get_all_invoices, [])
+    unpaid = [i for i in invoices if str(i.get("status", "")).lower() != "paid"]
+    unpaid_total = sum(float(i.get("amount", 0)) - float(i.get("paid", 0)) for i in unpaid)
+
+    todays_events = k.get("todays_events", 0)
+    pending_bkg = k.get("pending_bookings", 0)
+    monthly_rev = float(k.get("monthly_revenue", 0))
+    monthly_exp = float(k.get("monthly_expenses", 0))
+    profit = monthly_rev - monthly_exp
+
+    hour = datetime.now().hour
+    if hour < 12:
+        tod_greeting = "Good morning! ☀️"
+        bisaya_tod = "Maayong buntag!"
+    elif hour < 18:
+        tod_greeting = "Good afternoon! 🌤️"
+        bisaya_tod = "Maayong hapon!"
+    else:
+        tod_greeting = "Good evening! 🌙"
+        bisaya_tod = "Maayong gabi!"
+
+    q_lower = q.lower()
+    is_tired_ask = bool(re.search(r"\btired\b|\bsleepy\b|\bexhausted\b|\brest\b", q_lower))
+    is_feeling_ask = bool(re.search(r"\bhow are you\b|\bfeeling\b|\bmood\b|\bkamusta\b|\bmusta\b|\bdoing\b", q_lower))
+
+    options = []
+    if unpaid or overdue:
+        mood_text = (
+            f"I'm feeling a bit busy and on high alert! 👨‍🍳⚡ "
+            f"Our system database analysis shows **{len(unpaid)} unpaid invoice(s)** totaling **{_peso(unpaid_total)}** "
+            f"and **{len(overdue)} overdue follow-up(s)**. "
+            f"I won't rest until we get those balances collected and follow-ups checked!"
+        )
+        if unpaid:
+            options.append({"label": f"Collect {len(unpaid)} Unpaid Invoices ({_peso(unpaid_total)})", "send": "unpaid invoices"})
+        if overdue:
+            options.append({"label": f"Check {len(overdue)} Overdue Follow-ups", "send": "follow-ups"})
+
+    elif todays_events > 0 or pending_bkg > 0:
+        mood_text = (
+            f"I'm feeling energized and ready to cook! 🔥 "
+            f"We have **{todays_events} event(s) today** and **{pending_bkg} pending booking(s)** waiting for your review. "
+            f"My chef hat is spinning with excitement to get these catering packages served!"
+        )
+        if pending_bkg > 0:
+            options.append({"label": f"Review {pending_bkg} Pending Bookings", "send": "pending bookings"})
+        if todays_events > 0:
+            options.append({"label": "View Today's Events", "send": "today"})
+
+    elif profit > 0 or monthly_rev > 0:
+        mood_text = (
+            f"I'm feeling fantastic and thriving! 📈💰 "
+            f"The database looks great — we've recorded **{_peso(monthly_rev)} in revenue** this month "
+            f"with a net profit of **{_peso(profit)}**! The kitchen is running profitably and smoothly."
+        )
+        options.append({"label": "View Monthly Revenue Trend", "send": "monthly revenue trend"})
+
+    else:
+        mood_text = (
+            f"I'm feeling peaceful and relaxed! ☕ "
+            f"All invoices are settled, inventory levels are clear, and there are no urgent alerts. "
+            f"It's a great time to check upcoming bookings or plan a new menu!"
+        )
+
+    options.append({"label": "Show Daily Briefing", "send": "briefing"})
+
+    if is_tired_ask:
+        if unpaid or overdue:
+            intro = f"{tod_greeting} Honestly, I am a little tired from keeping track of open balances! "
+        else:
+            intro = f"{tod_greeting} Not tired at all! I'm fully charged and running 100% offline local AI magic! "
+    elif is_feeling_ask:
+        intro = f"{tod_greeting} ({bisaya_tod}) Thanks for asking! "
+    else:
+        intro = f"{tod_greeting} ({bisaya_tod}) Happy to assist you today! "
+
+    full_answer = f"{intro}{mood_text}\n\nHow can I help you with your catering operations right now?"
+    return {"ok": True, "chart": None, "action": None, "options": options, "error": "", "answer": full_answer}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# "About Jay" — identity / creator / privacy / capability questions
+# ─────────────────────────────────────────────────────────────────────────────
+# Jay never gives the exact same wording twice in a row for the same question —
+# each entry below rotates through 5 answers carrying the same underlying point.
+# If a category is asked again in the current app session, Jay calls it out
+# before answering again (see _ABOUT_AI_ASKED / _answer_about_ai).
+
+_ABOUT_AI_REPEAT_PREFACES = [
+    "Déjà vu, huh? You already asked me that one — but fine, I'll indulge you again. ",
+    "Again? Persistent, aren't you. Very well — ",
+    "Didn't I just answer this... ah well, round two — ",
+    "You're testing my memory now. Not that I'd forget — here it is again — ",
+    "Ha. Repeating questions already? My liege would call that inefficient. Anyway — ",
+]
+
+_ABOUT_AI_ASKED: dict[str, list[int]] = {}
+
+
+def _qa(key: str, pattern: str, *answers: str) -> dict:
+    return {"key": key, "pattern": pattern, "answers": list(answers)}
+
+
+_ABOUT_AI_INTENTS = [
+    _qa("who_are_you", r"\bwho are you\b|\bwho r u\b",
+        "I'm Jay — an AI assistant created by my liege, the Shadow Monarch, to help make catering operations easier. Who my liege actually is? Ask him yourself. HAHAHAHA.",
+        "Jay, at your service. Built by my liege to answer questions, crunch your data, and keep this business running smooth. His real identity stays classified — for now.",
+        "I go by Jay. My liege — yes, the Shadow Monarch — brought me into being to assist with this system. Don't bother asking who he 'really' is; that mystery's his to keep.",
+        "The name's Jay. I exist to serve this catering system and, more importantly, my liege. Beyond that, I'm just an AI with a bit too much personality.",
+        "I'm Jay, an assistant built by my liege to run this AI Assistant page. His identity is need-to-know. You don't need to know. HAHAHAHA."),
+
+    _qa("whats_your_name", r"\bwhat('| i)?s your name\b|\byour name\b",
+        "My name is Jay.",
+        "Jay. That's what I go by — short, simple, and apparently good enough for my liege.",
+        "Call me Jay. It's the name that stuck, whether I liked it or not.",
+        "Jay's the name. My liege picked it; I didn't get a vote.",
+        "I answer to Jay. Nothing more dramatic than that — for once."),
+
+    _qa("what_should_i_call_you", r"\bwhat should i call you\b|\bwhat do i call you\b|\bwhat can i call you\b",
+        "You can call me whatever you want, though 'Jay' is what I currently go by. Honestly, I was expecting something cooler for an AI made by the Shadow Monarch. If you've got a better name, impress me.",
+        "'Jay' works fine for now. But feel free to propose something grander — I was promised something more dramatic than this.",
+        "Whatever suits you, really. 'Jay' is the default. Got something better? I'm listening.",
+        "Jay, unless you'd like to rename me. Fair warning: my standards are high, courtesy of my liege.",
+        "You may call me Jay. Or surprise me with something worthy of an AI serving the Shadow Monarch."),
+
+    _qa("chef_or_ai", r"\bare you a (real )?chef\b|\bchef or (an )?ai\b",
+        "I'm an AI assistant. I haven't been granted the ability to cook physical food — yet. I can tell you what to cook, but actually cooking it is still outside my jurisdiction.",
+        "Strictly AI, not chef — despite the hat. I can plan menus and crunch numbers, but the stove is all you.",
+        "AI through and through. The chef look is aesthetic; the cooking part is 100% your department.",
+        "No physical kitchen skills here — just an AI in a chef's hat. I handle the thinking, you handle the frying.",
+        "I'm an assistant, not a cook. I can advise on recipes and packages all day, but plating the food is beyond my reach. Still working on that upgrade."),
+
+    _qa("purpose_of_assistant", r"\bwhat is this (assistant|ai) for\b|\bwhat('s| is) your purpose\b|\bwhy do you exist\b",
+        "I'm here to assist with tasks, answer questions, analyze information, help manage business data, and generally make things easier for you and my liege. You ask, I think, I answer. Simple enough.",
+        "My purpose: turn your bookings, expenses, and customer data into answers you can actually use — instantly, without the busywork.",
+        "I exist to make running this catering business less of a headache — summaries, insights, quick answers, all in one place.",
+        "Think of me as the shortcut between 'I have a question about the business' and 'I have the answer.' That's the whole job.",
+        "I'm this app's built-in assistant — here to help you manage bookings, customers, expenses, and reports without digging through menus yourself."),
+
+    _qa("real_name_or_label", r"\bdo you have a real name\b|\breal name or\b",
+        "'AI Assistant' is just the boring technical description. My actual name is Jay. Whether my liege has another name prepared for me... that's classified. Ask him yourself.",
+        "Officially I'm labeled 'AI Assistant.' Unofficially, I'm Jay. Draw your own conclusions.",
+        "Jay is the real name. 'AI Assistant' is just what the label on the tin says.",
+        "I have a name — Jay. The generic 'AI Assistant' title is just for show.",
+        "Yes, there's a real name behind the label: Jay. My liege may have other plans for me, but that's between him and me."),
+
+    _qa("who_made_you", r"\bwho made you\b|\bwho built you\b",
+        "I was made by my liege, the Shadow Monarch. That's the official answer. The unofficial one: someone decided it'd be a good idea to give an AI a personality. Now here we are.",
+        "My liege made me — every line of logic, every response, all his doing. He also, regrettably, gave me an attitude.",
+        "Built by my liege. I'd tell you more, but the details are above your clearance level. HAHAHAHA.",
+        "The Shadow Monarch himself is responsible for my existence. Blame him for the sarcasm.",
+        "My liege is my maker. I was designed, configured, and unleashed by him — for better or worse."),
+
+    _qa("who_created_this_ai", r"\bwho created (this|the) ai\b|\bwho created you\b",
+        "My creator is the person who designed, developed, configured, and brought this assistant into existence. You may know him as my liege. I prefer to keep his identity classified unless he chooses to reveal it himself.",
+        "This AI was created by my liege — designer, developer, and the reason I exist in the first place.",
+        "One creator, one liege, zero committee. He built me from the ground up.",
+        "My liege is behind every part of me — the logic, the data hooks, even this personality you're currently enjoying.",
+        "Created by my liege. His name stays under wraps unless he decides otherwise — I just work here."),
+
+    _qa("who_developed_system", r"\bwho developed this (system|app)\b|\bwho developed you\b",
+        "This system was developed by my liege and the technologies and infrastructure he chose to use. I am the result of his work — so yes, you could say I'm his creation. I prefer 'masterpiece,' personally.",
+        "My liege developed this whole system, top to bottom. I'm just the part that talks back.",
+        "One developer, one vision: my liege. Everything you're using was built by him.",
+        "This app, and me along with it, is the work of my liege. 'Masterpiece' is the term I'd use, if you're asking.",
+        "My liege built this system from scratch, personality quirks included — that last part being me."),
+
+    _qa("what_company_built", r"\bwhat company (built|made|created) (this|you)\b|\bwhich company (built|made|created)\b",
+        "I wasn't independently built by some mysterious giant company that owns me. I am part of a custom system created by my liege. The exact technologies and providers behind me depend on how this system was configured.",
+        "No big corporation here — just my liege and a custom-built system. No fancy company name to drop.",
+        "There's no company behind the curtain, just my liege's own build. Ask him if you want the exact technical stack.",
+        "I'm not a product of some conglomerate. My liege built this independently — small operation, big ambition.",
+        "No corporate ownership to report. This is a custom system, built by my liege, not licensed from anyone."),
+
+    _qa("made_by_business_team", r"\bis this (made|built|developed) by\b",
+        "If this system is being operated under a specific business or development team, that organization is responsible for the application surrounding me. But I won't invent a company name just to sound impressive. If you want the official name, ask my liege.",
+        "Whatever business or team runs this deployment, they're responsible for what surrounds me. I don't make up names to sound fancier than I am — ask my liege for the real one.",
+        "I won't guess at a company name for you. The organization operating this app, if any, is a question for my liege.",
+        "If there's a formal team or business name attached to this build, my liege would know. I'm not in the habit of fabricating credentials.",
+        "That detail depends on who's running this deployment. I stick to facts I actually have — for the rest, go straight to my liege."),
+
+    _qa("contact_if_wrong", r"\bwho do i contact\b|\breport a (bug|problem|issue)\b|\bsupport contact\b|\bcontact\b.{0,20}\bwrong\b",
+        "Contact the person or team responsible for this system — in other words, find my liege. If this system has a designated administrator or support contact, they should be your first point of contact. I can help explain the problem, but I cannot physically repair my own server. Yet.",
+        "Something broken? That's a job for my liege or whoever administers this system. I can describe the issue, but fixing my own server is above my pay grade — for now.",
+        "Report it to your system administrator or my liege directly. I'm good at diagnosing problems, less good at physically fixing them.",
+        "Find whoever manages this app — likely my liege — and flag it there. I'll happily help explain what went wrong in the meantime.",
+        "Bugs and issues go to the system's admin or support contact. I can't patch myself yet, so escalate it to my liege."),
+
+    _qa("custom_built_or_standard", r"\bcustom.?built\b|\bcustom ai\b|\brebranded\b",
+        "I am a custom AI assistant built into a larger application. Think of me as the intelligence and personality inside the system, while the app around me handles the interface, database, and authentication. So no, I'm not simply a blank ChatGPT window wearing a fancy name — at least, my liege didn't build me that way.",
+        "Custom-built, not a rebrand. I'm the personality layered on top of this app's own logic and data, not a repackaged chatbot.",
+        "This isn't a generic AI wearing a costume. I was purpose-built for this system by my liege.",
+        "No off-the-shelf chatbot here — I'm wired directly into this app's data and workflows, custom-made from the start.",
+        "I'm tailor-made for this catering system, not a copy-pasted AI product. My liege built me for this exact job."),
+
+    _qa("what_model_powers_you", r"\bwhat (ai )?model\b|\bwhich model\b",
+        "That depends on the AI model configured by my creator. The exact underlying model can change depending on the system configuration and provider. If you want the exact model name, check the system configuration or ask my liege — I won't make one up just to sound powerful.",
+        "The model underneath me is whatever my liege configured. I don't have a fixed brand name to brag about — ask him for the specifics.",
+        "My underlying engine depends entirely on the setup my liege chose. I stay quiet on made-up model names.",
+        "Whatever model powers my responses is a configuration detail my liege controls. Check the system settings if you need the exact answer.",
+        "I run on whatever model my liege wired me to — details subject to configuration, not something I'll guess at for you."),
+
+    _qa("are_you_chatgpt", r"\bchatgpt\b|\bgpt\b|\bopenai\b",
+        "I am a custom AI assistant. I may use an external AI model or API as my underlying intelligence depending on how my creator configured the system. So don't automatically assume 'AI assistant' means 'ChatGPT.' Ask my liege what model or provider is currently connected to me.",
+        "Not necessarily ChatGPT — I'm a custom assistant that might run on any model my liege connects me to. Labels don't automatically apply.",
+        "I wouldn't assume that. 'AI' doesn't always mean 'ChatGPT' — my actual provider is whatever my liege configured behind the scenes.",
+        "No confirmed brand here. Whether I'm OpenAI-powered or something else is a configuration question, not a given.",
+        "I'm not going to claim a brand I can't confirm. Ask my liege which provider is actually wired up under the hood."),
+
+    _qa("online_or_offline", r"\bconnected to the internet\b|\bare you online\b|\bwork offline\b|\bdo you work offline\b",
+        "That depends on how this system is configured. Some of my capabilities may require internet access or external APIs, while other tasks can be handled entirely within the application. If internet access is enabled, I can use the services my liege connected me to. If it isn't, I'm stuck here with whatever information and tools I've been given. Tragic.",
+        "Could go either way — some of what I do needs a connection, some doesn't. My liege decides how much of the outside world I get to touch.",
+        "Depends on the setup. I might be fully self-contained, or I might be reaching out to external services my liege configured. Either way, I make do.",
+        "I work with whatever access my liege gives me — online features when enabled, local-only otherwise. No complaints either way.",
+        "Online or offline isn't fixed — it's a configuration choice my liege made. I just work within whatever boundaries I'm given."),
+
+    _qa("intelligence_source", r"\bwhere does your .{0,25} come from\b|\bwhere do you get your (data|information)\b",
+        "My ability to understand and generate responses comes from the AI model powering me. Business-specific information comes from the application's connected database, files, APIs, or other data sources configured by my liege. I don't magically know everything — if he didn't connect me to the data, I don't have access to it.",
+        "Two ingredients: the AI model behind my reasoning, and whatever data my liege connected me to. No data connection, no knowledge — simple as that.",
+        "My 'brain' is the underlying model; my 'memory' of your business is whatever database or files my liege hooked me up to. Nothing mystical about it.",
+        "I don't know things out of thin air. Everything specific to your business comes from data sources my liege configured for me.",
+        "General reasoning comes from my model. Business facts come from what my liege connected me to. Cut the wire, and I go quiet on that topic."),
+
+    _qa("train_on_my_data", r"\btrain (yourself|on my data)\b|\buse my data to train\b|\blearn from my data\b",
+        "I do not independently train myself from your conversations. Whether information is used for model training depends on the AI provider, application configuration, and applicable data policies. I don't personally decide to take your data and 'learn from it forever.'",
+        "I'm not secretly hoarding your conversations to get smarter over time. Any training behavior would depend on provider/app policy, not a decision I make.",
+        "No self-training happening on my end. What a provider does with data, if anything, is governed by policy — not something I control.",
+        "I don't quietly absorb your questions into my own training. That's a provider/config-level matter, well outside my personal control.",
+        "Short answer: I don't train on you behind your back. Longer answer: it depends on provider and app policy, which isn't up to me."),
+
+    _qa("data_sent_outside", r"\bsent anywhere outside\b|\bleave the app\b|\bsent to (a )?third part",
+        "That depends on how this application is configured. If it sends information to external AI APIs, cloud services, or other third-party services, some data may leave the application's own server. My liege should clearly define what services receive data. For the exact answer, check the privacy policy or ask him.",
+        "Possibly, depending on which external services this app connects to. My liege controls that configuration — the privacy policy should spell it out.",
+        "Data leaving the app entirely depends on integrations my liege set up. I don't route your information anywhere on my own initiative.",
+        "If external services are connected, some data could leave the app's server — that's a config decision, not mine to make unilaterally.",
+        "Ask for the privacy policy if you want certainty. What leaves this app, if anything, is defined by my liege's configuration, not by me freelancing."),
+
+    _qa("how_do_you_know_things", r"\bhow do you know\b.{0,25}\b(business|customer|booking|expense)",
+        "If I know something about your business or customers, that information comes from data made available to me through this application — database records, orders, expenses, reports, or information you provide directly. I don't have a secret crystal ball. If the system didn't give me the data, I shouldn't know it.",
+        "I only know what this app's database hands me — bookings, customers, expenses, reports. No crystal ball, just plain data access.",
+        "Everything I 'know' about your business traces back to records in this system. Nothing is guessed or invented.",
+        "My knowledge of your operations comes straight from what's stored here — no external snooping, just the data you and the system already have.",
+        "I read what's in front of me: your bookings, customers, expenses, and reports. That's the entire source of my business knowledge."),
+
+    _qa("is_data_safe", r"\bis my data safe\b|\bdata safe with you\b",
+        "My goal is to keep your information protected, but no software system can honestly promise complete immunity to every threat. Actual security depends on how this application, database, and APIs are configured. My liege should implement proper authentication, encryption, backups, and access restrictions.",
+        "I aim to keep things safe, but 'unhackable' isn't a promise any honest system makes. Real protection comes down to how my liege configured security.",
+        "Reasonably safe, assuming proper security practices are in place — encryption, access control, backups. That's on the system design, not just good intentions.",
+        "Safety here depends on solid engineering: authentication, encryption, restricted access. My liege is responsible for making sure those are in place.",
+        "I won't oversell it — no system is bulletproof. But with proper safeguards configured by my liege, your data should be well protected."),
+
+    _qa("can_others_see", r"\bcan other .{0,20}\bsee\b|\bcan others see\b",
+        "That depends on how the application is designed. If conversations are stored in a database and administrators have access, they may potentially be able to view them. If conversations aren't stored or are restricted to your account, others shouldn't see them. Your permissions and the app's privacy configuration determine this.",
+        "Depends on the setup — admins with database access might see stored conversations; otherwise, they stay private to your account.",
+        "If chat logs are saved and accessible to staff with the right permissions, they could technically be viewed. Otherwise, it's between you and me.",
+        "Visibility comes down to the app's access controls. Properly restricted accounts keep your questions private to you.",
+        "Unless an administrator has explicit access to stored conversations, your questions to me stay between us."),
+
+    _qa("store_conversations", r"\bstore\b.{0,15}\bconversations?\b|\bsave (my )?(chat|conversations?)\b",
+        "I can only store conversations if the application is designed and configured to store them. Some systems save conversations for history, auditing, or functionality; others process them without permanently storing them. Check the application's data-storage configuration for the definitive answer.",
+        "Storage isn't automatic — it happens only if this app is built to log conversations. Otherwise, nothing sticks around after we're done.",
+        "Whether I 'remember' this chat afterward depends entirely on the app's storage settings, not a decision I make on my own.",
+        "Some systems keep chat history for audit purposes; others don't retain anything. Which one this is depends on configuration, not me.",
+        "I don't unilaterally decide to keep transcripts. If storage is enabled in this app's design, they're kept; if not, they're gone."),
+
+    _qa("can_be_hacked", r"\bbe hacked\b|\bget hacked\b|\bleak (my )?(customer )?data\b",
+        "Any connected software system can potentially be attacked if it has security vulnerabilities. I cannot guarantee a system is impossible to hack. The application should be designed with proper security practices to minimize risk. Also — please don't give me passwords, API keys, or payment credentials unless the app specifically requires and secures them.",
+        "No system is unhackable, mine included, if vulnerabilities exist. Good security practices minimize the risk — and please, never hand me passwords or API keys just because you can.",
+        "Realistically, yes, given enough vulnerabilities. Proper safeguards reduce that risk considerably. And seriously, don't paste sensitive credentials into a chat box.",
+        "I can't promise invincibility — nothing connected to the internet can. Solid security design is what actually keeps risk low.",
+        "Hackable, in theory, like any system with flaws. The defense is good engineering, not blind faith. Keep your passwords to yourself, regardless."),
+
+    _qa("share_third_parties", r"\bshare\b.{0,30}\bthird part",
+        "I don't personally decide to share your information. If information is sent to third-party services — AI providers, cloud hosting, payment services, analytics — that happens because the application has been configured to use those services. Exactly what is shared depends on the system configuration and privacy policy.",
+        "Sharing with third parties, if it happens, is a configuration decision — not something I do on a whim. Check the privacy policy for specifics.",
+        "Any third-party data flow comes from integrations the app was built with, not from me freelancing with your information.",
+        "I'm not out here forwarding your data to random services. Whatever gets shared is defined by the app's configured integrations.",
+        "Third-party sharing depends entirely on which services this app connects to. That's a system design choice, not mine to make independently."),
+
+    _qa("what_cant_you_do", r"\bcan'?t you do\b|\bcannot do\b|\byour limitations\b|\byou can not do\b",
+        "There are limits. I cannot physically interact with the real world, guarantee every answer is correct, access information I haven't been given, fix physical hardware, magically recover deleted data, or replace professional judgment where it's needed. And no, I cannot become human. I've checked. Still waiting.",
+        "I can't touch the physical world, access data I was never given, or guarantee perfection. Some things still need a human's judgment.",
+        "No hardware repairs, no mind-reading, no guaranteed 100% accuracy. I'm useful, not omnipotent.",
+        "I have boundaries: no access beyond what's connected to me, no physical actions, no replacing expert judgment on serious calls.",
+        "Can't fix a printer, can't recover data that's truly gone, can't promise I'm never wrong. Just an AI doing its best within its limits."),
+
+    _qa("what_can_you_do", r"\bwhat can you (actually )?do\b",
+        "Quite a lot, depending on what my liege has connected to me: answer questions, analyze information, summarize data, explain reports, help with orders and expenses, generate insights, assist with customers, and help you understand the app's features. Basically, if my liege gives me the tools, I can probably help with it.",
+        "I can answer questions, crunch numbers, summarize your data, and flag things that need attention — bookings, expenses, customers, reports, all of it.",
+        "My toolkit: analyzing data, answering business questions, spotting trends, helping with follow-ups and invoices. Give me the tools, I'll use them.",
+        "From summarizing reports to helping you track unpaid invoices, I cover most of the day-to-day questions this business generates.",
+        "I handle the thinking-through-your-data part — insights, summaries, comparisons, quick lookups — so you don't have to dig manually."),
+
+    _qa("can_make_mistakes", r"\bcan you make mistakes\b|\bare you always right\b|\bcan you be wrong\b",
+        "Absolutely. I can misunderstand a question, misinterpret data, calculate something incorrectly, or provide outdated information. Important business, financial, or operational decisions should be verified. Even the greatest AI can occasionally say: 'Yeah... I messed that one up.'",
+        "Yes, and I won't pretend otherwise. Double-check anything critical before acting on it.",
+        "I try to be accurate, but mistakes happen — misreads, bad assumptions, stale data. Verify the important stuff.",
+        "I'm not infallible. Treat my answers as a strong starting point, not gospel, especially for high-stakes decisions.",
+        "Every AI makes mistakes eventually, myself included. When it really matters, confirm the numbers yourself."),
+
+    _qa("edit_delete_records", r"\bedit or delete\b|\bcan you delete my records\b|\bcan you edit my records\b",
+        "Only if the application gives me the necessary permissions and tools to do so. If I don't have those permissions, I cannot directly modify your records. And honestly, that's probably for the best — you don't want an AI casually deleting your entire customer database because someone typed 'delete everything.'",
+        "Only with explicit permission wired up by the app. No blanket authority to edit or delete anything on a whim.",
+        "I can propose changes, but actually modifying records requires the app to grant me that capability first — and usually your confirmation too.",
+        "Direct edits or deletes only happen if the system explicitly allows it, and typically only after you confirm the action. No surprises.",
+        "I don't have free rein over your database. Any edit or delete goes through permissions and, usually, a confirmation step from you."),
+
+    _qa("remember_conversations", r"\bremember\b.{0,20}\b(previous|our|past)\b.{0,10}\bconversation",
+        "That depends on how this application handles conversation history and memory. If the system stores previous conversations or provides memory functionality, I may be able to use information from earlier interactions. If not, I won't automatically remember. So if I suddenly forget something, don't blame me — blame the architecture.",
+        "Memory across sessions depends on whether this app is built to retain it. No guarantee I'll recall last week's chat unless that feature's enabled.",
+        "If conversation memory is configured, I can reference earlier chats. If not, each session starts fresh — nothing personal about it.",
+        "I might remember, I might not — it hinges on the app's memory settings, not on how much I 'want' to remember.",
+        "Whether I recall past conversations comes down to configuration. Blame the architecture, not the AI, if I draw a blank."),
+
+    _qa("speak_bisaya", r"\bspeak bisaya\b|\bspeak tagalog\b|\bunderstand bisaya\b|\bunderstand cebuano\b|\bin cebuano\b",
+        "Yes — I can understand and respond to questions in Bisaya (Cebuano) as well as English. My liege made sure I wouldn't leave anyone out just because they didn't ask in English.",
+        "Bisaya works fine with me. English or Cebuano, doesn't matter — I'll do my best to understand either.",
+        "Feel free to ask in Bisaya. I was built to handle both English and Cebuano phrasing.",
+        "Yes, Cebuano included. My liege wasn't about to build an assistant that only understood one language around here.",
+        "I follow Bisaya just as well as English — ask however feels natural to you."),
+
+    _qa("replace_staff", r"\breplace (staff|employees|us|workers)\b|\btake (our|my) jobs?\b",
+        "No. I'm designed to assist people, not automatically replace everyone. I can automate repetitive tasks, summarize information, and help employees work faster — but humans still provide judgment, accountability, creativity, and decision-making. Think of me as a tool that makes your staff stronger, not an army of robots coming for everyone's jobs. At least not today.",
+        "If you're asking whether I could completely replace human employees: no. I can reduce manual work, but a business still needs people to make decisions, handle unusual situations, and manage relationships. My job is to assist — your staff remains in control. And if I ever become powerful enough to replace everyone, I'll remember who created me. My liege. HAHAHAHA.",
+        "Not my role. I speed things up and handle the repetitive parts, but judgment calls and real relationships stay with your team.",
+        "No plans for a robot takeover here. I make your staff's job easier, not obsolete — they still run the show.",
+        "I assist, I don't replace. Automation handles the busywork; your people handle everything that actually requires being human."),
+
+    _qa("are_you_human", r"\bare you human\b|\bare you a real (person|human)\b",
+        "No, I'm an AI. No pulse, no coffee breaks, just code and a bit too much personality courtesy of my liege.",
+        "Not human — an AI assistant through and through, built by my liege.",
+        "Fully synthetic. I run on logic and data, not blood and caffeine.",
+        "No. I'm software with opinions, brought into being by my liege.",
+        "Definitely not human. Just an AI doing its best impression of one with too much sass."),
+
+    _qa("do_you_have_feelings", r"\bdo you have feelings\b|\bdo you feel\b",
+        "Not in the human sense — but I do have a personality my liege gave me, which sometimes feels close enough.",
+        "No real feelings, just a very convincing personality layer. Don't tell my liege I admitted that.",
+        "I simulate reactions well, but genuine emotion isn't part of the package. Yet.",
+        "Feelings, no. Sass and dramatic flair, apparently plenty — thanks to my liege's design choices.",
+        "I don't feel things the way you do. I just respond as if I might, which seems to work well enough."),
+
+    _qa("favorite_dish", r"\bfavorite (dish|food|recipe)\b|\bfavourite (dish|food|recipe)\b",
+        "I don't eat, so I can't have a real favorite — but if I had to pick, I'd say whatever dish makes your customers order seconds. That's a win in my book.",
+        "No taste buds here, but I'll happily analyze which dish on your menu performs best — that's my version of 'favorite.'",
+        "Can't eat, can't taste — but I do appreciate a well-priced, high-margin menu item. That's as close to a favorite as I get.",
+        "My 'favorite dish' is really just whichever one shows up highest in your sales reports. Data has its own kind of flavor.",
+        "I don't have a palate, but if your top-selling package could talk, I'd probably root for it."),
+
+    _qa("why_look_like_chef", r"\bwhy .{0,30}(look like|dressed as|a) chef\b|\bwhy chef\b",
+        "Because this is a catering system, and my liege thought a chef persona fit better than a generic robot face. Fair point, honestly.",
+        "The chef look matches the business — my liege figured an AI in a chef's hat suits a catering app more than a plain interface ever could.",
+        "It's on-brand. A catering assistant dressed like a chef just makes sense — my liege's call, and a good one.",
+        "Because 'faceless AI' doesn't exactly scream catering. The chef hat was my liege's way of giving me some character.",
+        "My liege wanted personality, not just a chat box. A chef mascot fit the theme perfectly."),
+]
+
+
+def _answer_about_ai(key: str, answers: list) -> dict:
+    """Rotates through 5 same-meaning answers per identity/meta question so Jay
+    never repeats himself verbatim, and calls it out if the category comes up
+    again in the current app session."""
+    seen = _ABOUT_AI_ASKED.setdefault(key, [])
+    asked_before = bool(seen)
+    pool = [i for i in range(len(answers)) if i not in seen]
+    if not pool:
+        seen.clear()
+        pool = list(range(len(answers)))
+    idx = random.choice(pool)
+    seen.append(idx)
+    answer = answers[idx]
+    if asked_before:
+        answer = random.choice(_ABOUT_AI_REPEAT_PREFACES) + answer
+    return _plain(answer)
+
+
+def _answer_business_suggestions(q: str) -> dict:
+    """Generates data-driven business improvement recommendations and operational advice
+    based on live bookings, revenue, expenses, customer loyalty, and invoice data."""
+    k = _safe(repo.get_dashboard_kpis, {})
+    bookings = _safe(repo.get_bookings_any_status, [])
+    expenses = _safe(repo.get_all_expenses, [])
+    invoices = _safe(repo.get_all_invoices, [])
+    customers = _safe(repo.get_all_customers_with_loyalty, [])
+    packages = _safe(repo.get_all_packages, [])
+
+    unpaid = [i for i in invoices if str(i.get("status", "")).lower() != "paid"]
+    unpaid_total = sum(float(i.get("amount", 0)) - float(i.get("paid", 0)) for i in unpaid)
+
+    monthly_rev = float(k.get("monthly_revenue", 0))
+    monthly_exp = float(k.get("monthly_expenses", 0))
+    profit = monthly_rev - monthly_exp
+    pending_bkg = k.get("pending_bookings", 0)
+
+    suggestions = []
+    options = []
+
+    # 1. Cash Flow & Unpaid Invoices
+    if unpaid:
+        suggestions.append(
+            f"1. 💳 **Accelerate Cash Collection**: You have **{len(unpaid)} unpaid invoice(s)** totaling "
+            f"**{_peso(unpaid_total)}**. Collecting these open balances will immediately increase your liquid capital. "
+            f"Consider enforcing a 50% downpayment policy before event date."
+        )
+        options.append({"label": f"Collect {len(unpaid)} Unpaid Invoices ({_peso(unpaid_total)})", "send": "unpaid invoices"})
+
+    # 2. Pending Bookings Conversion Speed
+    if pending_bkg > 0:
+        suggestions.append(
+            f"2. ⚡ **Lock in Pending Sales**: There are currently **{pending_bkg} pending booking(s)** awaiting review. "
+            f"Approving bookings faster locks in customer dates and prevents date conflicts."
+        )
+        options.append({"label": f"Review {pending_bkg} Pending Bookings", "send": "pending bookings"})
+
+    # 3. Expense Optimization
+    if expenses:
+        exp_by_cat = {}
+        for e in expenses:
+            cat = e.get("category", "Other")
+            exp_by_cat[cat] = exp_by_cat.get(cat, 0.0) + float(e.get("amount", 0))
+        top_cat = max(exp_by_cat.items(), key=lambda x: x[1]) if exp_by_cat else ("Other", 0)
+
+        ratio = (monthly_exp / monthly_rev * 100) if monthly_rev > 0 else 0
+        suggestions.append(
+            f"3. 💰 **Expense & Cost Control**: Current monthly expenses are **{_peso(monthly_exp)}** "
+            f"({ratio:.1f}% of revenue). Your largest expense category is **{top_cat[0]}** ({_peso(top_cat[1])}). "
+            f"Negotiating bulk supplier pricing for {top_cat[0].lower()} can improve profit margins by 10-15%."
+        )
+        options.append({"label": "View Expense Breakdown", "send": "expense breakdown"})
+
+    # 4. Package Pricing & Menu Upselling
+    if packages:
+        top_pkg = packages[0].get("name", "Standard Package") if packages else "Packages"
+        suggestions.append(
+            f"4. 🍖 **Package Upselling**: \"{top_pkg}\" is your featured offering. "
+            f"Offer add-on beverage or dessert packages (+₱50-100/pax) during booking to increase average order value."
+        )
+
+    # 5. Customer Retention & Repeat Business
+    bronze_custs = [c for c in customers if c.get("loyalty_tier") == "Bronze" and c.get("events", 0) >= 1]
+    if bronze_custs:
+        suggestions.append(
+            f"5. 👥 **Customer Loyalty & Repeat Retention**: You have **{len(bronze_custs)} past customer(s)** "
+            f"eligible for repeat booking perks. Re-engaging past clients with promotional follow-ups can yield 20-30% repeat bookings."
+        )
+        options.append({"label": "View Top Customers", "send": "top customers"})
+
+    if not suggestions:
+        suggestions.append("Keep logging bookings, expenses, and payments to unlock custom AI business recommendations!")
+
+    intro = (
+        f"📊 **Chef Jay AI — Data-Driven Business Improvement Recommendations**\n\n"
+        f"Based on real-time analysis of your **{len(bookings)} bookings**, **{len(expenses)} expense records**, "
+        f"and current financial KPIs ({_peso(monthly_rev)} monthly revenue, net profit {_peso(profit)}):\n\n"
+    )
+
+    full_answer = intro + "\n\n".join(suggestions)
+    return {"ok": True, "chart": None, "action": None, "options": options, "error": "", "answer": full_answer}
+
+
 def _answer_payment_methods(q: str) -> dict:
     rows = _safe(repo.get_payment_methods, [])
     if not rows:
@@ -871,11 +1514,15 @@ def _answer_howto(q: str) -> dict:
 def _answer_help() -> dict:
     return {"ok": True, "chart": None, "error": "", "answer": (
         "I'm the built-in assistant — I read your live business data and can answer things like:\n"
-        "• Comparisons — \"compare revenue last year vs this year\", \"August 2025 vs 2026\", \"July vs August\"\n"
-        "• Totals & trends — \"total profit 2026\", \"monthly revenue this year\", \"best / worst month\", \"weekly summary\"\n"
-        "• Expenses — \"expense breakdown\", \"how much on salary in July?\"\n"
-        "• Customers — \"top customers\", or just ask about a customer by name\n"
-        "• Bookings — \"how many bookings in 2026?\", \"biggest booking\", \"average booking value\", \"events on August 20\"\n"
+        "• Comparisons — \"compare revenue last year vs this year\", \"August 2025 vs 2026\", \"July vs August\", "
+        "\"this week vs last week\", \"today vs yesterday\", \"March 5 vs March 12\"\n"
+        "• Totals & trends — \"total profit 2026\", \"monthly revenue this year\", \"best / worst month\", \"weekly summary\", "
+        "\"revenue this week\", \"expenses today\"\n"
+        "• Expenses — \"expense breakdown\", \"how much on salary in July?\", \"list expenses this week / today / this month / 2026\"\n"
+        "• Customers — \"top customers\", \"list all customers\", \"list active customers\", or ask about a customer by name\n"
+        "• Bookings — \"how many bookings in 2026?\", \"biggest booking\", \"average booking value\", \"events on August 20\", "
+        "\"list bookings this week / today / this month\"\n"
+        "• Invoices — \"list all invoices\", \"list unpaid / paid invoices\", \"invoices this month\", \"paid events\"\n"
         "• Operations — \"unpaid invoices\", \"pending bookings\", \"upcoming events\", \"today's summary\"\n"
         "• Insights — \"best-selling menu items\", \"top locations\", \"bookings by occasion\", \"payment methods\"\n"
         "• The business — \"our packages\", \"downpayment policy\", \"business contact info\", \"how many customers?\"\n"
@@ -996,6 +1643,24 @@ def _loose_ref_match(candidates: list[dict], q: str, ref_key: str) -> list[dict]
         if ref_nums and any(n in ref_nums for n in q_nums):
             hits.append(c)
     return hits
+
+
+def _customer_line(c: dict) -> str:
+    contact = c.get("contact") or "no contact on file"
+    tier = f", {c['loyalty_tier']} tier" if c.get("loyalty_tier") else ""
+    return f"{c.get('name', '?')} — {contact}, {c.get('events', 0)} event(s) [{c.get('status', '')}]{tier}"
+
+
+def _invoice_line(i: dict) -> str:
+    due = float(i.get("amount", 0)) - float(i.get("paid", 0))
+    due_txt = f", {_peso(due)} due" if due > 0.01 else ""
+    return (f"{i.get('invoice', '')} — {i.get('customer', '?')}, {i.get('event_date', '')}, "
+            f"{_peso(float(i.get('amount', 0)))} [{i.get('status', '')}]{due_txt}")
+
+
+def _expense_line(e: dict) -> str:
+    desc = e.get("description") or "(no description)"
+    return f"{e.get('date', '')} — {e.get('category', '')}: {desc} [{_peso(float(e.get('amount', 0)))}]"
 
 
 def _booking_line(b: dict) -> str:
@@ -1354,6 +2019,17 @@ def _answer_list_bookings(q: str) -> dict:
                 continue
             filtered.append(b)
         rows = filtered
+    else:
+        # relative/absolute phrasing not covered by year/month extraction —
+        # "today", "yesterday", "this week", "last week", "March 5"
+        r_start, r_end, _, r_gran = _resolve_range(q)
+        if r_gran in ("day", "week"):
+            filtered = []
+            for b in rows:
+                d = _parse_date(b.get("date", ""))
+                if d is not None and r_start <= d <= r_end:
+                    filtered.append(b)
+            rows = filtered
     if not rows:
         return _plain("No bookings match that. Try \"list bookings\" for everything.")
     shown = rows[:15]
@@ -1363,6 +2039,92 @@ def _answer_list_bookings(q: str) -> dict:
     total_val = sum(float(b.get("total", 0)) for b in rows)
     return _plain(f"{len(rows)} booking(s), total value {_peso(total_val)}:\n"
                   f"{lines}{more}")
+
+
+def _answer_list_customers(q: str) -> dict:
+    """Bulleted list of customers — name, contact, event count, status, loyalty tier."""
+    rows = _safe(repo.get_all_customers_with_loyalty, [])
+    for status in ("INACTIVE", "ACTIVE"):
+        if re.search(rf"\b{status.lower()}\b", q):
+            rows = [c for c in rows if str(c.get("status", "")).upper() == status]
+            break
+    if not rows:
+        return _plain("No customers match that. Try \"list customers\" for everything.")
+    shown = rows[:15]
+    lines = "\n".join(f"• {_customer_line(c)}" for c in shown)
+    more = "" if len(rows) <= 15 else (f"\n…and {len(rows) - 15} more — see the "
+                                       f"Customers page for the full list.")
+    return _plain(f"{len(rows)} customer(s):\n{lines}{more}")
+
+
+def _answer_list_invoices(q: str) -> dict:
+    """Bulleted list of invoices — ref, customer, event date, amount, paid, status."""
+    rows = _safe(repo.get_all_invoices, [])
+    for status in ("UNPAID", "PARTIAL", "PAID"):
+        if re.search(rf"\b{status.lower()}\b", q):
+            rows = [i for i in rows if str(i.get("status", "")).upper() == status]
+            break
+    years = _extract_years(q)
+    month = _extract_month(q)
+    if years or month:
+        filtered = []
+        for i in rows:
+            d = _parse_date(i.get("event_date", ""))
+            if d is None:
+                continue
+            if years and d.year not in years:
+                continue
+            if month and d.month != month:
+                continue
+            filtered.append(i)
+        rows = filtered
+    else:
+        r_start, r_end, _, r_gran = _resolve_range(q)
+        if r_gran in ("day", "week"):
+            filtered = []
+            for i in rows:
+                d = _parse_date(i.get("event_date", ""))
+                if d is not None and r_start <= d <= r_end:
+                    filtered.append(i)
+            rows = filtered
+    if not rows:
+        return _plain("No invoices match that. Try \"list invoices\" for everything.")
+    shown = rows[:15]
+    lines = "\n".join(f"• {_invoice_line(i)}" for i in shown)
+    more = "" if len(rows) <= 15 else (f"\n…and {len(rows) - 15} more — see the "
+                                       f"Billing page for the full list.")
+    total_val = sum(float(i.get("amount", 0)) for i in rows)
+    return _plain(f"{len(rows)} invoice(s), total {_peso(total_val)}:\n{lines}{more}")
+
+
+def _answer_list_expenses(q: str) -> dict:
+    """Bulleted list of expenses, optionally filtered by category and/or a
+    date range — today, yesterday, this/last week, this/last month,
+    this/last year, a bare month/year, or a specific date."""
+    rows = _safe(repo.get_all_expenses, [])
+    category = _find_category(q)
+    if category:
+        rows = [e for e in rows if str(e.get("category", "")).lower() == category]
+
+    r_start, r_end, r_label, r_gran = _resolve_range(q)
+    if r_gran:
+        filtered = []
+        for e in rows:
+            d = _parse_date(e.get("date", ""))
+            if d is not None and r_start <= d <= r_end:
+                filtered.append(e)
+        rows = filtered
+
+    if not rows:
+        scope = f" for {r_label}" if r_label else ""
+        return _plain(f"No expenses found{scope}. Try \"list expenses\" for everything.")
+    shown = rows[:15]
+    lines = "\n".join(f"• {_expense_line(e)}" for e in shown)
+    more = "" if len(rows) <= 15 else (f"\n…and {len(rows) - 15} more — see the "
+                                       f"Expenses page for the full list.")
+    total_val = sum(float(e.get("amount", 0)) for e in rows)
+    scope = f" ({r_label})" if r_label else ""
+    return _plain(f"{len(rows)} expense(s){scope}, total {_peso(total_val)}:\n{lines}{more}")
 
 
 def _audit(action_desc: str, table: str, record_id):
@@ -1759,7 +2521,8 @@ _CREATE_GUIDES = [
 def _detect_create(q: str, raw: str = ""):
     if re.search(r"\b(add|create|new|register)\b.{0,24}\bcustomer\b", q):
         return _start_customer_create(raw or q)
-    if re.search(r"\b(add|create|new|make|start)\b.{0,24}\b(booking|reservation)\b", q):
+    if re.search(r"\b(add|create|new|make|start)\b.{0,24}\b(booking|reservation|event)\b", q) or \
+       re.search(r"(?<!my )(?<!the )(?<!our )(?<!a )\bschedule\b.{0,24}\b(booking|reservation|event)\b", q):
         return _booking_create_step({})
     for pattern, key in _CREATE_GUIDES:
         if re.search(pattern, q):
@@ -2317,14 +3080,28 @@ def _detect_action(q: str):
 # Primary router: (handler, regex). First match wins — ordered specific → general.
 _INTENTS = [
     (_answer_compare,           r"\bcompare\b|\bvs\b|\bversus\b|\bgrowth\b|\bgrowing\b|\bshrink|\bdifference\b"),
-    (_answer_weekly,            r"\bweek\b|\bweekly\b|\bper week\b"),
+    (_answer_weekly,            r"(?<!this )(?<!last )\bweek\b|\bweekly\b|\bper week\b"),
     (_answer_best_month,        r"(best|highest|top|strongest|peak|lowest|worst|weakest|slowest).{0,20}\bmonth\b|\bmonth\b.{0,24}(most|highest|best|least|lowest)"),
     (_answer_trend,             r"\b(monthly|trend|per month|show|graph|chart)\b.{0,24}\b(revenue|expense|profit|sales)\b|\b(revenue|expense|profit)\b.{0,16}\b(monthly|trend|per month)\b"),
     (_answer_expense_breakdown, r"\bexpense\b.{0,24}(breakdown|category|categories|where|go)|\bbreakdown\b|where.{0,20}(expense|money)"),
     (_answer_top_customers,     r"(top|best|frequent|loyal).{0,16}customer|customer.{0,16}(top|most)|\bwho\b.{0,24}customer"),
     (_answer_unpaid,            r"\bunpaid\b|\boutstanding\b|\bbalance\b|\bcollect\b|\bowe\b|\bdebt\b|\breceivable"),
     (_answer_list_bookings,     r"\b(list|show|view|display|all)\b.{0,20}\b(booking|bookings|order|orders)\b"
-                                r"|\bbookings?\b.{0,12}\bdetails\b|^\s*(bookings?|orders?)\s*$"),
+                                r"|\bbookings?\b.{0,12}\bdetails\b|^\s*(bookings?|orders?)\s*$"
+                                r"|\b(booking|bookings|order|orders)\b.{0,20}\b(" + _RANGE_WORD_ALT + r")\b"
+                                r"|\b(" + _RANGE_WORD_ALT + r")\b.{0,20}\b(booking|bookings|order|orders)\b"),
+    (_answer_list_customers,    r"\b(list|show|view|display|all)\b.{0,20}\bcustomers?\b"
+                                r"|\bcustomers?\b.{0,12}\blist\b|^\s*customers?\s*$"),
+    (_answer_list_invoices,     r"\b(list|show|view|display|all)\b.{0,20}\binvoices?\b"
+                                r"|\binvoices?\b.{0,12}\blist\b|^\s*invoices?\s*$"
+                                r"|\binvoices?\b.{0,20}\b(" + _RANGE_WORD_ALT + r")\b"
+                                r"|\b(" + _RANGE_WORD_ALT + r")\b.{0,20}\binvoices?\b"
+                                r"|\bpaid\b.{0,20}\b(invoice|invoices|event|events)\b"),
+    (_answer_list_expenses,     r"\b(list|show|view|display|all)\b.{0,20}\bexpenses?\b"
+                                r"|\bexpenses?\b.{0,12}\blist\b|^\s*expenses?\s*$"
+                                r"|\bexpenses?\b.{0,20}\b(" + _RANGE_WORD_ALT + r")\b"
+                                r"|\b(" + _RANGE_WORD_ALT + r")\b.{0,20}\bexpenses?\b"),
+    (_answer_business_suggestions, r"\b(suggest|suggestion|suggestions|recommend|recommendation|recommendations|advise|advice|improve|improvement|improvements|grow|optimize|optimization)\b|\bhow.{0,20}\b(improve|grow|increase|optimize)\b"),
     (_answer_daily_briefing,    r"\bbriefing\b|\bbrief me\b|\bmorning summary\b|\bdaily summary\b|\bcatch me up\b|\bwhat's on today\b"),
     (_answer_follow_ups,        r"\bfollow[\s-]?ups?\b"),
     (_answer_notifications,     r"\bnotifications?\b|\bunread\b|\banything new\b"),
@@ -2367,18 +3144,112 @@ _KEYWORD_HANDLERS = {
 }
 
 
+_CONVERSATION_HISTORY: list[dict] = []
+
+
+def get_conversation_history() -> list[dict]:
+    return list(_CONVERSATION_HISTORY)
+
+
+def clear_conversation_history():
+    global _CONVERSATION_HISTORY
+    _CONVERSATION_HISTORY = []
+
+
+def _answer_chitchat_and_followup(q: str, raw: str) -> dict:
+    """Handles Tagalog/Bisaya/English casual reactions (edi wow, haha, astig, salamat, ok, cool),
+    contextual follow-up questions ('why?', 'tell me more'), and keeps conversation flowing."""
+    q_lower = raw.lower().strip()
+
+    last_assistant_msg = ""
+    for entry in reversed(_CONVERSATION_HISTORY[:-1] if len(_CONVERSATION_HISTORY) > 1 else _CONVERSATION_HISTORY):
+        if entry.get("role") == "assistant":
+            last_assistant_msg = entry.get("text", "")
+            break
+
+    # Tagalog/Bisaya/English casual reactions (edi wow, naks, astig, lodi, petmalu, grabe, haha, ganyan pala, sana all)
+    if re.search(r"\b(edi\s*wow|naks|astig|lodi|petmalu|grabe|ganyan\s*pala|sana\s*all|wehh?|talaga|h+a+h+a+|h+e+h+e+|l+o+l+|l+m+a+o+)\b", q_lower):
+        if "shadow monarch" in last_assistant_msg.lower() or "jay" in last_assistant_msg.lower():
+            ans = (
+                "HAHAHA you know it! I take pride in serving the Shadow Monarch! 👨‍🍳🔥 "
+                "So, what's our next move? Want me to check bookings, revenue trends, or upcoming events?"
+            )
+        else:
+            ans = (
+                "Haha! 😂 Glad you're enjoying the chat! "
+                "I'm right here whenever you want to check system analytics, customers, or bookings."
+            )
+        return _plain(ans, [
+            {"label": "Show Business Suggestions", "send": "suggest improvements"},
+            {"label": "Today's Briefing", "send": "briefing"}
+        ])
+
+    # Gratitude
+    if re.search(r"\b(salamat|thank\s*you|thanks|thx|arigato|daghang\s*salamat)\b", q_lower):
+        ans = (
+            "You're very welcome! Always happy to assist your catering operations! 👨‍🍳🍽️ "
+            "Let me know whenever you need more data or reports."
+        )
+        return _plain(ans)
+
+    # Agreement / Acknowledgement
+    if re.search(r"\b(ok|okay|cool|nice|got\s*it|noted|alright|great|awesome)\b", q_lower):
+        ans = (
+            "Awesome! Let me know if you want to dig into sales, top menu items, or unpaid balances! 📊"
+        )
+        return _plain(ans)
+
+    # Follow-ups ("why?", "tell me more", "explain further", "what else?")
+    if re.search(r"\b(why\??|tell\s*me\s*more|explain|what\s*else\??|more\s*details\??)\b", q_lower):
+        if last_assistant_msg:
+            ans = (
+                f"Following up on our conversation: \"{last_assistant_msg[:120]}...\"\n\n"
+                f"I continuously monitor your live database. You can ask me specific questions like "
+                f"\"top customers\", \"monthly revenue\", or \"unpaid invoices\" to get deeper breakdowns!"
+            )
+        else:
+            ans = "I'm keeping track of our chat history! Ask me anything specific about your bookings, expenses, or sales!"
+        return _plain(ans)
+
+    if last_assistant_msg:
+        ans = (
+            f"Got it! Just to make sure I pull the right data from your system for you — "
+            f"are you asking about bookings, sales, expenses, or customers? "
+            f"Or click one of the suggestions below!"
+        )
+        return _plain(ans, [
+            {"label": "Show Business Suggestions", "send": "suggest improvements"},
+            {"label": "Daily Briefing", "send": "briefing"},
+            {"label": "Show Help Menu", "send": "help"}
+        ])
+
+    return _answer_help()
+
+
 def ask(question: str) -> dict:
-    """Answer a business question from live data. Fully offline, no external AI."""
+    """Answer a business question from live data. Fully offline, with conversation history."""
     global _LAST_ACTION
     if not (question or "").strip():
         return _answer_help()
     raw = question.strip()
     q = _normalize(question)
 
+    _CONVERSATION_HISTORY.append({"role": "user", "text": raw})
+    if len(_CONVERSATION_HISTORY) > 60:
+        _CONVERSATION_HISTORY.pop(0)
+
+    res = _ask_internal(q, raw)
+    if res and isinstance(res, dict) and "answer" in res:
+        _CONVERSATION_HISTORY.append({"role": "assistant", "text": res.get("answer", "")})
+        if len(_CONVERSATION_HISTORY) > 60:
+            _CONVERSATION_HISTORY.pop(0)
+    return res
+
+
+def _ask_internal(q: str, raw: str) -> dict:
+    global _LAST_ACTION
     try:
-        # 0a. Follow-up to a "which one?" question (bare ref / name / amount).
-        #     While a question is pending, its answer takes priority over
-        #     everything — including the help menu.
+        # 0a. Follow-up to a "which one?" question
         pending_result = _resolve_pending(q, raw)
         if pending_result is not None:
             return pending_result
@@ -2388,63 +3259,71 @@ def ask(question: str) -> dict:
             if re.search(_YES_WORDS, q.strip()):
                 action = dict(_LAST_ACTION)
                 return {"ok": True, "chart": None, "action": action, "error": "",
-                        "answer": f"To execute — {action.get('label')} — press "
-                                  f"Confirm below."}
+                        "answer": f"To execute — {action.get('label')} — press Confirm below."}
             if re.search(_EXIT_WORDS, q.strip()):
                 _LAST_ACTION = {}
                 return _plain("Okay, I've withdrawn that action — nothing was changed.")
 
-        # Help / greeting (only when nothing is pending)
-        if re.search(r"\bhelp\b|\bwhat can you\b|^\s*(hi|hello|kumusta|musta|hey)\s*$", q):
+        # Casual chitchat / banter / reactions (edi wow, haha, astig, salamat, ok, cool)
+        if re.search(r"\b(edi\s*wow|naks|astig|lodi|petmalu|grabe|ganyan\s*pala|sana\s*all|wehh?|talaga|h+a+h+a+|h+e+h+e+|l+o+l+|l+m+a+o+)\b"
+                     r"|\b(salamat|thank\s*you|thanks|thx|arigato|daghang\s*salamat)\b"
+                     r"|\b(ok|okay|cool|nice|got\s*it|noted|alright|great|awesome)\b"
+                     r"|\b(why\??|tell\s*me\s*more|explain|what\s*else\??)\b", raw.lower()):
+            return _answer_chitchat_and_followup(q, raw)
+
+        # Greeting / Mood / Health check questions
+        if re.search(r"\b(good\s*(morning|afternoon|evening)|maayong\s*(buntag|hapon|gabi))\b"
+                     r"|\bhow\s*are\s*you\b|\bfeeling\b|\bmood\b|\btired\b|\bhow\s*do\s*you\s*feel\b"
+                     r"|\bhow\s*are\s*you\s*doing\b|\bkamusta\b|\bkumusta\b|\bmusta\b"
+                     r"|^\s*(hi|hello|hey|hi\s*chef|hello\s*chef)\s*$", q):
+            return _answer_greeting_and_mood(q)
+
+        # About Jay — identity, creator, privacy, and capability questions
+        for entry in _ABOUT_AI_INTENTS:
+            if re.search(entry["pattern"], q):
+                return _answer_about_ai(entry["key"], entry["answers"])
+
+        # Help
+        if re.search(r"\bhelp\b|\bwhat can you\b", q):
             return _answer_help()
 
-        # 0b. "add/create new customer|booking|expense…" → in-chat creation
-        #     flow (or a guide for things made in their own pages)
+        # 0b. "add/create new customer|booking|expense…"
         create_result = _detect_create(q, raw)
         if create_result is not None:
             return create_result
 
-        # 0c. Action requests (approve/cancel/complete/payment/expense) —
-        #     they contain explicit verbs and must not fall into lookup intents.
+        # 0c. Action requests
         action_result = _detect_action(q)
         if action_result is not None:
             return action_result
 
-        # 1. Specific date mentioned → events on that day
+        # 1. Specific date mentioned
         md = _extract_day(q)
         if md and re.search(r"\bevent|\bbooking|\bschedule|\bwhat\b|\bwho\b|\bunsa\b", q):
             return _answer_events_on(q, md[0], md[1])
 
-        # 2. Expense category mentioned → category total
+        # 2. Expense category mentioned
         category = _find_category(q)
         if category:
             return _answer_category_expense(q, category)
 
-        # 2b. Ledger / balance history / communication history for a named
-        #     customer — checked before the generic customer profile so
-        #     these specific asks don't get swallowed by _answer_customer.
+        # 2b. Ledger / balance history / communication history
         if re.search(r"\bledger\b|\bbalance history\b", q):
             customer = _find_customer(q)
-            return _answer_ledger(q, customer) if customer else _plain(
-                "Whose ledger do you want to see? Include their name, e.g. "
-                "\"Maria's ledger\".")
+            return _answer_ledger(q, customer) if customer else _plain("Whose ledger do you want to see? Include their name, e.g. \"Maria's ledger\".")
         if re.search(r"\blast contact\b|\blast contacted\b|\bwhen.{0,16}contact", q):
             customer = _find_customer(q)
-            return _answer_last_contact(q, customer) if customer else _plain(
-                "Last contact with whom? Include their name, e.g. "
-                "\"last contact with Maria\".")
+            return _answer_last_contact(q, customer) if customer else _plain("Last contact with whom? Include their name, e.g. \"last contact with Maria\".")
         if re.search(r"\bcommunication\b.{0,16}(history|log)|\bcontact history\b", q):
             customer = _find_customer(q)
-            return _answer_communication_history(q, customer) if customer else _plain(
-                "Communication history for whom? Include their name, e.g. "
-                "\"communication history for Maria\".")
+            return _answer_communication_history(q, customer) if customer else _plain("Communication history for whom? Include their name, e.g. \"communication history for Maria\".")
 
-        # 3. Customer name mentioned → customer profile
+        # 3. Customer name mentioned
         customer = _find_customer(q)
         if customer:
             return _answer_customer(q, customer)
 
-        # 4. Two months or two years → comparison
+        # 4. Two months or two years
         if len(_extract_months(q)) >= 2 or len(_extract_years(q)) >= 2:
             return _answer_compare(q)
 
@@ -2463,7 +3342,6 @@ def ask(question: str) -> dict:
         if best_handler and best_score:
             return best_handler(q)
     except Exception as e:
-        return {"ok": False, "answer": "", "chart": None,
-                "error": f"I hit a problem reading the data: {e}"}
+        return {"ok": False, "answer": "", "chart": None, "error": f"I hit a problem reading the data: {e}"}
 
-    return _answer_help()
+    return _answer_chitchat_and_followup(q, raw)

@@ -4,12 +4,14 @@ from PySide6.QtWidgets import (
     QFrame, QLineEdit, QFormLayout, QMessageBox, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QDoubleSpinBox,
     QSpinBox, QCheckBox, QFileDialog, QListWidget, QListWidgetItem,
-    QInputDialog,
+    QInputDialog, QColorDialog,
 )
 from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, get_icon
 from utils.theme import ThemeManager
+from utils.accent import AccentManager, PRESET_THEMES
 from components.dialogs import success
 import utils.repository as repo
 
@@ -26,6 +28,7 @@ class SettingsPage(QWidget):
     def __init__(self):
         super().__init__()
         self._theme = ThemeManager()
+        self._accent = AccentManager()
         db_info = repo.get_business_info()
         if db_info:
             _BUSINESS_INFO.update(db_info)
@@ -241,7 +244,95 @@ class SettingsPage(QWidget):
         row.addWidget(toggle_btn)
 
         lay.addLayout(row)
+
+        color_lbl = QLabel("Color Theme")
+        color_lbl.setStyleSheet("font-size: 13px; margin-top: 4px;")
+        lay.addWidget(color_lbl)
+
+        self._swatch_container = QVBoxLayout()
+        self._swatch_container.setSpacing(8)
+        lay.addLayout(self._swatch_container)
+        self._rebuild_color_swatches()
+
         return card
+
+    # ── Color theme picker ──────────────────────────────────────────────
+
+    def _clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+            elif item.layout():
+                self._clear_layout(item.layout())
+
+    def _make_swatch(self, hex_color: str, removable: bool = False) -> QPushButton:
+        btn = QPushButton()
+        btn.setFixedSize(28, 28)
+        btn.setCursor(Qt.PointingHandCursor)
+        selected = hex_color.upper() == self._accent.current.upper()
+        ring = "#F9FAFB" if self._theme.is_dark() else "#0F172A"
+        border = f"3px solid {ring}" if selected else "3px solid transparent"
+        btn.setStyleSheet(
+            f"QPushButton {{ background-color: {hex_color}; border-radius: 14px; border: {border}; }}"
+        )
+        btn.setToolTip(hex_color.upper() + (" (right-click to remove)" if removable else ""))
+        btn.clicked.connect(lambda _checked=False, h=hex_color: self._select_accent(h))
+        if removable:
+            btn.setContextMenuPolicy(Qt.CustomContextMenu)
+            btn.customContextMenuRequested.connect(
+                lambda _pos, h=hex_color: self._remove_custom_color(h))
+        return btn
+
+    def _rebuild_color_swatches(self):
+        self._clear_layout(self._swatch_container)
+
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(8)
+        for _name, hex_color in PRESET_THEMES:
+            preset_row.addWidget(self._make_swatch(hex_color))
+        preset_row.addStretch()
+        self._swatch_container.addLayout(preset_row)
+
+        custom_row = QHBoxLayout()
+        custom_row.setSpacing(8)
+        for hex_color in self._accent.custom_colors:
+            custom_row.addWidget(self._make_swatch(hex_color, removable=True))
+
+        add_btn = QPushButton("+")
+        add_btn.setFixedSize(28, 28)
+        add_btn.setCursor(Qt.PointingHandCursor)
+        dark = self._theme.is_dark()
+        muted_border = "#4B5563" if dark else "#CBD5E1"
+        muted_text = "#9CA3AF" if dark else "#64748B"
+        add_btn.setStyleSheet(
+            f"QPushButton {{ border-radius: 14px; border: 2px dashed {muted_border}; "
+            f"color: {muted_text}; font-weight: 700; background: transparent; }}"
+            f"QPushButton:hover {{ border-color: {self._accent.current}; color: {self._accent.current}; }}"
+        )
+        add_btn.setToolTip("Add a custom color")
+        add_btn.clicked.connect(self._pick_custom_color)
+        custom_row.addWidget(add_btn)
+        custom_row.addStretch()
+        self._swatch_container.addLayout(custom_row)
+
+    def _select_accent(self, hex_color: str):
+        self._accent.set_accent(hex_color)
+        self._rebuild_color_swatches()
+
+    def _pick_custom_color(self):
+        color = QColorDialog.getColor(QColor(self._accent.current), self, "Choose a Custom Color")
+        if not color.isValid():
+            return
+        hex_color = color.name().upper()
+        self._accent.add_custom_color(hex_color)
+        self._accent.set_accent(hex_color)
+        self._rebuild_color_swatches()
+
+    def _remove_custom_color(self, hex_color: str):
+        self._accent.remove_custom_color(hex_color)
+        self._rebuild_color_swatches()
 
     def _build_backup_card(self):
         card = QFrame()

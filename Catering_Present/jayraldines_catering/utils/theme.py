@@ -3,6 +3,10 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QObject, Signal
 from utils.paths import resource_path
 
+_BRAND_ACCENT = "#E11D48"
+_BRAND_ACCENT_MID = "#BE123C"    # secondary gradient/hover stop, baked into the QSS
+_BRAND_ACCENT_DARK = "#9F1239"   # darkest gradient stop, baked into the QSS
+
 
 class ThemeManager(QObject):
     theme_changed = Signal(str)
@@ -36,8 +40,23 @@ class ThemeManager(QObject):
         app = QApplication.instance()
         if app and os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
-                app.setStyleSheet(f.read())
+                qss = f.read()
+            qss = self._with_accent(qss)
+            app.setStyleSheet(qss)
         self.theme_changed.emit(self._current)
+
+    @staticmethod
+    def _with_accent(qss: str) -> str:
+        """Swap the baked-in brand accent literals for the user's chosen color."""
+        from utils.accent import AccentManager
+        accent = AccentManager()
+        accent_hex = accent.current
+        if accent_hex == _BRAND_ACCENT:
+            return qss
+        qss = qss.replace(_BRAND_ACCENT, accent_hex)
+        qss = qss.replace(_BRAND_ACCENT_MID, accent.darker(accent_hex, 110))
+        qss = qss.replace(_BRAND_ACCENT_DARK, accent.darker(accent_hex, 145))
+        return qss
 
     def toggle(self):
         self._current = "light" if self._current == "dark" else "dark"

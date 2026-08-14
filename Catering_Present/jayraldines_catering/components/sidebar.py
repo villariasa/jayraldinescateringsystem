@@ -5,6 +5,7 @@ from PySide6.QtGui import QPixmap
 
 from utils.icons import nav_icon, nav_icon_active, get_icon
 from utils.theme import ThemeManager
+from utils.accent import AccentManager
 
 from utils.paths import resource_path
 
@@ -133,9 +134,17 @@ class Sidebar(QFrame):
         self._anim2.setEasingCurve(QEasingCurve.OutCubic)
 
         self._apply_theme_styles()
-        ThemeManager().theme_changed.connect(lambda _t: self._apply_theme_styles())
+        ThemeManager().theme_changed.connect(self._on_theme_changed)
 
         QTimer.singleShot(0, self._mark_ready)
+
+    def _on_theme_changed(self, *_args):
+        try:
+            from shiboken6 import isValid
+            if isValid(self):
+                self._apply_theme_styles()
+        except Exception:
+            pass
 
     def _apply_theme_styles(self):
         dark = ThemeManager().is_dark()

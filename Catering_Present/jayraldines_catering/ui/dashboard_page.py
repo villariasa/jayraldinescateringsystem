@@ -9,6 +9,7 @@ from datetime import datetime
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
 from utils.theme import ThemeManager
+from utils.accent import AccentManager
 import utils.repository as repo
 from utils import exporter as _exporter
 
@@ -167,7 +168,7 @@ class PeriodSummaryCard(AnimatedCard):
 
         rev_set = QBarSet("Revenue")
         exp_set = QBarSet("Expenses")
-        rev_set.setColor(QColor("#E11D48"))
+        rev_set.setColor(QColor(AccentManager().current))
         exp_set.setColor(QColor("#F59E0B" if dark else "#F4A93C"))
         labels = []
         max_val = 0.0
@@ -254,6 +255,7 @@ class EventItem(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 10, 0, 10)
         layout.setSpacing(14)
+        self._main_lay = layout
 
         left = QVBoxLayout()
         left.setSpacing(3)
@@ -263,6 +265,14 @@ class EventItem(QWidget):
         date_lbl.setStyleSheet("font-size: 12px;")
         left.addWidget(name_lbl)
         left.addWidget(date_lbl)
+
+        layout.addLayout(left)
+        layout.addStretch()
+
+        badge = QLabel(status)
+        badge_map = {"success": "badgeSuccess", "warning": "badgeWarning", "danger": "badgeDanger"}
+        badge.setObjectName(badge_map.get(status_type, "badgeInfo"))
+        layout.addWidget(badge)
 
         self._event_dt = event_dt
         self._countdown_lbl = None
@@ -275,27 +285,18 @@ class EventItem(QWidget):
             self._timer.timeout.connect(self._tick_countdown)
             self._timer.start(1000)
 
-        layout.addLayout(left)
-        layout.addStretch()
-
-        badge = QLabel(status)
-        badge_map = {"success": "badgeSuccess", "warning": "badgeWarning", "danger": "badgeDanger"}
-        badge.setObjectName(badge_map.get(status_type, "badgeInfo"))
-        layout.addWidget(badge)
-
-        self._layout = layout
-
     def _show_complete_button(self):
         if self._completed_btn is not None:
             return
         self._completed_btn = QPushButton("Mark as Completed")
+        self._completed_btn.setCursor(Qt.PointingHandCursor)
         self._completed_btn.setStyleSheet(
             "QPushButton { background: #16A34A; color: #fff; border-radius: 6px; "
             "padding: 4px 10px; font-size: 11px; font-weight: 600; } "
             "QPushButton:hover { background: #15803D; }"
         )
         self._completed_btn.clicked.connect(self._handle_complete)
-        self._layout.addWidget(self._completed_btn)
+        self._main_lay.addWidget(self._completed_btn)
 
     def _handle_complete(self):
         if self._db_id is None:

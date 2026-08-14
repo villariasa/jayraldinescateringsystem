@@ -13,6 +13,7 @@ from utils import exporter as _exporter
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red
 from utils.theme import ThemeManager
+from utils.accent import AccentManager
 import utils.repository as repo
 
 from PySide6.QtCharts import (QChart, QChartView, QLineSeries, QAreaSeries,
@@ -99,7 +100,7 @@ class IncomeAreaChart(QVBoxLayout):
 
         # Pin all series as instance vars — GC will NOT collect them
         self._upper = QLineSeries()
-        pen = QPen(QColor("#E11D48"))
+        pen = QPen(QColor(AccentManager().current))
         pen.setWidth(3)
         self._upper.setPen(pen)
         for i, v in enumerate(values):
@@ -177,7 +178,7 @@ class PaymentDonutChart(QVBoxLayout):
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
-        _COLORS = ["#E11D48", "#F59E0B", "#3B82F6", "#22C55E", "#8B5CF6", "#6B7280"]
+        _COLORS = [AccentManager().current, "#F59E0B", "#3B82F6", "#22C55E", "#8B5CF6", "#6B7280"]
         db_data = repo.get_payment_methods()
         if db_data:
             data = {r["method"]: (r["total"], _COLORS[i % len(_COLORS)]) for i, r in enumerate(db_data)}
@@ -246,7 +247,7 @@ class MonthlyRevenueChart(QVBoxLayout):
         self._target  = target
 
         self._bar_rev = QBarSet("Revenue")
-        self._bar_rev.setColor(QColor("#E11D48"))
+        self._bar_rev.setColor(QColor(AccentManager().current))
         _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
         self._bar_rev.setLabelColor(QColor(_lbl_c))
 
@@ -307,7 +308,7 @@ class MonthlyRevenueChart(QVBoxLayout):
             hit = "✅ Target hit!" if rev >= tgt else f"⚠ {pct:.0f}% of target"
             QToolTip.showText(
                 QCursor.pos(),
-                f"<b style='color:#E11D48;'>{self._months[index]}</b><br>"
+                f"<b style='color:{AccentManager().current};'>{self._months[index]}</b><br>"
                 f"Revenue: <b>₱ {rev:,.0f}</b><br>"
                 f"Target: ₱ {tgt:,.0f}<br>{hit}"
             )
@@ -494,7 +495,7 @@ class CustomerFrequencyChart(QVBoxLayout):
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
-        _COLORS = ["#E11D48", "#F59E0B", "#3B82F6", "#22C55E", "#6B7280", "#8B5CF6"]
+        _COLORS = [AccentManager().current, "#F59E0B", "#3B82F6", "#22C55E", "#6B7280", "#8B5CF6"]
         db_data = repo.get_customer_order_frequency()
         customers = [r["name"]  for r in db_data] if db_data else ["No Data"]
         counts    = [r["count"] for r in db_data] if db_data else [1]
@@ -553,6 +554,7 @@ class OccasionBreakdownChart(QVBoxLayout):
 
     def __init__(self):
         super().__init__()
+        self._COLORS = [AccentManager().current] + self.__class__._COLORS[1:]
 
         self._title_lbl = QLabel("Most Popular Event Types")
         self._title_lbl.setObjectName("h3")
@@ -856,7 +858,11 @@ class ReportsPage(QWidget):
         btn_add_exp.setIconSize(QSize(15, 15))
         btn_add_exp.setFixedHeight(34)
         btn_add_exp.setCursor(Qt.PointingHandCursor)
-        btn_add_exp.setStyleSheet("QPushButton#primaryButton { background-color: #E11D48; color: #FFFFFF; border: none; font-weight: 700; border-radius: 8px; padding: 6px 16px; } QPushButton#primaryButton:hover { background-color: #BE123C; }")
+        btn_add_exp.setStyleSheet(
+            "QPushButton#primaryButton { background-color: %s; color: #FFFFFF; border: none; "
+            "font-weight: 700; border-radius: 8px; padding: 6px 16px; } "
+            "QPushButton#primaryButton:hover { background-color: %s; }"
+            % (AccentManager().current, AccentManager().darker(factor=110)))
         btn_add_exp.clicked.connect(self._open_add_expense)
         exp_head.addWidget(btn_add_exp)
         exp_lay.addLayout(exp_head)
@@ -885,9 +891,11 @@ class ReportsPage(QWidget):
         if not checked:
             return
         self._period = period
+        _ar, _ag, _ab, _ = QColor(AccentManager().current).getRgb()
         btn.setStyleSheet(
             "border-radius:14px;font-size:12px;font-weight:700;padding:0 14px;"
-            "background:rgba(225,29,72,.15);color:#E11D48;border:1px solid rgba(225,29,72,.4);"
+            "background:rgba(%d,%d,%d,.15);color:%s;border:1px solid rgba(%d,%d,%d,.4);"
+            % (_ar, _ag, _ab, AccentManager().current, _ar, _ag, _ab)
         )
         for b in self._period_btns:
             if b is not btn:
@@ -968,7 +976,7 @@ class ReportsPage(QWidget):
                 c1 = QVBoxLayout()
                 c1.setSpacing(2)
                 id_lbl = QLabel(b.get("id", ""))
-                id_lbl.setStyleSheet("font-weight: 800; font-size: 13px; color: #E11D48;")
+                id_lbl.setStyleSheet(f"font-weight: 800; font-size: 13px; color: {AccentManager().current};")
                 d_lbl = QLabel(b.get("date", ""))
                 d_lbl.setObjectName("subtitle")
                 c1.addWidget(id_lbl)

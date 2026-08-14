@@ -109,6 +109,11 @@ class MainWindow(QMainWindow):
         from utils.theme import ThemeManager
         ThemeManager().theme_changed.connect(self._on_theme_changed)
 
+        from components.global_ai_floating import DraggableMascotWidget
+        self._floating_ai = DraggableMascotWidget(parent=self)
+        self._floating_ai.show()
+        self._floating_ai.raise_()
+
         self._navigate(0)
 
     def _get_page(self, index: int):
@@ -223,6 +228,15 @@ class MainWindow(QMainWindow):
                 self.stack.removeWidget(page)
                 page.deleteLater()
         self._navigate(current_index)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_floating_ai") and self._floating_ai:
+            if not getattr(self._floating_ai, "_user_moved", False):
+                x = self.width() - self._floating_ai.width() - 24
+                y = self.height() - self._floating_ai.height() - 24
+                self._floating_ai.move(max(0, x), max(0, y))
+                self._floating_ai.raise_()
 
     @property
     def dashboard_page(self):

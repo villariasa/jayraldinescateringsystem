@@ -6,7 +6,9 @@ import os
 import subprocess
 from datetime import datetime
 from utils.icons import get_icon
+import utils.icons as icons
 from utils.theme import ThemeManager
+from utils.accent import AccentManager
 
 
 _PAGE_TITLES = {
@@ -161,8 +163,26 @@ class TopBar(QFrame):
         self.close_btn.clicked.connect(self._confirm_close)
         self.main_layout.addWidget(self.close_btn)
 
+        self._current_page_index = 0
         self._apply_theme_styles()
-        self._theme.theme_changed.connect(lambda _t: self._apply_theme_styles())
+        self._theme.theme_changed.connect(self._on_theme_changed)
+        AccentManager().accent_changed.connect(self._on_accent_changed)
+
+    def _on_theme_changed(self, *_args):
+        try:
+            from shiboken6 import isValid
+            if isValid(self):
+                self._apply_theme_styles()
+        except Exception:
+            pass
+
+    def _on_accent_changed(self, *_args):
+        try:
+            from shiboken6 import isValid
+            if isValid(self):
+                self.set_page(self._current_page_index, self.search_box.text())
+        except Exception:
+            pass
 
     def _apply_theme_styles(self):
         dark = self._theme.is_dark()
@@ -281,13 +301,14 @@ class TopBar(QFrame):
         self.clock_lbl.setText(now.strftime("%a, %b %d  %I:%M:%S %p"))
 
     def set_page(self, index: int, search_text: str = ""):
+        self._current_page_index = index
         self.page_title.setText(_PAGE_TITLES.get(index, ""))
         self.search_box.blockSignals(True)
         self.search_box.setText(search_text)
         self.search_box.blockSignals(False)
 
         dark = self._theme.is_dark()
-        active_color = "#E11D48"
+        active_color = icons.COLOR_PRIMARY
         inactive_color = "#9CA3AF" if dark else "#5B6B84"
 
         for idx, btn in self.top_tab_btns.items():

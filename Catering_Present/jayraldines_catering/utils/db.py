@@ -21,13 +21,17 @@ try:
 except ImportError:
     _PSYCOPG2_AVAILABLE = False
 
-_CONFIG = {
-    "host":     os.environ.get("DB_HOST",     "localhost"),
-    "port":     int(os.environ.get("DB_PORT", "5432")),
-    "dbname":   os.environ.get("DB_NAME",     "jayraldines_catering"),
-    "user":     os.environ.get("DB_USER",     "postgres"),
-    "password": os.environ.get("DB_PASSWORD", "12345678"),
-}
+def get_config() -> dict:
+    import getpass
+    env_user = os.environ.get("DB_USER")
+    user = env_user if env_user else getpass.getuser()
+    return {
+        "host":     os.environ.get("DB_HOST",     "localhost"),
+        "port":     int(os.environ.get("DB_PORT", "5432")),
+        "dbname":   os.environ.get("DB_NAME",     "jayraldines_catering"),
+        "user":     user,
+        "password": os.environ.get("DB_PASSWORD", "12345678"),
+    }
 
 _conn: Optional[Any] = None
 
@@ -40,16 +44,26 @@ def connect() -> bool:
     global _conn
     if not _PSYCOPG2_AVAILABLE:
         return False
+    cfg = get_config()
     try:
         if _conn is not None:
             try:
                 _conn.close()
             except Exception:
                 pass
-        _conn = psycopg2.connect(**_CONFIG, connect_timeout=5)
+        _conn = psycopg2.connect(**cfg, connect_timeout=5)
         _conn.autocommit = False
         return True
     except Exception as exc:
+        # Fallback to postgres user if current system user fails
+        if cfg["user"] != "postgres":
+            try:
+                cfg_pg = {**cfg, "user": "postgres"}
+                _conn = psycopg2.connect(**cfg_pg, connect_timeout=5)
+                _conn.autocommit = False
+                return True
+            except Exception:
+                pass
         print(f"[DB] Connection failed: {exc}")
         _conn = None
         return False

@@ -10,11 +10,14 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QLineEdit, QScrollArea, QSizePolicy,
 )
-from PySide6.QtCore import Qt, QThread, QObject, Signal, QMargins
+from PySide6.QtCore import Qt, QThread, QObject, Signal, QMargins, QPoint, QTimer
 from PySide6.QtGui import QColor, QPainter
 
 from utils.theme import ThemeManager
+from utils.accent import AccentManager
 import utils.ai_client as ai_client
+from components.mascot import ChefMascot
+from components.global_ai_floating import build_user_bubble, build_ai_card
 
 # Longer answers (ledger summaries, communication history, daily briefings)
 # are a single long QLabel line. Without a cap, QLabel's wordWrap-aware
@@ -32,6 +35,9 @@ _SUGGESTIONS = [
     "Approve a pending booking",
     "Any follow-ups due today?",
     "Show my notifications",
+    "List all customers",
+    "List bookings this week",
+    "List invoices this month",
 ]
 
 
@@ -72,6 +78,19 @@ class AIPage(QWidget):
         root.setSpacing(20)
 
         # ── Header ──────────────────────────────────────────────────────────
+        head_row = QHBoxLayout()
+        head_row.setSpacing(14)
+
+        # The mascot itself floats freely (and is draggable) over the whole
+        # page — it is NOT layout-managed. This invisible spacer just reserves
+        # its default footprint in the header so the title keeps its usual
+        # indentation.
+        mascot_anchor = QWidget(self)
+        mascot_anchor.setFixedSize(84, 84)
+        mascot_anchor.setStyleSheet("background: transparent;")
+        head_row.addWidget(mascot_anchor, 0, Qt.AlignTop)
+        self._mascot_anchor = mascot_anchor
+
         head = QVBoxLayout()
         head.setSpacing(2)
         title = QLabel("AI Assistant")
@@ -83,7 +102,8 @@ class AIPage(QWidget):
         sub.setWordWrap(True)
         head.addWidget(title)
         head.addWidget(sub)
-        root.addLayout(head)
+        head_row.addLayout(head, 1)
+        root.addLayout(head_row)
 
         # ── Suggestion chips ────────────────────────────────────────────────
         chip_scroll = QScrollArea(self)
@@ -151,29 +171,63 @@ class AIPage(QWidget):
             "Ask in English or Bisaya. Type \"help\" to see what it can do."
         )
 
+        # Floating, draggable mascot — a direct child of the page (not the
+        # scroll feed), so it stays put on screen while the conversation
+        # scrolls underneath it. Placed after everything else so it's on top.
+        self._mascot = ChefMascot(self, size=84)
+        self._mascot.clicked.connect(lambda: (self._input.setFocus(), self._input.selectAll()))
+        self._mascot.resetRequested.connect(self._reposition_mascot)
+        self._mascot.show()
+        QTimer.singleShot(0, self._reposition_mascot)
+
         self._start_briefing()
+
+    def __del__(self):
+        try:
+            self._stop_briefing_thread()
+            self._stop_ask_thread()
+        except Exception:
+            pass
+
+    def _reposition_mascot(self):
+        """Snap the mascot to its default header spot, unless the user has
+        already dragged it — then just keep it inside the page bounds."""
+        if self._mascot.has_been_moved():
+            self._mascot.clamp_to_parent()
+        else:
+            anchor_pos = self._mascot_anchor.mapTo(self, QPoint(0, 0))
+            self._mascot.move(anchor_pos)
+        self._mascot.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_mascot"):
+            self._reposition_mascot()
 
     def _start_briefing(self):
         """Proactively surface today's events, due/overdue follow-ups, unread
         notifications, and unpaid invoices as soon as the page opens."""
+        self._stop_briefing_thread()
         self._briefing_thread = QThread()
         self._briefing_worker = _BriefingWorker()
         self._briefing_worker.moveToThread(self._briefing_thread)
         self._briefing_thread.started.connect(self._briefing_worker.run)
         self._briefing_worker.finished.connect(self._on_briefing)
         self._briefing_worker.finished.connect(self._briefing_thread.quit)
+        self._briefing_worker.finished.connect(self._briefing_worker.deleteLater)
+        self._briefing_thread.finished.connect(self._briefing_thread.deleteLater)
         self._briefing_thread.start()
 
     def _on_briefing(self, result: dict):
         answer = (result or {}).get("answer")
         if answer:
             self._add_answer_card(answer, None, "")
+            self._mascot.set_state("happy")
 
     # ── Feed helpers ─────────────────────────────────────────────────────────
 
     def _add_to_feed(self, w: QWidget):
         self._feed.insertWidget(self._feed.count() - 1, w)
-        from PySide6.QtCore import QTimer
         QTimer.singleShot(50, lambda: self._scroll.verticalScrollBar().setValue(
             self._scroll.verticalScrollBar().maximum()))
 
@@ -189,104 +243,12 @@ class AIPage(QWidget):
         self._add_to_feed(card)
 
     def _add_question_bubble(self, question: str):
-        row = QHBoxLayout()
-        row.addStretch()
-        bubble = QLabel(question)
-        bubble.setWordWrap(True)
-        bubble.setMaximumWidth(560)
-        bubble.setStyleSheet(
-            "background: #E11D48; color: #FFFFFF; border-radius: 12px;"
-            " padding: 10px 16px; font-size: 13px; font-weight: 600;"
-        )
-        row.addWidget(bubble)
-        wrap = QWidget()
-        wrap.setLayout(row)
-        self._add_to_feed(wrap)
+        self._add_to_feed(build_user_bubble(question))
 
     def _add_answer_card(self, answer: str, chart_spec: dict | None,
                          error: str = "", action: dict | None = None,
                          options: list | None = None):
-        card = QFrame()
-        card.setObjectName("card")
-        lay = QVBoxLayout(card)
-        lay.setContentsMargins(20, 16, 20, 16)
-        lay.setSpacing(12)
-
-        if error:
-            lbl = QLabel(error)
-            lbl.setWordWrap(True)
-            lbl.setStyleSheet("color: #DC2626; font-size: 13px;")
-            lay.addWidget(lbl)
-        else:
-            lbl = QLabel(answer or "(no answer)")
-            lbl.setWordWrap(True)
-            lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            lbl.setStyleSheet("font-size: 13px; line-height: 140%;")
-            lay.addWidget(lbl)
-            if chart_spec:
-                chart_view = self._build_chart(chart_spec)
-                if chart_view is not None:
-                    lay.addWidget(chart_view)
-            if options:
-                opt_col = QVBoxLayout()
-                opt_col.setSpacing(6)
-                opt_buttons = []
-
-                def _pick(send_text):
-                    for ob in opt_buttons:
-                        ob.setEnabled(False)
-                    self._ask(send_text)
-
-                for opt in options:
-                    label = opt.get("label", "")
-                    ob = QPushButton(label)
-                    ob.setObjectName("secondaryButton")
-                    ob.setCursor(Qt.PointingHandCursor)
-                    ob.setStyleSheet("text-align: left; padding: 8px 14px;")
-                    if len(label) > 90:
-                        ob.setText(label[:87] + "...")
-                        ob.setToolTip(label)
-                    ob.clicked.connect(lambda _, s=opt.get("send", ""): _pick(s))
-                    opt_buttons.append(ob)
-                    opt_col.addWidget(ob)
-                lay.addLayout(opt_col)
-            if action:
-                btn_row = QHBoxLayout()
-                btn_row.setSpacing(10)
-                btn_row.addStretch()
-                dismiss_btn = QPushButton("Cancel")
-                dismiss_btn.setObjectName("secondaryButton")
-                dismiss_btn.setCursor(Qt.PointingHandCursor)
-                confirm_btn = QPushButton("Confirm")
-                confirm_btn.setObjectName(
-                    "dangerFilledButton"
-                    if action.get("status") == "CANCELLED" or action.get("risk") == "high"
-                    else "primaryButton")
-                confirm_btn.setCursor(Qt.PointingHandCursor)
-                confirm_btn.setMinimumWidth(110)
-                btn_row.addWidget(dismiss_btn)
-                btn_row.addWidget(confirm_btn)
-                lay.addLayout(btn_row)
-
-                def _finish(text_val):
-                    confirm_btn.setEnabled(False)
-                    dismiss_btn.setEnabled(False)
-                    confirm_btn.setText(text_val)
-
-                def _on_confirm():
-                    result = ai_client.execute_action(action)
-                    _finish("Confirmed")
-                    self._add_answer_card(
-                        result["message"] if result["ok"] else "",
-                        None, "" if result["ok"] else result["message"])
-
-                def _on_dismiss():
-                    _finish("Confirm")
-                    dismiss_btn.setText("Cancelled")
-                    self._add_answer_card("Okay, I didn't change anything.", None)
-
-                confirm_btn.clicked.connect(_on_confirm)
-                dismiss_btn.clicked.connect(_on_dismiss)
+        card = build_ai_card(answer, chart_spec, error, action, options, on_option_send=self._ask)
         self._add_to_feed(card)
 
     def _build_chart(self, spec: dict):
@@ -299,7 +261,7 @@ class AIPage(QWidget):
             from PySide6.QtCharts import (
                 QChart, QChartView, QBarSeries, QBarSet, QBarCategoryAxis, QValueAxis
             )
-            palette = ["#E11D48", "#94A3B8" if _is_light() else "#475569"]
+            palette = [AccentManager().current, "#94A3B8" if _is_light() else "#475569"]
             bar_series = QBarSeries()
             max_val = 1.0
             for i, s in enumerate(series_specs):
@@ -348,7 +310,37 @@ class AIPage(QWidget):
         except (TypeError, ValueError):
             return None
 
-    # ── Ask flow ─────────────────────────────────────────────────────────────
+    def _stop_briefing_thread(self):
+        if getattr(self, "_briefing_thread", None) is not None:
+            try:
+                if self._briefing_thread.isRunning():
+                    self._briefing_thread.quit()
+                    self._briefing_thread.wait(500)
+            except Exception:
+                pass
+            self._briefing_thread = None
+        self._briefing_worker = None
+
+    def _stop_ask_thread(self):
+        if getattr(self, "_thread", None) is not None:
+            try:
+                if self._thread.isRunning():
+                    self._thread.quit()
+                    self._thread.wait(500)
+            except Exception:
+                pass
+            self._thread = None
+        self._worker = None
+
+    def hideEvent(self, event):
+        self._stop_briefing_thread()
+        self._stop_ask_thread()
+        super().hideEvent(event)
+
+    def closeEvent(self, event):
+        self._stop_briefing_thread()
+        self._stop_ask_thread()
+        super().closeEvent(event)
 
     def _ask(self, question: str):
         question = (question or "").strip()
@@ -360,19 +352,24 @@ class AIPage(QWidget):
         self._busy = True
         self._btn_ask.setEnabled(False)
         self._btn_ask.setText("Thinking…")
+        self._mascot.set_state("thinking")
 
+        self._stop_ask_thread()
         self._thread = QThread()
         self._worker = _AskWorker(question)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_result)
         self._worker.finished.connect(self._thread.quit)
+        self._worker.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
 
     def _on_result(self, result: dict):
         self._busy = False
         self._btn_ask.setEnabled(True)
         self._btn_ask.setText("Ask")
+        self._mascot.set_state("confused" if result.get("error") else "happy")
         self._add_answer_card(
             result.get("answer", ""), result.get("chart"),
             result.get("error", ""), result.get("action"),

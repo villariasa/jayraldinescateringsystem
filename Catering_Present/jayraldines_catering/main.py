@@ -80,10 +80,12 @@ def main():
 
         splash.set_status("Initializing...", 10)
         from utils.theme import ThemeManager
+        from utils.accent import AccentManager
         import utils.db as db
         _profile("core modules imported")
 
         try:
+            AccentManager()  # loads the saved accent color before the first paint
             ThemeManager().apply("dark")
             _profile("theme applied")
         except Exception:

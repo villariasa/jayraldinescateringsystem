@@ -292,24 +292,20 @@ $dbName  = "jayraldines_catering"
 $dbUser  = "postgres"
 
 # Verify required SQL files exist
-$mainSql    = "jayraldines_catering_clean.sql"
-$migSql     = "cebu_address_migration.sql"
-$occMigSql  = "occasions_migration.sql"
-$viewsMigSql = "confirmed_only_views_migration.sql"
-$analyticsMigSql = "analytics_functions_migration.sql"
+$mainSql            = "jayraldines_catering_clean.sql"
+$migSql             = "cebu_address_migration.sql"
+$occMigSql          = "occasions_migration.sql"
+$viewsMigSql        = "confirmed_only_views_migration.sql"
+$analyticsMigSql    = "analytics_functions_migration.sql"
+$ledgerMigSql       = "fix_customer_ledger_view.sql"
 
 if (-not (Test-Path $mainSql)) {
     Print-Fail "Required file not found: $mainSql"
     Read-Host "Press ENTER to exit"
     exit 1
 }
-if (-not (Test-Path $migSql)) {
-    Print-Fail "Required file not found: $migSql"
-    Read-Host "Press ENTER to exit"
-    exit 1
-}
-Print-Info "Main SQL  : $mainSql"
-Print-Info "Migration : $migSql"
+
+Print-Info "Main SQL: $mainSql"
 
 Write-Host ""
 Write-Host "  Enter the PostgreSQL superuser (postgres) password." -ForegroundColor Yellow
@@ -330,35 +326,33 @@ if ($exists -match "1") {
     $choice = Read-Host "  Drop and recreate it? All existing data will be lost. (y/N)"
     if ($choice -ne "y" -and $choice -ne "Y") {
         Print-Skip "Keeping existing database"
-        $addrExists = & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='address_barangays';" 2>&1
-        if ($addrExists -notmatch "1") {
-            Print-Info "Running cebu address migration..."
-            try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
-            Print-OK "Cebu address migration done"
-        } else {
-            Print-Skip "Address tables already exist"
-        }
         $occExists = & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='occasions';" 2>&1
         if ($occExists -notmatch "1" -and (Test-Path $occMigSql)) {
             Print-Info "Running occasions migration..."
             try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $occMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
             Print-OK "Occasions migration done"
-        } else {
-            Print-Skip "Occasions table already exists"
         }
         if (Test-Path $viewsMigSql) {
             Print-Info "Applying confirmed-only views migration..."
             try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $viewsMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
             Print-OK "Views migration done"
         }
+        if (Test-Path $analyticsMigSql) {
+            Print-Info "Applying analytics functions migration..."
+            try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $analyticsMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
+            Print-OK "Analytics migration done"
+        }
+        if (Test-Path $ledgerMigSql) {
+            Print-Info "Applying customer ledger view migration..."
+            try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $ledgerMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
+            Print-OK "Customer ledger view migration done"
+        }
         $runSql = $false
     }
 }
 
 if ($runSql) {
-    # The main SQL file handles DROP + CREATE DATABASE internally.
-    # Connect to 'postgres' so we are NOT inside the DB being dropped.
-    Print-Info "Running Main schema (jayraldines_catering.sql)..."
+    Print-Info "Running Main schema (jayraldines_catering_clean.sql)..."
     & $psqlExe -U $dbUser -h localhost -p 5432 -d postgres -f $mainSql 2>&1
     if ($LASTEXITCODE -ne 0) {
         Print-Fail "Main schema failed (exit code $LASTEXITCODE) - check output above."
@@ -367,10 +361,6 @@ if ($runSql) {
         exit 1
     }
     Print-OK "Main schema applied successfully"
-
-    Print-Info "Running Cebu address migration..."
-    try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $migSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
-    Print-OK "Cebu address migration done"
 
     if (Test-Path $viewsMigSql) {
         Print-Info "Applying confirmed-only views migration..."
@@ -382,6 +372,12 @@ if ($runSql) {
         Print-Info "Applying analytics functions migration (year comparisons, weekly summaries)..."
         try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $analyticsMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
         Print-OK "Analytics migration done"
+    }
+
+    if (Test-Path $ledgerMigSql) {
+        Print-Info "Applying customer ledger view migration..."
+        try { & $psqlExe -U $dbUser -h localhost -p 5432 -d $dbName -f $ledgerMigSql 2>&1 | Where-Object { $_ -notmatch "^psql:.*NOTICE:" } | Out-Host } catch {}
+        Print-OK "Customer ledger view migration done"
     }
 
     Print-OK "Database '$dbName' is ready"

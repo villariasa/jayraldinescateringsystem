@@ -235,11 +235,7 @@ MAIN_SQL="$SCRIPT_DIR/jayraldines_catering_clean.sql"
 OCC_MIG_SQL="$SCRIPT_DIR/occasions_migration.sql"
 VIEWS_MIG_SQL="$SCRIPT_DIR/confirmed_only_views_migration.sql"
 ANALYTICS_MIG_SQL="$SCRIPT_DIR/analytics_functions_migration.sql"
-# NOTE: cebu_address_migration.sql is intentionally NOT used here.
-# Address tables (address_regions/provinces/cities/barangays/addresses) are now
-# fully defined inside jayraldines_catering_clean.sql with the correct prefixed
-# column names (ar_id, ar_name, ap_id, etc.). Running the separate migration on
-# top of an already-created schema caused column-name conflicts.
+LEDGER_MIG_SQL="$SCRIPT_DIR/fix_customer_ledger_view.sql"
 
 # ── Helper: check if the address tables have the correct prefixed columns ─────
 address_tables_ok() {
@@ -281,7 +277,6 @@ if [ "$DB_EXISTS" = "1" ]; then
         if [ "$ADDR_EXISTS" = "1" ] && [ "$(address_tables_ok)" != "1" ]; then
             echo -e "${YELLOW}  Address tables have wrong column names (old schema). Dropping and rebuilding...${NC}"
             drop_broken_address_tables
-            # Re-run only the address portion of the main schema via a targeted script
             info "Rebuilding address tables from main schema..."
             PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
                 -d "$DB_NAME" -c "
@@ -322,9 +317,7 @@ INSERT INTO address_provinces (ap_region_id, ap_name)
     ON CONFLICT DO NOTHING;
 "
             ok "Address tables rebuilt with correct column names"
-            # Now seed the cities and barangays from the main schema file
             info "Seeding Cebu address data from main schema..."
-            # Extract and run just the DO $$ blocks from the main schema that seed cities/barangays
             PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
                 -d "$DB_NAME" -f "$MAIN_SQL" 2>/dev/null || true
             ok "Address data seeded"
@@ -344,12 +337,24 @@ INSERT INTO address_provinces (ap_region_id, ap_name)
             skip "Occasions table already exists"
         fi
 
-        # ── Views migration (always re-apply to pick up any view changes) ────
+        # ── Views & Analytics migrations (always re-apply) ────
         if [ -f "$VIEWS_MIG_SQL" ]; then
             info "Applying confirmed-only views migration..."
             PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
                 -d "$DB_NAME" -f "$VIEWS_MIG_SQL" || info "Views migration had warnings (non-fatal)"
             ok "Views migration done"
+        fi
+        if [ -f "$ANALYTICS_MIG_SQL" ]; then
+            info "Applying analytics functions migration..."
+            PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
+                -d "$DB_NAME" -f "$ANALYTICS_MIG_SQL" || info "Analytics migration had warnings (non-fatal)"
+            ok "Analytics migration done"
+        fi
+        if [ -f "$LEDGER_MIG_SQL" ]; then
+            info "Applying customer ledger view migration..."
+            PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
+                -d "$DB_NAME" -f "$LEDGER_MIG_SQL" || info "Customer ledger view migration had warnings (non-fatal)"
+            ok "Ledger migration done"
         fi
 
         RUN_SQL=false
@@ -361,8 +366,6 @@ if [ "$RUN_SQL" = true ]; then
     PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
         -d postgres -f "$MAIN_SQL"
     ok "Main schema applied"
-    # Address tables, cities, barangays, and all seed data are included in the
-    # main schema above — no separate migration needed.
 
     if [ -f "$VIEWS_MIG_SQL" ]; then
         info "Applying confirmed-only views migration..."
@@ -374,6 +377,12 @@ if [ "$RUN_SQL" = true ]; then
         info "Applying analytics functions migration (year comparisons, weekly summaries)..."
         PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
             -d "$DB_NAME" -f "$ANALYTICS_MIG_SQL" || info "Analytics migration had warnings (non-fatal)"
+    fi
+
+    if [ -f "$LEDGER_MIG_SQL" ]; then
+        info "Applying customer ledger view migration..."
+        PGPASSWORD="$PG_PASS" "$PSQL" -U "$PG_USER" -h localhost -p "$PG_PORT" \
+            -d "$DB_NAME" -f "$LEDGER_MIG_SQL" || info "Customer ledger view migration had warnings (non-fatal)"
     fi
     ok "Database '$DB_NAME' is ready"
 fi

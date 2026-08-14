@@ -252,17 +252,31 @@ class SearchDropdown(QFrame):
         self._loading_lbl.show()
         self._debounce.start()
 
-    def _fetch(self):
-        if self._thread and self._thread.isRunning():
-            self._thread.quit()
-            self._thread.wait(200)
+    def _stop_thread(self):
+        if self._thread is not None:
+            try:
+                if self._thread.isRunning():
+                    self._thread.quit()
+                    self._thread.wait(300)
+            except Exception:
+                pass
+            self._thread = None
+        self._worker = None
 
+    def hideEvent(self, event):
+        self._stop_thread()
+        super().hideEvent(event)
+
+    def _fetch(self):
+        self._stop_thread()
         self._thread = QThread()
         self._worker = _SearchWorker(self._pending_query)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_results)
         self._worker.finished.connect(self._thread.quit)
+        self._worker.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
 
     def _on_results(self, results: list):
