@@ -27,8 +27,15 @@ if getattr(sys, "frozen", False):
             break
 
 from PySide6.QtWidgets import QApplication, QMessageBox
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtCore import Qt, QCoreApplication
+from PySide6.QtGui import QGuiApplication
 _profile("Qt imports")
+
+# Configure High DPI scaling policy for clean rendering on Windows laptop displays
+if hasattr(Qt, "HighDpiScaleFactorRoundingPolicy"):
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
 
 _MUTEX_HANDLE = None
 
@@ -38,6 +45,10 @@ def _acquire_single_instance():
     if sys.platform != "win32":
         return True
     import ctypes
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("jayraldines.catering.system.v1")
+    except Exception:
+        pass
     _MUTEX_HANDLE = ctypes.windll.kernel32.CreateMutexW(None, True, "Global\\JayraldinesCateringMutex")
     err = ctypes.windll.kernel32.GetLastError()
     return err != 183
@@ -65,8 +76,18 @@ def main():
             if plugin_path and os.path.isdir(plugin_path):
                 QCoreApplication.addLibraryPath(plugin_path)
 
+    from PySide6.QtGui import QIcon
+    from utils.paths import resource_path
+
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+
+    ico_path = resource_path("assets", "logo.ico")
+    if not os.path.exists(ico_path):
+        ico_path = resource_path("assets", "logo.png")
+    if os.path.exists(ico_path):
+        app.setWindowIcon(QIcon(ico_path))
+
     _profile("QApplication")
 
     from components.splash import SplashScreen
@@ -125,6 +146,8 @@ def main():
 
         splash.set_status("Building interface...", 92)
         window = MainWindow()
+        if os.path.exists(ico_path):
+            window.setWindowIcon(QIcon(ico_path))
         _profile("main window created")
 
         splash.set_status("Ready!", 100)
@@ -138,7 +161,7 @@ def main():
     app.aboutToQuit.connect(db.close)
     app.window_ref = window
 
-    window.show()
+    window.showFullScreen()
     splash.close()
     _profile("main window shown")
 

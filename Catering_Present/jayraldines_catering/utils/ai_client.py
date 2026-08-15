@@ -2233,10 +2233,22 @@ def execute_action(action: dict) -> dict:
                 app_events().customer_saved.emit()
             except Exception:
                 pass
+            name = data.get('name', 'Customer')
+            contact = data.get('contact', '')
+            addr = data.get('address', '')
+            details = []
+            if contact:
+                details.append(f"Phone: {contact}")
+            if data.get('email'):
+                details.append(f"Email: {data.get('email')}")
+            if addr:
+                details.append(f"Address: {addr}")
+            detail_str = f" ({', '.join(details)})" if details else ""
             return {"ok": True,
-                    "message": f"✅ Done ({stamp}) — customer {data.get('name')} added. "
-                               f"You can now create bookings for them; edit details "
-                               f"anytime in the Customers page."}
+                    "message": f"✅ Customer Added Successfully!\n\n"
+                               f"• Customer Name: {name}{detail_str}\n"
+                               f"• Status: Active\n\n"
+                               f"Customer profile has been saved. You can now create bookings for {name} or view their details in the Customers page."}
 
         if kind == "booking_create":
             data = action.get("data", {})
@@ -2249,16 +2261,18 @@ def execute_action(action: dict) -> dict:
             if result:
                 _audit("Booking created via AI assistant", "bookings",
                        result.get("booking_id"))
+                ref = result.get('booking_ref', 'New Booking')
                 return {"ok": True,
-                        "message": f"✅ Done ({stamp}) — booking "
-                                   f"{result.get('booking_ref')} created for "
-                                   f"{data.get('name')} on {data.get('date')} "
-                                   f"({data.get('pax')} pax, {_peso(float(data.get('total', 0)))}). "
-                                   f"It's PENDING — approve it when ready. Fine-tune "
-                                   f"venue/occasion in the Orders page."}
+                        "message": f"✅ Booking Created Successfully!\n\n"
+                                   f"• Reference: {ref}\n"
+                                   f"• Customer: {data.get('name')}\n"
+                                   f"• Date: {data.get('date')} at {data.get('time', '6:00 PM')}\n"
+                                   f"• Guests: {data.get('pax')} pax\n"
+                                   f"• Total: {_peso(float(data.get('total', 0)))}\n"
+                                   f"• Status: PENDING\n\n"
+                                   f"The booking is saved and ready for review/confirmation in your Orders page."}
             return {"ok": False,
-                    "message": "The booking could not be created — please try from "
-                               "the Orders page."}
+                    "message": "The booking could not be created — please verify customer details or try from the Orders page."}
 
         if kind == "expense":
             today = datetime.now().strftime("%b %d, %Y")
@@ -3223,7 +3237,134 @@ def _answer_chitchat_and_followup(q: str, raw: str) -> dict:
             {"label": "Show Help Menu", "send": "help"}
         ])
 
-    return _answer_help()
+def _handle_alarm_and_reminder(q: str, raw: str) -> dict | None:
+    """Handles session-only alarms, reminders, listing, cancelling, and snoozing."""
+    q_low = raw.lower()
+    alarm_indicators = [
+        "alarm", "remind", "reminder", "pahinumdom", "timer",
+        "snooze", "ping me", "wake me", "active alarm"
+    ]
+    if not any(k in q_low or k in q for k in alarm_indicators):
+        return None
+
+    try:
+        from utils.reminder_manager import reminder_manager, parse_alarm_request
+        mgr = reminder_manager()
+        parsed = parse_alarm_request(raw)
+
+        status = parsed.get("status")
+
+        if status == "snooze":
+            mins = parsed.get("minutes", 5)
+            ok, entry = mgr.snooze_last(mins)
+            if ok and entry:
+                time_str = entry["target_dt"].strftime("%I:%M %p").lstrip("0")
+                ans = f"⏰ Snoozed for {mins} minute{'s' if mins != 1 else ''}! I'll remind you again at {time_str} ({entry['message']})."
+                return _plain(ans, [
+                    {"label": "Show Active Alarms", "send": "what alarms do I have"},
+                    {"label": "Cancel this Alarm", "send": f"cancel alarm {entry['id']}"}
+                ])
+            else:
+                return _plain("There are no recent or active alarms to snooze. You can set a new one by saying e.g. \"remind me in 10 minutes to check the food\".", [
+                    {"label": "Remind in 10 mins", "send": "remind me in 10 minutes to check the food"},
+                    {"label": "Remind in 30 mins", "send": "remind me in 30 minutes"}
+                ])
+
+        if status == "list":
+            active = mgr.get_active()
+            if not active:
+                return _plain("You don't have any active alarms or reminders set for this session.", [
+                    {"label": "Set 15m Alarm", "send": "remind me in 15 minutes to check kitchen"},
+                    {"label": "Set 30m Alarm", "send": "remind me in 30 minutes"},
+                    {"label": "Set 1h Reminder", "send": "remind me in 1 hour"}
+                ])
+            now = datetime.now()
+            lines = []
+            options = []
+            for r in active:
+                dt = r["target_dt"]
+                diff_secs = int((dt - now).total_seconds())
+                if diff_secs <= 0:
+                    time_rel = "any moment now"
+                elif diff_secs < 60:
+                    time_rel = f"in {diff_secs}s"
+                elif diff_secs < 3600:
+                    time_rel = f"in {diff_secs // 60}m"
+                else:
+                    h = diff_secs // 3600
+                    m = (diff_secs % 3600) // 60
+                    time_rel = f"in {h}h {m}m" if m else f"in {h}h"
+
+                time_disp = dt.strftime("%I:%M %p").lstrip("0")
+                day_str = "Today" if dt.date() == now.date() else (
+                    "Tomorrow" if (dt.date() - now.date()).days == 1 else dt.strftime("%b %d")
+                )
+                lines.append(f"• [#{r['id']}] {day_str} at {time_disp} ({time_rel}) — {r['message']}")
+                options.append({"label": f"Cancel #{r['id']} ({time_disp})", "send": f"cancel alarm {r['id']}"})
+
+            if len(active) > 1:
+                options.append({"label": "Cancel All Alarms", "send": "cancel all alarms"})
+
+            ans = f"⏰ Active Alarms & Reminders ({len(active)} scheduled this session):\n\n" + "\n".join(lines)
+            return _plain(ans, options)
+
+        if status == "cancel_all":
+            count = mgr.cancel_all()
+            if count > 0:
+                return _plain(f"✅ All active alarms and reminders ({count}) have been cancelled.")
+            return _plain("You don't have any active alarms to cancel.")
+
+        if status == "cancel":
+            target = parsed.get("target", "")
+            ok, msg = mgr.cancel_reminder(target)
+            if ok:
+                return _plain(f"✅ {msg}")
+            return _plain(f"⚠️ {msg}", [
+                {"label": "Show Active Alarms", "send": "what alarms do I have"}
+            ])
+
+        if status == "ambiguous_past":
+            return _plain(parsed.get("clarification", "That time has already passed."), parsed.get("options", []))
+
+        if status == "needs_time":
+            return _plain(parsed.get("clarification", "When would you like me to set the alarm?"), parsed.get("options", []))
+
+        if status == "ready" and parsed.get("target_dt"):
+            target_dt = parsed["target_dt"]
+            msg = parsed.get("message", "Alarm")
+            kind = parsed.get("kind", "alarm")
+            entry = mgr.add_reminder(target_dt, message=msg, kind=kind, raw_text=raw)
+
+            now = datetime.now()
+            diff_secs = int((target_dt - now).total_seconds())
+            if diff_secs < 60:
+                rel_str = f"in {max(1, diff_secs)} seconds"
+            elif diff_secs < 3600:
+                rel_str = f"in {diff_secs // 60} minute{'s' if diff_secs // 60 != 1 else ''}"
+            else:
+                h = diff_secs // 3600
+                m = (diff_secs % 3600) // 60
+                rel_str = f"in {h} hour{'s' if h != 1 else ''}" + (f" {m}m" if m else "")
+
+            time_str = target_dt.strftime("%I:%M %p").lstrip("0")
+            day_str = "today" if target_dt.date() == now.date() else (
+                "tomorrow" if (target_dt.date() - now.date()).days == 1 else target_dt.strftime("%a, %b %d")
+            )
+
+            ans = (
+                f"⏰ {kind.capitalize()} set for {day_str} at {time_str} ({rel_str})!\n\n"
+                f"• Note: \"{msg}\"\n"
+                f"• Alarm ID: #{entry['id']}\n\n"
+                f"I'll alert you with sound, notifications, and chat as soon as the timer is up."
+            )
+            return _plain(ans, [
+                {"label": "Show Active Alarms", "send": "what alarms do I have"},
+                {"label": f"Cancel Alarm #{entry['id']}", "send": f"cancel alarm {entry['id']}"}
+            ])
+    except Exception as exc:
+        print(f"[AI Assistant] Alarm error: {exc}")
+
+    return None
 
 
 def ask(question: str) -> dict:
@@ -3249,6 +3390,11 @@ def ask(question: str) -> dict:
 def _ask_internal(q: str, raw: str) -> dict:
     global _LAST_ACTION
     try:
+        # 0. Session-only Alarm & Reminder intent
+        alarm_res = _handle_alarm_and_reminder(q, raw)
+        if alarm_res is not None:
+            return alarm_res
+
         # 0a. Follow-up to a "which one?" question
         pending_result = _resolve_pending(q, raw)
         if pending_result is not None:

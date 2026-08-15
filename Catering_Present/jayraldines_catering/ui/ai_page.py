@@ -74,8 +74,8 @@ class AIPage(QWidget):
         self._busy = False
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(40, 40, 40, 24)
-        root.setSpacing(20)
+        root.setContentsMargins(28, 24, 28, 20)
+        root.setSpacing(16)
 
         # ── Header ──────────────────────────────────────────────────────────
         head_row = QHBoxLayout()
@@ -111,7 +111,7 @@ class AIPage(QWidget):
         chip_scroll.setFrameShape(QFrame.NoFrame)
         chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        chip_scroll.setFixedHeight(44)
+        chip_scroll.setFixedHeight(46)
         chip_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         chip_w = QWidget()
@@ -179,6 +179,9 @@ class AIPage(QWidget):
         self._mascot.resetRequested.connect(self._reposition_mascot)
         self._mascot.show()
         QTimer.singleShot(0, self._reposition_mascot)
+
+        from utils.reminder_manager import reminder_manager
+        reminder_manager().alarm_fired.connect(self._on_alarm_fired)
 
         self._start_briefing()
 
@@ -248,8 +251,36 @@ class AIPage(QWidget):
     def _add_answer_card(self, answer: str, chart_spec: dict | None,
                          error: str = "", action: dict | None = None,
                          options: list | None = None):
-        card = build_ai_card(answer, chart_spec, error, action, options, on_option_send=self._ask)
+        def _on_action_done(res: dict):
+            msg = res.get("message", "Action completed.") if isinstance(res, dict) else str(res)
+            is_ok = res.get("ok", True) if isinstance(res, dict) else True
+            if hasattr(self, "_mascot"):
+                self._mascot.set_state("happy" if is_ok else "confused")
+            self._add_answer_card(msg, None, error="" if is_ok else msg)
+
+        card = build_ai_card(answer, chart_spec, error, action, options,
+                              on_option_send=self._ask,
+                              on_action_result=_on_action_done if action else None)
         self._add_to_feed(card)
+
+    def _on_alarm_fired(self, entry: dict):
+        msg = entry.get("message", "Alarm")
+        target_dt = entry.get("target_dt")
+        time_str = target_dt.strftime("%I:%M %p").lstrip("0") if target_dt else datetime.now().strftime("%I:%M %p")
+        ans = (
+            f"⏰ **ALARM TRIGGERED** ({time_str})\n\n"
+            f"• Note: \"{msg}\"\n"
+            f"• Status: Completed\n\n"
+            f"What would you like to do?"
+        )
+        options = [
+            {"label": "Snooze 5 mins", "send": "snooze 5 minutes"},
+            {"label": "Snooze 10 mins", "send": "snooze 10 minutes"},
+            {"label": "Dismiss", "send": "ok"}
+        ]
+        self._add_answer_card(ans, None, options=options)
+        if hasattr(self, "_mascot"):
+            self._mascot.set_state("surprised")
 
     def _build_chart(self, spec: dict):
         try:

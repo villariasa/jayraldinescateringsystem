@@ -45,12 +45,11 @@ class TopBar(QFrame):
         self._theme = ThemeManager()
 
         self.main_layout = QHBoxLayout(self)
-        self.main_layout.setContentsMargins(16, 0, 16, 0)
-        self.main_layout.setSpacing(12)
+        self.main_layout.setContentsMargins(12, 0, 12, 0)
+        self.main_layout.setSpacing(8)
 
         self.page_title = QLabel("Dashboard", self)
         self.page_title.setObjectName("h2")
-        self.page_title.setMinimumWidth(130)
         self.main_layout.addWidget(self.page_title)
 
         self.main_layout.addStretch()
@@ -59,17 +58,17 @@ class TopBar(QFrame):
         self.top_nav_wrap = QWidget(self)
         self.top_nav_layout = QHBoxLayout(self.top_nav_wrap)
         self.top_nav_layout.setContentsMargins(0, 0, 0, 0)
-        self.top_nav_layout.setSpacing(6)
+        self.top_nav_layout.setSpacing(4)
 
         self.top_tab_btns = {}
         for text, icon_name, index in _TOP_NAV_ITEMS:
-            btn = QPushButton(f"  {text}", self.top_nav_wrap)
+            btn = QPushButton(f" {text}", self.top_nav_wrap)
             btn.setObjectName("topNavTab")
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(42)
-            btn.setIconSize(QSize(17, 17))
-            btn.setIcon(get_icon(icon_name, color="#6B7280" if self._theme.is_dark() else "#5B6B84", size=QSize(17, 17)))
+            btn.setFixedHeight(36)
+            btn.setIconSize(QSize(15, 15))
+            btn.setIcon(get_icon(icon_name, color="#6B7280" if self._theme.is_dark() else "#5B6B84", size=QSize(15, 15)))
             btn.setProperty("icon_name", icon_name)
             btn.setProperty("tab_index", index)
             btn.clicked.connect(lambda _, idx=index: self.tab_selected.emit(idx))
@@ -79,16 +78,17 @@ class TopBar(QFrame):
         self.main_layout.addWidget(self.top_nav_wrap)
         self.main_layout.addStretch()
 
-        # ✅ FIX: Attached search_wrap to self
+        # ✅ Responsive search bar
         self.search_wrap = QWidget(self)
-        self.search_wrap.setFixedWidth(280)
+        self.search_wrap.setMinimumWidth(100)
+        self.search_wrap.setMaximumWidth(200)
         self.search_inner = QHBoxLayout(self.search_wrap)
         self.search_inner.setContentsMargins(0, 0, 0, 0)
         self.search_inner.setSpacing(0)
         self.search_box = QLineEdit(self.search_wrap)
         self.search_box.setObjectName("searchBox")
         self.search_box.setPlaceholderText("Search...")
-        self.search_box.setFixedHeight(36)
+        self.search_box.setFixedHeight(32)
         self.search_box.textChanged.connect(self.search_changed.emit)
         self.search_inner.addWidget(self.search_box)
         self.main_layout.addWidget(self.search_wrap)
@@ -105,23 +105,23 @@ class TopBar(QFrame):
 
         self.theme_btn = QPushButton(self)
         self.theme_btn.setObjectName("notifBtn")
-        self.theme_btn.setFixedSize(36, 36)
+        self.theme_btn.setFixedSize(32, 32)
         self.theme_btn.setToolTip("Toggle Light / Dark theme")
         self.theme_btn.setCursor(Qt.PointingHandCursor)
         self.theme_btn.clicked.connect(self._toggle_theme)
         self._update_theme_icon()
         self.main_layout.addWidget(self.theme_btn)
 
-        # ✅ FIX: Attached notif_wrap to self
+        # ✅ Notification button
         self.notif_wrap = QWidget(self)
         self.notif_layout = QHBoxLayout(self.notif_wrap)
         self.notif_layout.setContentsMargins(0, 0, 0, 0)
         self.notif_layout.setSpacing(0)
         self.notif_btn = QPushButton(self.notif_wrap)
         self.notif_btn.setObjectName("notifBtn")
-        self.notif_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(18, 18)))
-        self.notif_btn.setIconSize(QSize(18, 18))
-        self.notif_btn.setFixedSize(36, 36)
+        self.notif_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(16, 16)))
+        self.notif_btn.setIconSize(QSize(16, 16))
+        self.notif_btn.setFixedSize(32, 32)
         self.notif_layout.addWidget(self.notif_btn)
         
         self.notif_badge = QLabel("0", self.notif_wrap)
@@ -135,12 +135,12 @@ class TopBar(QFrame):
 
         self.divider = QFrame(self)
         self.divider.setFrameShape(QFrame.VLine)
-        self.divider.setFixedHeight(24)
+        self.divider.setFixedHeight(20)
         self.main_layout.addWidget(self.divider)
 
         self.avatar = QLabel("O", self)
         self.avatar.setObjectName("userAvatar")
-        self.avatar.setFixedSize(32, 32)
+        self.avatar.setFixedSize(30, 30)
         self.avatar.setAlignment(Qt.AlignCenter)
         self.main_layout.addWidget(self.avatar)
 
@@ -148,18 +148,32 @@ class TopBar(QFrame):
         self.owner_lbl.setObjectName("h3")
         self.main_layout.addWidget(self.owner_lbl)
 
-        self.main_layout.addSpacing(8)
+        self.main_layout.addSpacing(6)
+
+        self.min_btn = QPushButton(self)
+        self.min_btn.setFixedSize(30, 30)
+        self.min_btn.setToolTip("Minimize Window")
+        self.min_btn.setCursor(Qt.PointingHandCursor)
+        self.min_btn.setIcon(get_icon("minimize", color="#9CA3AF", size=QSize(14, 14)))
+        self.min_btn.setIconSize(QSize(14, 14))
+        self.min_btn.clicked.connect(self._minimize_window)
+        self.main_layout.addWidget(self.min_btn)
+
+        self.fs_btn = QPushButton(self)
+        self.fs_btn.setFixedSize(30, 30)
+        self.fs_btn.setToolTip("Toggle Fullscreen (F11)")
+        self.fs_btn.setCursor(Qt.PointingHandCursor)
+        self.fs_btn.setIcon(get_icon("maximize", color="#9CA3AF", size=QSize(14, 14)))
+        self.fs_btn.setIconSize(QSize(14, 14))
+        self.fs_btn.clicked.connect(self._toggle_window_fullscreen)
+        self.main_layout.addWidget(self.fs_btn)
 
         self.close_btn = QPushButton(self)
-        self.close_btn.setIcon(get_icon("close", color="#EF4444", size=QSize(16, 16)))
-        self.close_btn.setIconSize(QSize(16, 16))
-        self.close_btn.setFixedSize(32, 32)
+        self.close_btn.setFixedSize(30, 30)
+        self.close_btn.setIcon(get_icon("close", color="#EF4444", size=QSize(14, 14)))
+        self.close_btn.setIconSize(QSize(14, 14))
         self.close_btn.setToolTip("Close Application")
         self.close_btn.setCursor(Qt.PointingHandCursor)
-        self.close_btn.setStyleSheet(
-            "QPushButton { background: transparent; border: none; border-radius: 8px; }"
-            "QPushButton:hover { background: rgba(239,68,68,0.15); }"
-        )
         self.close_btn.clicked.connect(self._confirm_close)
         self.main_layout.addWidget(self.close_btn)
 
@@ -167,6 +181,31 @@ class TopBar(QFrame):
         self._apply_theme_styles()
         self._theme.theme_changed.connect(self._on_theme_changed)
         AccentManager().accent_changed.connect(self._on_accent_changed)
+
+    def _minimize_window(self):
+        w = self.window()
+        if w:
+            w.showMinimized()
+
+    def _toggle_window_fullscreen(self):
+        w = self.window()
+        if w and hasattr(w, "_toggle_fullscreen"):
+            w._toggle_fullscreen()
+        elif w:
+            if w.isFullScreen():
+                w.showNormal()
+            else:
+                w.showFullScreen()
+        self._update_fs_icon()
+
+    def _update_fs_icon(self):
+        w = self.window()
+        is_fs = w.isFullScreen() if w else False
+        dark = self._theme.is_dark()
+        btn_color = "#9CA3AF" if dark else "#5B6B84"
+        icon_name = "restore" if is_fs else "maximize"
+        self.fs_btn.setIcon(get_icon(icon_name, color=btn_color, size=QSize(14, 14)))
+        self.fs_btn.setToolTip("Exit Fullscreen (Esc)" if is_fs else "Toggle Fullscreen (F11)")
 
     def _on_theme_changed(self, *_args):
         try:
@@ -186,14 +225,46 @@ class TopBar(QFrame):
 
     def _apply_theme_styles(self):
         dark = self._theme.is_dark()
+        btn_color = "#9CA3AF" if dark else "#5B6B84"
+        hover_bg = "rgba(156,163,175,0.25)" if dark else "rgba(100,116,139,0.18)"
+
         self.clock_lbl.setStyleSheet(
-            "font-size: 13px; font-weight: 600; min-width: 160px; color: %s;"
-            % ("#9CA3AF" if dark else "#5B6B84")
+            "font-size: 12px; font-weight: 600; color: %s;"
+            % btn_color
         )
         self.divider.setStyleSheet("color: %s;" % ("#243244" if dark else "#E4E9F1"))
         self.notif_btn.setIcon(get_icon(
-            "bell", color="#9CA3AF" if dark else "#5B6B84", size=QSize(18, 18)
+            "bell", color=btn_color, size=QSize(16, 16)
         ))
+
+        self.min_btn.setIcon(get_icon("minimize", color=btn_color, size=QSize(14, 14)))
+        self.min_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: 6px; }}"
+            f"QPushButton:hover {{ background: {hover_bg}; }}"
+        )
+
+        self._update_fs_icon()
+        self.fs_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: 6px; }}"
+            f"QPushButton:hover {{ background: {hover_bg}; }}"
+        )
+
+        self.close_btn.setIcon(get_icon("close", color="#EF4444", size=QSize(14, 14)))
+        self.close_btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none; border-radius: 6px; }"
+            "QPushButton:hover { background: rgba(239,68,68,0.25); }"
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        w = self.width()
+        is_compact = w < 1080
+        self.owner_lbl.setVisible(not is_compact)
+        self.divider.setVisible(not is_compact)
+        if w < 880:
+            self.clock_lbl.setVisible(False)
+        else:
+            self.clock_lbl.setVisible(True)
 
     def _confirm_close(self):
         reply = QMessageBox.question(
@@ -298,7 +369,7 @@ class TopBar(QFrame):
 
     def _tick_clock(self):
         now = datetime.now()
-        self.clock_lbl.setText(now.strftime("%a, %b %d  %I:%M:%S %p"))
+        self.clock_lbl.setText(now.strftime("%a, %b %d  %I:%M %p"))
 
     def set_page(self, index: int, search_text: str = ""):
         self._current_page_index = index
@@ -316,6 +387,6 @@ class TopBar(QFrame):
             is_active = (idx == index)
             btn.setChecked(is_active)
             btn.setObjectName("topNavTabActive" if is_active else "topNavTab")
-            btn.setIcon(get_icon(icon_name, color=active_color if is_active else inactive_color, size=QSize(17, 17)))
+            btn.setIcon(get_icon(icon_name, color=active_color if is_active else inactive_color, size=QSize(15, 15)))
             btn.style().unpolish(btn)
             btn.style().polish(btn)

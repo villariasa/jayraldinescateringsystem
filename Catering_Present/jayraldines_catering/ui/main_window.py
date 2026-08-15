@@ -28,17 +28,16 @@ class _PlaceholderPage(QWidget):
     pass
 
 
+from version import __version__, APP_NAME
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Jayraldine's Catering")
-        self.resize(1400, 900)
-
-        self.fullscreen_timer = QTimer(self)
-        self.fullscreen_timer.setSingleShot(True)
-        self.fullscreen_timer.timeout.connect(self.showFullScreen)
-        self.fullscreen_timer.start(300)
+        self.setWindowTitle(f"{APP_NAME} v{__version__}")
+        self.setMinimumSize(1024, 600)
+        self.resize(1280, 768)
 
         self.shortcut_f11 = QShortcut(QKeySequence("F11"), self)
         self.shortcut_f11.activated.connect(self._toggle_fullscreen)
@@ -104,6 +103,9 @@ class MainWindow(QMainWindow):
         _ev.payment_recorded.connect(self._on_payment_recorded)
         _ev.kitchen_updated.connect(self._on_kitchen_updated)
 
+        from utils.reminder_manager import reminder_manager
+        reminder_manager().alarm_fired.connect(self._on_alarm_fired)
+
         self.topbar.search_changed.connect(self._on_search)
 
         from utils.theme import ThemeManager
@@ -121,16 +123,27 @@ class MainWindow(QMainWindow):
             return self._pages[index]
 
         mod_name, cls_name = _PAGE_MODULES[index]
-        import importlib
-        mod = importlib.import_module(mod_name)
-        cls = getattr(mod, cls_name)
-        page = cls()
+        try:
+            import importlib
+            mod = importlib.import_module(mod_name)
+            cls = getattr(mod, cls_name)
+            page = cls()
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            print(f"[MainWindow] Error loading page {mod_name}.{cls_name}: {exc}")
+            page = QWidget()
+            err_lay = QVBoxLayout(page)
+            err_lbl = QLabel(f"Unable to load page '{cls_name}':\n{exc}")
+            err_lbl.setStyleSheet("color: #EF4444; font-size: 14px; padding: 24px;")
+            err_lay.addWidget(err_lbl)
+
         self._pages[index] = page
 
         self.stack.removeWidget(self.stack.widget(index))
         self.stack.insertWidget(index, page)
 
-        if index == 0:
+        if index == 0 and hasattr(page, "new_booking_requested"):
             page.new_booking_requested.connect(lambda: self._navigate(1))
             page.view_all_activity_requested.connect(lambda: self._navigate(1))
 
@@ -141,6 +154,8 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(index)
         self.topbar.set_page(index)
         self.sidebar.handle_click(index)
+        if hasattr(self, "_floating_ai") and self._floating_ai:
+            self._floating_ai.setVisible(index != 9)
 
     def _on_search(self, text):
         page = self.stack.currentWidget()
@@ -228,6 +243,19 @@ class MainWindow(QMainWindow):
                 self.stack.removeWidget(page)
                 page.deleteLater()
         self._navigate(current_index)
+
+    def _on_alarm_fired(self, entry: dict):
+        msg = entry.get("message", "Alarm")
+        target_dt = entry.get("target_dt")
+        time_str = target_dt.strftime("%I:%M %p").lstrip("0") if target_dt else datetime.now().strftime("%I:%M %p")
+        self._toast_manager.show("⏰ Alarm / Reminder", f"{msg} ({time_str})", color="#F59E0B", duration_ms=12000)
+
+        # Animate mascot and display speech bubble
+        if hasattr(self, "_floating_ai") and self._floating_ai and hasattr(self._floating_ai, "mascot"):
+            m = self._floating_ai.mascot
+            m.set_state("surprised")
+            if hasattr(m, "speak"):
+                m.speak(f"⏰ Alarm: {msg}!\n(Say 'snooze 5m' or 'dismiss')", 12000)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

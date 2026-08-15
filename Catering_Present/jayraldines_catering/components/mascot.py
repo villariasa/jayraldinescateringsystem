@@ -53,12 +53,6 @@ class SpeechBubble(QWidget):
         self._update_style()
         layout.addWidget(self._label)
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(16)
-        shadow.setYOffset(4)
-        shadow.setColor(QColor(0, 0, 0, 80))
-        self.setGraphicsEffect(shadow)
-
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.hide)
@@ -86,6 +80,15 @@ class SpeechBubble(QWidget):
         used to keep the bubble glued to the mascot while it's being dragged."""
         x = global_pos.x() - self.width() // 2
         y = global_pos.y() - self.height() - 6
+        try:
+            from PySide6.QtGui import QGuiApplication
+            screen = QGuiApplication.screenAt(global_pos) or QGuiApplication.primaryScreen()
+            if screen:
+                geo = screen.geometry()
+                x = max(geo.left() + 10, min(x, geo.right() - self.width() - 10))
+                y = max(geo.top() + 10, min(y, geo.bottom() - self.height() - 10))
+        except Exception:
+            pass
         self.move(x, y)
 
 
@@ -165,8 +168,11 @@ class ChefMascot(QWidget):
         return self._bob_offset
 
     def _set_bob(self, v):
-        self._bob_offset = v
-        self.update()
+        try:
+            self._bob_offset = float(v)
+            self.update()
+        except Exception:
+            pass
 
     bob_offset = Property(float, _get_bob, _set_bob)
 
@@ -174,8 +180,11 @@ class ChefMascot(QWidget):
         return self._tilt_angle
 
     def _set_tilt(self, v):
-        self._tilt_angle = v
-        self.update()
+        try:
+            self._tilt_angle = float(v)
+            self.update()
+        except Exception:
+            pass
 
     tilt_angle = Property(float, _get_tilt, _set_tilt)
 
@@ -183,8 +192,11 @@ class ChefMascot(QWidget):
         return self._scale
 
     def _set_scale(self, v):
-        self._scale = v
-        self.update()
+        try:
+            self._scale = float(v)
+            self.update()
+        except Exception:
+            pass
 
     scale_factor = Property(float, _get_scale, _set_scale)
 
@@ -192,8 +204,11 @@ class ChefMascot(QWidget):
         return self._hat_offset
 
     def _set_hat_offset(self, v):
-        self._hat_offset = v
-        self.update()
+        try:
+            self._hat_offset = float(v)
+            self.update()
+        except Exception:
+            pass
 
     hat_offset_prop = Property(float, _get_hat_offset, _set_hat_offset)
 
@@ -201,8 +216,11 @@ class ChefMascot(QWidget):
         return self._eye_scale
 
     def _set_eye_scale(self, v):
-        self._eye_scale = v
-        self.update()
+        try:
+            self._eye_scale = float(v)
+            self.update()
+        except Exception:
+            pass
 
     eye_scale_prop = Property(float, _get_eye_scale, _set_eye_scale)
 

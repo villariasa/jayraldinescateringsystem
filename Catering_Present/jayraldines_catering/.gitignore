@@ -37,5 +37,10 @@ desktop.ini
 *.qmlc
 *.jsc
 
-# Distribution
+# Distribution & Binaries
 *.spec
+*.exe
+*.zip
+dist/
+build/
+installer_output/

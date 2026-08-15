@@ -55,7 +55,9 @@ class Sidebar(QFrame):
         self.logo_icon.setFixedSize(32, 32)
         self.logo_layout.addWidget(self.logo_icon)
 
-        self.logo_text = QLabel("Jayraldine's\nCATERING", self.logo_frame)
+        from version import __version__
+        self.logo_text = QLabel(f"Jayraldine's\nCATERING <span style='font-size:10px; color:#9CA3AF; font-weight:normal;'>v{__version__}</span>", self.logo_frame)
+        self.logo_text.setTextFormat(Qt.RichText)
         self.logo_text.setObjectName("logoText")
         self.logo_layout.addWidget(self.logo_text)
         self.logo_layout.addStretch()

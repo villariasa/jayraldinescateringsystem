@@ -31,7 +31,7 @@ QLabel#h2 { font-size: 18px; font-weight: 700; color: #F9FAFB; }
 QLabel#h3 { font-size: 15px; font-weight: 600; color: #F9FAFB; }
 QLabel#subtitle { color: #9CA3AF; font-size: 13px; }
 QLabel#kpiValue { font-size: 32px; font-weight: 800; color: #F9FAFB; margin-top: 8px; }
-QLabel#kpiLabel { font-size: 11px; font-weight: 700; color: #9CA3AF; text-transform: uppercase; letter-spacing: 1px; }
+QLabel#kpiLabel { font-size: 11px; font-weight: 700; color: #9CA3AF; letter-spacing: 1px; }
 QLabel#muted { color: #6B7280; font-size: 12px; }
 QLabel#pageTitle { font-size: 22px; font-weight: 800; color: #F9FAFB; }
 
@@ -71,7 +71,6 @@ QLabel#badgeGold    { background-color: rgba(245,158,11,0.15);  color: #F59E0B; 
     color: #6B7280;
     font-size: 10px;
     font-weight: 700;
-    text-transform: uppercase;
     letter-spacing: 1.5px;
     padding: 16px 20px 6px 20px;
 }
@@ -144,9 +143,10 @@ QLabel#badgeGold    { background-color: rgba(245,158,11,0.15);  color: #F59E0B; 
     border: 1px solid #243244;
     border-radius: 8px;
     color: #F9FAFB;
-    padding: 8px 14px;
+    padding: 6px 12px;
     font-size: 13px;
-    min-width: 280px;
+    min-width: 100px;
+    max-width: 220px;
 }
 #searchBox:focus {
     border: 1px solid #E11D48;
@@ -179,7 +179,7 @@ QPushButton#topNavTab {
     border: none;
     border-bottom: 3px solid transparent;
     border-radius: 6px;
-    padding: 6px 14px;
+    padding: 5px 10px;
     font-size: 13px;
     font-weight: 600;
     color: #9CA3AF;
@@ -194,7 +194,7 @@ QPushButton#topNavTabActive {
     border: none;
     border-bottom: 3px solid #E11D48;
     border-radius: 6px;
-    padding: 6px 14px;
+    padding: 5px 10px;
     font-size: 13px;
     font-weight: 700;
     color: #E11D48;
@@ -472,14 +472,13 @@ QComboBox::drop-down {
     background: transparent;
 }
 QComboBox::down-arrow {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
     border-left: 2px solid #F9FAFB;
     border-bottom: 2px solid #F9FAFB;
     border-top: none;
     border-right: none;
     margin-right: 6px;
-    transform: rotate(-45deg);
 }
 QComboBox QAbstractItemView {
     border: 1px solid #243244;
@@ -570,7 +569,6 @@ QHeaderView::section {
     padding: 14px 10px;
     border: none;
     border-bottom: 1px solid #243244;
-    text-transform: uppercase;
     letter-spacing: 0.8px;
 }
 

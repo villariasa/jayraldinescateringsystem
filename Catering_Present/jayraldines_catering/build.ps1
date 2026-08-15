@@ -112,127 +112,172 @@ if (-not (Test-Path "assets\logo.png")) {
 # ------------------------------------------------------------------------------
 Print-Step "Step 5 - Writing PyInstaller Spec File"
 
-$spec = "from PyInstaller.utils.hooks import collect_data_files`n"
-$spec += "`n"
-$spec += "block_cipher = None`n"
-$spec += "qt_data = collect_data_files('PySide6', includes=[`n"
-$spec += "    'Qt/plugins/platforms/*',`n"
-$spec += "    'Qt/plugins/imageformats/*',`n"
-$spec += "    'Qt/plugins/iconengines/*',`n"
-$spec += "    'Qt/plugins/styles/*',`n"
-$spec += "    'Qt/translations/qtbase_*.qm',`n"
-$spec += "])`n"
-$spec += "`n"
-$spec += "a = Analysis(`n"
-$spec += "    ['main.py'],`n"
-$spec += "    pathex=['.'],`n"
-$spec += "    binaries=[],`n"
-$spec += "    datas=[`n"
-$spec += "        ('assets', 'assets'),`n"
-$spec += "        ('styles', 'styles'),`n"
-$spec += "        ('jayraldines_catering_clean.sql', '.'),`n"
-$spec += "        ('cebu_address_migration.sql', '.'),`n"
-$spec += "        ('occasions_migration.sql', '.'),`n"
-$spec += "        ('confirmed_only_views_migration.sql', '.'),`n"
-$spec += "    ] + qt_data,`n"
-$spec += "    hiddenimports=[`n"
-$spec += "        'psycopg2',`n"
-$spec += "        'psycopg2.extensions',`n"
-$spec += "        'psycopg2.extras',`n"
-$spec += "        'reportlab',`n"
-$spec += "        'reportlab.graphics',`n"
-$spec += "        'reportlab.platypus',`n"
-$spec += "        'reportlab.lib',`n"
-$spec += "        'openpyxl',`n"
-$spec += "        'PySide6.QtCore',`n"
-$spec += "        'PySide6.QtGui',`n"
-$spec += "        'PySide6.QtWidgets',`n"
-$spec += "        'PySide6.QtSvg',`n"
-$spec += "        'PySide6.QtSvgWidgets',`n"
-$spec += "        'PySide6.QtXml',`n"
-$spec += "        'PySide6.QtPrintSupport',`n"
-$spec += "        'PySide6.QtCharts',`n"
-$spec += "        'PySide6.QtOpenGL',`n"
-$spec += "        'PySide6.QtOpenGLWidgets',`n"
-$spec += "        'PySide6.QtNetwork',`n"
-$spec += "        'ui.dashboard_page',`n"
-$spec += "        'ui.booking_page',`n"
-$spec += "        'ui.customers_page',`n"
-$spec += "        'ui.menu_page',`n"
-$spec += "        'ui.calendar_page',`n"
-$spec += "        'ui.kitchen_page',`n"
-$spec += "        'ui.billing_page',`n"
-$spec += "        'ui.reports_page',`n"
-$spec += "        'ui.settings_page',`n"
-$spec += "    ],`n"
-$spec += "    hookspath=[],`n"
-$spec += "    runtime_hooks=[],`n"
-$spec += "    excludes=[`n"
-$spec += "        'tkinter', 'matplotlib', 'scipy', 'numpy',`n"
-$spec += "        'PySide6.QtWebEngine', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineCore',`n"
-$spec += "        'PySide6.QtBluetooth', 'PySide6.QtNfc', 'PySide6.QtLocation',`n"
-$spec += "        'PySide6.QtMultimedia', 'PySide6.QtMultimediaWidgets',`n"
-$spec += "        'PySide6.Qt3DCore', 'PySide6.Qt3DRender', 'PySide6.Qt3DInput',`n"
-$spec += "        'PySide6.Qt3DLogic', 'PySide6.Qt3DAnimation', 'PySide6.Qt3DExtras',`n"
-$spec += "        'PySide6.QtQuick', 'PySide6.QtQuickWidgets', 'PySide6.QtQml',`n"
-$spec += "        'PySide6.QtRemoteObjects', 'PySide6.QtSensors', 'PySide6.QtSerialPort',`n"
-$spec += "        'ui.inventory_page', 'ui.test_report', 'test_reports',`n"
-$spec += "        'xmlrpc', 'test', 'unittest',`n"
-$spec += "        'distutils', 'setuptools', 'pkg_resources',`n"
-$spec += "    ],`n"
-$spec += "    noarchive=False,`n"
-$spec += "    cipher=block_cipher,`n"
-$spec += "    optimize=2,`n"
-$spec += ")`n"
-$spec += "`n"
-$spec += "pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)`n"
-$spec += "`n"
+$spec = @"
+from PyInstaller.utils.hooks import collect_data_files
+
+block_cipher = None
+qt_data = collect_data_files('PySide6', includes=[
+    'Qt/plugins/platforms/*',
+    'Qt/plugins/imageformats/*',
+    'Qt/plugins/iconengines/*',
+    'Qt/plugins/styles/*',
+    'Qt/translations/qtbase_*.qm',
+])
+
+a = Analysis(
+    ['main.py'],
+    pathex=['.'],
+    binaries=[],
+    datas=[
+        ('assets', 'assets'),
+        ('styles', 'styles'),
+        ('jayraldines_catering_clean.sql', '.'),
+        ('cebu_address_migration.sql', '.'),
+        ('occasions_migration.sql', '.'),
+        ('confirmed_only_views_migration.sql', '.'),
+        ('analytics_functions_migration.sql', '.'),
+        ('fix_customer_ledger_view.sql', '.'),
+    ] + qt_data,
+    hiddenimports=[
+        'shiboken6',
+        'psycopg2',
+        'psycopg2.extensions',
+        'psycopg2.extras',
+        'reportlab',
+        'reportlab.graphics',
+        'reportlab.platypus',
+        'reportlab.lib',
+        'reportlab.pdfgen',
+        'openpyxl',
+        'winsound',
+        'PySide6.QtCore',
+        'PySide6.QtGui',
+        'PySide6.QtWidgets',
+        'PySide6.QtSvg',
+        'PySide6.QtSvgWidgets',
+        'PySide6.QtXml',
+        'PySide6.QtPrintSupport',
+        'PySide6.QtCharts',
+        'PySide6.QtOpenGL',
+        'PySide6.QtOpenGLWidgets',
+        'PySide6.QtNetwork',
+        # UI Pages
+        'ui.dashboard_page',
+        'ui.booking_page',
+        'ui.customers_page',
+        'ui.menu_page',
+        'ui.calendar_page',
+        'ui.kitchen_page',
+        'ui.billing_page',
+        'ui.reports_page',
+        'ui.expenses_page',
+        'ui.ai_page',
+        'ui.settings_page',
+        # Components
+        'components.address_search',
+        'components.badges',
+        'components.booking_modal',
+        'components.card',
+        'components.charts',
+        'components.customer_search',
+        'components.dialogs',
+        'components.filter_popover',
+        'components.global_ai_floating',
+        'components.mascot',
+        'components.notifications_panel',
+        'components.search_dropdown',
+        'components.sidebar',
+        'components.splash',
+        'components.toast',
+        'components.topbar',
+        # Utilities
+        'utils.accent',
+        'utils.ai_client',
+        'utils.animations',
+        'utils.db',
+        'utils.exporter',
+        'utils.icons',
+        'utils.mailer',
+        'utils.menu_store',
+        'utils.notif_scheduler',
+        'utils.paths',
+        'utils.reminder_manager',
+        'utils.repository',
+        'utils.session',
+        'utils.signals',
+        'utils.sms_sender',
+        'utils.theme',
+    ],
+    hookspath=[],
+    runtime_hooks=[],
+    excludes=[
+        'tkinter', 'matplotlib', 'scipy', 'numpy',
+        'PySide6.QtWebEngine', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineCore',
+        'PySide6.QtBluetooth', 'PySide6.QtNfc', 'PySide6.QtLocation',
+        'PySide6.QtMultimedia', 'PySide6.QtMultimediaWidgets',
+        'PySide6.Qt3DCore', 'PySide6.Qt3DRender', 'PySide6.Qt3DInput',
+        'PySide6.Qt3DLogic', 'PySide6.Qt3DAnimation', 'PySide6.Qt3DExtras',
+        'PySide6.QtQuick', 'PySide6.QtQuickWidgets', 'PySide6.QtQml',
+        'PySide6.QtRemoteObjects', 'PySide6.QtSensors', 'PySide6.QtSerialPort',
+        'ui.inventory_page', 'ui.test_report', 'test_reports',
+        'xmlrpc', 'test', 'unittest',
+        'distutils', 'setuptools', 'pkg_resources',
+    ],
+    noarchive=False,
+    cipher=block_cipher,
+    optimize=2,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+"@
+
 if ($Mode -eq "onedir") {
-    $spec += "exe = EXE(`n"
-    $spec += "    pyz,`n"
-    $spec += "    a.scripts,`n"
-    $spec += "    [],`n"
-    $spec += "    exclude_binaries=True,`n"
-    $spec += "    name='JayraldinesCatering',`n"
-    $spec += "    debug=False,`n"
-    $spec += "    bootloader_ignore_signals=False,`n"
-    $spec += "    strip=True,`n"
-    $spec += "    upx=True,`n"
-    $spec += "    console=False,`n"
-    if ($iconLine) {
-        $spec += "    $iconLine`n"
-    }
-    $spec += ")`n"
-    $spec += "`n"
-    $spec += "coll = COLLECT(`n"
-    $spec += "    exe,`n"
-    $spec += "    a.binaries,`n"
-    $spec += "    a.zipfiles,`n"
-    $spec += "    a.datas,`n"
-    $spec += "    strip=True,`n"
-    $spec += "    upx=True,`n"
-    $spec += "    upx_exclude=['vcruntime140.dll', 'python*.dll', 'Qt*.dll'],`n"
-    $spec += "    name='JayraldinesCatering',`n"
-    $spec += ")`n"
+    $spec += @"
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='JayraldinesCatering',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=True,
+    upx=True,
+    console=False,
+$iconLine
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=True,
+    upx=True,
+    upx_exclude=['vcruntime140.dll', 'python*.dll', 'Qt*.dll'],
+    name='JayraldinesCatering',
+)
+"@
 } else {
-    $spec += "exe = EXE(`n"
-    $spec += "    pyz,`n"
-    $spec += "    a.scripts,`n"
-    $spec += "    a.binaries,`n"
-    $spec += "    a.zipfiles,`n"
-    $spec += "    a.datas,`n"
-    $spec += "    name='JayraldinesCatering',`n"
-    $spec += "    debug=False,`n"
-    $spec += "    bootloader_ignore_signals=False,`n"
-    $spec += "    strip=True,`n"
-    $spec += "    upx=True,`n"
-    $spec += "    upx_exclude=['vcruntime140.dll', 'python*.dll', 'Qt*.dll'],`n"
-    $spec += "    runtime_tmpdir=None,`n"
-    $spec += "    console=False,`n"
-    if ($iconLine) {
-        $spec += "    $iconLine`n"
-    }
-    $spec += ")`n"
+    $spec += @"
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    name='JayraldinesCatering',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=True,
+    upx=True,
+    upx_exclude=['vcruntime140.dll', 'python*.dll', 'Qt*.dll'],
+    runtime_tmpdir=None,
+    console=False,
+$iconLine
+)
+"@
 }
 
 [System.IO.File]::WriteAllText("$PWD\jayraldines.spec", $spec, [System.Text.Encoding]::UTF8)

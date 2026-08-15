@@ -8,6 +8,7 @@ class _AppEvents(QObject):
     customer_saved    = Signal()
     menu_saved        = Signal()
     notification_push = Signal()
+    alarm_fired       = Signal(dict)
 
 
 _instance: _AppEvents | None = None

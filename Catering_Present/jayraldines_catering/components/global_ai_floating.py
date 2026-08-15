@@ -88,7 +88,8 @@ def build_user_bubble(question: str) -> QWidget:
 
 def build_ai_card(answer: str, chart_spec: dict | None = None,
                   error: str = "", action: dict | None = None,
-                  options: list | None = None, on_option_send=None) -> QWidget:
+                  options: list | None = None, on_option_send=None,
+                  on_action_result=None) -> QWidget:
     """Renders an AI answer card with Chef Jay AI Profile Avatar."""
     card = QFrame()
     card.setObjectName("card")
@@ -190,13 +191,45 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
             btn_row.addWidget(confirm_btn)
             main_lay.addLayout(btn_row)
 
+            feedback_lbl = QLabel()
+            feedback_lbl.setWordWrap(True)
+            feedback_lbl.setVisible(False)
+            main_lay.addWidget(feedback_lbl)
+
             def _on_confirm():
-                res = ai_client.execute_action(action)
                 confirm_btn.setEnabled(False)
                 dismiss_btn.setEnabled(False)
-                confirm_btn.setText("Done")
+                confirm_btn.setText("Processing...")
+                res = ai_client.execute_action(action)
+                confirm_btn.setText("✓ Confirmed")
+                dismiss_btn.setVisible(False)
+                msg = res.get("message", "Action completed.") if isinstance(res, dict) else str(res)
+                is_ok = res.get("ok", True) if isinstance(res, dict) else True
+                feedback_lbl.setText(msg)
+                feedback_lbl.setStyleSheet(
+                    "color: #16A34A; font-weight: 600; font-size: 12px; padding: 6px 10px; "
+                    "background: rgba(34,197,94,0.1); border-radius: 8px; border: 1px solid rgba(34,197,94,0.25);"
+                    if is_ok else
+                    "color: #DC2626; font-weight: 600; font-size: 12px; padding: 6px 10px; "
+                    "background: rgba(239,68,68,0.1); border-radius: 8px; border: 1px solid rgba(239,68,68,0.25);"
+                )
+                feedback_lbl.setVisible(True)
+                if on_action_result:
+                    on_action_result(res)
+
+            def _on_cancel():
+                confirm_btn.setEnabled(False)
+                dismiss_btn.setEnabled(False)
+                dismiss_btn.setText("Cancelled")
+                confirm_btn.setVisible(False)
+                feedback_lbl.setText("Cancelled — no changes were made.")
+                feedback_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px; padding: 4px 8px;")
+                feedback_lbl.setVisible(True)
+                if on_action_result:
+                    on_action_result({"ok": True, "message": "Cancelled — no changes were made."})
 
             confirm_btn.clicked.connect(_on_confirm)
+            dismiss_btn.clicked.connect(_on_cancel)
 
     # Footer Action Buttons (Copy, Like)
     footer_row = QHBoxLayout()
@@ -429,6 +462,32 @@ class GlobalAIChatDrawer(QFrame):
         )
         self._add_to_feed(welcome_card)
 
+        try:
+            from utils.reminder_manager import reminder_manager
+            reminder_manager().alarm_fired.connect(self._on_alarm_fired)
+        except Exception:
+            pass
+
+    def _on_alarm_fired(self, entry: dict):
+        msg = entry.get("message", "Alarm")
+        target_dt = entry.get("target_dt")
+        time_str = target_dt.strftime("%I:%M %p").lstrip("0") if target_dt else datetime.now().strftime("%I:%M %p")
+        ans = (
+            f"⏰ **ALARM TRIGGERED** ({time_str})\n\n"
+            f"• Note: \"{msg}\"\n"
+            f"• Status: Completed\n\n"
+            f"What would you like to do?"
+        )
+        options = [
+            {"label": "Snooze 5 mins", "send": "snooze 5 minutes"},
+            {"label": "Snooze 10 mins", "send": "snooze 10 minutes"},
+            {"label": "Dismiss", "send": "ok"}
+        ]
+        card = build_ai_card(ans, None, options=options, on_option_send=self.ask)
+        self._add_to_feed(card)
+        if self._mascot_widget and hasattr(self._mascot_widget, "mascot"):
+            self._mascot_widget.mascot.set_state("surprised")
+
     def _add_to_feed(self, w: QWidget):
         self._feed.insertWidget(self._feed.count() - 1, w)
         QTimer.singleShot(60, lambda: self._scroll.verticalScrollBar().setValue(
@@ -485,12 +544,22 @@ class GlobalAIChatDrawer(QFrame):
         self._btn_ask.setText("Ask")
 
         if self._mascot_widget and hasattr(self._mascot_widget, "mascot"):
-            self._mascot_widget.mascot.set_state("happy")
+            self._mascot_widget.mascot.set_state("confused" if result.get("error") else "happy")
+
+        def _on_action_done(res: dict):
+            msg = res.get("message", "Action completed.") if isinstance(res, dict) else str(res)
+            is_ok = res.get("ok", True) if isinstance(res, dict) else True
+            if self._mascot_widget and hasattr(self._mascot_widget, "mascot"):
+                self._mascot_widget.mascot.set_state("happy" if is_ok else "confused")
+            # Post a follow-up card confirming the action execution in conversational style
+            followup_card = build_ai_card(msg, None, error="" if is_ok else msg, on_option_send=self.ask)
+            self._add_to_feed(followup_card)
 
         card = build_ai_card(
             result.get("answer", ""), result.get("chart"),
             result.get("error", ""), result.get("action"),
-            result.get("options"), on_option_send=self.ask
+            result.get("options"), on_option_send=self.ask,
+            on_action_result=_on_action_done
         )
         self._add_to_feed(card)
 
