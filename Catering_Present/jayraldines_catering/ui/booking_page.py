@@ -88,6 +88,17 @@ class BookingPage(QWidget):
         self._active_filter = "All"
         self._filter_popover = None
         self._build_ui()
+        app_events().booking_saved.connect(self._refresh_bookings)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refresh_bookings()
+
+    def _refresh_bookings(self):
+        db_rows = repo.get_all_bookings()
+        if db_rows is not None:
+            self._bookings = db_rows
+            self._populate_table()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)

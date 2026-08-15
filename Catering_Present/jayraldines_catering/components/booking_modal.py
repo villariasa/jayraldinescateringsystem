@@ -37,15 +37,15 @@ def _price_style(size=13):
 def _package_card_style(selected=False):
     if selected:
         if _is_light():
-            return ("QFrame#packageCard { background: rgba(225,29,72,0.06); border-radius: 12px; border: 2px solid #E11D48; box-sizing: border-box; }"
+            return ("QFrame#packageCard { background: rgba(225,29,72,0.06); border-radius: 12px; border: 2px solid #E11D48; }"
                     "QFrame#packageCard QLabel { color: #101828; }")
-        return ("QFrame#packageCard { background: rgba(225,29,72,0.12); border-radius: 12px; border: 2px solid #E11D48; box-sizing: border-box; }"
+        return ("QFrame#packageCard { background: rgba(225,29,72,0.12); border-radius: 12px; border: 2px solid #E11D48; }"
                 "QFrame#packageCard QLabel { color: #F9FAFB; }")
     if _is_light():
-        return ("QFrame#packageCard { background: #FFFFFF; border-radius: 12px; border: 2px solid #E4E9F1; box-sizing: border-box; }"
+        return ("QFrame#packageCard { background: #FFFFFF; border-radius: 12px; border: 2px solid #E4E9F1; }"
                 "QFrame#packageCard:hover { border: 2px solid #F4A6B8; background: #FFF8F9; }"
                 "QFrame#packageCard QLabel { color: #101828; }")
-    return ("QFrame#packageCard { background: #1F2937; border-radius: 12px; border: 2px solid #243244; box-sizing: border-box; }"
+    return ("QFrame#packageCard { background: #1F2937; border-radius: 12px; border: 2px solid #243244; }"
             "QFrame#packageCard:hover { border: 2px solid #E11D48; }"
             "QFrame#packageCard QLabel { color: #F9FAFB; }")
 

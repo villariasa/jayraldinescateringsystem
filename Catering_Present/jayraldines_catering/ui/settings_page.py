@@ -204,6 +204,18 @@ class SettingsPage(QWidget):
 
         lay.addLayout(form)
 
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+
+        test_btn = QPushButton("  Test Connection")
+        test_btn.setObjectName("secondaryButton")
+        test_btn.setIcon(get_icon("bell", color="#64748B", size=QSize(15, 15)))
+        test_btn.setIconSize(QSize(15, 15))
+        test_btn.setFixedWidth(160)
+        test_btn.setCursor(Qt.PointingHandCursor)
+        test_btn.clicked.connect(self._test_smtp)
+        btn_row.addWidget(test_btn)
+
         save_btn = QPushButton("  Save SMTP Config")
         save_btn.setObjectName("primaryButton")
         save_btn.setIcon(btn_icon_primary("check"))
@@ -211,7 +223,9 @@ class SettingsPage(QWidget):
         save_btn.setFixedWidth(180)
         save_btn.setCursor(Qt.PointingHandCursor)
         save_btn.clicked.connect(self._save_smtp)
-        lay.addWidget(save_btn, alignment=Qt.AlignRight)
+        btn_row.addWidget(save_btn)
+
+        lay.addLayout(btn_row)
 
         return card
 
@@ -568,6 +582,35 @@ class SettingsPage(QWidget):
             success(self, message="Policy saved successfully.")
         except Exception as exc:
             QMessageBox.warning(self, "Error", str(exc))
+
+    def _test_smtp(self):
+        host = self._smtp_host_f.text().strip()
+        port = self._smtp_port_f.value()
+        user = self._smtp_user_f.text().strip()
+        pwd  = self._smtp_pass_f.text()
+
+        if not host or not user or not pwd:
+            QMessageBox.warning(self, "Incomplete Configuration", "Please enter SMTP Host, Username/Email, and Password before testing.")
+            return
+
+        import smtplib
+        import ssl
+        try:
+            context = ssl.create_default_context()
+            if port == 465:
+                with smtplib.SMTP_SSL(host, port, context=context, timeout=10) as server:
+                    server.login(user, pwd)
+            else:
+                with smtplib.SMTP(host, port, timeout=10) as server:
+                    server.ehlo()
+                    server.starttls(context=context)
+                    server.login(user, pwd)
+            success(self, message=f"SMTP Connection Successful!\nConnected and authenticated with {host}:{port} as {user}.")
+        except Exception as exc:
+            err_msg = str(exc)
+            if "Application-specific password required" in err_msg or "BadCredentials" in err_msg or "Username and Password not accepted" in err_msg:
+                err_msg += "\n\nTip for Gmail: Google requires a 16-character 'App Password'.\nGo to Google Account -> Security -> 2-Step Verification -> App Passwords."
+            QMessageBox.critical(self, "SMTP Connection Failed", f"Could not connect to SMTP server:\n\n{err_msg}")
 
     def _save_smtp(self):
         try:

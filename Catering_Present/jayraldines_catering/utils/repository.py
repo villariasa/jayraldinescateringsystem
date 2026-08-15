@@ -380,7 +380,8 @@ def delete_package(db_id: int) -> bool:
 # BOOKINGS
 # ---------------------------------------------------------------------------
 
-def get_all_bookings(period_filter: str = "") -> list[dict]:
+def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> list[dict]:
+    status_clause = "AND bk_status IN ('CONFIRMED', 'COMPLETED')" if confirmed_only else ""
     rows = db.fetchall(
         f"""
         SELECT bk_id                  AS id,
@@ -392,7 +393,7 @@ def get_all_bookings(period_filter: str = "") -> list[dict]:
                bk_status::TEXT       AS status,
                bk_cancellation_reason AS cancellation_reason
         FROM bookings
-        WHERE bk_status IN ('CONFIRMED', 'COMPLETED') {period_filter}
+        WHERE 1=1 {status_clause} {period_filter}
         ORDER BY bk_event_date DESC
         """
     )
@@ -1087,11 +1088,19 @@ def get_business_policy() -> dict:
 
 
 def save_booking_policy(min_pct: float, allow_zero: bool) -> None:
-    db.callproc_void("sp_save_booking_policy", in_params=(min_pct, allow_zero))
+    db.execute("""
+        UPDATE business_info
+        SET bi_min_downpayment_pct = %s, bi_allow_zero_downpayment = %s, bi_updated_at = NOW()
+        WHERE bi_id = (SELECT MIN(bi_id) FROM business_info);
+    """, (min_pct, allow_zero))
 
 
 def save_capacity_policy(max_pax: int) -> None:
-    db.callproc_void("sp_save_capacity_policy", in_params=(max_pax,))
+    db.execute("""
+        UPDATE business_info
+        SET bi_max_daily_pax = %s, bi_updated_at = NOW()
+        WHERE bi_id = (SELECT MIN(bi_id) FROM business_info);
+    """, (max_pax,))
 
 
 def get_business_info() -> dict:
@@ -1100,7 +1109,8 @@ def get_business_info() -> dict:
                bi_contact AS contact,
                bi_email   AS email,
                bi_address AS address
-        FROM business_info LIMIT 1
+        FROM business_info
+        ORDER BY bi_id ASC LIMIT 1
     """)
     if not row:
         return {"name": "Jayraldine's Catering", "contact": "+63 912 345 6789",
@@ -1109,10 +1119,11 @@ def get_business_info() -> dict:
 
 
 def save_business_info(data: dict) -> None:
-    db.callproc_void(
-        "sp_save_business_info",
-        in_params=(data["name"], data["contact"], data["email"], data["address"]),
-    )
+    db.execute("""
+        UPDATE business_info
+        SET bi_name = %s, bi_contact = %s, bi_email = %s, bi_address = %s, bi_updated_at = NOW()
+        WHERE bi_id = (SELECT MIN(bi_id) FROM business_info);
+    """, (data["name"], data["contact"], data["email"], data["address"]))
 
 
 def get_smtp_config() -> dict:
@@ -1121,7 +1132,8 @@ def get_smtp_config() -> dict:
                bi_smtp_port AS smtp_port,
                bi_smtp_user AS smtp_user,
                bi_smtp_pass AS smtp_pass
-        FROM business_info LIMIT 1
+        FROM business_info
+        ORDER BY bi_id ASC LIMIT 1
     """)
     if not row:
         return {"smtp_host": "", "smtp_port": 587, "smtp_user": "", "smtp_pass": ""}
@@ -1134,7 +1146,11 @@ def get_smtp_config() -> dict:
 
 
 def save_smtp_config(host: str, port: int, user: str, password: str) -> None:
-    db.callproc_void("sp_save_smtp_config", in_params=(host, port, user, password))
+    db.execute("""
+        UPDATE business_info
+        SET bi_smtp_host = %s, bi_smtp_port = %s, bi_smtp_user = %s, bi_smtp_pass = %s, bi_updated_at = NOW()
+        WHERE bi_id = (SELECT MIN(bi_id) FROM business_info);
+    """, (host, port, user, password))
 
 
 # ---------------------------------------------------------------------------
