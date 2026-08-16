@@ -124,8 +124,13 @@ class CustomerSearchWidget(QWidget):
         self._dropdown.raise_()
 
     def _close_dropdown(self):
-        self._dropdown.hide()
-        self._dropdown.clear()
+        try:
+            from shiboken6 import isValid
+            if isValid(self._dropdown):
+                self._dropdown.hide()
+                self._dropdown.clear()
+        except Exception:
+            pass
 
     def _on_text_changed(self, text: str):
         if self._selected:

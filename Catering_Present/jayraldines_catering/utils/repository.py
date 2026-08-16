@@ -14,8 +14,12 @@ import utils.menu_store as menu_store
 
 
 # ---------------------------------------------------------------------------
-# CUSTOMERS
+# MENU ITEMS & PACKAGES
 # ---------------------------------------------------------------------------
+
+def get_available_menu_items() -> list[dict]:
+    return menu_store.get_available_items()
+
 
 def get_all_customers() -> list[dict]:
     rows = db.fetchall("""
@@ -1582,7 +1586,11 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
                bk_occasion      AS occasion,
                bk_venue         AS venue,
                bk_event_date    AS event_date,
+               bk_event_time    AS event_time,
                bk_pax           AS pax,
+               bk_total_amount  AS total_amount,
+               bk_amount_paid   AS amount_paid,
+               bk_menu_type::TEXT AS menu_type,
                bk_status::TEXT  AS status
         FROM bookings WHERE bk_id = %s
         """,
@@ -1590,6 +1598,27 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
     )
     if not row:
         return None
+
+    paid_row = db.fetchone(
+        """
+        SELECT COALESCE(SUM(pr.pr_amount), 0) AS total_paid
+        FROM invoices i
+        JOIN payment_records pr ON pr.pr_invoice_id = i.inv_id
+        WHERE i.inv_booking_id = %s
+        """,
+        (db_id,),
+    )
+    paid_val = float(paid_row["total_paid"]) if (paid_row and float(paid_row["total_paid"]) > 0) else float(row["amount_paid"] or 0)
+
+    time_str = "—"
+    if row.get("event_time"):
+        if isinstance(row["event_time"], (time, datetime)):
+            time_str = row["event_time"].strftime("%I:%M %p")
+        else:
+            time_str = str(row["event_time"])
+
+    total_val = float(row["total_amount"] or 0)
+
     return {
         "db_id":         row["id"],
         "customer_id":   row["customer_id"],
@@ -1600,7 +1629,13 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
         "occasion":      row["occasion"],
         "venue":         row["venue"],
         "event_date":    row["event_date"].strftime("%b %d, %Y") if isinstance(row["event_date"], date) else str(row["event_date"]),
+        "event_time":    time_str,
         "pax":           row["pax"],
+        "total_amount":  total_val,
+        "total":         total_val,
+        "amount_paid":   paid_val,
+        "paid":          paid_val,
+        "menu_type":     row["menu_type"] or "package",
         "status":        row["status"],
     }
 

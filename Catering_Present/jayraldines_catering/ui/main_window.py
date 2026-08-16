@@ -143,9 +143,13 @@ class MainWindow(QMainWindow):
         self.stack.removeWidget(self.stack.widget(index))
         self.stack.insertWidget(index, page)
 
-        if index == 0 and hasattr(page, "new_booking_requested"):
-            page.new_booking_requested.connect(lambda: self._navigate(1))
-            page.view_all_activity_requested.connect(lambda: self._navigate(1))
+        if index == 0:
+            if hasattr(page, "new_booking_requested"):
+                page.new_booking_requested.connect(lambda: self._navigate(1))
+            if hasattr(page, "view_all_activity_requested"):
+                page.view_all_activity_requested.connect(lambda: self._navigate(1))
+            if hasattr(page, "ai_requested"):
+                page.ai_requested.connect(lambda: self._navigate(9))
 
         return page
 

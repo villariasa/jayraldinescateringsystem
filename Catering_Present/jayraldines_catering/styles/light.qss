@@ -45,17 +45,10 @@ QLabel#badgeGold    { background-color: rgba(245,158,11,0.10);  color: #D97706; 
 #sidebar {
     background-color: #FFFFFF;
     border-right: 1px solid #E2E8F0;
-    min-width: 240px;
-    max-width: 240px;
-}
-
-#sidebar[collapsed="true"] {
-    min-width: 64px;
-    max-width: 64px;
 }
 
 #logoArea {
-    padding: 24px 20px 20px 20px;
+    padding: 0px;
     border-bottom: 1px solid #E2E8F0;
 }
 
@@ -101,14 +94,15 @@ QLabel#badgeGold    { background-color: rgba(245,158,11,0.10);  color: #D97706; 
 }
 
 #collapseBtn {
-    background: transparent;
-    border: none;
-    padding: 8px;
+    background-color: rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: 8px;
-    margin: 4px 8px;
+    padding: 0px;
+    margin: 0px;
 }
 #collapseBtn:hover {
-    background-color: #F1F5F9;
+    background-color: rgba(225, 29, 72, 0.15);
+    border-color: #E11D48;
 }
 
 #userProfileArea {

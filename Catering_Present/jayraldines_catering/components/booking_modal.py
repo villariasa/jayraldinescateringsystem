@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QDateEdit, QTimeEdit, QSpinBox,
     QFrame, QWidget, QStackedWidget, QTextEdit, QCheckBox,
     QScrollArea, QSizePolicy,
@@ -589,12 +589,14 @@ class BookingModal(QDialog):
 
         try:
             custom_items = repo.get_available_menu_items()
+            if not custom_items:
+                custom_items = menu_store.get_available_items()
         except Exception as exc:
             print(f"[BookingModal] Error fetching custom menu items: {exc}")
-            custom_items = []
+            custom_items = menu_store.get_available_items()
 
         if not custom_items:
-            empty_lbl = QLabel("No custom menu items found.")
+            empty_lbl = QLabel("No custom menu items found.\nAdd items in the Menu section.")
             empty_lbl.setObjectName("subtitle")
             empty_lbl.setAlignment(Qt.AlignCenter)
             empty_lbl.setContentsMargins(0, 20, 0, 20)
@@ -603,8 +605,10 @@ class BookingModal(QDialog):
             for item in custom_items:
                 row = QHBoxLayout()
                 row.setSpacing(12)
-                chk = QCheckBox(item.get("item") or item.get("name", ""))
+                item_name = item.get("item") or item.get("name", "")
+                chk = QCheckBox(item_name)
                 chk.setStyleSheet(_checkbox_item_style())
+                chk.toggled.connect(lambda: self._update_cost())
                 cat = QLabel(item.get("category", ""))
                 cat.setStyleSheet(_muted_style(11))
                 price_val = float(item.get("price", 0))
@@ -614,7 +618,7 @@ class BookingModal(QDialog):
                 row.addWidget(cat)
                 row.addStretch()
                 row.addWidget(p)
-                self._custom_checks.append(chk)
+                self._custom_checks.append((chk, item))
                 cus_lay.addLayout(row)
         cus_lay.addStretch()
         scroll_c = QScrollArea()
@@ -664,6 +668,7 @@ class BookingModal(QDialog):
 
         direction = 1 if index > self.menu_stack.currentIndex() else -1
         self.menu_stack.setCurrentIndex(index)
+        self._update_cost()
         animate_slide_fade_in(
             self.menu_stack.currentWidget(),
             offset_x=8 * direction,
@@ -735,22 +740,19 @@ class BookingModal(QDialog):
         pax = self.f_pax.value() if hasattr(self, "f_pax") else 100
         pkg_idx = getattr(self, "_selected_pkg", None)
         db_pkgs = getattr(self, "_db_packages", [])
+
         # If user is in Custom Menu mode, compute rate from selected custom items
-        if getattr(self, "menu_stack", None) and self.menu_stack.currentIndex() == 1:
-            # map _custom_checks to menu_store.get_available_items()
-            items = menu_store.get_available_items()
-            rate = 0
-            try:
-                for chk, item in zip(getattr(self, "_custom_checks", []), items):
-                    if chk.isChecked():
-                        rate += float(item.get("price", 0))
-            except Exception:
-                rate = 0
+        if getattr(self, "btn_custom", None) and self.btn_custom.isChecked():
+            rate = 0.0
+            for chk, item in getattr(self, "_custom_checks", []):
+                if chk.isChecked():
+                    rate += float(item.get("price", 0))
         else:
             if pkg_idx is not None and db_pkgs and pkg_idx < len(db_pkgs):
-                rate = db_pkgs[pkg_idx]["price_per_pax"]
+                rate = float(db_pkgs[pkg_idx]["price_per_pax"])
             else:
-                rate = 0
+                rate = 0.0
+
         total = pax * rate
         try:
             policy = repo.get_business_policy()
@@ -760,7 +762,7 @@ class BookingModal(QDialog):
             pct = 30
             allow_zero = False
         deposit = round(total * pct / 100, 2)
-        self._lbl_base.setText(f"Base Rate: ₱{rate:,} × {pax} pax")
+        self._lbl_base.setText(f"Base Rate: ₱{rate:,.2f} × {pax} pax")
         self._lbl_total.setText(f"Grand Total: ₱{total:,.2f}")
         if allow_zero:
             self._lbl_deposit.setText("No downpayment required.")
@@ -823,37 +825,39 @@ class BookingModal(QDialog):
             self._refresh_step(direction=-1)
 
     def _save(self):
-        custom_items = [chk.text() for chk in self._custom_checks if chk.isChecked()]
+        self._btn_next.setText("  Creating & Sending Email...")
+        self._btn_next.setEnabled(False)
+        self._btn_back.setEnabled(False)
+        QApplication.processEvents()
+
         menu_type = "package"
         db_pkgs = getattr(self, "_db_packages", [])
         pkg_idx = getattr(self, "_selected_pkg", None)
 
-        # Default rate from selected package (if any)
-        if db_pkgs and pkg_idx is not None and pkg_idx < len(db_pkgs):
-            menu_value = db_pkgs[pkg_idx]["name"]
-            rate = float(db_pkgs[pkg_idx]["price_per_pax"])
-        else:
-            menu_value = ""
-            rate = 0.0
-
-        # If Custom Menu is active, compute rate by summing selected custom item prices
-        if self.btn_custom.isChecked() and custom_items:
+        if self.btn_custom.isChecked():
             menu_type = "custom"
-            # build menu_value as comma-joined names (minimal, non-breaking)
-            menu_value = ", ".join(custom_items)
-            try:
-                items = menu_store.get_available_items()
-                custom_rate = 0.0
-                for chk, item in zip(getattr(self, "_custom_checks", []), items):
-                    if chk.isChecked():
-                        custom_rate += float(item.get("price", 0))
-                rate = custom_rate
-            except Exception:
-                # fallback: leave rate as previously determined (likely 0)
-                rate = float(rate or 0)
+            selected_items = [
+                item.get("item") or item.get("name", "")
+                for chk, item in getattr(self, "_custom_checks", [])
+                if chk.isChecked()
+            ]
+            menu_value = ", ".join(selected_items) if selected_items else "Custom Menu"
+            rate = sum(
+                float(item.get("price", 0))
+                for chk, item in getattr(self, "_custom_checks", [])
+                if chk.isChecked()
+            )
+        else:
+            menu_type = "package"
+            if db_pkgs and pkg_idx is not None and pkg_idx < len(db_pkgs):
+                menu_value = db_pkgs[pkg_idx]["name"]
+                rate = float(db_pkgs[pkg_idx]["price_per_pax"])
+            else:
+                menu_value = "Standard Package"
+                rate = 0.0
 
         pax = self.f_pax.value()
-        total = pax * rate
+        total = float(pax * rate)
 
         selected_customer = self.f_customer_search.get_selection() or {}
         data = {

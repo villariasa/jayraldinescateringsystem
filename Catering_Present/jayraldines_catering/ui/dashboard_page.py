@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QProgressBar, QScrollArea,
-    QFileDialog, QMessageBox, QMenu, QSizePolicy
+    QFileDialog, QMessageBox, QMenu, QSizePolicy, QStackedWidget
 )
 from PySide6.QtCore import Qt, Signal, QSize, QTimer
 from PySide6.QtGui import QAction
@@ -18,6 +18,279 @@ class AnimatedCard(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("card")
+
+
+class WelcomeHeroSlideshow(AnimatedCard):
+    """Luxury glassmorphic greeting and introduction slideshow."""
+    new_booking_requested = Signal()
+    manage_bookings_requested = Signal()
+    ai_requested = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("heroSlideshowCard")
+        self._curr_idx = 0
+        self._slide_widgets = []
+        self._build_ui()
+
+        self._apply_theme_styles()
+        ThemeManager().theme_changed.connect(self._apply_theme_styles)
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(6500)
+        self._timer.timeout.connect(self._next_slide)
+        self._timer.start()
+
+    def _build_ui(self):
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(28, 20, 28, 20)
+        lay.setSpacing(20)
+
+        # Left: Stack of 3 Slides
+        self._stack = QStackedWidget()
+        self._stack.setStyleSheet("background: transparent; border: none;")
+
+        now = datetime.now()
+        hour = now.hour
+        if hour < 12:
+            greet_title = "Good Morning, Team Jayraldine"
+            flavor = "Operations and kitchen prep are online for today's catering schedule."
+        elif hour < 18:
+            greet_title = "Good Afternoon, Team Jayraldine"
+            flavor = "Active reservations and order pipelines are synchronized."
+        else:
+            greet_title = "Good Evening, Team Jayraldine"
+            flavor = "Dinner services, receipts, and revenue logs are secured."
+
+        today_str = now.strftime("%A, %B %d, %Y")
+
+        slide0 = self._make_slide(
+            badge="EXECUTIVE BRIEFING • SYSTEM ONLINE",
+            badge_color_dark="#38BDF8",
+            badge_color_light="#0284C7",
+            title=greet_title,
+            desc=f"{flavor}\n{today_str}",
+            btn_text="New Reservation",
+            btn_cb=self.new_booking_requested.emit,
+        )
+
+        slide1 = self._make_slide(
+            badge="RESERVATIONS & DISPATCH",
+            badge_color_dark="#34D399",
+            badge_color_light="#059669",
+            title="Real-Time Bookings & Automated Email Dispatch",
+            desc="Create reservations, send branded PDF receipts, and dispatch client approval requests directly via SMTP.",
+            btn_text="Manage Orders",
+            btn_cb=self.manage_bookings_requested.emit,
+        )
+
+        slide2 = self._make_slide(
+            badge="CHEF JAY AI INTELLIGENCE",
+            badge_color_dark="#FB7185",
+            badge_color_light="#E11D48",
+            title="Recipe Costing, Margin Analytics & Kitchen Optimization",
+            desc="Chef Jay is ready to forecast ingredient requirements, analyze profit margins, and assist with menu packages.",
+            btn_text="Open AI Assistant",
+            btn_cb=self.ai_requested.emit,
+        )
+
+        self._stack.addWidget(slide0)
+        self._stack.addWidget(slide1)
+        self._stack.addWidget(slide2)
+        lay.addWidget(self._stack, 1)
+
+        # Right: Controls
+        ctrl_col = QVBoxLayout()
+        ctrl_col.setContentsMargins(0, 0, 0, 0)
+        ctrl_col.setSpacing(8)
+        ctrl_col.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        nav_row = QHBoxLayout()
+        nav_row.setSpacing(6)
+
+        self._btn_prev = QPushButton()
+        self._btn_prev.setFixedSize(28, 28)
+        self._btn_prev.setCursor(Qt.PointingHandCursor)
+        self._btn_prev.clicked.connect(self._prev_slide)
+
+        self._btn_next = QPushButton()
+        self._btn_next.setFixedSize(28, 28)
+        self._btn_next.setCursor(Qt.PointingHandCursor)
+        self._btn_next.clicked.connect(self._next_slide)
+
+        nav_row.addWidget(self._btn_prev)
+        nav_row.addWidget(self._btn_next)
+        ctrl_col.addLayout(nav_row)
+
+        self._dots = []
+        dots_row = QHBoxLayout()
+        dots_row.setSpacing(6)
+        dots_row.setAlignment(Qt.AlignCenter)
+
+        for i in range(3):
+            dot = QPushButton()
+            dot.setFixedSize(8, 8)
+            dot.setCursor(Qt.PointingHandCursor)
+            dot.clicked.connect(lambda _, idx=i: self._set_slide(idx))
+            self._dots.append(dot)
+            dots_row.addWidget(dot)
+
+        ctrl_col.addLayout(dots_row)
+        lay.addLayout(ctrl_col)
+
+        self._update_dots()
+
+    def _make_slide(self, badge, badge_color_dark, badge_color_light, title, desc, btn_text, btn_cb):
+        w = QWidget()
+        w.setObjectName("heroSlideItem")
+        w.setStyleSheet("QWidget#heroSlideItem { background: transparent; border: none; }")
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(5)
+
+        tag = QLabel(badge)
+        tag.setProperty("badge_color_dark", badge_color_dark)
+        tag.setProperty("badge_color_light", badge_color_light)
+        v.addWidget(tag, alignment=Qt.AlignLeft)
+
+        t = QLabel(title)
+        v.addWidget(t)
+
+        d = QLabel(desc)
+        d.setWordWrap(True)
+        v.addWidget(d)
+
+        btn = QPushButton(btn_text)
+        btn.setFixedHeight(28)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #E11D48, stop:1 #FB7185);
+                color: #FFFFFF;
+                font-size: 11px;
+                font-weight: 800;
+                border: none;
+                border-radius: 6px;
+                padding: 0 14px;
+                letter-spacing: 0.3px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #BE123C, stop:1 #F43F5E);
+            }
+        """)
+        btn.clicked.connect(btn_cb)
+        v.addWidget(btn, alignment=Qt.AlignLeft)
+
+        self._slide_widgets.append((w, tag, t, d, btn))
+        return w
+
+    def _apply_theme_styles(self):
+        try:
+            dark = ThemeManager().is_dark()
+            if dark:
+                self.setStyleSheet("""
+                    QFrame#heroSlideshowCard {
+                        background: qlineargradient(
+                            x1:0, y1:0, x2:1, y2:0,
+                            stop:0 #0F172A,
+                            stop:0.45 #1E1B4B,
+                            stop:0.8 #0F172A,
+                            stop:1 #111827
+                        );
+                        border: 1px solid rgba(244, 63, 94, 0.35);
+                        border-radius: 18px;
+                    }
+                    QWidget#heroSlideItem { background: transparent; border: none; }
+                """)
+                self._btn_prev.setIcon(get_icon("chevron-left", color="#FFFFFF", size=QSize(13, 13)))
+                self._btn_next.setIcon(get_icon("chevron-right", color="#FFFFFF", size=QSize(13, 13)))
+                btn_css = """
+                    QPushButton {
+                        background: rgba(255, 255, 255, 0.08);
+                        border: 1px solid rgba(255, 255, 255, 0.15);
+                        border-radius: 14px;
+                    }
+                    QPushButton:hover { background: rgba(225, 29, 72, 0.4); border-color: #E11D48; }
+                """
+            else:
+                self.setStyleSheet("""
+                    QFrame#heroSlideshowCard {
+                        background: qlineargradient(
+                            x1:0, y1:0, x2:1, y2:0,
+                            stop:0 #FFFFFF,
+                            stop:0.45 #FFF1F2,
+                            stop:0.85 #F8FAFC,
+                            stop:1 #FFFFFF
+                        );
+                        border: 1px solid #FECDD3;
+                        border-radius: 18px;
+                    }
+                    QWidget#heroSlideItem { background: transparent; border: none; }
+                """)
+                self._btn_prev.setIcon(get_icon("chevron-left", color="#334155", size=QSize(13, 13)))
+                self._btn_next.setIcon(get_icon("chevron-right", color="#334155", size=QSize(13, 13)))
+                btn_css = """
+                    QPushButton {
+                        background: rgba(0, 0, 0, 0.04);
+                        border: 1px solid rgba(0, 0, 0, 0.08);
+                        border-radius: 14px;
+                    }
+                    QPushButton:hover { background: rgba(225, 29, 72, 0.15); border-color: #E11D48; }
+                """
+
+            self._btn_prev.setStyleSheet(btn_css)
+            self._btn_next.setStyleSheet(btn_css)
+
+            for w, tag, t, d, btn in self._slide_widgets:
+                badge_col = tag.property("badge_color_dark" if dark else "badge_color_light")
+                tag_bg = "rgba(255, 255, 255, 0.05)" if dark else "rgba(225, 29, 72, 0.08)"
+                tag_border = "rgba(255, 255, 255, 0.1)" if dark else "rgba(225, 29, 72, 0.2)"
+                tag.setStyleSheet(f"""
+                    color: {badge_col};
+                    font-size: 10px;
+                    font-weight: 800;
+                    letter-spacing: 1.2px;
+                    background: {tag_bg};
+                    border: 1px solid {tag_border};
+                    padding: 3px 8px;
+                    border-radius: 6px;
+                """)
+                t.setStyleSheet(f"color: {'#FFFFFF' if dark else '#0F172A'}; font-size: 16px; font-weight: 800; letter-spacing: -0.3px; background: transparent;")
+                d.setStyleSheet(f"color: {'#94A3B8' if dark else '#475569'}; font-size: 11.5px; font-weight: 500; line-height: 1.3; background: transparent;")
+
+            self._update_dots()
+        except Exception:
+            pass
+
+    def _set_slide(self, idx: int):
+        self._curr_idx = idx % 3
+        self._stack.setCurrentIndex(self._curr_idx)
+        self._update_dots()
+
+    def _next_slide(self):
+        self._set_slide(self._curr_idx + 1)
+
+    def _prev_slide(self):
+        self._set_slide(self._curr_idx - 1)
+
+    def _update_dots(self):
+        dark = ThemeManager().is_dark()
+        inactive_color = "rgba(255, 255, 255, 0.25)" if dark else "rgba(0, 0, 0, 0.18)"
+        for i, dot in enumerate(self._dots):
+            if i == self._curr_idx:
+                dot.setStyleSheet("background-color: #E11D48; border-radius: 4px; border: none;")
+                dot.setFixedSize(18, 6)
+            else:
+                dot.setStyleSheet(f"background-color: {inactive_color}; border-radius: 3px; border: none;")
+                dot.setFixedSize(6, 6)
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self._timer.stop()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self._timer.start()
 
 
 class KPICard(AnimatedCard):
@@ -337,6 +610,7 @@ class EventItem(QWidget):
 class DashboardPage(QWidget):
     new_booking_requested = Signal()
     view_all_activity_requested = Signal()
+    ai_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -386,6 +660,12 @@ class DashboardPage(QWidget):
         btn_layout.addWidget(self.btn_new)
         header_row.addLayout(btn_layout)
         self.lay.addLayout(header_row)
+
+        self.slideshow = WelcomeHeroSlideshow(self.content)
+        self.slideshow.new_booking_requested.connect(self.new_booking_requested.emit)
+        self.slideshow.manage_bookings_requested.connect(self.new_booking_requested.emit)
+        self.slideshow.ai_requested.connect(self.ai_requested.emit)
+        self.lay.addWidget(self.slideshow)
 
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(16)

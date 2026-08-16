@@ -165,7 +165,7 @@ class ChefMascot(QWidget):
     # ── Qt properties for QPropertyAnimation ────────────────────────
 
     def _get_bob(self):
-        return self._bob_offset
+        return getattr(self, "_bob_offset", 0.0)
 
     def _set_bob(self, v):
         try:
@@ -177,7 +177,7 @@ class ChefMascot(QWidget):
     bob_offset = Property(float, _get_bob, _set_bob)
 
     def _get_tilt(self):
-        return self._tilt_angle
+        return getattr(self, "_tilt_angle", 0.0)
 
     def _set_tilt(self, v):
         try:
@@ -189,7 +189,7 @@ class ChefMascot(QWidget):
     tilt_angle = Property(float, _get_tilt, _set_tilt)
 
     def _get_scale(self):
-        return self._scale
+        return getattr(self, "_scale", 1.0)
 
     def _set_scale(self, v):
         try:
@@ -201,7 +201,7 @@ class ChefMascot(QWidget):
     scale_factor = Property(float, _get_scale, _set_scale)
 
     def _get_hat_offset(self):
-        return self._hat_offset
+        return getattr(self, "_hat_offset", 0.0)
 
     def _set_hat_offset(self, v):
         try:
@@ -213,7 +213,7 @@ class ChefMascot(QWidget):
     hat_offset_prop = Property(float, _get_hat_offset, _set_hat_offset)
 
     def _get_eye_scale(self):
-        return self._eye_scale
+        return getattr(self, "_eye_scale", 1.0)
 
     def _set_eye_scale(self, v):
         try:

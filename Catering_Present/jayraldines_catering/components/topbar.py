@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QLineEdit, QWidget, QMessageBox, QFileDialog
-from PySide6.QtCore import Qt, QSize, Signal, QTimer
+from PySide6.QtCore import Qt, QSize, Signal, QTimer, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QFont
 import sys
 import os
@@ -34,6 +34,118 @@ _TOP_NAV_ITEMS = [
 ]
 
 
+class AnimatedTopNav(QWidget):
+    """Modern pill capsule navigation bar with a smooth sliding indicator."""
+    tab_selected = Signal(int)
+
+    def __init__(self, theme_mgr, parent=None):
+        super().__init__(parent)
+        self._theme = theme_mgr
+        self.setFixedHeight(38)
+        self.setObjectName("topNavCapsule")
+
+        self._active_index = 0
+        self._buttons = {}
+
+        # Floating sliding indicator pill
+        self._indicator = QFrame(self)
+        self._indicator.setObjectName("navPillIndicator")
+        self._indicator.setStyleSheet("""
+            QFrame#navPillIndicator {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #E11D48, stop:1 #FB7185);
+                border-radius: 8px;
+            }
+        """)
+        self._indicator.hide()
+
+        self._anim = QPropertyAnimation(self._indicator, b"geometry")
+        self._anim.setDuration(220)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(4, 3, 4, 3)
+        self._layout.setSpacing(4)
+
+        for text, icon_name, index in _TOP_NAV_ITEMS:
+            btn = QPushButton(f" {text}", self)
+            btn.setObjectName("topNavTabClean")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFixedHeight(32)
+            btn.setIconSize(QSize(15, 15))
+            btn.setProperty("icon_name", icon_name)
+            btn.setProperty("tab_index", index)
+            btn.clicked.connect(lambda _, idx=index: self.tab_selected.emit(idx))
+            self._layout.addWidget(btn)
+            self._buttons[index] = btn
+
+        self._apply_theme()
+        QTimer.singleShot(60, lambda: self.set_active_page(0, animate=False))
+
+    def _apply_theme(self):
+        dark = self._theme.is_dark()
+        if dark:
+            self.setStyleSheet("""
+                QWidget#topNavCapsule {
+                    background-color: rgba(255, 255, 255, 0.04);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 10px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QWidget#topNavCapsule {
+                    background-color: rgba(0, 0, 0, 0.04);
+                    border: 1px solid rgba(0, 0, 0, 0.08);
+                    border-radius: 10px;
+                }
+            """)
+
+    def set_active_page(self, index: int, animate: bool = True):
+        self._active_index = index
+        dark = self._theme.is_dark()
+        target_btn = self._buttons.get(index)
+
+        if target_btn:
+            self._indicator.show()
+            self._indicator.raise_()
+            for btn in self._buttons.values():
+                btn.raise_()
+
+            target_geo = target_btn.geometry()
+            if target_geo.isValid() and target_geo.width() > 0:
+                if animate and self._indicator.isVisible() and self._indicator.geometry().width() > 0:
+                    self._anim.stop()
+                    self._anim.setStartValue(self._indicator.geometry())
+                    self._anim.setEndValue(target_geo)
+                    self._anim.start()
+                else:
+                    self._indicator.setGeometry(target_geo)
+
+            for idx, btn in self._buttons.items():
+                icon_name = btn.property("icon_name")
+                if idx == index:
+                    btn.setStyleSheet("QPushButton { background: transparent; color: #FFFFFF; font-weight: 700; border: none; padding: 0 12px; font-size: 13px; }")
+                    btn.setIcon(get_icon(icon_name, color="#FFFFFF", size=QSize(15, 15)))
+                else:
+                    color_muted = "#94A3B8" if dark else "#64748B"
+                    hover_color = "#F9FAFB" if dark else "#0F172A"
+                    btn.setStyleSheet(f"QPushButton {{ background: transparent; color: {color_muted}; font-weight: 600; border: none; padding: 0 12px; font-size: 13px; }} QPushButton:hover {{ color: {hover_color}; }}")
+                    btn.setIcon(get_icon(icon_name, color=color_muted, size=QSize(15, 15)))
+        else:
+            self._indicator.hide()
+            for idx, btn in self._buttons.items():
+                icon_name = btn.property("icon_name")
+                color_muted = "#94A3B8" if dark else "#64748B"
+                btn.setStyleSheet(f"QPushButton {{ background: transparent; color: {color_muted}; font-weight: 600; border: none; padding: 0 12px; font-size: 13px; }}")
+                btn.setIcon(get_icon(icon_name, color=color_muted, size=QSize(15, 15)))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        target_btn = self._buttons.get(self._active_index)
+        if target_btn and target_btn.geometry().isValid() and target_btn.geometry().width() > 0:
+            self._indicator.setGeometry(target_btn.geometry())
+
+
 class TopBar(QFrame):
     search_changed = Signal(str)
     tab_selected = Signal(int)
@@ -45,8 +157,8 @@ class TopBar(QFrame):
         self._theme = ThemeManager()
 
         self.main_layout = QHBoxLayout(self)
-        self.main_layout.setContentsMargins(12, 0, 12, 0)
-        self.main_layout.setSpacing(8)
+        self.main_layout.setContentsMargins(16, 0, 16, 0)
+        self.main_layout.setSpacing(12)
 
         self.page_title = QLabel("Dashboard", self)
         self.page_title.setObjectName("h2")
@@ -54,28 +166,11 @@ class TopBar(QFrame):
 
         self.main_layout.addStretch()
 
-        # ── Facebook-Style Main Navigation Tabs ──────────────────────────────
-        self.top_nav_wrap = QWidget(self)
-        self.top_nav_layout = QHBoxLayout(self.top_nav_wrap)
-        self.top_nav_layout.setContentsMargins(0, 0, 0, 0)
-        self.top_nav_layout.setSpacing(4)
+        # Animated sliding top navigation
+        self.top_nav = AnimatedTopNav(self._theme, self)
+        self.top_nav.tab_selected.connect(self.tab_selected.emit)
+        self.main_layout.addWidget(self.top_nav)
 
-        self.top_tab_btns = {}
-        for text, icon_name, index in _TOP_NAV_ITEMS:
-            btn = QPushButton(f" {text}", self.top_nav_wrap)
-            btn.setObjectName("topNavTab")
-            btn.setCheckable(True)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(36)
-            btn.setIconSize(QSize(15, 15))
-            btn.setIcon(get_icon(icon_name, color="#6B7280" if self._theme.is_dark() else "#5B6B84", size=QSize(15, 15)))
-            btn.setProperty("icon_name", icon_name)
-            btn.setProperty("tab_index", index)
-            btn.clicked.connect(lambda _, idx=index: self.tab_selected.emit(idx))
-            self.top_nav_layout.addWidget(btn)
-            self.top_tab_btns[index] = btn
-
-        self.main_layout.addWidget(self.top_nav_wrap)
         self.main_layout.addStretch()
 
         # ✅ Responsive search bar
@@ -350,21 +445,25 @@ class TopBar(QFrame):
     def _toggle_theme(self):
         new_theme = self._theme.toggle()
         self._update_theme_icon()
+        self.top_nav._apply_theme()
+        self.top_nav.set_active_page(getattr(self, "_current_page_index", 0), animate=False)
 
     def _update_theme_icon(self):
         if self._theme.is_dark():
-            self.theme_btn.setText("☀")
+            self.theme_btn.setText("")
+            self.theme_btn.setIcon(get_icon("sun", color="#F59E0B", size=QSize(16, 16)))
             self.theme_btn.setToolTip("Switch to Light theme")
             self.theme_btn.setStyleSheet(
-                "QPushButton { background: transparent; border: none; font-size: 16px; border-radius: 8px; }"
-                "QPushButton:hover { background: #1F2937; }"
+                "QPushButton { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; }"
+                "QPushButton:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.2); }"
             )
         else:
-            self.theme_btn.setText("🌙")
+            self.theme_btn.setText("")
+            self.theme_btn.setIcon(get_icon("moon", color="#6366F1", size=QSize(16, 16)))
             self.theme_btn.setToolTip("Switch to Dark theme")
             self.theme_btn.setStyleSheet(
-                "QPushButton { background: transparent; border: none; font-size: 16px; border-radius: 8px; }"
-                "QPushButton:hover { background: #EDF1F7; }"
+                "QPushButton { background: rgba(0, 0, 0, 0.04); border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 8px; }"
+                "QPushButton:hover { background: rgba(0, 0, 0, 0.08); border-color: rgba(0, 0, 0, 0.15); }"
             )
 
     def _tick_clock(self):
@@ -377,16 +476,4 @@ class TopBar(QFrame):
         self.search_box.blockSignals(True)
         self.search_box.setText(search_text)
         self.search_box.blockSignals(False)
-
-        dark = self._theme.is_dark()
-        active_color = icons.COLOR_PRIMARY
-        inactive_color = "#9CA3AF" if dark else "#5B6B84"
-
-        for idx, btn in self.top_tab_btns.items():
-            icon_name = btn.property("icon_name")
-            is_active = (idx == index)
-            btn.setChecked(is_active)
-            btn.setObjectName("topNavTabActive" if is_active else "topNavTab")
-            btn.setIcon(get_icon(icon_name, color=active_color if is_active else inactive_color, size=QSize(15, 15)))
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
+        self.top_nav.set_active_page(index, animate=True)

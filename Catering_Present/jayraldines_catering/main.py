@@ -161,8 +161,7 @@ def main():
     app.aboutToQuit.connect(db.close)
     app.window_ref = window
 
-    window.showFullScreen()
-    splash.close()
+    splash.finish(window)
     _profile("main window shown")
 
     app.aboutToQuit.connect(lambda: print("[QT] aboutToQuit triggered"))
