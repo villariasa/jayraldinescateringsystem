@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QComboBox, QDateEdit, QTimeEdit, QSpinBox,
+    QLineEdit, QComboBox, QDateEdit, QTimeEdit, QSpinBox, QDoubleSpinBox,
     QFrame, QWidget, QStackedWidget, QTextEdit, QCheckBox,
     QScrollArea, QSizePolicy,
 )
@@ -551,9 +551,7 @@ class BookingModal(QDialog):
         else:
             for i, pkg in enumerate(self._db_packages):
                 name = pkg["name"]
-                rate = pkg["price_per_pax"]
                 desc = pkg["description"] or ""
-                price_str = f"₱{rate:,.0f}/pax"
                 card = QFrame()
                 card.setObjectName("packageCard")
                 card.setStyleSheet(_package_card_style(selected=(i == 0)))
@@ -571,9 +569,6 @@ class BookingModal(QDialog):
                 info.addWidget(d_lbl)
                 card_lay.addLayout(info)
                 card_lay.addStretch()
-                p_lbl = QLabel(price_str)
-                p_lbl.setStyleSheet(_price_style(13))
-                card_lay.addWidget(p_lbl)
                 sel_btn = QPushButton("Selected" if i == 0 else "Select")
                 sel_btn.setObjectName("primaryButton" if i == 0 else "secondaryButton")
                 sel_btn.setMinimumWidth(96)
@@ -687,6 +682,12 @@ class BookingModal(QDialog):
             self._set_menu_mode(0)
         except Exception:
             pass
+        if hasattr(self, "_db_packages") and idx < len(self._db_packages):
+            rate = float(self._db_packages[idx].get("price_per_pax", 0))
+            pax_val = self.f_pay_pax.value() if hasattr(self, "f_pay_pax") else (self.f_pax.value() if hasattr(self, "f_pax") else 100)
+            if hasattr(self, "f_pay_package_total"):
+                self.f_pay_package_total.setValue(pax_val * rate)
+
         for i, (card, btn) in enumerate(self._pkg_btns):
             if i == idx:
                 card.setStyleSheet(_package_card_style(selected=True))
@@ -698,6 +699,7 @@ class BookingModal(QDialog):
                 btn.setText("Select")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+        self._update_cost()
 
     def _build_step3(self):
         w = QWidget()
@@ -719,25 +721,47 @@ class BookingModal(QDialog):
 
         lay.addWidget(_section_label("Payment Summary & Pricing Adjustments"))
 
-        # Pax Adjustment Control Box
+        # Pax & Overall Package Total Adjustment Control Box
         pax_box = QFrame()
         pax_box.setObjectName("cardElevated")
         pax_lay = QHBoxLayout(pax_box)
         pax_lay.setContentsMargins(16, 10, 16, 10)
-        pax_lay.setSpacing(12)
+        pax_lay.setSpacing(14)
 
-        lbl_pax_title = QLabel("👥 Adjust Guest Count (Pax):")
+        lbl_pax_title = QLabel("👥 Guests (Pax):")
         lbl_pax_title.setStyleSheet("font-weight: 600; font-size: 13px;")
         
         self.f_pay_pax = QSpinBox()
         self.f_pay_pax.setRange(10, 2000)
         self.f_pay_pax.setValue(self.f_pax.value())
         self.f_pay_pax.setFixedHeight(34)
-        self.f_pay_pax.setMinimumWidth(110)
+        self.f_pay_pax.setMinimumWidth(85)
         self.f_pay_pax.valueChanged.connect(self._on_pay_pax_changed)
+
+        lbl_total_title = QLabel("📦 Overall Package Base Total (₱):")
+        lbl_total_title.setStyleSheet("font-weight: 600; font-size: 13px;")
+
+        self.f_pay_package_total = QDoubleSpinBox()
+        self.f_pay_package_total.setRange(0.0, 10000000.0)
+        self.f_pay_package_total.setDecimals(2)
+        self.f_pay_package_total.setPrefix("₱ ")
+        self.f_pay_package_total.setFixedHeight(34)
+        self.f_pay_package_total.setMinimumWidth(150)
+        
+        pax_val = self.f_pax.value()
+        initial_base_total = 0.0
+        if getattr(self, "_db_packages", None) and getattr(self, "_selected_pkg", 0) is not None:
+            if self._selected_pkg < len(self._db_packages):
+                rate = float(self._db_packages[self._selected_pkg].get("price_per_pax", 0))
+                initial_base_total = pax_val * rate
+        self.f_pay_package_total.setValue(initial_base_total)
+        self.f_pay_package_total.valueChanged.connect(lambda: self._update_cost())
 
         pax_lay.addWidget(lbl_pax_title)
         pax_lay.addWidget(self.f_pay_pax)
+        pax_lay.addSpacing(10)
+        pax_lay.addWidget(lbl_total_title)
+        pax_lay.addWidget(self.f_pay_package_total)
         pax_lay.addStretch()
         lay.addWidget(pax_box)
 
@@ -861,21 +885,24 @@ class BookingModal(QDialog):
 
     def _update_cost(self):
         pax = self.f_pay_pax.value() if hasattr(self, "f_pay_pax") else (self.f_pax.value() if hasattr(self, "f_pax") else 100)
-        pkg_idx = getattr(self, "_selected_pkg", None)
-        db_pkgs = getattr(self, "_db_packages", [])
-
-        if getattr(self, "btn_custom", None) and self.btn_custom.isChecked():
-            rate = 0.0
-            for chk, item in getattr(self, "_custom_checks", []):
-                if chk.isChecked():
-                    rate += float(item.get("price", 0))
+        
+        if hasattr(self, "f_pay_package_total"):
+            base_total = self.f_pay_package_total.value()
         else:
-            if pkg_idx is not None and db_pkgs and pkg_idx < len(db_pkgs):
-                rate = float(db_pkgs[pkg_idx]["price_per_pax"])
-            else:
+            pkg_idx = getattr(self, "_selected_pkg", None)
+            db_pkgs = getattr(self, "_db_packages", [])
+            if getattr(self, "btn_custom", None) and self.btn_custom.isChecked():
                 rate = 0.0
-
-        base_total = pax * rate
+                for chk, item in getattr(self, "_custom_checks", []):
+                    if chk.isChecked():
+                        rate += float(item.get("price", 0))
+                base_total = pax * rate
+            else:
+                if pkg_idx is not None and db_pkgs and pkg_idx < len(db_pkgs):
+                    rate = float(db_pkgs[pkg_idx]["price_per_pax"])
+                    base_total = pax * rate
+                else:
+                    base_total = 0.0
 
         # Sum custom add-ons
         addons_total = 0.0
@@ -899,7 +926,8 @@ class BookingModal(QDialog):
             allow_zero = False
         deposit = round(grand_total * pct / 100, 2)
 
-        self._lbl_base.setText(f"Base Package Rate: ₱{rate:,.2f} × {pax} pax = ₱{base_total:,.2f}")
+        rate_per_pax = (base_total / pax) if pax > 0 else 0.0
+        self._lbl_base.setText(f"Base Package Total: ₱{base_total:,.2f}  (₱{rate_per_pax:,.2f}/pax for {pax} pax)")
         if addons_total != 0:
             sign = "+" if addons_total > 0 else "-"
             self._lbl_addons.setText(f"Custom Add-ons & Adjustments: {sign} ₱{abs(addons_total):,.2f}")
