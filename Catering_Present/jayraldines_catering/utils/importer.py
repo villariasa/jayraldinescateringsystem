@@ -13,10 +13,50 @@ from typing import List, Dict, Tuple, Any, Optional
 import utils.repository as repo
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ENTITY SCHEMAS & HEADER ALIASES
+# ENTITY SCHEMAS
 # ─────────────────────────────────────────────────────────────────────────────
 
 ENTITY_SCHEMAS = {
+    "all_in_one": {
+        "title": "All-in-One Master File (Bookings, Customers, Expenses & Menu)",
+        "fields": {
+            "customer_name": {"label": "Customer Name", "required": True},
+            "contact": {"label": "Contact Number", "required": False},
+            "event_date": {"label": "Event Date", "required": True},
+            "venue": {"label": "Venue / Location", "required": False},
+            "occasion": {"label": "Occasion", "required": False},
+            "pax": {"label": "Guest Count (Pax)", "required": True},
+            "total_amount": {"label": "Booking Total (₱)", "required": True},
+            "expense_date": {"label": "Expense Date", "required": False},
+            "expense_category": {"label": "Expense Category", "required": False},
+            "expense_description": {"label": "Expense Description", "required": False},
+            "expense_amount": {"label": "Expense Amount (₱)", "required": False},
+        },
+        "sample": [
+            ["Customer Name", "Contact Number", "Event Date", "Event Time", "Venue", "Occasion", "Pax", "Total Amount", "Expense Date", "Expense Category", "Expense Description", "Expense Amount"],
+            ["Maria Santos", "09171234567", datetime.now().strftime("%Y-%m-%d"), "6:00 PM", "Grand Ballroom", "Wedding", "150", "45000.00", datetime.now().strftime("%Y-%m-%d"), "Food Cost", "Fresh Pork Lechon", "15500.00"],
+            ["Juan Dela Cruz", "09189876543", datetime.now().strftime("%Y-%m-%d"), "12:00 PM", "Lahug Clubhouse", "Birthday", "80", "28000.00", datetime.now().strftime("%Y-%m-%d"), "Transport", "Gas for Van", "2400.00"],
+        ]
+    },
+    "bookings": {
+        "title": "Bookings & Orders",
+        "fields": {
+            "name": {"label": "Customer Name", "required": True},
+            "contact": {"label": "Contact Number", "required": False},
+            "date": {"label": "Event Date", "required": True},
+            "time": {"label": "Event Time", "required": False},
+            "venue": {"label": "Venue / Location", "required": False},
+            "occasion": {"label": "Occasion", "required": False},
+            "pax": {"label": "Guest Count (Pax)", "required": True},
+            "total": {"label": "Total Amount (₱)", "required": True},
+            "status": {"label": "Status", "required": False},
+        },
+        "sample": [
+            ["Customer Name", "Contact Number", "Event Date", "Event Time", "Venue", "Occasion", "Guest Count (Pax)", "Total Amount (₱)", "Status"],
+            ["Engr. Rodrigo Tan", "09178889900", datetime.now().strftime("%Y-%m-%d"), "6:00 PM", "Grand Ballroom Cebu", "Wedding", "150", "45000.00", "CONFIRMED"],
+            ["Capt. Juanito Dela Cruz", "09182223344", datetime.now().strftime("%Y-%m-%d"), "12:00 PM", "Lahug Clubhouse", "Birthday", "80", "28000.00", "PENDING"],
+        ]
+    },
     "customers": {
         "title": "Customers",
         "fields": {
@@ -47,25 +87,6 @@ ENTITY_SCHEMAS = {
             [datetime.now().strftime("%Y-%m-%d"), "Labor", "Assistant Cook Daily Pay", "3500.00"],
         ]
     },
-    "bookings": {
-        "title": "Bookings & Orders",
-        "fields": {
-            "name": {"label": "Customer Name", "required": True},
-            "contact": {"label": "Contact Number", "required": False},
-            "date": {"label": "Event Date", "required": True},
-            "time": {"label": "Event Time", "required": False},
-            "venue": {"label": "Venue / Location", "required": False},
-            "occasion": {"label": "Occasion", "required": False},
-            "pax": {"label": "Guest Count (Pax)", "required": True},
-            "total": {"label": "Total Amount (₱)", "required": True},
-            "status": {"label": "Status", "required": False},
-        },
-        "sample": [
-            ["Customer Name", "Contact Number", "Event Date", "Event Time", "Venue", "Occasion", "Guest Count (Pax)", "Total Amount (₱)", "Status"],
-            ["Engr. Rodrigo Tan", "09178889900", datetime.now().strftime("%Y-%m-%d"), "6:00 PM", "Grand Ballroom Cebu", "Wedding", "150", "45000.00", "CONFIRMED"],
-            ["Capt. Juanito Dela Cruz", "09182223344", datetime.now().strftime("%Y-%m-%d"), "12:00 PM", "Lahug Clubhouse", "Birthday", "80", "28000.00", "PENDING"],
-        ]
-    },
     "menu_items": {
         "title": "Menu Items & Packages",
         "fields": {
@@ -77,38 +98,174 @@ ENTITY_SCHEMAS = {
         "sample": [
             ["Item / Package Name", "Category", "Price / Rate (₱)", "Description / Inclusions"],
             ["Lechon Belly Package A", "Packages", "12500.00", "1 Whole Lechon Belly + 3 Side Dishes"],
-            ["Special Pork Humba", "Main Dishes", "450.00", "Serves 8-10 pax"],
-            ["Biko with Latik", "Desserts", "250.00", "1 Large Tray"],
-        ]
-    },
-    "all_in_one": {
-        "title": "All-in-One Master File (Bookings, Customers, Expenses & Menu)",
-        "fields": {},
-        "sample": [
-            ["Customer Name", "Contact Number", "Event Date", "Venue", "Occasion", "Pax", "Total Amount", "Expense Date", "Expense Category", "Expense Description", "Expense Amount"],
-            ["Maria Santos", "09171234567", datetime.now().strftime("%Y-%m-%d"), "Grand Ballroom", "Wedding", "150", "45000.00", datetime.now().strftime("%Y-%m-%d"), "Food Cost", "Fresh Pork Lechon", "15500.00"],
+            ["Special Pork Humba", "Main Course", "450.00", "Serves 8-10 pax"],
+            ["Biko with Latik", "Dessert", "250.00", "1 Large Tray"],
         ]
     }
 }
 
-HEADER_ALIASES = {
-    "name": ["name", "customer", "client", "customer name", "client name", "full name", "item name", "package name", "title"],
-    "contact": ["contact", "phone", "mobile", "cellphone", "contact number", "phone number", "tel", "telephone"],
-    "email": ["email", "e-mail", "email address", "mail"],
-    "address": ["address", "location", "city", "home address", "street"],
-    "notes": ["notes", "history", "remarks", "memo", "details", "comments"],
-    "date": ["date", "event date", "booking date", "expense date", "transaction date", "fecha"],
-    "time": ["time", "event time", "schedule", "start time"],
-    "category": ["category", "type", "expense type", "item category", "group"],
-    "description": ["description", "details", "particulars", "memo", "notes", "inclusions", "summary"],
-    "amount": ["amount", "cost", "total", "price", "subtotal", "grand total", "total amount", "fee", "cost (php)", "price (php)", "rate"],
-    "total": ["total", "amount", "total amount", "cost", "price", "subtotal", "grand total", "fee"],
-    "price": ["price", "rate", "cost", "unit price", "amount"],
-    "venue": ["venue", "location", "place", "event location", "site", "address"],
-    "occasion": ["occasion", "event", "event type", "celebration", "party", "theme"],
-    "pax": ["pax", "guests", "guest count", "number of guests", "attendees", "headcount", "capacity"],
-    "status": ["status", "state", "booking status", "order status"]
+ENTITY_HEADER_ALIASES = {
+    "all_in_one": {
+        "customer_name": ["customer name", "client name", "customer", "client", "name", "full name"],
+        "contact": ["contact number", "contact", "phone number", "phone", "mobile", "cellphone", "tel"],
+        "event_date": ["event date", "booking date", "date", "fecha"],
+        "venue": ["venue location", "venue", "event venue", "location", "place", "event location", "site", "address"],
+        "occasion": ["occasion", "event type", "event", "celebration", "party", "theme"],
+        "pax": ["guest count pax", "guest count", "pax", "guests", "number of guests", "attendees", "headcount", "capacity"],
+        "total_amount": ["booking total", "total amount", "total", "amount", "cost", "price", "grand total"],
+        "expense_date": ["expense date", "exp date"],
+        "expense_category": ["expense category", "category", "exp category", "expense type", "type"],
+        "expense_description": ["expense description", "particulars", "description", "details", "memo", "notes", "inclusions"],
+        "expense_amount": ["expense amount", "exp amount", "cost php", "price php"],
+    },
+    "bookings": {
+        "name": ["customer name", "client name", "customer", "client", "full name", "name"],
+        "contact": ["contact number", "contact", "phone number", "phone", "mobile", "cellphone", "tel"],
+        "date": ["event date", "booking date", "date", "fecha"],
+        "time": ["event time", "time", "schedule", "start time"],
+        "venue": ["venue location", "venue", "event venue", "location", "place", "event location", "site", "address"],
+        "occasion": ["occasion", "event", "event type", "celebration", "party", "theme"],
+        "pax": ["guest count pax", "guest count", "pax", "guests", "number of guests", "attendees", "headcount", "capacity"],
+        "total": ["total amount", "total", "amount", "booking total", "cost", "price", "subtotal", "grand total", "fee"],
+        "status": ["status", "booking status", "state", "order status"],
+    },
+    "customers": {
+        "name": ["customer name", "client name", "customer", "client", "full name", "name"],
+        "contact": ["contact number", "contact", "phone number", "phone", "mobile", "cellphone", "tel"],
+        "email": ["email address", "email", "e-mail", "mail"],
+        "address": ["home address", "address", "location", "city", "street"],
+        "notes": ["notes", "history", "remarks", "memo", "details", "comments"],
+    },
+    "expenses": {
+        "date": ["expense date", "date", "transaction date", "fecha"],
+        "category": ["expense category", "category", "expense type", "type", "item category", "group"],
+        "description": ["expense description", "particulars", "description", "details", "memo", "notes", "inclusions", "summary"],
+        "amount": ["expense amount", "amount", "cost", "fee", "cost php", "price php", "price", "subtotal", "rate"],
+    },
+    "menu_items": {
+        "name": ["item package name", "item name", "package name", "dish name", "name", "title", "item"],
+        "category": ["category", "item category", "menu category", "type", "group"],
+        "price": ["price rate", "price", "rate", "cost", "unit price", "amount", "price php"],
+        "description": ["description inclusions", "description", "inclusions", "details", "notes", "summary"],
+    }
 }
+
+
+def _clean_header_str(text: str) -> str:
+    """Strip symbols, punctuation, parentheses, and extra spaces for resilient matching."""
+    s = str(text or "").lower().strip()
+    s = re.sub(r"[^\w\s]", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NORMALIZATION HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def normalize_expense_category(cat: Any) -> str:
+    if not cat:
+        return "Other"
+    s = str(cat).strip().lower()
+    if any(w in s for w in ["food", "meat", "pork", "beef", "chicken", "fish", "vegetable", "spice", "ingredient", "grocery", "market", "rice", "dish", "beverage", "drink"]):
+        return "Food Cost"
+    if any(w in s for w in ["labor", "salary", "wage", "cook", "chef", "crew", "helper", "staff", "assistant", "payroll", "waiter"]):
+        return "Labor"
+    if any(w in s for w in ["transport", "transpo", "gas", "fuel", "diesel", "delivery", "van", "truck", "fare", "parking"]):
+        return "Transport"
+    if any(w in s for w in ["util", "electric", "water", "power", "gasul", "lpg", "internet", "bill", "phone"]):
+        return "Utilities"
+    if any(w in s for w in ["equip", "rent", "table", "chair", "tent", "chafing", "utensil", "plate", "pot", "pan", "appliance", "sound", "light"]):
+        return "Equipment"
+    return "Other"
+
+
+def normalize_booking_status(status: Any) -> str:
+    if not status:
+        return "PENDING"
+    s = str(status).strip().upper()
+    if "CONFIRM" in s:
+        return "CONFIRMED"
+    if "COMPLET" in s:
+        return "COMPLETED"
+    if "CANCEL" in s:
+        return "CANCELLED"
+    return "PENDING"
+
+
+def normalize_customer_status(status: Any) -> str:
+    if not status:
+        return "Active"
+    s = str(status).strip().lower()
+    if "inact" in s or "dorm" in s:
+        return "Inactive"
+    if "pend" in s:
+        return "Pending"
+    return "Active"
+
+
+def normalize_menu_category(cat: Any) -> str:
+    if not cat:
+        return "Main Course"
+    s = str(cat).strip().lower()
+    if "nood" in s or "pasta" in s or "pancit" in s or "spaghetti" in s:
+        return "Noodles"
+    if "soup" in s or "broth" in s or "sinigang" in s or "tinola" in s:
+        return "Soup"
+    if "veg" in s or "salad" in s:
+        return "Vegetables"
+    if "dessert" in s or "sweet" in s or "cake" in s or "biko" in s or "leche" in s:
+        return "Dessert"
+    if "drink" in s or "beverage" in s or "juice" in s or "soda" in s or "tea" in s:
+        return "Drinks"
+    if "bread" in s or "pastry" in s or "bun" in s:
+        return "Bread"
+    if "pack" in s or "set" in s:
+        return "Other"
+    if any(w in s for w in ["main", "pork", "beef", "chicken", "fish", "seafood", "meat", "lechon", "humba", "caldereta"]):
+        return "Main Course"
+    return "Other"
+
+
+def normalize_amount(raw: Any) -> float:
+    if raw is None:
+        return 0.0
+    s = str(raw).strip()
+    s = re.sub(r"[^\d.-]", "", s.replace(",", ""))
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
+def normalize_date(raw: Any) -> str:
+    if not raw:
+        return datetime.now().strftime("%b %d, %Y")
+
+    s = str(raw).strip()
+    date_formats = [
+        "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%b %d, %Y", "%B %d, %Y",
+        "%Y/%m/%d", "%d-%m-%Y", "%m-%d-%Y", "%d %b %Y", "%d %B %Y"
+    ]
+    for fmt in date_formats:
+        try:
+            dt = datetime.strptime(s, fmt)
+            return dt.strftime("%b %d, %Y")
+        except ValueError:
+            continue
+
+    return datetime.now().strftime("%b %d, %Y")
+
+
+def normalize_pax(raw: Any) -> int:
+    if not raw:
+        return 50
+    s = str(raw).strip()
+    s = re.sub(r"\D", "", s)
+    try:
+        v = int(s)
+        return max(1, v)
+    except ValueError:
+        return 50
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -116,13 +273,10 @@ HEADER_ALIASES = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 def parse_file(file_path: str) -> Tuple[List[str], List[Dict[str, str]], Optional[str]]:
-    """Parse CSV or Excel file into headers and list of row dicts.
-    Returns (headers, rows, error_message)."""
     if not os.path.exists(file_path):
         return [], [], "File does not exist."
 
     ext = os.path.splitext(file_path)[1].lower()
-
     if ext in (".xlsx", ".xls"):
         return _parse_excel(file_path)
     return _parse_csv(file_path)
@@ -133,7 +287,6 @@ def _parse_csv(file_path: str) -> Tuple[List[str], List[Dict[str, str]], Optiona
     for enc in encodings:
         try:
             with open(file_path, "r", encoding=enc) as f:
-                # Detect delimiter
                 sample = f.read(4096)
                 f.seek(0)
                 delimiter = ","
@@ -188,19 +341,6 @@ def _parse_excel(file_path: str) -> Tuple[List[str], List[Dict[str, str]], Optio
             data_rows.append(row_dict)
 
         return headers, data_rows, None
-    except ImportError:
-        # Fallback to pandas if installed
-        try:
-            import pandas as pd
-            df = pd.read_excel(file_path).fillna("")
-            headers = [str(c).strip() for c in df.columns]
-            data_rows = []
-            for _, row in df.iterrows():
-                row_dict = {h: str(row[h]).strip() for h in headers}
-                data_rows.append(row_dict)
-            return headers, data_rows, None
-        except Exception as e:
-            return [], [], f"Excel library openpyxl/pandas not installed or file corrupt: {e}"
     except Exception as e:
         return [], [], f"Failed to read Excel file: {e}"
 
@@ -217,52 +357,95 @@ def parse_master_file(file_path: str) -> Tuple[Dict[str, Tuple[List[str], List[D
         try:
             import openpyxl
             wb = openpyxl.load_workbook(file_path, data_only=True)
-            result = {}
-            for sheetname in wb.sheetnames:
-                sheet = wb[sheetname]
-                rows_raw = []
-                for row in sheet.iter_rows(values_only=True):
-                    if row and any(cell is not None and str(cell).strip() for cell in row):
-                        rows_raw.append([str(c).strip() if c is not None else "" for c in row])
-                if not rows_raw:
-                    continue
+            if len(wb.sheetnames) > 1:
+                result = {}
+                for sheetname in wb.sheetnames:
+                    sheet = wb[sheetname]
+                    rows_raw = []
+                    for row in sheet.iter_rows(values_only=True):
+                        if row and any(cell is not None and str(cell).strip() for cell in row):
+                            rows_raw.append([str(c).strip() if c is not None else "" for c in row])
+                    if not rows_raw:
+                        continue
 
-                headers = rows_raw[0]
-                data_rows = []
-                for raw_row in rows_raw[1:]:
-                    row_dict = {headers[i]: (raw_row[i] if i < len(raw_row) else "") for i in range(len(headers))}
-                    data_rows.append(row_dict)
+                    headers = rows_raw[0]
+                    data_rows = []
+                    for raw_row in rows_raw[1:]:
+                        row_dict = {headers[i]: (raw_row[i] if i < len(raw_row) else "") for i in range(len(headers))}
+                        data_rows.append(row_dict)
 
-                # Match sheetname to entity
-                sn_lower = sheetname.lower().strip()
-                entity = "customers"
-                if "expense" in sn_lower:
-                    entity = "expenses"
-                elif "booking" in sn_lower or "order" in sn_lower or "event" in sn_lower:
-                    entity = "bookings"
-                elif "menu" in sn_lower or "item" in sn_lower or "package" in sn_lower:
-                    entity = "menu_items"
+                    sn_lower = sheetname.lower().strip()
+                    entity = "customers"
+                    if "expense" in sn_lower:
+                        entity = "expenses"
+                    elif "booking" in sn_lower or "order" in sn_lower or "event" in sn_lower:
+                        entity = "bookings"
+                    elif "menu" in sn_lower or "item" in sn_lower or "package" in sn_lower:
+                        entity = "menu_items"
 
-                result[entity] = (headers, data_rows)
+                    result[entity] = (headers, data_rows)
 
-            if result:
-                return result, None
+                if result:
+                    return result, None
         except Exception:
             pass
 
-    # Fallback: single sheet / CSV file auto-splitting
+    # Single sheet / CSV file auto-splitting
     headers, rows, err = parse_file(file_path)
     if err:
         return {}, err
 
-    # Split single sheet by headers
     result = {}
     headers_lower = [h.lower() for h in headers]
-    if any("expense" in h for h in headers_lower):
-        result["expenses"] = (headers, rows)
-    if any("booking" in h or "event" in h or "pax" in h for h in headers_lower):
-        result["bookings"] = (headers, rows)
-    if any("customer" in h or "client" in h for h in headers_lower) or "customers" not in result:
+
+    # Check for bookings data
+    has_bkg = any("booking" in h or "event" in h or "pax" in h or "occasion" in h or "venue" in h for h in headers_lower)
+    if has_bkg:
+        bkg_rows = []
+        for r in rows:
+            has_name = any(r.get(h, "").strip() for h in headers if "name" in h.lower() or "customer" in h.lower())
+            has_date = any(r.get(h, "").strip() for h in headers if "event" in h.lower() or "date" in h.lower())
+            if has_name and has_date:
+                bkg_rows.append(r)
+        if bkg_rows:
+            result["bookings"] = (headers, bkg_rows)
+
+    # Check for customers data
+    has_cus = any("customer" in h or "client" in h or "contact" in h for h in headers_lower)
+    if has_cus or not result:
+        cus_rows = []
+        for r in rows:
+            has_name = any(r.get(h, "").strip() for h in headers if "customer" in h.lower() or "client" in h.lower() or "name" in h.lower())
+            if has_name:
+                cus_rows.append(r)
+        if cus_rows:
+            result["customers"] = (headers, cus_rows)
+
+    # Check for expenses data
+    has_exp = any("expense" in h or "category" in h or "cost" in h for h in headers_lower)
+    if has_exp:
+        exp_rows = []
+        for r in rows:
+            has_exp_amt = any(normalize_amount(r.get(h, "")) > 0 for h in headers if "expense" in h.lower() or "amount" in h.lower() or "cost" in h.lower())
+            has_exp_desc = any(r.get(h, "").strip() for h in headers if "expense" in h.lower() or "description" in h.lower() or "category" in h.lower())
+            if has_exp_amt or has_exp_desc:
+                exp_rows.append(r)
+        if exp_rows:
+            result["expenses"] = (headers, exp_rows)
+
+    # Check for menu items data
+    has_menu = any("menu" in h or "dish" in h or "package" in h or "item" in h for h in headers_lower)
+    if has_menu:
+        menu_rows = []
+        for r in rows:
+            has_item_name = any(r.get(h, "").strip() for h in headers if "item" in h.lower() or "dish" in h.lower())
+            has_item_price = any(normalize_amount(r.get(h, "")) > 0 for h in headers if "price" in h.lower() or "rate" in h.lower())
+            if has_item_name and has_item_price:
+                menu_rows.append(r)
+        if menu_rows:
+            result["menu_items"] = (headers, menu_rows)
+
+    if not result:
         result["customers"] = (headers, rows)
 
     return result, None
@@ -273,79 +456,40 @@ def parse_master_file(file_path: str) -> Tuple[Dict[str, Tuple[List[str], List[D
 # ─────────────────────────────────────────────────────────────────────────────
 
 def auto_map_headers(headers: List[str], entity_type: str) -> Dict[str, str]:
-    """Auto-detect which uploaded column header maps to system fields for entity_type.
-    Returns mapping dict: {system_field_key: file_header_name_or_empty}."""
+    """Auto-detect which uploaded column header maps to system fields for entity_type."""
     schema = ENTITY_SCHEMAS.get(entity_type, {})
     fields = schema.get("fields", {})
     mapping = {}
 
-    headers_clean = {h: re.sub(r"[^\w\s]", "", h.lower().strip()) for h in headers}
+    entity_aliases = ENTITY_HEADER_ALIASES.get(entity_type, {})
+    headers_clean = {h: _clean_header_str(h) for h in headers}
 
     for field_key in fields.keys():
-        aliases = HEADER_ALIASES.get(field_key, [field_key])
+        aliases = [_clean_header_str(a) for a in entity_aliases.get(field_key, [field_key])]
         matched_header = ""
-        # Exact match
-        for h_orig, h_clean in headers_clean.items():
-            if h_clean in aliases:
-                matched_header = h_orig
-                break
-        # Partial substring match if no exact match
-        if not matched_header:
+
+        # 1. Exact match in order of alias priority
+        for alias in aliases:
             for h_orig, h_clean in headers_clean.items():
-                if any(alias in h_clean for alias in aliases):
+                if h_clean == alias:
                     matched_header = h_orig
+                    break
+            if matched_header:
+                break
+
+        # 2. Substring match in order of alias priority
+        if not matched_header:
+            for alias in aliases:
+                for h_orig, h_clean in headers_clean.items():
+                    if alias in h_clean or h_clean in alias:
+                        matched_header = h_orig
+                        break
+                if matched_header:
                     break
 
         mapping[field_key] = matched_header
 
     return mapping
-
-
-def normalize_amount(raw: Any) -> float:
-    """Clean currency string into float value."""
-    if raw is None:
-        return 0.0
-    s = str(raw).strip()
-    s = re.sub(r"[^\d.-]", "", s.replace(",", ""))
-    try:
-        return float(s)
-    except ValueError:
-        return 0.0
-
-
-def normalize_date(raw: Any) -> str:
-    """Normalize date string to standard format (MMM DD, YYYY)."""
-    if not raw:
-        return datetime.now().strftime("%b %d, %Y")
-
-    s = str(raw).strip()
-    # Try various date formats
-    date_formats = [
-        "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%b %d, %Y", "%B %d, %Y",
-        "%Y/%m/%d", "%d-%m-%Y", "%m-%d-%Y", "%d %b %Y", "%d %B %Y"
-    ]
-    for fmt in date_formats:
-        try:
-            dt = datetime.strptime(s, fmt)
-            return dt.strftime("%b %d, %Y")
-        except ValueError:
-            continue
-
-    # Return today if unparseable
-    return datetime.now().strftime("%b %d, %Y")
-
-
-def normalize_pax(raw: Any) -> int:
-    """Clean pax string into positive integer."""
-    if not raw:
-        return 50
-    s = str(raw).strip()
-    s = re.sub(r"\D", "", s)
-    try:
-        v = int(s)
-        return max(1, v)
-    except ValueError:
-        return 50
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -357,14 +501,6 @@ def validate_and_prepare_rows(
     mapping: Dict[str, str],
     entity_type: str
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
-    """Validate mapped rows and prepare sanitized dicts with status.
-    Returns (prepared_rows, summary_counts).
-    Each row dict contains:
-      - "_row_index": int
-      - "_status": "valid" | "warning" | "error"
-      - "_issues": list of str
-      - "_data": sanitized field data
-    """
     schema = ENTITY_SCHEMAS.get(entity_type, {})
     fields = schema.get("fields", {})
 
@@ -380,20 +516,27 @@ def validate_and_prepare_rows(
             mapped_h = mapping.get(field_key, "")
             raw_val = row.get(mapped_h, "").strip() if mapped_h else ""
 
-            if field_info["required"] and not raw_val:
+            if field_info.get("required") and not raw_val:
                 issues.append(f"Missing required field '{field_info['label']}'")
                 status = "error"
 
-            if field_key == "amount" or field_key == "total" or field_key == "price":
+            if field_key in ("amount", "total", "price", "total_amount", "expense_amount"):
                 val = normalize_amount(raw_val)
-                if val <= 0 and field_info["required"]:
+                if val <= 0 and field_info.get("required"):
                     issues.append(f"Invalid amount '{raw_val}'")
                     status = "error"
                 sanitized[field_key] = val
-            elif field_key == "date":
-                sanitized[field_key] = normalize_date(raw_val)
-            elif field_key == "pax":
+            elif field_key in ("date", "event_date", "expense_date"):
+                if raw_val:
+                    sanitized[field_key] = normalize_date(raw_val)
+                else:
+                    sanitized[field_key] = datetime.now().strftime("%b %d, %Y")
+            elif field_key in ("pax",):
                 sanitized[field_key] = normalize_pax(raw_val)
+            elif field_key in ("category", "expense_category"):
+                sanitized[field_key] = normalize_expense_category(raw_val) if entity_type in ("expenses", "all_in_one") else normalize_menu_category(raw_val)
+            elif field_key in ("status",):
+                sanitized[field_key] = normalize_booking_status(raw_val) if entity_type == "bookings" else normalize_customer_status(raw_val)
             else:
                 sanitized[field_key] = raw_val
 
@@ -431,8 +574,6 @@ def execute_batch_import(
     entity_type: str,
     skip_errors: bool = True
 ) -> Tuple[int, int, List[str]]:
-    """Insert valid rows into database.
-    Returns (success_count, fail_count, list_of_error_messages)."""
     success_count = 0
     fail_count = 0
     errors = []
@@ -445,53 +586,119 @@ def execute_batch_import(
         data = row_info["_data"]
         try:
             if entity_type == "customers":
-                res = repo.add_customer(data)
+                res = repo.add_customer({
+                    "name": data.get("name", "").strip(),
+                    "contact": data.get("contact", "").strip(),
+                    "email": data.get("email", "").strip(),
+                    "address": data.get("address", "").strip(),
+                    "status": normalize_customer_status(data.get("status")),
+                    "notes": data.get("notes", "").strip(),
+                })
                 if res:
                     success_count += 1
                 else:
                     fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']}: Database insert failed.")
+                    errors.append(f"Row {row_info['_row_index']}: Customer database insert failed.")
+
             elif entity_type == "expenses":
-                res = repo.add_expense(data)
+                amount_val = float(data.get("amount", 0.0))
+                if amount_val <= 0:
+                    fail_count += 1
+                    errors.append(f"Row {row_info['_row_index']}: Expense amount must be greater than 0.")
+                    continue
+
+                res = repo.add_expense({
+                    "category": normalize_expense_category(data.get("category")),
+                    "description": data.get("description", "Imported Expense").strip() or "Imported Expense",
+                    "amount": amount_val,
+                    "date": data.get("date") or datetime.now().strftime("%b %d, %Y"),
+                })
                 if res:
                     success_count += 1
                 else:
                     fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']}: Database insert failed.")
+                    errors.append(f"Row {row_info['_row_index']}: Expense database insert failed.")
+
             elif entity_type == "bookings":
-                res = repo.create_booking(data)
-                if res:
+                total_val = float(data.get("total", 0.0))
+                if total_val <= 0:
+                    fail_count += 1
+                    errors.append(f"Row {row_info['_row_index']}: Booking total amount must be greater than 0.")
+                    continue
+
+                bkg_payload = {
+                    "name": data.get("name", "").strip(),
+                    "contact": data.get("contact", "").strip(),
+                    "email": data.get("email", "").strip(),
+                    "address": data.get("venue", "").strip() or data.get("address", "").strip() or "Cebu City",
+                    "occasion": data.get("occasion", "").strip() or "Catering Event",
+                    "venue": data.get("venue", "").strip() or "Catering Venue",
+                    "date": data.get("date") or datetime.now().strftime("%b %d, %Y"),
+                    "time": data.get("time", "").strip() or "6:00 PM",
+                    "pax": int(data.get("pax", 50)),
+                    "notes": data.get("notes", "").strip(),
+                    "menu_type": "package",
+                    "total": total_val,
+                    "payment_mode": "Cash",
+                    "amount_paid": 0.0,
+                }
+                res = repo.create_booking(bkg_payload)
+                if res and res.get("booking_id"):
+                    target_status = normalize_booking_status(data.get("status"))
+                    if target_status == "COMPLETED":
+                        try:
+                            repo.update_booking_status(res["booking_id"], "CONFIRMED")
+                            repo.update_booking_status(res["booking_id"], "COMPLETED")
+                        except Exception:
+                            pass
+                    elif target_status in ("CONFIRMED", "CANCELLED"):
+                        try:
+                            repo.update_booking_status(res["booking_id"], target_status)
+                        except Exception:
+                            pass
                     success_count += 1
                 else:
                     fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']}: Database insert failed.")
+                    errors.append(f"Row {row_info['_row_index']}: Booking database insert failed.")
+
             elif entity_type == "menu_items":
-                res = repo.add_menu_item(
-                    data.get("name", "Item"),
-                    data.get("category", "General"),
-                    data.get("price", 0.0),
-                    data.get("description", "")
-                )
+                price_val = float(data.get("price", 0.0))
+                if price_val <= 0:
+                    fail_count += 1
+                    errors.append(f"Row {row_info['_row_index']}: Menu item price must be greater than 0.")
+                    continue
+
+                item_payload = {
+                    "item": data.get("name", "New Item").strip() or "New Item",
+                    "category": normalize_menu_category(data.get("category")),
+                    "package": "Standard",
+                    "price": price_val,
+                    "status": "Available",
+                    "description": data.get("description", "").strip(),
+                }
+                res = repo.add_menu_item(item_payload)
                 if res:
                     success_count += 1
                 else:
                     fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']}: Database insert failed.")
+                    errors.append(f"Row {row_info['_row_index']}: Menu item database insert failed.")
+
         except Exception as e:
             fail_count += 1
             errors.append(f"Row {row_info['_row_index']}: {e}")
 
-    # Emit app data change signal
+    # Emit app data change signals
     if success_count > 0:
         try:
             from utils.signals import app_events
-            app_events().data_changed.emit()
+            ev = app_events()
+            ev.data_changed.emit()
             if entity_type == "expenses":
-                app_events().expense_saved.emit()
+                ev.expense_saved.emit()
             elif entity_type == "customers":
-                app_events().customer_saved.emit()
+                ev.customer_saved.emit()
             elif entity_type == "bookings":
-                app_events().booking_saved.emit()
+                ev.booking_saved.emit()
         except Exception:
             pass
 
@@ -499,12 +706,37 @@ def execute_batch_import(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SAMPLE CSV TEMPLATE GENERATOR
+# SAMPLE TEMPLATE GENERATOR
 # ─────────────────────────────────────────────────────────────────────────────
 
 def generate_sample_csv(entity_type: str, save_path: str) -> Optional[str]:
-    """Generate sample CSV file with clean headers and example data.
-    Returns error string if failed, or None on success."""
+    """Generate sample CSV or Excel file with clean headers and example data."""
+    ext = os.path.splitext(save_path)[1].lower()
+
+    if ext in (".xlsx", ".xls"):
+        try:
+            import openpyxl
+            wb = openpyxl.Workbook()
+            if entity_type == "all_in_one":
+                wb.remove(wb.active)  # remove default sheet
+                sections = ["bookings", "customers", "expenses", "menu_items"]
+                for sec in sections:
+                    s_info = ENTITY_SCHEMAS.get(sec, {})
+                    ws = wb.create_sheet(title=s_info.get("title", sec.title()))
+                    for r in s_info.get("sample", []):
+                        ws.append(r)
+            else:
+                ws = wb.active
+                schema = ENTITY_SCHEMAS.get(entity_type, {})
+                ws.title = schema.get("title", "Template")
+                for r in schema.get("sample", []):
+                    ws.append(r)
+            wb.save(save_path)
+            return None
+        except Exception as e:
+            return f"Failed to save Excel template: {e}"
+
+    # CSV fallback
     schema = ENTITY_SCHEMAS.get(entity_type)
     if not schema:
         return "Unknown entity type."

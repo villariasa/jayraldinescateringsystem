@@ -87,6 +87,15 @@ class AccentManager(QObject):
         from utils.theme import ThemeManager
         ThemeManager().apply()
 
+    def set_accent_silent(self, hex_color: str):
+        hex_color = (hex_color or "").strip()
+        if not is_valid_hex(hex_color):
+            return
+        self._current = hex_color
+        self._push_to_icons()
+        QSettings(_ORG, _APP).setValue(_KEY_ACCENT, hex_color)
+        self.accent_changed.emit(hex_color)
+
     def add_custom_color(self, hex_color: str):
         hex_color = (hex_color or "").strip().upper()
         if not is_valid_hex(hex_color) or hex_color in self._custom_colors:

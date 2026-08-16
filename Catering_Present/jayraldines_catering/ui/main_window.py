@@ -222,10 +222,14 @@ class MainWindow(QMainWindow):
             self._pages[0].reload()
 
     def _on_booking_saved(self):
-        if self._pages[6] is not None:
-            self._pages[6].reload()
+        if self._pages[1] is not None:
+            self._pages[1].reload()
+        if self._pages[4] is not None:
+            self._pages[4].reload()
         if self._pages[5] is not None:
             self._pages[5].reload()
+        if self._pages[6] is not None:
+            self._pages[6].reload()
         if self._pages[0] is not None:
             self._pages[0].reload()
         if self._pages[7] is not None:

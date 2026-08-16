@@ -655,7 +655,7 @@ class OccasionBreakdownChart(QVBoxLayout):
 # ─────────────────────────────────────────────
 # MAIN REPORTS PAGE
 # ─────────────────────────────────────────────
-_PERIOD_LABELS = ["Today", "This Week", "This Month", "This Year", "All Time"]
+_PERIOD_LABELS = ["Today", "This Week", "This Month", "This Year", "Last Year", "All Time"]
 
 
 class ReportsPage(QWidget):
@@ -733,21 +733,27 @@ class ReportsPage(QWidget):
 
         # ── KPI CARDS ────────────────────────────────────────────────────────
         self._kpi_layout = QHBoxLayout()
-        self._kpi_layout.setSpacing(24)
+        self._kpi_layout.setSpacing(16)
 
         kpis = repo.get_report_kpis()
-        total_bk  = kpis.get("total_bookings", 0)
-        total_pax = kpis.get("total_pax", 0)
-        revenue   = kpis.get("total_revenue", 0.0)
-        unpaid    = kpis.get("unpaid_amount", 0.0)
-        today_bk  = kpis.get("today_bookings", 0)
-        week_bk   = kpis.get("week_bookings", 0)
+        total_bk   = kpis.get("total_bookings", 0)
+        total_pax  = kpis.get("total_pax", 0)
+        revenue    = kpis.get("total_revenue", 0.0)
+        expenses   = kpis.get("total_expenses", 0.0)
+        profit     = kpis.get("net_profit", 0.0)
+        unpaid     = kpis.get("unpaid_amount", 0.0)
+        today_bk   = kpis.get("today_bookings", 0)
+        week_bk    = kpis.get("week_bookings", 0)
+
+        profit_color = "#22C55E" if profit >= 0 else "#EF4444"
 
         self._kpi_cards = [
-            self._kpi("Total Bookings",   str(total_bk),          f"{today_bk} Today | {week_bk} This Week"),
-            self._kpi("Total Pax Booked", f"{total_pax:,}",        "All confirmed bookings", "#22C55E"),
-            self._kpi("Total Revenue",    f"PHP {revenue:,.0f}",   "All-time revenue", "#22C55E"),
-            self._kpi("Unpaid Invoices",  f"PHP {unpaid:,.0f}",    "Outstanding balance", "#EF4444"),
+            self._kpi("Total Bookings",   str(total_bk),            f"{today_bk} Today | {week_bk} This Week"),
+            self._kpi("Total Revenue",    f"PHP {revenue:,.0f}",     "Confirmed income", "#22C55E"),
+            self._kpi("Total Expenses",   f"PHP {expenses:,.0f}",    "All operational costs", "#F97316"),
+            self._kpi("Net Profit",       f"PHP {profit:,.0f}",      "Revenue − Expenses", profit_color),
+            self._kpi("Total Pax Booked", f"{total_pax:,}",          "All confirmed bookings", "#3B82F6"),
+            self._kpi("Unpaid Invoices",  f"PHP {unpaid:,.0f}",      "Outstanding balance", "#EF4444"),
         ]
         for card in self._kpi_cards:
             self._kpi_layout.addWidget(card)
@@ -918,6 +924,8 @@ class ReportsPage(QWidget):
             return "AND date_trunc('month', bk_event_date) = date_trunc('month', CURRENT_DATE)"
         if p == "This Year":
             return "AND EXTRACT(YEAR FROM bk_event_date) = EXTRACT(YEAR FROM CURRENT_DATE)"
+        if p == "Last Year":
+            return "AND EXTRACT(YEAR FROM bk_event_date) = EXTRACT(YEAR FROM CURRENT_DATE) - 1"
         return ""
 
     def reload(self):
@@ -929,16 +937,24 @@ class ReportsPage(QWidget):
     def _reload_kpis(self):
         fltr = self._period_sql_filter()
         kpis = repo.get_report_kpis(period_filter=fltr)
+        revenue  = float(kpis.get("total_revenue", 0))
+        expenses = float(kpis.get("total_expenses", 0))
+        profit   = float(kpis.get("net_profit", revenue - expenses))
+
         vals = [
             str(kpis.get("total_bookings", 0)),
+            f"PHP {revenue:,.0f}",
+            f"PHP {expenses:,.0f}",
+            f"PHP {profit:,.0f}",
             f"{int(kpis.get('total_pax', 0)):,}",
-            f"PHP {float(kpis.get('total_revenue', 0)):,.0f}",
             f"PHP {float(kpis.get('unpaid_amount', 0)):,.0f}",
         ]
         subs = [
             f"{kpis.get('today_bookings',0)} Today | {kpis.get('week_bookings',0)} This Week",
+            "Confirmed income",
+            "All operational costs",
+            "Revenue − Expenses",
             "All confirmed bookings",
-            "All-time revenue",
             "Outstanding balance",
         ]
         for card, val, sub in zip(self._kpi_cards, vals, subs):
@@ -1071,6 +1087,9 @@ class ReportsPage(QWidget):
                         expenses.append(exp)
                 elif p == "This Year":
                     if exp_d.year == today.year:
+                        expenses.append(exp)
+                elif p == "Last Year":
+                    if exp_d.year == today.year - 1:
                         expenses.append(exp)
 
         self._expenses = expenses

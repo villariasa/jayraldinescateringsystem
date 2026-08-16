@@ -282,7 +282,7 @@ class ExpensesPage(QWidget):
                 if item:
                     w = item.widget()
                     if w:
-                        w.setParent(None)
+                        w.hide()
                         w.deleteLater()
 
             expenses = getattr(self, "_filtered_expenses", self._expenses if hasattr(self, "_expenses") else [])

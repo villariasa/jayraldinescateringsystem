@@ -528,6 +528,20 @@ class MenuPage(QWidget):
         self._populate_table()
         self._populate_packages_table()
 
+        try:
+            from utils.signals import app_events
+            app_events().data_changed.connect(self.reload)
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.reload()
+
+    def reload(self):
+        self._populate_table()
+        self._populate_packages_table()
+
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)

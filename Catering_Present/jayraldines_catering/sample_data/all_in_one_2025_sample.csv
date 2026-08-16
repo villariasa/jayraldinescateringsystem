@@ -1,0 +1,11 @@
+Event Date,Customer Name,Contact Number,Venue Location,Occasion,Guest Count (Pax),Total Amount (PHP),Expense Date,Expense Category,Expense Description,Expense Amount (PHP)
+2025-01-18,Dr. Eduardo Ramos,0917-555-0101,"Grand Ballroom, Makati Shangri-La",Wedding,200,85000,2025-01-16,Food Cost,Whole Lechon Baboy & Fresh Meats for Shangri-La Event,28500
+2025-02-14,Maria Cristina Santos,0918-555-0202,"Fernwood Gardens, Quezon City",Anniversary,120,48000,2025-01-18,Labor,"Chef team, waiters and banquet service crew honorarium",12000
+2025-03-22,Engr. Ferdinand Marcos Jr.,0919-555-0303,"Palacio de Maynila, Pasay",Corporate Seminar,150,60000,2025-02-12,Food Cost,"Seafood, Salmon and Fresh Veggies for Fernwood Wedding",16800
+2025-04-12,Atty. Carmela Bautista,0920-555-0404,"The Glass Garden, Pasig City",Debut,100,42000,2025-03-20,Equipment,Chafing dishes and crystal glassware rental,8500
+2025-05-30,Capt. Roberto Gonzales,0921-555-0505,"Club Filipino, San Juan",Birthday Gala,180,72000,2025-04-10,Transport,Delivery Van Fuel & Tolls to Pasig Glass Garden,3200
+2025-06-15,Elena Morales-Cruz,0922-555-0606,"San Agustin Church Hall, Intramuros",Christening,80,28000,2025-05-28,Food Cost,"Pork Tenderloin, Chicken Galantina & dessert ingredients",22400
+2025-08-20,Arch. Gabriel Villafuerte,0923-555-0707,"Blue Leaf Events Pavilion, Taguig",Corporate Dinner,250,110000,2025-06-14,Utilities,Kitchen LPG tanks and deep freeze power consumption,4800
+2025-10-18,Judge Veronica Alcantara,0924-555-0808,Tagaytay Highlands Clubhouse,Golden Anniversary,150,75000,2025-08-18,Food Cost,Prime Roast Beef Ribeye & Lechon Belly (250 pax catering),38000
+2025-11-25,Ricardo Dalisay,0925-555-0909,"Oasis Manila, San Juan",Year-End Party,200,90000,2025-08-20,Labor,Additional banquet servers and kitchen assistants (12 pax),14400
+2025-12-19,Liza Soberano-Quizon,0926-555-1010,"SMX Convention Center, MOA",Grand Christmas Gala,300,145000,2025-10-16,Transport,Roundtrip catering van transport to Tagaytay Highlands,6500

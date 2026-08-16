@@ -12,6 +12,7 @@ from PySide6.QtGui import QColor
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
 from utils.theme import ThemeManager
 from utils.accent import AccentManager, PRESET_THEMES
+from utils.palette import THEME_CATEGORIES, THEME_PALETTES, get_palettes_by_category
 from components.dialogs import success
 import utils.repository as repo
 
@@ -237,31 +238,72 @@ class SettingsPage(QWidget):
         lay.setContentsMargins(24, 24, 24, 24)
         lay.setSpacing(16)
 
-        sec_title = QLabel("Appearance")
+        header_row = QHBoxLayout()
+        v_titles = QVBoxLayout()
+        v_titles.setSpacing(2)
+
+        sec_title = QLabel("Appearance & Themes")
         sec_title.setObjectName("h3")
-        lay.addWidget(sec_title)
+        sec_sub = QLabel("Select from curated theme palettes across nature, mood, colors, vibes, and seasons.")
+        sec_sub.setObjectName("subtitle")
+        v_titles.addWidget(sec_title)
+        v_titles.addWidget(sec_sub)
+        header_row.addLayout(v_titles, 1)
 
-        row = QHBoxLayout()
-        lbl = QLabel("Theme")
-        lbl.setStyleSheet("font-size: 13px;")
-        row.addWidget(lbl)
-        row.addStretch()
+        self._theme_lbl = QLabel(self._theme.palette.get("name", "Dark Mode"))
+        self._theme_lbl.setStyleSheet(f"color: {AccentManager().current}; font-size: 13px; font-weight: 700;")
+        header_row.addWidget(self._theme_lbl)
 
-        self._theme_lbl = QLabel("Dark Mode" if self._theme.is_dark() else "Light Mode")
-        self._theme_lbl.setStyleSheet("color: #9CA3AF; font-size: 13px;")
-        row.addWidget(self._theme_lbl)
-
-        toggle_btn = QPushButton("  Toggle Theme")
+        toggle_btn = QPushButton("  Toggle Dark/Light")
         toggle_btn.setObjectName("secondaryButton")
-        toggle_btn.setFixedWidth(140)
+        toggle_btn.setFixedWidth(160)
         toggle_btn.setCursor(Qt.PointingHandCursor)
         toggle_btn.clicked.connect(self._toggle_theme)
-        row.addWidget(toggle_btn)
+        header_row.addWidget(toggle_btn)
+        lay.addLayout(header_row)
 
-        lay.addLayout(row)
+        # ── Category Filter Pills ──────────────────────────────────────────
+        self._active_category = "All"
+        cat_scroll = QScrollArea()
+        cat_scroll.setWidgetResizable(True)
+        cat_scroll.setFixedHeight(46)
+        cat_scroll.setFrameShape(QFrame.NoFrame)
+        cat_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        cat_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        color_lbl = QLabel("Color Theme")
-        color_lbl.setStyleSheet("font-size: 13px; margin-top: 4px;")
+        cat_w = QWidget()
+        self._cat_row = QHBoxLayout(cat_w)
+        self._cat_row.setContentsMargins(0, 4, 0, 4)
+        self._cat_row.setSpacing(8)
+
+        self._cat_buttons = []
+        for cat in ["All"] + THEME_CATEGORIES:
+            btn = QPushButton(cat)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFixedHeight(32)
+            btn.clicked.connect(lambda _, c=cat: self._on_select_category(c))
+            self._cat_row.addWidget(btn)
+            self._cat_buttons.append((cat, btn))
+
+        self._cat_row.addStretch()
+        cat_scroll.setWidget(cat_w)
+        lay.addWidget(cat_scroll)
+        self._update_cat_buttons_style()
+
+        # ── Palette Cards Container ─────────────────────────────────────────
+        self._palettes_container = QVBoxLayout()
+        self._palettes_container.setSpacing(12)
+        lay.addLayout(self._palettes_container)
+        self._rebuild_palette_cards()
+
+        # ── Accent Color Customizer ─────────────────────────────────────────
+        accent_divider = QFrame()
+        accent_divider.setFrameShape(QFrame.HLine)
+        accent_divider.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); max-height: 1px;")
+        lay.addWidget(accent_divider)
+
+        color_lbl = QLabel("Primary Accent Color")
+        color_lbl.setStyleSheet("font-size: 14px; font-weight: 700; margin-top: 4px;")
         lay.addWidget(color_lbl)
 
         self._swatch_container = QVBoxLayout()
@@ -270,6 +312,132 @@ class SettingsPage(QWidget):
         self._rebuild_color_swatches()
 
         return card
+
+    # ── Category & Palette Selection ────────────────────────────────────────
+
+    def _on_select_category(self, cat: str):
+        self._active_category = cat
+        self._update_cat_buttons_style()
+        self._rebuild_palette_cards()
+
+    def _update_cat_buttons_style(self):
+        for cat, btn in self._cat_buttons:
+            if cat == self._active_category:
+                btn.setStyleSheet(
+                    f"background: {AccentManager().current}; color: #FFFFFF; font-weight: 700; "
+                    f"border-radius: 16px; padding: 0 16px; border: none; font-size: 12px;"
+                )
+            else:
+                dark = self._theme.is_dark()
+                bg = "rgba(255, 255, 255, 0.05)" if dark else "rgba(0, 0, 0, 0.05)"
+                fg = "#94A3B8" if dark else "#64748B"
+                border = "#334155" if dark else "#CBD5E1"
+                btn.setStyleSheet(
+                    f"background: {bg}; color: {fg}; font-weight: 600; "
+                    f"border-radius: 16px; padding: 0 16px; border: 1px solid {border}; font-size: 12px;"
+                )
+
+    def _rebuild_palette_cards(self):
+        self._clear_layout(self._palettes_container)
+
+        by_cat = get_palettes_by_category()
+        categories_to_show = [self._active_category] if self._active_category != "All" else THEME_CATEGORIES
+
+        for cat in categories_to_show:
+            palettes = by_cat.get(cat, [])
+            if not palettes:
+                continue
+
+            if self._active_category == "All":
+                cat_head = QLabel(cat)
+                cat_head.setStyleSheet("font-weight: 700; font-size: 13px; color: #94A3B8; margin-top: 6px;")
+                self._palettes_container.addWidget(cat_head)
+
+            # Grid in rows of 3
+            current_row = QHBoxLayout()
+            current_row.setSpacing(12)
+            cards_in_row = 0
+
+            for pal in palettes:
+                card = self._create_palette_card(pal)
+                current_row.addWidget(card)
+                cards_in_row += 1
+                if cards_in_row == 3:
+                    self._palettes_container.addLayout(current_row)
+                    current_row = QHBoxLayout()
+                    current_row.setSpacing(12)
+                    cards_in_row = 0
+
+            if cards_in_row > 0:
+                current_row.addStretch()
+                self._palettes_container.addLayout(current_row)
+
+    def _create_palette_card(self, pal: dict) -> QFrame:
+        card = QFrame()
+        card.setCursor(Qt.PointingHandCursor)
+        card.setFixedHeight(84)
+        card.setMinimumWidth(220)
+
+        is_active = self._theme.palette_id == pal["id"]
+        dark = self._theme.is_dark()
+        active_border = f"2px solid {pal['primary']}" if is_active else ("1px solid #334155" if dark else "1px solid #E2E8F0")
+        card_bg = pal["surface"]
+
+        card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {card_bg};
+                border: {active_border};
+                border-radius: 12px;
+            }}
+            QFrame:hover {{
+                border: 2px solid {pal['primary']};
+            }}
+        """)
+
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(6)
+
+        top_row = QHBoxLayout()
+        name_lbl = QLabel(pal["name"])
+        name_lbl.setStyleSheet(f"color: {pal['text_primary']}; font-weight: 700; font-size: 13px;")
+        top_row.addWidget(name_lbl, 1)
+
+        mode_badge = QLabel(f" {pal['mode'].upper()} ")
+        mode_color = "#38BDF8" if pal["mode"] == "dark" else "#F59E0B"
+        mode_badge.setStyleSheet(f"background: rgba(255,255,255,0.08); color: {mode_color}; font-size: 10px; font-weight: 800; border-radius: 6px; padding: 2px 6px;")
+        top_row.addWidget(mode_badge)
+
+        if is_active:
+            check_lbl = QLabel("✓")
+            check_lbl.setStyleSheet(f"color: {pal['primary']}; font-weight: 900; font-size: 14px;")
+            top_row.addWidget(check_lbl)
+
+        lay.addLayout(top_row)
+
+        # 4-bar swatch preview: [Background, Surface, Accent, Text]
+        swatch_row = QHBoxLayout()
+        swatch_row.setSpacing(4)
+        colors = [pal["background"], pal["surface"], pal["primary"], pal["text_primary"]]
+        labels = ["BG", "Card", "Accent", "Text"]
+        for c, _ in zip(colors, labels):
+            sw = QFrame()
+            sw.setFixedHeight(14)
+            sw.setStyleSheet(f"background-color: {c}; border-radius: 4px; border: 1px solid rgba(0,0,0,0.15);")
+            swatch_row.addWidget(sw, 1)
+        lay.addLayout(swatch_row)
+
+        card.mousePressEvent = lambda _, pid=pal["id"]: self._on_select_palette(pid)
+        return card
+
+    def _on_select_palette(self, palette_id: str):
+        self._theme.apply_palette(palette_id)
+        self._theme_lbl.setText(self._theme.palette.get("name", "Dark Mode"))
+        self._theme_lbl.setStyleSheet(f"color: {AccentManager().current}; font-size: 13px; font-weight: 700;")
+        self._update_cat_buttons_style()
+        self._rebuild_palette_cards()
+        self._rebuild_color_swatches()
+        success(self, message=f"Theme set to '{self._theme.palette.get('name')}'")
 
     # ── Color theme picker ──────────────────────────────────────────────
 
@@ -335,6 +503,7 @@ class SettingsPage(QWidget):
     def _select_accent(self, hex_color: str):
         self._accent.set_accent(hex_color)
         self._rebuild_color_swatches()
+        self._rebuild_palette_cards()
 
     def _pick_custom_color(self):
         color = QColorDialog.getColor(QColor(self._accent.current), self, "Choose a Custom Color")
@@ -344,6 +513,7 @@ class SettingsPage(QWidget):
         self._accent.add_custom_color(hex_color)
         self._accent.set_accent(hex_color)
         self._rebuild_color_swatches()
+        self._rebuild_palette_cards()
 
     def _remove_custom_color(self, hex_color: str):
         self._accent.remove_custom_color(hex_color)

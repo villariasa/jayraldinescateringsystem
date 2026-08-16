@@ -944,7 +944,15 @@ BEGIN
         p_price,
         p_status::menu_status
     )
+    ON CONFLICT (mi_name) DO UPDATE SET
+        mi_description = COALESCE(NULLIF(EXCLUDED.mi_description, ''), menu_items.mi_description),
+        mi_price = EXCLUDED.mi_price,
+        mi_category = EXCLUDED.mi_category
     RETURNING mi_id INTO p_item_id;
+
+    IF p_item_id IS NULL THEN
+        SELECT mi_id INTO p_item_id FROM menu_items WHERE mi_name = p_name LIMIT 1;
+    END IF;
 END;
 $$;
 
@@ -1000,8 +1008,9 @@ LANGUAGE plpgsql AS $$
 BEGIN
     INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status)
     VALUES (p_name, p_contact, p_email, p_address, p_status::customer_status)
-    ON CONFLICT DO NOTHING
     RETURNING cus_id INTO p_customer_id;
+EXCEPTION WHEN OTHERS THEN
+    SELECT cus_id INTO p_customer_id FROM customers WHERE cus_name = p_name OR cus_contact = p_contact LIMIT 1;
 END;
 $$;
 

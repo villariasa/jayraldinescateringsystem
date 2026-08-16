@@ -34,15 +34,13 @@ class NotifScheduler(QObject):
     def _check(self):
         try:
             bookings = repo.get_upcoming_bookings_for_alerts()
-        except Exception as exc:
-            print(f"[Scheduler] fetch error: {exc}")
+        except Exception:
             return
 
         if not bookings:
             return
 
         now = datetime.now()
-        print(f"[Scheduler] checking {len(bookings)} booking(s) at {now.strftime('%H:%M:%S')}")
 
         for b in bookings:
             event_dt = b.get("event_dt")
@@ -52,7 +50,6 @@ class NotifScheduler(QObject):
             name   = b.get("customer_name", "")
             delta  = event_dt - now
             total_secs = delta.total_seconds()
-            print(f"[Scheduler]   {ref} ({name}) — event in {total_secs/60:.1f} min")
 
             for win_key, win_from, win_tol, ntype, title_tpl, msg_tpl, color in _WINDOWS:
                 fire_key = f"{ref}:{win_key}"
@@ -63,10 +60,9 @@ class NotifScheduler(QObject):
                 if low <= total_secs <= high:
                     title = title_tpl.format(ref=ref, name=name)
                     msg   = msg_tpl.format(ref=ref, name=name)
-                    print(f"[Scheduler] >>> FIRING {win_key} for {ref}")
                     _fired.add(fire_key)
                     try:
                         repo.push_notification(ntype, title, msg, color)
-                    except Exception as exc:
-                        print(f"[Scheduler] push_notification failed: {exc}")
+                    except Exception:
+                        pass
                     self.new_notification.emit(title, msg, color)

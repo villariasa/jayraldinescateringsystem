@@ -623,6 +623,24 @@ class CustomersPage(QWidget):
         self._build_ui()
         self._populate_table()
 
+        try:
+            from utils.signals import app_events
+            app_events().customer_saved.connect(self.reload)
+            app_events().data_changed.connect(self.reload)
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.reload()
+
+    def reload(self):
+        db_rows = repo.get_all_customers_with_loyalty()
+        if not db_rows:
+            db_rows = repo.get_all_customers() or []
+        self._customers = db_rows
+        self._populate_table()
+
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -697,7 +715,7 @@ class CustomersPage(QWidget):
                 if item:
                     w = item.widget()
                     if w:
-                        w.setParent(None)
+                        w.hide()
                         w.deleteLater()
 
             data = customers if customers is not None else self._customers

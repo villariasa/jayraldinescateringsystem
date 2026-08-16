@@ -58,7 +58,7 @@ def create_installer():
     try:
         from version import __version__
     except ImportError:
-        __version__ = "1.2.0"
+        __version__ = "1.3.1"
 
     setup_exe = output_dir / "Jayraldines_Catering_Setup.exe"
     versioned_exe = output_dir / f"Jayraldines_Catering_Setup_v{__version__}.exe"

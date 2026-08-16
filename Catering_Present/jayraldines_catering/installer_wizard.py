@@ -23,7 +23,7 @@ from PySide6.QtGui import QPixmap, QIcon, QFont, QColor, QPainter, QBrush, QPen
 try:
     from version import __version__, APP_NAME
 except ImportError:
-    __version__ = "1.2.1"
+    __version__ = "1.3.1"
     APP_NAME = "Jayraldine's Catering"
 
 

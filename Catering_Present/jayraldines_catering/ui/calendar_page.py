@@ -463,6 +463,21 @@ class CalendarPage(QWidget):
         self._load_month_data()
         self.render_calendar()
 
+        try:
+            from utils.signals import app_events
+            app_events().booking_saved.connect(self.reload)
+            app_events().data_changed.connect(self.reload)
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.reload()
+
+    def reload(self):
+        self._load_month_data()
+        self.render_calendar()
+
     # ==========================================
     # CALENDAR LOGIC
     # ==========================================

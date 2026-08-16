@@ -1,9 +1,9 @@
 """
-ImportWizardDialog — 4-Step Interactive Data Import Wizard for Jayraldine's Catering System.
-Step 1: Select Entity Type & Browse/Drop CSV or Excel file. (Includes Download Template button).
-Step 2: Review & Adjust Intelligent Column Mapping.
-Step 3: Live Color-Coded Validation Preview Table.
-Step 4: Execute Batch Database Import with Real-Time Progress.
+ImportWizardDialog — Interactive Data Import Wizard for Jayraldine's Catering System.
+Features:
+- 1-Click Fast Import: Select file & immediately import without tedious manual mapping.
+- Intelligent Auto-Detection: Auto-detects Bookings, Customers, Expenses, and Menu Items.
+- Full 4-Step Stepper for users who want to preview or customize column mapping.
 """
 import os
 from PySide6.QtWidgets import (
@@ -12,19 +12,18 @@ from PySide6.QtWidgets import (
     QStackedWidget, QFileDialog, QMessageBox, QProgressBar, QWidget
 )
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtGui import QColor
 
-from utils.theme import ThemeManager
 from utils.accent import AccentManager
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
 import utils.importer as importer
 
 
 class ImportWizardDialog(QDialog):
-    def __init__(self, default_entity: str = "customers", parent=None):
+    def __init__(self, default_entity: str = "all_in_one", parent=None):
         super().__init__(parent)
         self.setWindowTitle("Import Data — Jayraldine's Catering System")
-        self.setMinimumSize(850, 620)
+        self.setMinimumSize(880, 640)
         self.setObjectName("card")
 
         self._entity_type = default_entity
@@ -34,6 +33,7 @@ class ImportWizardDialog(QDialog):
         self._mapping = {}
         self._prepared_rows = []
         self._counts = {}
+        self._master_dict = {}
 
         self._setup_ui()
         self._load_entity(default_entity)
@@ -65,7 +65,7 @@ class ImportWizardDialog(QDialog):
         self._entity_combo = QComboBox()
         for k, v in importer.ENTITY_SCHEMAS.items():
             self._entity_combo.addItem(v["title"], k)
-        self._entity_combo.setMinimumWidth(180)
+        self._entity_combo.setMinimumWidth(220)
         self._entity_combo.currentIndexChanged.connect(self._on_entity_changed)
         header_row.addWidget(self._entity_combo)
 
@@ -137,8 +137,8 @@ class ImportWizardDialog(QDialog):
         lay.setSpacing(16)
 
         desc = QLabel(
-            "Select or drop any CSV or Excel (.xlsx, .xls) spreadsheet. "
-            "Our intelligent importer will auto-detect your column headers."
+            "Select your CSV or Excel (.xlsx) spreadsheet. "
+            "Our intelligent engine will auto-detect all columns and categories automatically."
         )
         desc.setObjectName("subtitle")
         desc.setWordWrap(True)
@@ -147,7 +147,7 @@ class ImportWizardDialog(QDialog):
         file_row = QHBoxLayout()
         file_row.setSpacing(10)
         self._txt_file = QLineEdit()
-        self._txt_file.setPlaceholderText("Select file path (e.g. customers.csv or expenses.xlsx)…")
+        self._txt_file.setPlaceholderText("Select file path (e.g. all_in_one_import_template.xlsx)…")
         file_row.addWidget(self._txt_file, 1)
 
         btn_browse = QPushButton(" Browse File…")
@@ -161,12 +161,26 @@ class ImportWizardDialog(QDialog):
         self._file_info_card = QFrame()
         self._file_info_card.setObjectName("cardElevated")
         info_lay = QVBoxLayout(self._file_info_card)
-        info_lay.setContentsMargins(16, 14, 16, 14)
-        self._lbl_file_stats = QLabel("No file selected yet.")
+        info_lay.setContentsMargins(18, 16, 18, 16)
+        info_lay.setSpacing(10)
+
+        self._lbl_file_stats = QLabel("No file selected yet. Click 'Browse File…' to choose your spreadsheet.")
         self._lbl_file_stats.setObjectName("subtitle")
         info_lay.addWidget(self._lbl_file_stats)
-        lay.addWidget(self._file_info_card)
 
+        # Fast 1-Click Import Action Row
+        self._fast_import_row = QHBoxLayout()
+        self._btn_fast_import = QPushButton(" ⚡ Import All Data Now (1-Click)")
+        self._btn_fast_import.setObjectName("primaryButton")
+        self._btn_fast_import.setFixedHeight(40)
+        self._btn_fast_import.setStyleSheet("font-size: 14px; font-weight: 800; padding: 0 20px;")
+        self._btn_fast_import.setVisible(False)
+        self._btn_fast_import.clicked.connect(self._on_fast_import)
+        self._fast_import_row.addWidget(self._btn_fast_import)
+        self._fast_import_row.addStretch()
+        info_lay.addLayout(self._fast_import_row)
+
+        lay.addWidget(self._file_info_card)
         lay.addStretch()
         self.stack.addWidget(page)
 
@@ -176,13 +190,13 @@ class ImportWizardDialog(QDialog):
         lay.setContentsMargins(10, 10, 10, 10)
         lay.setSpacing(12)
 
-        lbl = QLabel("Review and adjust column header mapping between your file and database fields:")
+        lbl = QLabel("All columns have been auto-mapped. You can review or adjust any field below:")
         lbl.setObjectName("subtitle")
         lay.addWidget(lbl)
 
         self._map_table = QTableWidget()
         self._map_table.setColumnCount(3)
-        self._map_table.setHorizontalHeaderLabels(["System Field", "Required?", "Uploaded File Header"])
+        self._map_table.setHorizontalHeaderLabels(["System Field", "Required?", "Matched File Column"])
         self._map_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._map_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self._map_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
@@ -265,11 +279,12 @@ class ImportWizardDialog(QDialog):
 
     def _on_download_template(self):
         entity_title = importer.ENTITY_SCHEMAS.get(self._entity_type, {}).get("title", "data")
+        default_name = f"{self._entity_type}_import_template.xlsx" if self._entity_type == "all_in_one" else f"{self._entity_type}_import_template.csv"
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             f"Save Sample {entity_title} Template",
-            f"{self._entity_type}_import_template.csv",
-            "CSV Spreadsheet (*.csv)"
+            default_name,
+            "Excel Spreadsheet (*.xlsx);;CSV Spreadsheet (*.csv)"
         )
         if file_path:
             err = importer.generate_sample_csv(self._entity_type, file_path)
@@ -286,7 +301,7 @@ class ImportWizardDialog(QDialog):
             self,
             "Select Data File to Import",
             "",
-            "Spreadsheets (*.csv *.xlsx *.xls);;CSV Files (*.csv);;Excel Files (*.xlsx *.xls)"
+            "Spreadsheets (*.csv *.xlsx *.xls);;Excel Files (*.xlsx *.xls);;CSV Files (*.csv)"
         )
         if file_path:
             self._txt_file.setText(file_path)
@@ -295,6 +310,7 @@ class ImportWizardDialog(QDialog):
 
     def _parse_selected_file(self):
         if not self._file_path:
+            self._btn_fast_import.setVisible(False)
             return
 
         if self._entity_type == "all_in_one":
@@ -303,22 +319,25 @@ class ImportWizardDialog(QDialog):
                 self._lbl_file_stats.setText(f"⚠ Error reading master file: {err}")
                 self._headers = []
                 self._data_rows = []
+                self._master_dict = {}
+                self._btn_fast_import.setVisible(False)
                 return
+
             self._master_dict = master_dict
             total_records = sum(len(rows) for _, (_, rows) in master_dict.items())
-            entities_str = ", ".join([f"{len(rows)} {k.title()}" for k, (_, rows) in master_dict.items()])
+            breakdown = ", ".join([f"{len(rows)} {k.title()}" for k, (_, rows) in master_dict.items()])
             filename = os.path.basename(self._file_path)
             self._lbl_file_stats.setText(
-                f"✅ Master All-in-One File loaded successfully!\n"
-                f"• File Name: {filename}\n"
-                f"• Detected Sections: {entities_str}\n"
-                f"• Total Records: {total_records} records across all entities in 1 file"
+                f"✅ Master File Loaded: <b>{filename}</b>\n\n"
+                f"🎯 <b>Detected Records</b> ({total_records} total): {breakdown}\n\n"
+                f"You can click <b>'⚡ Import All Data Now'</b> below to import immediately, or click Next to preview."
             )
-            first_entity = next(iter(master_dict.keys()), "customers")
-            headers, rows = master_dict[first_entity]
-            self._headers = headers
-            self._data_rows = rows
-            self._mapping = importer.auto_map_headers(headers, first_entity)
+            self._btn_fast_import.setVisible(total_records > 0)
+
+            hdrs, rows, _ = importer.parse_file(self._file_path)
+            self._headers = hdrs or (next(iter(master_dict.values()))[0] if master_dict else [])
+            self._data_rows = rows or (next(iter(master_dict.values()))[1] if master_dict else [])
+            self._mapping = importer.auto_map_headers(self._headers, "all_in_one")
             return
 
         headers, rows, err = importer.parse_file(self._file_path)
@@ -326,18 +345,20 @@ class ImportWizardDialog(QDialog):
             self._lbl_file_stats.setText(f"⚠ Error reading file: {err}")
             self._headers = []
             self._data_rows = []
+            self._btn_fast_import.setVisible(False)
             return
 
         self._headers = headers
         self._data_rows = rows
         filename = os.path.basename(self._file_path)
         self._lbl_file_stats.setText(
-            f"✅ File loaded successfully!\n"
-            f"• File Name: {filename}\n"
-            f"• Detected Columns ({len(headers)}): {', '.join(headers[:6])}{'…' if len(headers) > 6 else ''}\n"
-            f"• Data Rows: {len(rows)} records"
+            f"✅ File Loaded: <b>{filename}</b>\n\n"
+            f"• Detected Columns: {len(headers)} columns\n"
+            f"• Data Rows: {len(rows)} records\n\n"
+            f"Ready to import into Jayraldine's Catering System."
         )
         self._mapping = importer.auto_map_headers(self._headers, self._entity_type)
+        self._btn_fast_import.setVisible(len(rows) > 0)
 
     def _populate_step2_mapping_table(self):
         schema = importer.ENTITY_SCHEMAS.get(self._entity_type, {})
@@ -347,36 +368,39 @@ class ImportWizardDialog(QDialog):
         self._map_table.setRowCount(len(fields))
 
         for idx, (field_key, info) in enumerate(fields.items()):
-            # System Field Name
             item_field = QTableWidgetItem(info["label"])
             item_field.setFlags(Qt.ItemIsEnabled)
             self._map_table.setItem(idx, 0, item_field)
 
-            # Required
-            req_str = "YES (Required)" if info["required"] else "Optional"
+            req_str = "YES (Required)" if info.get("required") else "Optional"
             item_req = QTableWidgetItem(req_str)
             item_req.setFlags(Qt.ItemIsEnabled)
-            if info["required"]:
+            if info.get("required"):
                 item_req.setForeground(QColor("#EF4444"))
             self._map_table.setItem(idx, 1, item_req)
 
-            # Dropdown for Uploaded Column Header
             combo = QComboBox()
-            combo.addItem("-- Select Column Header --", "")
+            combo.addItem("-- Not Mapped --", "")
             matched_header = self._mapping.get(field_key, "")
             selected_index = 0
+
             for h_idx, h in enumerate(self._headers, start=1):
                 combo.addItem(h, h)
                 if h == matched_header:
                     selected_index = h_idx
+
+            # If not exact match, check fuzzy alias
+            if selected_index == 0 and matched_header:
+                for h_idx, h in enumerate(self._headers, start=1):
+                    if importer._clean_header_str(h) == importer._clean_header_str(matched_header):
+                        selected_index = h_idx
+                        break
 
             combo.setCurrentIndex(selected_index)
             combo.setProperty("field_key", field_key)
             self._map_table.setCellWidget(idx, 2, combo)
 
     def _read_current_mapping(self):
-        schema = importer.ENTITY_SCHEMAS.get(self._entity_type, {})
-        fields = schema.get("fields", {})
         mapping = {}
         for row in range(self._map_table.rowCount()):
             combo = self._map_table.cellWidget(row, 2)
@@ -412,11 +436,9 @@ class ImportWizardDialog(QDialog):
             data = row_info["_data"]
             issues_str = "; ".join(row_info["_issues"]) if row_info["_issues"] else "OK"
 
-            # Row Index
             it_idx = QTableWidgetItem(str(row_info["_row_index"]))
             it_idx.setFlags(Qt.ItemIsEnabled)
 
-            # Status Badge
             st_str = "VALID" if status == "valid" else ("WARNING" if status == "warning" else "ERROR")
             it_st = QTableWidgetItem(st_str)
             it_st.setFlags(Qt.ItemIsEnabled)
@@ -431,7 +453,6 @@ class ImportWizardDialog(QDialog):
                 it_st.setBackground(QColor("#991B1B"))
                 it_st.setForeground(QColor("#FEE2E2"))
 
-            # Notes
             it_notes = QTableWidgetItem(issues_str)
             it_notes.setFlags(Qt.ItemIsEnabled)
 
@@ -439,10 +460,9 @@ class ImportWizardDialog(QDialog):
             self._preview_table.setItem(row_idx, 1, it_st)
             self._preview_table.setItem(row_idx, 2, it_notes)
 
-            # Data columns
             for col_i, k in enumerate(field_keys, start=3):
                 val = data.get(k, "")
-                if k == "amount" or k == "total" or k == "price":
+                if k in ("amount", "total", "price", "total_amount", "expense_amount"):
                     val_str = f"₱ {float(val):,.2f}"
                 else:
                     val_str = str(val)
@@ -452,36 +472,73 @@ class ImportWizardDialog(QDialog):
 
         self._preview_table.resizeColumnsToContents()
 
+    def _on_fast_import(self):
+        """Direct 1-Click execution from Step 1."""
+        self._update_step_ui(3)
+        self._execute_import()
+
     def _execute_import(self):
-        if self._entity_type == "all_in_one" and hasattr(self, "_master_dict") and self._master_dict:
-            self._progress_bar.setValue(50)
+        if self._entity_type == "all_in_one":
+            self._progress_bar.setValue(25)
             total_success = 0
             total_fail = 0
             all_errors = []
-            for ent_key, (hdrs, d_rows) in self._master_dict.items():
-                mapping = importer.auto_map_headers(hdrs, ent_key)
-                prep_rows, _ = importer.validate_and_prepare_rows(d_rows, mapping, ent_key)
-                s_cnt, f_cnt, errs = importer.execute_batch_import(prep_rows, ent_key, skip_errors=True)
-                total_success += s_cnt
-                total_fail += f_cnt
-                all_errors.extend(errs)
+            summary_breakdown = []
+
+            master_dict = getattr(self, "_master_dict", None)
+            if not master_dict:
+                master_dict, _ = importer.parse_master_file(self._file_path)
+
+            if master_dict:
+                step_pct = 25
+                for ent_key, (hdrs, d_rows) in master_dict.items():
+                    if not d_rows:
+                        continue
+                    mapping = importer.auto_map_headers(hdrs, ent_key)
+                    prep_rows, _ = importer.validate_and_prepare_rows(d_rows, mapping, ent_key)
+                    s_cnt, f_cnt, errs = importer.execute_batch_import(prep_rows, ent_key, skip_errors=True)
+                    total_success += s_cnt
+                    total_fail += f_cnt
+                    all_errors.extend(errs)
+                    summary_breakdown.append(f"• {ent_key.replace('_', ' ').title()}: {s_cnt} imported, {f_cnt} skipped")
+                    step_pct += 15
+                    self._progress_bar.setValue(min(90, step_pct))
 
             self._progress_bar.setValue(100)
-            self._lbl_exec_status.setText("✅ All-in-One Master Import Completed!")
-            msg = (
-                f"Successfully imported {total_success} total records across Bookings, Customers, Expenses, and Menu Items from your master file.\n"
-                f"Skipped / Failed: {total_fail} records.\n\n"
-                f"All database tables and application pages have been synchronized."
-            )
+
+            if total_success > 0:
+                self._lbl_exec_status.setText("✅ All-in-One Master Import Completed!")
+                msg = (
+                    f"Successfully imported {total_success} total records into Jayraldine's Catering System.\n"
+                    f"Skipped / Failed: {total_fail} records.\n\n"
+                    f"Section Breakdown:\n" + "\n".join(summary_breakdown) + "\n\n"
+                    f"All database tables and application pages have been synchronized."
+                )
+            else:
+                self._lbl_exec_status.setText("⚠ No Records Imported")
+                msg = (
+                    f"Could not import records from this file. Total skipped: {total_fail}.\n"
+                    f"Please verify that the required columns are filled."
+                )
+
             if all_errors:
-                msg += "\n\nError details:\n" + "\n".join(all_errors[:5])
+                msg += "\n\nIssue details:\n" + "\n".join(all_errors[:6])
 
             self._lbl_result_summary.setText(msg)
             self._btn_next.setText("Finish & Close")
             self._btn_next.setEnabled(True)
+            self._emit_refresh_signals()
             return
 
         valid_cnt = self._counts.get("valid", 0) + self._counts.get("warning", 0)
+        if valid_cnt == 0:
+            # Re-validate with auto-mapping if coming directly from Fast Import
+            self._mapping = importer.auto_map_headers(self._headers, self._entity_type)
+            self._prepared_rows, self._counts = importer.validate_and_prepare_rows(
+                self._data_rows, self._mapping, self._entity_type
+            )
+            valid_cnt = self._counts.get("valid", 0) + self._counts.get("warning", 0)
+
         if valid_cnt == 0:
             QMessageBox.warning(self, "No Valid Rows", "There are no valid data rows to import.")
             return
@@ -492,19 +549,36 @@ class ImportWizardDialog(QDialog):
         )
         self._progress_bar.setValue(100)
 
-        self._lbl_exec_status.setText("✅ Import Completed!")
         entity_title = importer.ENTITY_SCHEMAS.get(self._entity_type, {}).get("title", "records")
-        msg = (
-            f"Successfully imported {success_cnt} {entity_title} into the database.\n"
-            f"Skipped / Failed: {fail_cnt} records.\n\n"
-            f"All active pages have been updated automatically."
-        )
+        if success_cnt > 0:
+            self._lbl_exec_status.setText("✅ Import Completed!")
+            msg = (
+                f"Successfully imported {success_cnt} {entity_title} into the database.\n"
+                f"Skipped / Failed: {fail_cnt} records.\n\n"
+                f"All active pages have been updated automatically."
+            )
+        else:
+            self._lbl_exec_status.setText("⚠ Import Incomplete")
+            msg = f"0 records imported. Skipped / Failed: {fail_cnt} records."
+
         if errors:
-            msg += "\n\nError details:\n" + "\n".join(errors[:5])
+            msg += "\n\nIssue details:\n" + "\n".join(errors[:6])
 
         self._lbl_result_summary.setText(msg)
         self._btn_next.setText("Finish & Close")
         self._btn_next.setEnabled(True)
+        self._emit_refresh_signals()
+
+    def _emit_refresh_signals(self):
+        try:
+            from utils.signals import app_events
+            ev = app_events()
+            ev.data_changed.emit()
+            ev.booking_saved.emit()
+            ev.customer_saved.emit()
+            ev.expense_saved.emit()
+        except Exception:
+            pass
 
     # ── NAVIGATION STEPS ────────────────────────────────────────────────────
 

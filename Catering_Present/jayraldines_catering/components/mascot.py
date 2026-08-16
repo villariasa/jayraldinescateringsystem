@@ -37,15 +37,14 @@ _DRAG_THRESHOLD = 6
 
 
 class SpeechBubble(QWidget):
-    """Floating tooltip speech bubble that tracks the mascot as it moves."""
+    """Speech bubble attached to the mascot that stays strictly inside the application."""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.hide()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 8)
+        layout.setContentsMargins(4, 4, 4, 4)
 
         self._label = QLabel("", self)
         self._label.setWordWrap(True)
@@ -68,27 +67,32 @@ class SpeechBubble(QWidget):
         )
 
     def popup_at(self, global_pos: QPoint, text: str, duration_ms: int = 3500):
+        if not text:
+            return
+        mascot = self.parent()
+        if mascot and hasattr(mascot, "window"):
+            win = mascot.window()
+            if win and (not win.isVisible() or win.isMinimized() or not win.isActiveWindow()):
+                return
         self._update_style()
         self._label.setText(text)
         self.adjustSize()
         self.reposition(global_pos)
         self.show()
+        self.raise_()
         self._timer.start(duration_ms)
 
     def reposition(self, global_pos: QPoint):
-        """Re-anchor above global_pos without touching the text or hide timer —
-        used to keep the bubble glued to the mascot while it's being dragged."""
+        mascot = self.parent()
+        if mascot:
+            p = mascot.parentWidget()
+            if p:
+                mx = max(4, min(mascot.x() - (self.width() - mascot.width()) // 2, p.width() - self.width() - 4))
+                my = max(4, mascot.y() - self.height() - 4)
+                self.move(mx, my)
+                return
         x = global_pos.x() - self.width() // 2
         y = global_pos.y() - self.height() - 6
-        try:
-            from PySide6.QtGui import QGuiApplication
-            screen = QGuiApplication.screenAt(global_pos) or QGuiApplication.primaryScreen()
-            if screen:
-                geo = screen.geometry()
-                x = max(geo.left() + 10, min(x, geo.right() - self.width() - 10))
-                y = max(geo.top() + 10, min(y, geo.bottom() - self.height() - 10))
-        except Exception:
-            pass
         self.move(x, y)
 
 
@@ -143,10 +147,6 @@ class ChefMascot(QWidget):
         self._reset_expr_timer = QTimer(self)
         self._reset_expr_timer.setSingleShot(True)
         self._reset_expr_timer.timeout.connect(self._reset_expression)
-
-        self._idle_quip_timer = QTimer(self)
-        self._idle_quip_timer.timeout.connect(self._maybe_idle_quip)
-        self._idle_quip_timer.start(random.randint(45000, 75000))
 
         create_soft_shadow(self, radius=14, y_offset=6, opacity=35)
         ThemeManager().theme_changed.connect(self._on_theme_or_accent_changed)

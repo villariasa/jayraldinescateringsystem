@@ -19,12 +19,27 @@ class TestImporter(unittest.TestCase):
         self.assertEqual(mapping["notes"], "Notes")
 
     def test_auto_map_headers_expenses(self):
-        headers = ["Fecha", "Expense Type", "Particulars", "Cost (PHP)"]
+        headers = ["Expense Date", "Expense Category", "Particulars", "Cost (PHP)"]
         mapping = importer.auto_map_headers(headers, "expenses")
-        self.assertEqual(mapping["date"], "Fecha")
-        self.assertEqual(mapping["category"], "Expense Type")
+        self.assertEqual(mapping["date"], "Expense Date")
+        self.assertEqual(mapping["category"], "Expense Category")
         self.assertEqual(mapping["description"], "Particulars")
         self.assertEqual(mapping["amount"], "Cost (PHP)")
+
+    def test_auto_map_headers_all_in_one_distinction(self):
+        headers = [
+            "Customer Name", "Contact Number", "Event Date", "Venue", "Occasion",
+            "Pax", "Total Amount", "Expense Date", "Expense Category", "Expense Description", "Expense Amount"
+        ]
+        exp_map = importer.auto_map_headers(headers, "expenses")
+        self.assertEqual(exp_map["date"], "Expense Date")
+        self.assertEqual(exp_map["amount"], "Expense Amount")
+        self.assertEqual(exp_map["category"], "Expense Category")
+
+        bkg_map = importer.auto_map_headers(headers, "bookings")
+        self.assertEqual(bkg_map["name"], "Customer Name")
+        self.assertEqual(bkg_map["date"], "Event Date")
+        self.assertEqual(bkg_map["total"], "Total Amount")
 
     def test_normalize_amount(self):
         self.assertEqual(importer.normalize_amount("₱ 15,500.50"), 15500.50)
@@ -36,10 +51,22 @@ class TestImporter(unittest.TestCase):
         self.assertEqual(importer.normalize_date("2026-08-16"), "Aug 16, 2026")
         self.assertEqual(importer.normalize_date("08/16/2026"), "Aug 16, 2026")
 
+    def test_normalize_enums(self):
+        self.assertEqual(importer.normalize_expense_category("pork meat"), "Food Cost")
+        self.assertEqual(importer.normalize_expense_category("delivery van gas"), "Transport")
+        self.assertEqual(importer.normalize_expense_category("electric bill"), "Utilities")
+        self.assertEqual(importer.normalize_expense_category("cook salary"), "Labor")
+        self.assertEqual(importer.normalize_expense_category("chairs rental"), "Equipment")
+
+        self.assertEqual(importer.normalize_booking_status("Confirmed"), "CONFIRMED")
+        self.assertEqual(importer.normalize_booking_status(""), "PENDING")
+        self.assertEqual(importer.normalize_customer_status("Active"), "Active")
+        self.assertEqual(importer.normalize_menu_category("Pancit Canton"), "Noodles")
+
     def test_validate_and_prepare_rows_expenses(self):
         rows = [
             {"Expense Date": "2026-08-16", "Category": "Food Cost", "Particulars": "Spices", "Cost": "₱1,500.00"},
-            {"Expense Date": "2026-08-16", "Category": "", "Particulars": "Missing Category", "Cost": "500.00"},
+            {"Expense Date": "2026-08-16", "Category": "Food Cost", "Particulars": "Missing Cost", "Cost": "0.00"},
         ]
         mapping = {"date": "Expense Date", "category": "Category", "description": "Particulars", "amount": "Cost"}
         prepared, counts = importer.validate_and_prepare_rows(rows, mapping, "expenses")
@@ -68,7 +95,9 @@ class TestImporter(unittest.TestCase):
             self.assertIsNone(err)
             master_dict, parse_err = importer.parse_master_file(sample_path)
             self.assertIsNone(parse_err)
+            self.assertIn("bookings", master_dict)
             self.assertIn("customers", master_dict)
+            self.assertIn("expenses", master_dict)
 
 
 if __name__ == "__main__":

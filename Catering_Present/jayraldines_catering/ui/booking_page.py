@@ -89,9 +89,13 @@ class BookingPage(QWidget):
         self._filter_popover = None
         self._build_ui()
         app_events().booking_saved.connect(self._refresh_bookings)
+        app_events().data_changed.connect(self._refresh_bookings)
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._refresh_bookings()
+
+    def reload(self):
         self._refresh_bookings()
 
     def _refresh_bookings(self):
@@ -194,7 +198,7 @@ class BookingPage(QWidget):
                 if item:
                     w = item.widget()
                     if w:
-                        w.setParent(None)
+                        w.hide()
                         w.deleteLater()
 
             rows = data if data is not None else self._visible_bookings()

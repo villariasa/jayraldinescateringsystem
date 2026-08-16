@@ -980,6 +980,8 @@ def get_upcoming_events(limit: int = 10) -> list[dict]:
 
 def get_report_kpis(period_filter: str = "") -> dict:
     if period_filter:
+        bkg_filter = period_filter
+        exp_filter = period_filter.replace("bk_event_date", "exp_expense_date").replace("bk_created_at", "exp_created_at").replace("DATE(bk_event_date)", "DATE(exp_expense_date)")
         row = db.fetchone(
             f"""
             SELECT
@@ -995,21 +997,38 @@ def get_report_kpis(period_filter: str = "") -> dict:
                                 AND (date_trunc('week',CURRENT_DATE)+INTERVAL '6 days')::DATE
                             AND bk_status IN ('CONFIRMED','COMPLETED')),0)::INT AS week_bookings
             FROM bookings
-            WHERE bk_status IN ('CONFIRMED', 'COMPLETED') {period_filter}
+            WHERE bk_status IN ('CONFIRMED', 'COMPLETED') {bkg_filter}
+            """
+        )
+        exp_row = db.fetchone(
+            f"""
+            SELECT COALESCE(SUM(exp_amount), 0)::FLOAT AS total_expenses
+            FROM expenses
+            WHERE 1=1 {exp_filter}
             """
         )
     else:
         row = db.fetchone("SELECT * FROM v_report_kpis")
-    if not row:
-        return {"total_bookings": 0, "total_pax": 0, "total_revenue": 0.0,
-                "unpaid_amount": 0.0, "today_bookings": 0, "week_bookings": 0}
+        exp_row = db.fetchone("SELECT COALESCE(SUM(exp_amount), 0)::FLOAT AS total_expenses FROM expenses")
+
+    total_bookings = int(row["total_bookings"]) if row and "total_bookings" in row else 0
+    total_pax      = int(row["total_pax"]) if row and "total_pax" in row else 0
+    total_revenue  = float(row["total_revenue"]) if row and "total_revenue" in row else 0.0
+    unpaid_amount  = float(row["unpaid_amount"]) if row and "unpaid_amount" in row else 0.0
+    today_bookings = int(row["today_bookings"]) if row and "today_bookings" in row else 0
+    week_bookings  = int(row["week_bookings"]) if row and "week_bookings" in row else 0
+    total_expenses = float(exp_row["total_expenses"]) if exp_row and "total_expenses" in exp_row else 0.0
+    net_profit     = total_revenue - total_expenses
+
     return {
-        "total_bookings": int(row["total_bookings"]),
-        "total_pax":      int(row["total_pax"]),
-        "total_revenue":  float(row["total_revenue"]),
-        "unpaid_amount":  float(row["unpaid_amount"]),
-        "today_bookings": int(row["today_bookings"]),
-        "week_bookings":  int(row["week_bookings"]),
+        "total_bookings": total_bookings,
+        "total_pax":      total_pax,
+        "total_revenue":  total_revenue,
+        "total_expenses": total_expenses,
+        "net_profit":     net_profit,
+        "unpaid_amount":  unpaid_amount,
+        "today_bookings": today_bookings,
+        "week_bookings":  week_bookings,
     }
 
 

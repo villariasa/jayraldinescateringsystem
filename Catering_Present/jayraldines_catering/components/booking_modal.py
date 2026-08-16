@@ -879,7 +879,7 @@ class BookingModal(QDialog):
 
     def _remove_addon_row(self, row_w: QWidget):
         self._addon_items = [(w, n, a) for w, n, a in self._addon_items if w != row_w]
-        row_w.setParent(None)
+        row_w.hide()
         row_w.deleteLater()
         self._update_cost()
 

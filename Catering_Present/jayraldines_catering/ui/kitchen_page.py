@@ -410,7 +410,7 @@ class KitchenPage(QWidget):
 
     def _delete_task_row(self, task_id, row_widget):
         repo.delete_kitchen_task(task_id)
-        row_widget.setParent(None)
+        row_widget.hide()
         row_widget.deleteLater()
 
     def _advance_order(self, order):
