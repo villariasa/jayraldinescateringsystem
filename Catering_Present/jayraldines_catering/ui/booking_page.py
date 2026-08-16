@@ -123,6 +123,13 @@ class BookingPage(QWidget):
         self.btn_new.setIconSize(QSize(15, 15))
         self.btn_new.clicked.connect(self._open_modal)
         header_row.addWidget(self.btn_new)
+
+        self.btn_import = QPushButton("  Import")
+        self.btn_import.setObjectName("secondaryButton")
+        self.btn_import.setIcon(btn_icon_secondary("export"))
+        self.btn_import.setIconSize(QSize(15, 15))
+        self.btn_import.clicked.connect(self._open_import_dialog)
+        header_row.addWidget(self.btn_import)
         layout.addLayout(header_row)
 
         table_card = AnimatedCard()
@@ -575,4 +582,10 @@ class BookingPage(QWidget):
         q = text.lower()
         filtered = [b for b in self._bookings if q in b["name"].lower() or q in b["id"].lower() or q in b["date"].lower()]
         self._populate_table(filtered)
+
+    def _open_import_dialog(self):
+        from components.import_dialog import ImportWizardDialog
+        dlg = ImportWizardDialog(default_entity="bookings", parent=self)
+        if dlg.exec():
+            self._refresh_bookings()
 

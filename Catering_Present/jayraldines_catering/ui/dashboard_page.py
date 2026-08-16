@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QSize, QTimer
 from PySide6.QtGui import QAction
 from datetime import datetime
+import math
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
 from utils.theme import ThemeManager
@@ -441,15 +442,58 @@ class PeriodSummaryCard(AnimatedCard):
 
         rev_set = QBarSet("Revenue")
         exp_set = QBarSet("Expenses")
-        rev_set.setColor(QColor(AccentManager().current))
-        exp_set.setColor(QColor("#F59E0B" if dark else "#F4A93C"))
+        rev_color = AccentManager().current
+        exp_color = "#F59E0B" if dark else "#F4A93C"
+        rev_set.setColor(QColor(rev_color))
+        exp_set.setColor(QColor(exp_color))
         labels = []
+        rev_values = []
+        exp_values = []
         max_val = 0.0
         for label, revenue, expense in data:
             labels.append(label)
+            rev_values.append(revenue)
+            exp_values.append(expense)
             rev_set.append(revenue)
             exp_set.append(expense)
             max_val = max(max_val, revenue, expense)
+
+        def _make_hover_rev(cat_labels=labels, rev_list=rev_values, col=rev_color):
+            def _on_hover(status: bool, index: int):
+                if status and 0 <= index < len(cat_labels):
+                    cat_name = cat_labels[index]
+                    val = rev_list[index]
+                    from PySide6.QtGui import QCursor
+                    from PySide6.QtWidgets import QToolTip
+                    QToolTip.showText(
+                        QCursor.pos(),
+                        f"<b style='color:{col};'>{cat_name} — Revenue</b><br>"
+                        f"Amount: <b>₱ {val:,.2f}</b>"
+                    )
+                else:
+                    from PySide6.QtWidgets import QToolTip
+                    QToolTip.hideText()
+            return _on_hover
+
+        def _make_hover_exp(cat_labels=labels, exp_list=exp_values, col=exp_color):
+            def _on_hover(status: bool, index: int):
+                if status and 0 <= index < len(cat_labels):
+                    cat_name = cat_labels[index]
+                    val = exp_list[index]
+                    from PySide6.QtGui import QCursor
+                    from PySide6.QtWidgets import QToolTip
+                    QToolTip.showText(
+                        QCursor.pos(),
+                        f"<b style='color:{col};'>{cat_name} — Expenses</b><br>"
+                        f"Amount: <b>₱ {val:,.2f}</b>"
+                    )
+                else:
+                    from PySide6.QtWidgets import QToolTip
+                    QToolTip.hideText()
+            return _on_hover
+
+        rev_set.hovered.connect(_make_hover_rev())
+        exp_set.hovered.connect(_make_hover_exp())
 
         series = QBarSeries()
         series.append(rev_set)
@@ -471,9 +515,32 @@ class PeriodSummaryCard(AnimatedCard):
         chart.addAxis(axis_x, Qt.AlignBottom)
         series.attachAxis(axis_x)
 
-        axis_y = QValueAxis()
-        axis_y.setRange(0, max(max_val * 1.15, 1))
-        axis_y.setLabelFormat("P%.0f")
+        upper = max(max_val * 1.15, 1.0)
+        target_ticks = 5
+        raw_step = upper / (target_ticks - 1)
+        magnitude = 10 ** int(math.floor(math.log10(max(raw_step, 1))))
+        residual = raw_step / magnitude
+        if residual <= 1.5:
+            clean_step = 1.0 * magnitude
+        elif residual <= 3.0:
+            clean_step = 2.5 * magnitude
+        elif residual <= 7.0:
+            clean_step = 5.0 * magnitude
+        else:
+            clean_step = 10.0 * magnitude
+
+        num_steps = max(1, int(math.ceil(upper / clean_step)))
+        final_max = num_steps * clean_step
+
+        from PySide6.QtCharts import QCategoryAxis
+        axis_y = QCategoryAxis()
+        axis_y.setRange(0, final_max)
+
+        for i in range(num_steps + 1):
+            val = clean_step * i
+            lbl = f"₱{val:,.0f}"
+            axis_y.append(lbl, val)
+
         axis_y.setLabelsColor(label_color)
         axis_y.setGridLineColor(grid_color)
         axis_y.setLinePenColor(Qt.transparent)

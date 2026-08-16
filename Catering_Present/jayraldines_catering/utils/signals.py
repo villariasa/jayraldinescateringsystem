@@ -7,6 +7,8 @@ class _AppEvents(QObject):
     kitchen_updated   = Signal()
     customer_saved    = Signal()
     menu_saved        = Signal()
+    expense_saved     = Signal()
+    data_changed      = Signal()
     notification_push = Signal()
     alarm_fired       = Signal(dict)
 

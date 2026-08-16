@@ -99,6 +99,14 @@ class ExpensesPage(QWidget):
         btn_add.setStyleSheet("QPushButton#primaryButton { background-color: #E11D48; color: #FFFFFF; border: none; font-weight: 700; border-radius: 8px; padding: 8px 16px; } QPushButton#primaryButton:hover { background-color: #BE123C; }")
         btn_add.clicked.connect(self._open_add_expense)
         head.addWidget(btn_add)
+
+        btn_import = QPushButton("  Import")
+        btn_import.setObjectName("secondaryButton")
+        btn_import.setIcon(btn_icon_secondary("export"))
+        btn_import.setIconSize(QSize(15, 15))
+        btn_import.setCursor(Qt.PointingHandCursor)
+        btn_import.clicked.connect(self._open_import_expenses)
+        head.addWidget(btn_import)
         self.lay.addLayout(head)
 
         # ── KPI row ─────────────────────────────────────────────────────────
@@ -390,3 +398,9 @@ class ExpensesPage(QWidget):
             return
         repo.delete_expense(exp["id"])
         self.reload()
+
+    def _open_import_expenses(self):
+        from components.import_dialog import ImportWizardDialog
+        dlg = ImportWizardDialog(default_entity="expenses", parent=self)
+        if dlg.exec():
+            self.reload()

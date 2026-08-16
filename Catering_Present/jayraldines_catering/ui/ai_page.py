@@ -256,6 +256,12 @@ class AIPage(QWidget):
             is_ok = res.get("ok", True) if isinstance(res, dict) else True
             if hasattr(self, "_mascot"):
                 self._mascot.set_state("happy" if is_ok else "confused")
+            if is_ok:
+                try:
+                    from utils.signals import app_events
+                    app_events().data_changed.emit()
+                except Exception:
+                    pass
             self._add_answer_card(msg, None, error="" if is_ok else msg)
 
         card = build_ai_card(answer, chart_spec, error, action, options,
@@ -296,12 +302,34 @@ class AIPage(QWidget):
             bar_series = QBarSeries()
             max_val = 1.0
             for i, s in enumerate(series_specs):
+                series_name = str(s.get("name", f"Series {i + 1}"))
                 values = [float(v) for v in s.get("values", [])][:len(labels)]
                 values += [0.0] * (len(labels) - len(values))
-                bar_set = QBarSet(str(s.get("name", f"Series {i + 1}")))
-                bar_set.setColor(QColor(palette[i % len(palette)]))
+                bar_set = QBarSet(series_name)
+                color_hex = palette[i % len(palette)]
+                bar_set.setColor(QColor(color_hex))
                 for v in values:
                     bar_set.append(v)
+
+                def _make_hover(bset=bar_set, s_name=series_name, val_list=values, cat_labels=labels, col=color_hex):
+                    def _on_hover(status: bool, index: int):
+                        if status and 0 <= index < len(cat_labels):
+                            cat_name = cat_labels[index]
+                            val = val_list[index]
+                            amt_str = f"₱ {val:,.2f}" if val >= 10 else f"{val:g}"
+                            from PySide6.QtGui import QCursor
+                            from PySide6.QtWidgets import QToolTip
+                            QToolTip.showText(
+                                QCursor.pos(),
+                                f"<b style='color:{col};'>{cat_name}</b> ({s_name})<br>"
+                                f"Amount: <b>{amt_str}</b>"
+                            )
+                        else:
+                            from PySide6.QtWidgets import QToolTip
+                            QToolTip.hideText()
+                    return _on_hover
+
+                bar_set.hovered.connect(_make_hover())
                 max_val = max(max_val, *values) if values else max_val
                 bar_series.append(bar_set)
 
@@ -324,9 +352,32 @@ class AIPage(QWidget):
             chart.addAxis(axis_x, Qt.AlignBottom)
             bar_series.attachAxis(axis_x)
 
-            axis_y = QValueAxis()
-            axis_y.setRange(0, max_val * 1.15)
-            axis_y.setLabelFormat("P%.0f")
+            upper = max(max_val * 1.15, 1.0)
+            target_ticks = 5
+            raw_step = upper / (target_ticks - 1)
+            magnitude = 10 ** int(math.floor(math.log10(max(raw_step, 1))))
+            residual = raw_step / magnitude
+            if residual <= 1.5:
+                clean_step = 1.0 * magnitude
+            elif residual <= 3.0:
+                clean_step = 2.5 * magnitude
+            elif residual <= 7.0:
+                clean_step = 5.0 * magnitude
+            else:
+                clean_step = 10.0 * magnitude
+
+            num_steps = max(1, int(math.ceil(upper / clean_step)))
+            final_max = num_steps * clean_step
+
+            from PySide6.QtCharts import QCategoryAxis
+            axis_y = QCategoryAxis()
+            axis_y.setRange(0, final_max)
+
+            for i in range(num_steps + 1):
+                val = clean_step * i
+                lbl = f"₱{val:,.0f}"
+                axis_y.append(lbl, val)
+
             axis_y.setLabelsColor(label_color)
             axis_y.setGridLineColor(QColor("#EDF1F7" if _is_light() else "#243244"))
             axis_y.setLinePenColor(Qt.transparent)

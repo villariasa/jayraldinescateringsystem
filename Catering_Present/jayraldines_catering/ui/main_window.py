@@ -102,6 +102,9 @@ class MainWindow(QMainWindow):
         _ev.booking_saved.connect(self._on_booking_saved)
         _ev.payment_recorded.connect(self._on_payment_recorded)
         _ev.kitchen_updated.connect(self._on_kitchen_updated)
+        _ev.expense_saved.connect(self._on_expense_saved)
+        _ev.customer_saved.connect(self._on_customer_saved)
+        _ev.data_changed.connect(self._reload_all_pages)
 
         from utils.reminder_manager import reminder_manager
         reminder_manager().alarm_fired.connect(self._on_alarm_fired)
@@ -132,6 +135,7 @@ class MainWindow(QMainWindow):
             import traceback
             traceback.print_exc()
             print(f"[MainWindow] Error loading page {mod_name}.{cls_name}: {exc}")
+            from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
             page = QWidget()
             err_lay = QVBoxLayout(page)
             err_lbl = QLabel(f"Unable to load page '{cls_name}':\n{exc}")
@@ -158,6 +162,11 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(index)
         self.topbar.set_page(index)
         self.sidebar.handle_click(index)
+        if hasattr(page, "reload"):
+            try:
+                page.reload()
+            except Exception:
+                pass
         if hasattr(self, "_floating_ai") and self._floating_ai:
             self._floating_ai.setVisible(index != 9)
 
@@ -233,6 +242,33 @@ class MainWindow(QMainWindow):
     def _on_kitchen_updated(self):
         if self._pages[0] is not None:
             self._pages[0].reload()
+        self._poll_notifications()
+
+    def _on_expense_saved(self):
+        if self._pages[8] is not None:  # ExpensesPage
+            self._pages[8].reload()
+        if self._pages[0] is not None:  # DashboardPage
+            self._pages[0].reload()
+        if self._pages[7] is not None:  # ReportsPage
+            self._pages[7].reload()
+        self._poll_notifications()
+
+    def _on_customer_saved(self):
+        if self._pages[2] is not None:  # CustomersPage
+            self._pages[2].reload()
+        if self._pages[1] is not None:  # BookingPage
+            self._pages[1].reload()
+        if self._pages[0] is not None:  # DashboardPage
+            self._pages[0].reload()
+        self._poll_notifications()
+
+    def _reload_all_pages(self):
+        for p in self._pages:
+            if p is not None and hasattr(p, "reload"):
+                try:
+                    p.reload()
+                except Exception:
+                    pass
         self._poll_notifications()
 
     def _on_theme_changed(self, _theme: str):

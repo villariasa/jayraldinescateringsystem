@@ -52,6 +52,7 @@ class SettingsPage(QWidget):
         lay.addWidget(title)
 
         lay.addWidget(self._build_business_card())
+        lay.addWidget(self._build_import_card())
         lay.addWidget(self._build_occasions_card())
         lay.addWidget(self._build_policy_card())
         lay.addWidget(self._build_smtp_card())
@@ -385,6 +386,42 @@ class SettingsPage(QWidget):
         lay.addLayout(btn_row)
 
         return card
+
+    def _build_import_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        sec_title = QLabel("Data Import & Migration")
+        sec_title.setObjectName("h3")
+        lay.addWidget(sec_title)
+
+        sub = QLabel("Import Bookings, Customers, Expenses, or Menu Items from any CSV or Excel file.")
+        sub.setObjectName("subtitle")
+        sub.setWordWrap(True)
+        lay.addWidget(sub)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+
+        import_btn = QPushButton("  Open Data Import Wizard")
+        import_btn.setObjectName("primaryButton")
+        import_btn.setIcon(btn_icon_primary("export"))
+        import_btn.setIconSize(QSize(15, 15))
+        import_btn.setCursor(Qt.PointingHandCursor)
+        import_btn.clicked.connect(self._open_import_wizard)
+
+        btn_row.addWidget(import_btn)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+        return card
+
+    def _open_import_wizard(self):
+        from components.import_dialog import ImportWizardDialog
+        dlg = ImportWizardDialog(default_entity="customers", parent=self)
+        dlg.exec()
 
     def _build_occasions_card(self):
         card = QFrame()

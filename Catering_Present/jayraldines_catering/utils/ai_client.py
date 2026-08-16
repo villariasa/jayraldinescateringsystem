@@ -408,6 +408,12 @@ def _metric_sum_in_range(start: date, end: date, metric: str) -> float:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _answer_compare(q: str) -> dict:
+    q_lower = q.lower()
+    has_rev = bool(re.search(r"\brevenue\b|\bincome\b|\bsales\b|\bearning|\bearnings\b", q_lower))
+    has_exp = bool(re.search(r"\bexpense\b|\bexpenses\b|\bcost\b|\bcosts\b|\bspend\b|\bspending\b", q_lower))
+    if (has_rev and has_exp) or "profit margin" in q_lower or "net profit" in q_lower or "revenue vs expense" in q_lower or "expense and revenue" in q_lower or ("compare" in q_lower and "expense" in q_lower and "revenue" in q_lower):
+        return _answer_revenue_vs_expense_compare(q)
+
     now = datetime.now().year
     metric = _metric(q)
     label = metric.capitalize()
@@ -493,6 +499,138 @@ def _answer_compare(q: str) -> dict:
                  {"name": str(y_new), "values": [by_m_new.get(m, 0.0) for m in range(1, 13)]},
              ]}
     return {"ok": True, "answer": answer, "chart": chart, "error": ""}
+
+
+def _answer_revenue_vs_expense_compare(q: str) -> dict:
+    years = _extract_years(q)
+    year = years[-1] if years else datetime.now().year
+    month = _extract_month(q)
+
+    if month:
+        m_name = _MONTH_LABELS[month - 1]
+        where = f"{m_name} {year}"
+        rev = _month_value(year, month, "revenue")
+        exp = _month_value(year, month, "expense")
+    else:
+        where = str(year)
+        rev = _year_total(year, "revenue")
+        exp = _year_total(year, "expense")
+
+    net_profit = rev - exp
+    margin = (net_profit / rev * 100) if rev > 0 else 0.0
+    ratio = (exp / rev * 100) if rev > 0 else 0.0
+
+    if rev == 0 and exp == 0:
+        ans = f"No revenue or expense records found for {where} yet."
+        chart = None
+    else:
+        health = "exceeding expectations" if margin >= 50 else ("healthy" if margin >= 20 else "tight")
+        ans = (
+            f"📊 **Financial Comparison — {where}**\n\n"
+            f"• **Total Revenue**: {_peso(rev)}\n"
+            f"• **Total Expenses**: {_peso(exp)}\n"
+            f"• **Net Profit**: {_peso(net_profit)} (Profit Margin: **{margin:.1f}%**)\n"
+            f"• **Expense Ratio**: **{ratio:.1f}%** of revenue spent on operating expenses.\n\n"
+            f"Your business profit margin for {where} is **{margin:.1f}%**, which is {health}!"
+        )
+        chart = {
+            "type": "bar",
+            "title": f"Revenue vs Expenses — {where}",
+            "labels": ["Revenue", "Expenses", "Net Profit"],
+            "series": [{"name": "Amount (₱)", "values": [rev, exp, max(0.0, net_profit)]}]
+        }
+
+    options = [
+        {"label": "View Expense Breakdown", "send": f"expense breakdown {where}"},
+        {"label": "Monthly Financial Trend", "send": f"monthly revenue vs expenses {year}"},
+        {"label": "Average Profit per Booking", "send": "average profit per booking"},
+    ]
+    return {"ok": True, "answer": ans, "chart": chart, "options": options, "error": ""}
+
+
+def _answer_monthly_revenue_vs_expenses(q: str) -> dict:
+    years = _extract_years(q)
+    year = years[-1] if years else datetime.now().year
+    rows = _year_rows(year)
+
+    labels = _MONTH_LABELS
+    rev_vals = []
+    exp_vals = []
+    by_m = {r["month_num"]: r for r in rows}
+    for m in range(1, 13):
+        r_data = by_m.get(m, {})
+        rev_vals.append(r_data.get("revenue", 0.0))
+        exp_vals.append(r_data.get("expense", 0.0))
+
+    tot_rev = sum(rev_vals)
+    tot_exp = sum(exp_vals)
+    net_profit = tot_rev - tot_exp
+    margin = (net_profit / tot_rev * 100) if tot_rev > 0 else 0.0
+
+    ans = (
+        f"📊 **Monthly Revenue vs Expenses ({year})**\n\n"
+        f"• **Total Revenue ({year})**: {_peso(tot_rev)}\n"
+        f"• **Total Expenses ({year})**: {_peso(tot_exp)}\n"
+        f"• **All-Time Net Profit**: {_peso(net_profit)} (**{margin:.1f}%** margin)\n\n"
+        f"Here is your monthly financial comparison:"
+    )
+
+    chart = {
+        "type": "bar",
+        "title": f"Monthly Revenue vs Expenses ({year})",
+        "labels": labels,
+        "series": [
+            {"name": "Revenue", "values": rev_vals},
+            {"name": "Expenses", "values": exp_vals},
+        ]
+    }
+
+    options = [
+        {"label": "Highest Profit Month", "send": f"best month for profit {year}"},
+        {"label": "Expense Category Breakdown", "send": f"expense breakdown {year}"},
+        {"label": "Business Recommendations", "send": "business recommendations"},
+    ]
+    return {"ok": True, "answer": ans, "chart": chart, "options": options, "error": ""}
+
+
+def _answer_average_booking_profitability(q: str) -> dict:
+    bookings = [b for b in _bookings() if b.get("status") == "CONFIRMED"]
+    count = len(bookings)
+    if not count:
+        return {"ok": True, "answer": "No confirmed bookings found yet to compute average profitability.", "chart": None, "error": ""}
+
+    tot_rev = sum(_money(b.get("total", 0)) for b in bookings)
+    tot_exp = _year_total(datetime.now().year, "expense")
+    tot_pax = sum(int(b.get("pax", 0)) for b in bookings)
+
+    avg_rev = tot_rev / count
+    avg_exp = tot_exp / count
+    avg_profit = avg_rev - avg_exp
+    avg_pax = tot_pax / count if count else 0
+
+    ans = (
+        f"📈 **Average Booking Profitability Analysis**:\n\n"
+        f"• **Confirmed Bookings Analyzed**: **{count} bookings**\n"
+        f"• **Average Revenue per Booking**: **{_peso(avg_rev)}**\n"
+        f"• **Average Expense per Booking**: **{_peso(avg_exp)}**\n"
+        f"• **Average Net Profit per Booking**: **{_peso(avg_profit)}**\n"
+        f"• **Average Guest Headcount**: **{avg_pax:.0f} pax**\n\n"
+        f"Each catering reservation generates an average net profit of **{_peso(avg_profit)}**!"
+    )
+
+    chart = {
+        "type": "bar",
+        "title": "Per Booking Financial Metrics (₱)",
+        "labels": ["Avg Revenue", "Avg Expense", "Avg Net Profit"],
+        "series": [{"name": "Per Booking (₱)", "values": [avg_rev, avg_exp, max(0.0, avg_profit)]}]
+    }
+
+    options = [
+        {"label": "Compare Revenue vs Expenses", "send": "compare revenue vs expenses"},
+        {"label": "Top Menu Items", "send": "top menu items"},
+        {"label": "Customer Loyalty Tier", "send": "top customers"},
+    ]
+    return {"ok": True, "answer": ans, "chart": chart, "options": options, "error": ""}
 
 
 def _answer_best_month(q: str) -> dict:
@@ -2221,6 +2359,12 @@ def execute_action(action: dict) -> dict:
         if kind == "expense_delete":
             repo.delete_expense(action["exp_id"])
             _audit("Expense deleted via AI assistant", "expenses", action["exp_id"])
+            try:
+                from utils.signals import app_events
+                app_events().expense_saved.emit()
+                app_events().data_changed.emit()
+            except Exception:
+                pass
             return {"ok": True,
                     "message": f"✅ Done ({stamp}) — the expense has been deleted."}
 
@@ -2281,6 +2425,12 @@ def execute_action(action: dict) -> dict:
                                        "amount": float(action["amount"]), "date": today})
             _audit(f"Expense {_peso(float(action['amount']))} via AI assistant",
                    "expenses", exp_id)
+            try:
+                from utils.signals import app_events
+                app_events().expense_saved.emit()
+                app_events().data_changed.emit()
+            except Exception:
+                pass
             return {"ok": True,
                     "message": f"✅ Done ({stamp}) — {_peso(float(action['amount']))} "
                                f"{action['category']} expense recorded. You can edit or "
@@ -3093,6 +3243,9 @@ def _detect_action(q: str):
 
 # Primary router: (handler, regex). First match wins — ordered specific → general.
 _INTENTS = [
+    (_answer_revenue_vs_expense_compare, r"\bcompare\b.{0,30}\b(expense|expenses|cost|costs|revenue|income|sales)\b|\b(revenue|income|sales)\b.{0,20}\bvs\b.{0,20}\b(expense|expenses|cost|costs)\b|\b(expense|expenses|cost|costs)\b.{0,20}\bvs\b.{0,20}\b(revenue|income|sales)\b|\bprofit margin\b|\bnet profit\b|\bnet income\b"),
+    (_answer_monthly_revenue_vs_expenses, r"\bmonthly\b.{0,30}\b(revenue|income|sales).{0,20}(expense|expenses|cost)\b"),
+    (_answer_average_booking_profitability, r"\baverage\b.{0,20}\b(profit|margin|profitability)\b|\bprofit per (booking|order|event)\b|\broi per (booking|order|event)\b"),
     (_answer_compare,           r"\bcompare\b|\bvs\b|\bversus\b|\bgrowth\b|\bgrowing\b|\bshrink|\bdifference\b"),
     (_answer_weekly,            r"(?<!this )(?<!last )\bweek\b|\bweekly\b|\bper week\b"),
     (_answer_best_month,        r"(best|highest|top|strongest|peak|lowest|worst|weakest|slowest).{0,20}\bmonth\b|\bmonth\b.{0,24}(most|highest|best|least|lowest)"),

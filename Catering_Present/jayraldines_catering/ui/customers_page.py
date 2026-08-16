@@ -642,6 +642,14 @@ class CustomersPage(QWidget):
         add_btn.clicked.connect(self._open_add_dialog)
         header.addWidget(add_btn)
 
+        import_btn = QPushButton("  Import")
+        import_btn.setObjectName("secondaryButton")
+        import_btn.setIcon(btn_icon_secondary("export"))
+        import_btn.setIconSize(QSize(15, 15))
+        import_btn.setCursor(Qt.PointingHandCursor)
+        import_btn.clicked.connect(self._open_import_dialog)
+        header.addWidget(import_btn)
+
         export_btn = QPushButton("  Export")
         export_btn.setObjectName("secondaryButton")
         export_btn.setIcon(btn_icon_secondary("export"))
@@ -977,3 +985,9 @@ class CustomersPage(QWidget):
                     c.get("email", ""), c.get("events", 0), c.get("status", ""),
                 ])
         QMessageBox.information(self, "Export", f"Exported to:\n{path}")
+
+    def _open_import_dialog(self):
+        from components.import_dialog import ImportWizardDialog
+        dlg = ImportWizardDialog(default_entity="customers", parent=self)
+        if dlg.exec():
+            self.reload()
