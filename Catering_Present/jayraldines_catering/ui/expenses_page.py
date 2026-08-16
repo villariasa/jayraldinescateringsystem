@@ -125,9 +125,9 @@ class ExpensesPage(QWidget):
         bd_lay = QVBoxLayout(self._breakdown_card)
         bd_lay.setContentsMargins(28, 24, 28, 20)
         bd_lay.setSpacing(10)
-        bd_title = QLabel("Breakdown by Category (This Year)")
-        bd_title.setObjectName("h3")
-        bd_lay.addWidget(bd_title)
+        self._bd_title = QLabel("Breakdown by Category")
+        self._bd_title.setObjectName("h3")
+        bd_lay.addWidget(self._bd_title)
         self._chart_holder = QVBoxLayout()
         bd_lay.addLayout(self._chart_holder)
         self._chart_view = None
@@ -391,10 +391,21 @@ class ExpensesPage(QWidget):
             self._chart_view.deleteLater()
             self._chart_view = None
 
-        try:
-            breakdown = repo.get_expense_breakdown(datetime.now().year)
-        except Exception:
-            breakdown = []
+        expenses = getattr(self, "_filtered_expenses", getattr(self, "_expenses", []))
+        
+        # Calculate breakdown from filtered expenses
+        cat_totals = {}
+        for exp in expenses:
+            cat = exp.get("category", "Other")
+            cat_totals[cat] = cat_totals.get(cat, 0.0) + exp.get("amount", 0.0)
+
+        breakdown = [{"category": c, "total": t} for c, t in cat_totals.items() if t > 0]
+        breakdown.sort(key=lambda x: x["total"], reverse=True)
+
+        opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
+        if hasattr(self, "_bd_title"):
+            self._bd_title.setText(f"Breakdown by Category ({opt})")
+
         if not breakdown:
             self._breakdown_card.hide()
             return
