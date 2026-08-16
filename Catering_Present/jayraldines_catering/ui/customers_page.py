@@ -689,24 +689,33 @@ class CustomersPage(QWidget):
         root.addWidget(card)
 
     def _populate_table(self, customers=None):
-        while self.cards_layout.count():
-            item = self.cards_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        if hasattr(self, "cards_container"):
+            self.cards_container.setUpdatesEnabled(False)
+        try:
+            while self.cards_layout.count():
+                item = self.cards_layout.takeAt(0)
+                if item:
+                    w = item.widget()
+                    if w:
+                        w.setParent(None)
+                        w.deleteLater()
 
-        data = customers if customers is not None else self._customers
+            data = customers if customers is not None else self._customers
 
-        if not data:
-            empty_lbl = QLabel("No customers found.")
-            empty_lbl.setObjectName("subtitle")
-            empty_lbl.setAlignment(Qt.AlignCenter)
-            self.cards_layout.addWidget(empty_lbl)
-        else:
-            for c in data:
-                c_card = self._create_customer_card(c)
-                self.cards_layout.addWidget(c_card)
+            if not data:
+                empty_lbl = QLabel("No customers found.")
+                empty_lbl.setObjectName("subtitle")
+                empty_lbl.setAlignment(Qt.AlignCenter)
+                self.cards_layout.addWidget(empty_lbl)
+            else:
+                for c in data:
+                    c_card = self._create_customer_card(c)
+                    self.cards_layout.addWidget(c_card)
 
-        self.cards_layout.addStretch()
+            self.cards_layout.addStretch()
+        finally:
+            if hasattr(self, "cards_container"):
+                self.cards_container.setUpdatesEnabled(True)
 
     def _create_customer_card(self, c: dict) -> QFrame:
         card = QFrame()

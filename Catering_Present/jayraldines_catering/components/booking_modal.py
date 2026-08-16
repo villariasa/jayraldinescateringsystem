@@ -250,6 +250,7 @@ class BookingModal(QDialog):
 
         self._step = 0
         self._data = {}
+        self._addon_items = []
 
         from PySide6.QtWidgets import QApplication
         self.setStyleSheet(QApplication.instance().styleSheet())
@@ -266,6 +267,9 @@ class BookingModal(QDialog):
         container_layout = QVBoxLayout(self._container)
         container_layout.setContentsMargins(32, 28, 32, 24)
         container_layout.setSpacing(22)
+
+        from components.loading_overlay import LoadingOverlay
+        self._overlay = LoadingOverlay(parent=self._container, text="Saving reservation & updating schedule...")
 
         title_row = QHBoxLayout()
         title_col = QVBoxLayout()
@@ -698,26 +702,88 @@ class BookingModal(QDialog):
     def _build_step3(self):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
-        lay = QVBoxLayout(w)
+        root_lay = QVBoxLayout(w)
+        root_lay.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background: transparent;")
+
+        inner_w = QWidget()
+        inner_w.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(inner_w)
         lay.setSpacing(12)
-        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setContentsMargins(0, 0, 8, 0)
 
-        lay.addWidget(_section_label("Booking Summary"))
+        lay.addWidget(_section_label("Payment Summary & Pricing Adjustments"))
 
+        # Pax Adjustment Control Box
+        pax_box = QFrame()
+        pax_box.setObjectName("cardElevated")
+        pax_lay = QHBoxLayout(pax_box)
+        pax_lay.setContentsMargins(16, 10, 16, 10)
+        pax_lay.setSpacing(12)
+
+        lbl_pax_title = QLabel("👥 Adjust Guest Count (Pax):")
+        lbl_pax_title.setStyleSheet("font-weight: 600; font-size: 13px;")
+        
+        self.f_pay_pax = QSpinBox()
+        self.f_pay_pax.setRange(10, 2000)
+        self.f_pay_pax.setValue(self.f_pax.value())
+        self.f_pay_pax.setFixedHeight(34)
+        self.f_pay_pax.setMinimumWidth(110)
+        self.f_pay_pax.valueChanged.connect(self._on_pay_pax_changed)
+
+        pax_lay.addWidget(lbl_pax_title)
+        pax_lay.addWidget(self.f_pay_pax)
+        pax_lay.addStretch()
+        lay.addWidget(pax_box)
+
+        # Custom Add-ons & Adjustments Card
+        addon_card = QFrame()
+        addon_card.setObjectName("cardElevated")
+        addon_lay = QVBoxLayout(addon_card)
+        addon_lay.setContentsMargins(16, 12, 16, 12)
+        addon_lay.setSpacing(10)
+
+        addon_head = QHBoxLayout()
+        addon_title = QLabel("Custom Add-ons & Price Adjustments")
+        addon_title.setStyleSheet("font-weight: 700; font-size: 13px;")
+        addon_head.addWidget(addon_title)
+        addon_head.addStretch()
+
+        btn_add_addon = QPushButton(" + Add Custom Add-on / Fee")
+        btn_add_addon.setObjectName("secondaryButton")
+        btn_add_addon.setIcon(btn_icon_secondary("plus"))
+        btn_add_addon.clicked.connect(lambda: self._add_addon_row())
+        addon_head.addWidget(btn_add_addon)
+        addon_lay.addLayout(addon_head)
+
+        self._addon_container = QVBoxLayout()
+        self._addon_container.setSpacing(8)
+        addon_lay.addLayout(self._addon_container)
+
+        lay.addWidget(addon_card)
+
+        # Cost Breakdown Card
         self._cost_box = QFrame()
         self._cost_box.setObjectName("costBox")
         cb_lay = QVBoxLayout(self._cost_box)
-        cb_lay.setSpacing(8)
+        cb_lay.setSpacing(6)
 
         cb_title = QLabel("COST BREAKDOWN")
         cb_title.setStyleSheet(_cost_breakdown_style())
         cb_lay.addWidget(cb_title)
 
-        self._lbl_base    = QLabel()
+        self._lbl_base      = QLabel()
         self._lbl_base.setStyleSheet(_cost_base_style())
-        self._lbl_total   = QLabel()
+        self._lbl_addons    = QLabel()
+        self._lbl_addons.setStyleSheet(_price_style(12))
+        self._lbl_total     = QLabel()
         self._lbl_total.setStyleSheet(_cost_total_style())
-        self._lbl_deposit = QLabel()
+        self._lbl_deposit   = QLabel()
         self._lbl_deposit.setStyleSheet(_price_style(13))
 
         note = QLabel("Payments are recorded in the Billing module after booking is created.")
@@ -725,23 +791,79 @@ class BookingModal(QDialog):
         note.setStyleSheet(_muted_style(12) + " padding-top: 4px;")
 
         cb_lay.addWidget(self._lbl_base)
+        cb_lay.addWidget(self._lbl_addons)
         cb_lay.addWidget(self._lbl_total)
         cb_lay.addWidget(self._lbl_deposit)
         cb_lay.addWidget(note)
         lay.addWidget(self._cost_box)
 
-        self.f_pax.valueChanged.connect(self._update_cost)
+        self.f_pax.valueChanged.connect(self._sync_pay_pax)
         self._update_cost()
 
         lay.addStretch()
+        scroll.setWidget(inner_w)
+        root_lay.addWidget(scroll)
         return w
 
+    def _on_pay_pax_changed(self, val: int):
+        if hasattr(self, "f_pax") and self.f_pax.value() != val:
+            self.f_pax.blockSignals(True)
+            self.f_pax.setValue(val)
+            self.f_pax.blockSignals(False)
+            self._update_cost()
+
+    def _sync_pay_pax(self, val: int):
+        if hasattr(self, "f_pay_pax") and self.f_pay_pax.value() != val:
+            self.f_pay_pax.blockSignals(True)
+            self.f_pay_pax.setValue(val)
+            self.f_pay_pax.blockSignals(False)
+
+    def _add_addon_row(self, name: str = "", amount: float = 0.0):
+        row_w = QWidget()
+        row_lay = QHBoxLayout(row_w)
+        row_lay.setContentsMargins(0, 0, 0, 0)
+        row_lay.setSpacing(10)
+
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("Description (e.g. Lechon Belly, Sound System, Discount)...")
+        name_edit.setFixedHeight(34)
+        if name:
+            name_edit.setText(name)
+        name_edit.textChanged.connect(lambda: self._update_cost())
+
+        amt_edit = QLineEdit()
+        amt_edit.setPlaceholderText("Amount (₱) e.g. 5000 or -1000")
+        amt_edit.setFixedHeight(34)
+        amt_edit.setFixedWidth(180)
+        if amount != 0.0:
+            amt_edit.setText(str(amount))
+        amt_edit.textChanged.connect(lambda: self._update_cost())
+
+        del_btn = QPushButton()
+        del_btn.setIcon(get_icon("trash", color="#EF4444", size=QSize(14, 14)))
+        del_btn.setFixedSize(34, 34)
+        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.clicked.connect(lambda: self._remove_addon_row(row_w))
+
+        row_lay.addWidget(name_edit, 1)
+        row_lay.addWidget(amt_edit)
+        row_lay.addWidget(del_btn)
+
+        self._addon_container.addWidget(row_w)
+        self._addon_items.append((row_w, name_edit, amt_edit))
+        self._update_cost()
+
+    def _remove_addon_row(self, row_w: QWidget):
+        self._addon_items = [(w, n, a) for w, n, a in self._addon_items if w != row_w]
+        row_w.setParent(None)
+        row_w.deleteLater()
+        self._update_cost()
+
     def _update_cost(self):
-        pax = self.f_pax.value() if hasattr(self, "f_pax") else 100
+        pax = self.f_pay_pax.value() if hasattr(self, "f_pay_pax") else (self.f_pax.value() if hasattr(self, "f_pax") else 100)
         pkg_idx = getattr(self, "_selected_pkg", None)
         db_pkgs = getattr(self, "_db_packages", [])
 
-        # If user is in Custom Menu mode, compute rate from selected custom items
         if getattr(self, "btn_custom", None) and self.btn_custom.isChecked():
             rate = 0.0
             for chk, item in getattr(self, "_custom_checks", []):
@@ -753,7 +875,21 @@ class BookingModal(QDialog):
             else:
                 rate = 0.0
 
-        total = pax * rate
+        base_total = pax * rate
+
+        # Sum custom add-ons
+        addons_total = 0.0
+        for _, n_edit, a_edit in getattr(self, "_addon_items", []):
+            txt = a_edit.text().strip().replace(",", "")
+            try:
+                if txt:
+                    addons_total += float(txt)
+            except ValueError:
+                pass
+
+        grand_total = max(0.0, base_total + addons_total)
+        self._last_grand_total = grand_total
+
         try:
             policy = repo.get_business_policy()
             pct = float(policy.get("min_downpayment_pct", 30))
@@ -761,9 +897,17 @@ class BookingModal(QDialog):
         except Exception:
             pct = 30
             allow_zero = False
-        deposit = round(total * pct / 100, 2)
-        self._lbl_base.setText(f"Base Rate: ₱{rate:,.2f} × {pax} pax")
-        self._lbl_total.setText(f"Grand Total: ₱{total:,.2f}")
+        deposit = round(grand_total * pct / 100, 2)
+
+        self._lbl_base.setText(f"Base Package Rate: ₱{rate:,.2f} × {pax} pax = ₱{base_total:,.2f}")
+        if addons_total != 0:
+            sign = "+" if addons_total > 0 else "-"
+            self._lbl_addons.setText(f"Custom Add-ons & Adjustments: {sign} ₱{abs(addons_total):,.2f}")
+            self._lbl_addons.setVisible(True)
+        else:
+            self._lbl_addons.setVisible(False)
+
+        self._lbl_total.setText(f"Grand Total: ₱{grand_total:,.2f}")
         if allow_zero:
             self._lbl_deposit.setText("No downpayment required.")
         else:
@@ -825,7 +969,8 @@ class BookingModal(QDialog):
             self._refresh_step(direction=-1)
 
     def _save(self):
-        self._btn_next.setText("  Creating & Sending Email...")
+        self._overlay.show_overlay("Saving reservation & updating schedule...")
+        self._btn_next.setText("  Saving...")
         self._btn_next.setEnabled(False)
         self._btn_back.setEnabled(False)
         QApplication.processEvents()
@@ -856,8 +1001,26 @@ class BookingModal(QDialog):
                 menu_value = "Standard Package"
                 rate = 0.0
 
-        pax = self.f_pax.value()
-        total = float(pax * rate)
+        pax = self.f_pay_pax.value() if hasattr(self, "f_pay_pax") else self.f_pax.value()
+        total = getattr(self, "_last_grand_total", float(pax * rate))
+
+        # Collect custom add-ons
+        addon_summary_list = []
+        for _, n_edit, a_edit in getattr(self, "_addon_items", []):
+            name_txt = n_edit.text().strip()
+            amt_txt = a_edit.text().strip().replace(",", "")
+            try:
+                amt_val = float(amt_txt) if amt_txt else 0.0
+            except ValueError:
+                amt_val = 0.0
+            if name_txt or amt_val != 0.0:
+                sign = "+" if amt_val >= 0 else "-"
+                addon_summary_list.append(f"{name_txt or 'Custom Add-on'} ({sign}₱{abs(amt_val):,.2f})")
+
+        notes_text = self.f_notes.toPlainText().strip()
+        if addon_summary_list:
+            addons_str = "Add-ons: " + ", ".join(addon_summary_list)
+            notes_text = f"{notes_text}\n[{addons_str}]".strip() if notes_text else addons_str
 
         selected_customer = self.f_customer_search.get_selection() or {}
         data = {
@@ -870,7 +1033,7 @@ class BookingModal(QDialog):
             "date":         self.f_date.date().toString("MMM dd, yyyy"),
             "time":         self.f_time.time().toString("hh:mm AP"),
             "pax":          pax,
-            "notes":        self.f_notes.toPlainText().strip(),
+            "notes":        notes_text,
             "menu_type":    menu_type,
             "menu_value":   menu_value,
             "total":        total,

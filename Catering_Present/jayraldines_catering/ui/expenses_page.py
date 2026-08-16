@@ -8,7 +8,7 @@ from datetime import datetime
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
-    QScrollArea, QSizePolicy, QMessageBox,
+    QScrollArea, QSizePolicy, QMessageBox, QComboBox, QDateEdit,
 )
 from PySide6.QtCore import Qt, QMargins, QSize
 from PySide6.QtGui import QColor, QPainter
@@ -140,15 +140,61 @@ class ExpensesPage(QWidget):
         t_lay.setContentsMargins(24, 24, 24, 24)
         t_lay.setSpacing(12)
 
-        t_head = QHBoxLayout()
-        t_title = QLabel("All Expenses")
-        t_title.setObjectName("h3")
-        t_head.addWidget(t_title)
-        t_head.addStretch()
+        # ── Time Filter Controls Bar ─────────────────────────────────────────
+        filter_bar = QHBoxLayout()
+        filter_bar.setSpacing(12)
+
+        lbl_filter = QLabel("Filter Period:")
+        lbl_filter.setStyleSheet("font-weight: 600; font-size: 13px;")
+        filter_bar.addWidget(lbl_filter)
+
+        self._filter_combo = QComboBox()
+        self._filter_combo.addItems([
+            "All Time",
+            "Today (This Day)",
+            "This Week",
+            "This Month",
+            "This Year",
+            "Custom Date / Range"
+        ])
+        self._filter_combo.setFixedHeight(34)
+        self._filter_combo.setMinimumWidth(180)
+        self._filter_combo.currentIndexChanged.connect(self._on_filter_changed)
+        filter_bar.addWidget(self._filter_combo)
+
+        # Custom date pickers widget
+        self._custom_date_widget = QWidget()
+        custom_lay = QHBoxLayout(self._custom_date_widget)
+        custom_lay.setContentsMargins(0, 0, 0, 0)
+        custom_lay.setSpacing(8)
+
+        lbl_from = QLabel("From:")
+        from PySide6.QtCore import QDate
+        from PySide6.QtWidgets import QDateEdit
+        self._dt_start = QDateEdit(QDate.currentDate().addMonths(-1))
+        self._dt_start.setCalendarPopup(True)
+        self._dt_start.setFixedHeight(34)
+        self._dt_start.dateChanged.connect(lambda: self.reload())
+
+        lbl_to = QLabel("To:")
+        self._dt_end = QDateEdit(QDate.currentDate())
+        self._dt_end.setCalendarPopup(True)
+        self._dt_end.setFixedHeight(34)
+        self._dt_end.dateChanged.connect(lambda: self.reload())
+
+        custom_lay.addWidget(lbl_from)
+        custom_lay.addWidget(self._dt_start)
+        custom_lay.addWidget(lbl_to)
+        custom_lay.addWidget(self._dt_end)
+        self._custom_date_widget.setVisible(False)
+        filter_bar.addWidget(self._custom_date_widget)
+
+        filter_bar.addStretch()
+
         self._count_lbl = QLabel("")
         self._count_lbl.setObjectName("muted")
-        t_head.addWidget(self._count_lbl)
-        t_lay.addLayout(t_head)
+        filter_bar.addWidget(self._count_lbl)
+        t_lay.addLayout(filter_bar)
 
         self.exp_cards_container = QWidget()
         self.exp_cards_container.setStyleSheet("background: transparent;")
@@ -168,37 +214,99 @@ class ExpensesPage(QWidget):
 
     # ── Data loading ────────────────────────────────────────────────────────
 
+    def _on_filter_changed(self, idx: int):
+        is_custom = (idx == 5)
+        self._custom_date_widget.setVisible(is_custom)
+        self.reload()
+
+    def _filter_expenses_list(self, expenses: list) -> list:
+        if not expenses:
+            return []
+
+        opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
+        if opt == "All Time":
+            return expenses
+
+        from datetime import datetime, date, timedelta
+        today = date.today()
+
+        filtered = []
+        for exp in expenses:
+            d_str = exp.get("date", "")
+            exp_d = None
+            for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y"):
+                try:
+                    exp_d = datetime.strptime(d_str, fmt).date()
+                    break
+                except ValueError:
+                    continue
+            if not exp_d:
+                continue
+
+            if "Today" in opt:
+                if exp_d == today:
+                    filtered.append(exp)
+            elif "This Week" in opt:
+                start_w = today - timedelta(days=today.weekday())
+                end_w = start_w + timedelta(days=6)
+                if start_w <= exp_d <= end_w:
+                    filtered.append(exp)
+            elif "This Month" in opt:
+                if exp_d.month == today.month and exp_d.year == today.year:
+                    filtered.append(exp)
+            elif "This Year" in opt:
+                if exp_d.year == today.year:
+                    filtered.append(exp)
+            elif "Custom Date" in opt:
+                d_start = self._dt_start.date().toPython()
+                d_end = self._dt_end.date().toPython()
+                if d_start <= exp_d <= d_end:
+                    filtered.append(exp)
+
+        return filtered
+
     def reload(self):
+        all_exp = repo.get_all_expenses() or []
+        self._expenses = all_exp
+        self._filtered_expenses = self._filter_expenses_list(all_exp)
         self._load_table()
         self._load_kpis()
         self._load_breakdown()
 
     def _load_table(self):
-        while self.exp_cards_layout.count():
-            item = self.exp_cards_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        if hasattr(self, "exp_cards_container"):
+            self.exp_cards_container.setUpdatesEnabled(False)
+        try:
+            while self.exp_cards_layout.count():
+                item = self.exp_cards_layout.takeAt(0)
+                if item:
+                    w = item.widget()
+                    if w:
+                        w.setParent(None)
+                        w.deleteLater()
 
-        expenses = repo.get_all_expenses()
-        self._expenses = expenses
+            expenses = getattr(self, "_filtered_expenses", self._expenses if hasattr(self, "_expenses") else [])
 
-        if not expenses:
-            empty_card = QFrame()
-            empty_card.setObjectName("entryCard")
-            el = QVBoxLayout(empty_card)
-            empty_lbl = QLabel("No expenses recorded.")
-            empty_lbl.setObjectName("subtitle")
-            empty_lbl.setAlignment(Qt.AlignCenter)
-            el.addWidget(empty_lbl)
-            self.exp_cards_layout.addWidget(empty_card)
-        else:
-            for exp in expenses:
-                card = self._create_expense_card(exp)
-                self.exp_cards_layout.addWidget(card)
+            if not expenses:
+                empty_card = QFrame()
+                empty_card.setObjectName("entryCard")
+                el = QVBoxLayout(empty_card)
+                empty_lbl = QLabel("No expenses recorded for this filter period.")
+                empty_lbl.setObjectName("subtitle")
+                empty_lbl.setAlignment(Qt.AlignCenter)
+                el.addWidget(empty_lbl)
+                self.exp_cards_layout.addWidget(empty_card)
+            else:
+                for exp in expenses:
+                    card = self._create_expense_card(exp)
+                    self.exp_cards_layout.addWidget(card)
 
-        self.exp_cards_layout.addStretch()
-        n = len(expenses)
-        self._count_lbl.setText(f"{n} record{'s' if n != 1 else ''}")
+            self.exp_cards_layout.addStretch()
+            n = len(expenses)
+            self._count_lbl.setText(f"{n} record{'s' if n != 1 else ''}")
+        finally:
+            if hasattr(self, "exp_cards_container"):
+                self.exp_cards_container.setUpdatesEnabled(True)
 
     def _create_expense_card(self, exp: dict) -> QFrame:
         card = QFrame()
@@ -248,28 +356,32 @@ class ExpensesPage(QWidget):
         return card
 
     def _load_kpis(self):
+        expenses = getattr(self, "_filtered_expenses", getattr(self, "_expenses", []))
+        total_filtered = sum(e["amount"] for e in expenses)
+
         now = datetime.now()
-        year_total = 0.0
         month_total = 0.0
-        for exp in getattr(self, "_expenses", []):
+        for exp in expenses:
             try:
                 d = datetime.strptime(exp["date"], "%b %d, %Y")
             except (ValueError, TypeError):
                 continue
-            if d.year == now.year:
-                year_total += exp["amount"]
-                if d.month == now.month:
-                    month_total += exp["amount"]
-        self._kpi_total.set(f"₱ {year_total:,.0f}", str(now.year))
+            if d.month == now.month and d.year == now.year:
+                month_total += exp["amount"]
+
+        opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
+        self._kpi_total.set(f"₱ {total_filtered:,.0f}", opt)
         self._kpi_month.set(f"₱ {month_total:,.0f}", now.strftime("%B %Y"))
 
-        try:
-            breakdown = repo.get_expense_breakdown(now.year)
-        except Exception:
-            breakdown = []
-        if breakdown:
-            top = breakdown[0]
-            self._kpi_top.set(top["category"], f"₱ {top['total']:,.0f} this year")
+        # Category breakdown count
+        cat_totals = {}
+        for exp in expenses:
+            cat = exp.get("category", "General")
+            cat_totals[cat] = cat_totals.get(cat, 0.0) + exp.get("amount", 0.0)
+
+        if cat_totals:
+            top_cat = max(cat_totals.items(), key=lambda x: x[1])
+            self._kpi_top.set(top_cat[0], f"₱ {top_cat[1]:,.0f} ({opt})")
         else:
             self._kpi_top.set("—", "No data yet")
 

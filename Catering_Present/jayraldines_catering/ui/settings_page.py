@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
 
-from utils.icons import btn_icon_primary, get_icon
+from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
 from utils.theme import ThemeManager
 from utils.accent import AccentManager, PRESET_THEMES
 from components.dialogs import success
@@ -394,11 +394,11 @@ class SettingsPage(QWidget):
         lay.setContentsMargins(24, 24, 24, 24)
         lay.setSpacing(16)
 
-        sec_title = QLabel("Data Import & Migration")
+        sec_title = QLabel("Data Import & Export Migration")
         sec_title.setObjectName("h3")
         lay.addWidget(sec_title)
 
-        sub = QLabel("Import Bookings, Customers, Expenses, or Menu Items from any CSV or Excel file.")
+        sub = QLabel("Import or export Bookings, Customers, Expenses, Menu Items, or Billings using pre-formatted Excel or CSV templates.")
         sub.setObjectName("subtitle")
         sub.setWordWrap(True)
         lay.addWidget(sub)
@@ -413,7 +413,15 @@ class SettingsPage(QWidget):
         import_btn.setCursor(Qt.PointingHandCursor)
         import_btn.clicked.connect(self._open_import_wizard)
 
+        export_btn = QPushButton("  Open Data Export Wizard")
+        export_btn.setObjectName("secondaryButton")
+        export_btn.setIcon(btn_icon_secondary("export"))
+        export_btn.setIconSize(QSize(15, 15))
+        export_btn.setCursor(Qt.PointingHandCursor)
+        export_btn.clicked.connect(self._open_export_wizard)
+
         btn_row.addWidget(import_btn)
+        btn_row.addWidget(export_btn)
         btn_row.addStretch()
         lay.addLayout(btn_row)
         return card
@@ -421,6 +429,11 @@ class SettingsPage(QWidget):
     def _open_import_wizard(self):
         from components.import_dialog import ImportWizardDialog
         dlg = ImportWizardDialog(default_entity="customers", parent=self)
+        dlg.exec()
+
+    def _open_export_wizard(self):
+        from components.export_dialog import ExportWizardDialog
+        dlg = ExportWizardDialog(parent=self)
         dlg.exec()
 
     def _build_occasions_card(self):

@@ -186,25 +186,33 @@ class BookingPage(QWidget):
         return [b for b in self._bookings if b["status"] == f]
 
     def _populate_table(self, data=None):
-        # Clear existing cards
-        while self.cards_layout.count():
-            item = self.cards_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        if hasattr(self, "cards_container"):
+            self.cards_container.setUpdatesEnabled(False)
+        try:
+            while self.cards_layout.count():
+                item = self.cards_layout.takeAt(0)
+                if item:
+                    w = item.widget()
+                    if w:
+                        w.setParent(None)
+                        w.deleteLater()
 
-        rows = data if data is not None else self._visible_bookings()
+            rows = data if data is not None else self._visible_bookings()
 
-        if not rows:
-            empty_lbl = QLabel("No bookings found.")
-            empty_lbl.setObjectName("subtitle")
-            empty_lbl.setAlignment(Qt.AlignCenter)
-            self.cards_layout.addWidget(empty_lbl)
-        else:
-            for b in rows:
-                card = self._create_booking_card(b)
-                self.cards_layout.addWidget(card)
+            if not rows:
+                empty_lbl = QLabel("No bookings found.")
+                empty_lbl.setObjectName("subtitle")
+                empty_lbl.setAlignment(Qt.AlignCenter)
+                self.cards_layout.addWidget(empty_lbl)
+            else:
+                for b in rows:
+                    card = self._create_booking_card(b)
+                    self.cards_layout.addWidget(card)
 
-        self.cards_layout.addStretch()
+            self.cards_layout.addStretch()
+        finally:
+            if hasattr(self, "cards_container"):
+                self.cards_container.setUpdatesEnabled(True)
 
     def _create_booking_card(self, b: dict) -> QFrame:
         card = QFrame()
@@ -333,10 +341,12 @@ class BookingPage(QWidget):
                     return
             except Exception as exc:
                 print(f"[capacity check] {exc}")
-        if not confirm(self, title="Approve Booking",
-                       message=f"Approve booking for '{b['name']}'?",
-                       confirm_label="Approve"):
+        from components.confirm_booking_dialog import ConfirmBookingDialog
+        from PySide6.QtWidgets import QDialog
+        dlg = ConfirmBookingDialog(b, parent=self)
+        if dlg.exec() != QDialog.Accepted:
             return
+
         try:
             if b.get("db_id"):
                 repo.update_booking_status(b["db_id"], "CONFIRMED")
@@ -350,15 +360,36 @@ class BookingPage(QWidget):
                     repo.sync_kitchen_from_bookings()
                 except Exception:
                     pass
+
             b["status"] = "CONFIRMED"
-            self._populate_table()
-            success(self, message="Booking approved successfully.")
-            repo.write_audit_log(get_actor(), "APPROVE", "bookings", b.get("db_id"), None, {"status": "CONFIRMED"})
+
+            inv_id = None
             if b.get("db_id"):
                 try:
-                    repo.auto_create_invoice(b["db_id"])
+                    inv = repo.auto_create_invoice(b["db_id"])
+                    if inv:
+                        inv_id = inv.get("id") or inv.get("invoice_id")
                 except Exception as exc:
                     print(f"[booking] auto_create_invoice failed: {exc}")
+
+            # Record full payment if checked (checked by default!)
+            if dlg.is_auto_pay_checked() and inv_id and b.get("total"):
+                try:
+                    from datetime import date as _d
+                    from components.confirm_booking_dialog import _parse_amount
+                    tot_amount = _parse_amount(b["total"])
+                    method = dlg.get_payment_method()
+                    remarks = dlg.get_payment_remarks()
+                    repo.add_payment_record(inv_id, tot_amount, _d.today(), method=method, note=remarks)
+                    app_events().payment_recorded.emit()
+                except Exception as p_exc:
+                    print(f"[booking] auto payment record failed: {p_exc}")
+
+            self._populate_table()
+            msg = "Booking confirmed and marked as FULLY PAID!" if dlg.is_auto_pay_checked() else "Booking approved successfully."
+            success(self, message=msg)
+            repo.write_audit_log(get_actor(), "APPROVE", "bookings", b.get("db_id"), None, {"status": "CONFIRMED"})
+
             try:
                 repo.push_notification(
                     "success",
@@ -368,6 +399,7 @@ class BookingPage(QWidget):
                 )
             except Exception:
                 pass
+
             if b.get("db_id"):
                 self._send_confirmation_auto(b)
             app_events().booking_saved.emit()

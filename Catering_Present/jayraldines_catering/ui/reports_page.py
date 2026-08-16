@@ -905,6 +905,7 @@ class ReportsPage(QWidget):
                 )
         self._reload_kpis()
         self._reload_table()
+        self._load_expenses()
         self._locations_chart_layout.reload()
 
     def _period_sql_filter(self) -> str:
@@ -922,6 +923,7 @@ class ReportsPage(QWidget):
     def reload(self):
         self._reload_kpis()
         self._reload_table()
+        self._load_expenses()
         self._locations_chart_layout.reload()
 
     def _reload_kpis(self):
@@ -1035,7 +1037,42 @@ class ReportsPage(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        expenses = repo.get_all_expenses()
+        all_exp = repo.get_all_expenses() or []
+
+        p = getattr(self, "_period", "All")
+        from datetime import datetime, date, timedelta
+        today = date.today()
+
+        expenses = []
+        if p == "All" or not p:
+            expenses = all_exp
+        else:
+            for exp in all_exp:
+                d_str = exp.get("date", "")
+                exp_d = None
+                for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y"):
+                    try:
+                        exp_d = datetime.strptime(d_str, fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                if not exp_d:
+                    continue
+
+                if p == "Today" and exp_d == today:
+                    expenses.append(exp)
+                elif p == "This Week":
+                    start_w = today - timedelta(days=today.weekday())
+                    end_w = start_w + timedelta(days=6)
+                    if start_w <= exp_d <= end_w:
+                        expenses.append(exp)
+                elif p == "This Month":
+                    if exp_d.month == today.month and exp_d.year == today.year:
+                        expenses.append(exp)
+                elif p == "This Year":
+                    if exp_d.year == today.year:
+                        expenses.append(exp)
+
         self._expenses = expenses
         total_exp = 0.0
 

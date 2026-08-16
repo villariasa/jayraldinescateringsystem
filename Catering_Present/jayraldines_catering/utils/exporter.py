@@ -720,3 +720,160 @@ def export_excel(path: str, kpis: dict, bookings: list,
     except Exception as exc:
         print(f"[exporter] Excel failed: {exc}")
         return False
+
+
+def _parse_amount(val) -> float:
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).replace("₱", "").replace(",", "").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
+def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) -> bool:
+    """Export Bookings, Customers, Expenses, Menu, Billings, or Master Data to Excel or CSV."""
+    import utils.repository as repo
+    import csv
+
+    headers = []
+    rows = []
+    sheets = {}
+
+    if "Bookings" in entity_name:
+        headers = ["Booking Ref", "Customer Name", "Contact Number", "Event Date", "Event Time", "Venue / Location", "Occasion", "Guest Count (Pax)", "Total Amount (₱)", "Status"]
+        b_list = repo.get_all_bookings() or []
+        for b in b_list:
+            rows.append([
+                b.get("id", ""), b.get("name", ""), b.get("contact", ""),
+                b.get("date", ""), b.get("time", ""), b.get("venue", ""),
+                b.get("occasion", ""), b.get("pax", ""), f"₱{_parse_amount(b.get('total', 0)):,.2f}",
+                b.get("status", "")
+            ])
+        sheets["Bookings"] = (headers, rows)
+
+    elif "Customers" in entity_name:
+        headers = ["Customer ID", "Customer Name", "Contact Number", "Email Address", "System Address ID", "Imported Address Text", "Notes / History"]
+        c_list = repo.get_all_customers() or []
+        for c in c_list:
+            rows.append([
+                c.get("id", ""), c.get("name", ""), c.get("contact", ""),
+                c.get("email", ""), c.get("address_id", ""), c.get("address", ""),
+                c.get("notes", "")
+            ])
+        sheets["Customers"] = (headers, rows)
+
+    elif "Expenses" in entity_name:
+        headers = ["Expense ID", "Expense Date", "Category", "Description", "Amount (₱)"]
+        e_list = repo.get_all_expenses() or []
+        for e in e_list:
+            rows.append([
+                e.get("id", ""), e.get("date", ""), e.get("category", ""),
+                e.get("description", ""), f"₱{_parse_amount(e.get('amount', 0)):,.2f}"
+            ])
+        sheets["Expenses"] = (headers, rows)
+
+    elif "Menu" in entity_name:
+        headers = ["Item ID", "Item / Package Name", "Category", "Price / Rate (₱)", "Description / Inclusions"]
+        m_list = repo.get_all_menu_items() or []
+        for m in m_list:
+            rows.append([
+                m.get("id", ""), m.get("name", ""), m.get("category", ""),
+                f"₱{_parse_amount(m.get('price', 0)):,.2f}", m.get("description", "")
+            ])
+        sheets["Menu Items"] = (headers, rows)
+
+    elif "Billing" in entity_name:
+        headers = ["Invoice Ref", "Booking Ref", "Customer Name", "Event Date", "Total Amount (₱)", "Paid Amount (₱)", "Balance Due (₱)", "Payment Status"]
+        i_list = repo.get_all_invoices() or []
+        for inv in i_list:
+            rows.append([
+                inv.get("invoice", ""), inv.get("booking_ref", ""), inv.get("customer", ""),
+                inv.get("event_date", ""), f"₱{_parse_amount(inv.get('amount', 0)):,.2f}",
+                f"₱{_parse_amount(inv.get('paid', 0)):,.2f}", f"₱{_parse_amount(inv.get('balance', 0)):,.2f}",
+                inv.get("status", "")
+            ])
+        sheets["Invoices"] = (headers, rows)
+
+    else: # Master Export
+        b_hdrs = ["Booking Ref", "Customer Name", "Contact Number", "Event Date", "Event Time", "Venue", "Occasion", "Pax", "Total Amount (₱)", "Status"]
+        b_rows = [[b.get("id", ""), b.get("name", ""), b.get("contact", ""), b.get("date", ""), b.get("time", ""), b.get("venue", ""), b.get("occasion", ""), b.get("pax", ""), f"₱{_parse_amount(b.get('total', 0)):,.2f}", b.get("status", "")] for b in (repo.get_all_bookings() or [])]
+        sheets["Bookings"] = (b_hdrs, b_rows)
+
+        c_hdrs = ["Customer ID", "Customer Name", "Contact Number", "Email Address", "System Address ID", "Imported Address Text", "Notes / History"]
+        c_rows = [[c.get("id", ""), c.get("name", ""), c.get("contact", ""), c.get("email", ""), c.get("address_id", ""), c.get("address", ""), c.get("notes", "")] for c in (repo.get_all_customers() or [])]
+        sheets["Customers"] = (c_hdrs, c_rows)
+
+        e_hdrs = ["Expense ID", "Expense Date", "Category", "Description", "Amount (₱)"]
+        e_rows = [[e.get("id", ""), e.get("date", ""), e.get("category", ""), e.get("description", ""), f"₱{_parse_amount(e.get('amount', 0)):,.2f}"] for e in (repo.get_all_expenses() or [])]
+        sheets["Expenses"] = (e_hdrs, e_rows)
+
+        m_hdrs = ["Item ID", "Item / Package Name", "Category", "Price / Rate (₱)", "Description / Inclusions"]
+        m_rows = [[m.get("id", ""), m.get("name", ""), m.get("category", ""), f"₱{_parse_amount(m.get('price', 0)):,.2f}", m.get("description", "")] for m in (repo.get_all_menu_items() or [])]
+        sheets["Menu Items"] = (m_hdrs, m_rows)
+
+        i_hdrs = ["Invoice Ref", "Booking Ref", "Customer Name", "Event Date", "Total Amount (₱)", "Paid Amount (₱)", "Balance Due (₱)", "Payment Status"]
+        i_rows = [[inv.get("invoice", ""), inv.get("booking_ref", ""), inv.get("customer", ""), inv.get("event_date", ""), f"₱{_parse_amount(inv.get('amount', 0)):,.2f}", f"₱{_parse_amount(inv.get('paid', 0)):,.2f}", f"₱{_parse_amount(inv.get('balance', 0)):,.2f}", inv.get("status", "")] for inv in (repo.get_all_invoices() or [])]
+        sheets["Invoices & Payments"] = (i_hdrs, i_rows)
+
+    if not is_excel:
+        try:
+            with open(save_path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.writer(f)
+                first_sheet = next(iter(sheets.values()))
+                writer.writerow(first_sheet[0])
+                writer.writerows(first_sheet[1])
+            return True
+        except Exception as exc:
+            print(f"[exporter] CSV export failed: {exc}")
+            return False
+
+    if not OPENPYXL_OK:
+        return False
+
+    try:
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+
+        RED   = "E11D48"
+        DARK  = "0B1220"
+        LIGHT = "F8FAFC"
+        WHITE = "FFFFFF"
+
+        for sheet_title, (hdrs, data_rows) in sheets.items():
+            ws = wb.create_sheet(title=sheet_title)
+
+            ws.row_dimensions[1].height = 24
+            for col_idx, h_text in enumerate(hdrs, 1):
+                cell = ws.cell(row=1, column=col_idx, value=h_text)
+                cell.font = Font(name="Calibri", bold=True, size=10, color=WHITE)
+                cell.fill = PatternFill("solid", fgColor=RED if "Booking" in sheet_title or "Invoice" in sheet_title else DARK)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                s = Side(style="thin", color="E5E7EB")
+                cell.border = Border(left=s, right=s, top=s, bottom=s)
+
+            for row_idx, r_data in enumerate(data_rows, 2):
+                ws.row_dimensions[row_idx].height = 18
+                bg = LIGHT if row_idx % 2 == 0 else WHITE
+                for col_idx, val in enumerate(r_data, 1):
+                    cell = ws.cell(row=row_idx, column=col_idx, value=val)
+                    cell.font = Font(name="Calibri", size=9)
+                    cell.fill = PatternFill("solid", fgColor=bg)
+                    s = Side(style="thin", color="E5E7EB")
+                    cell.border = Border(left=s, right=s, top=s, bottom=s)
+                    align_right = ("₱" in str(val) or "Amount" in hdrs[col_idx-1] or "Paid" in hdrs[col_idx-1])
+                    cell.alignment = Alignment(horizontal="right" if align_right else "left", vertical="center")
+
+            for col in ws.columns:
+                max_len = max(len(str(cell.value or "")) for cell in col)
+                col_letter = get_column_letter(col[0].column)
+                ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
+
+        wb.save(save_path)
+        return True
+    except Exception as exc:
+        print(f"[exporter] Excel export failed: {exc}")
+        return False
