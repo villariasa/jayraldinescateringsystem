@@ -17,6 +17,7 @@ import utils.repository as repo
 import utils.exporter as exporter
 from utils.session import get_actor
 from utils.signals import app_events
+from utils.data_loader import run_async
 
 
 _STATUS_COLORS = {"Paid": "#22C55E", "Partial": "#F59E0B", "Unpaid": "#EF4444"}
@@ -322,12 +323,21 @@ class BillingPage(QWidget):
         self._invoices = db_rows if db_rows else []
         self._build_ui()
         self._populate_table()
+        app_events().payment_recorded.connect(self.reload)
+        app_events().booking_updated.connect(self.reload)
+        app_events().booking_created.connect(self.reload)
 
     def reload(self):
+        run_async(self, repo.get_all_invoices, self._on_invoices_loaded)
+
+    def _on_invoices_loaded(self, data):
         try:
-            new_rows = repo.get_all_invoices() or []
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
         except Exception:
-            return
+            pass
+        new_rows = data or []
         old_sig = [(i.get("db_id"), i.get("paid"), i.get("status")) for i in self._invoices]
         new_sig = [(i.get("db_id"), i.get("paid"), i.get("status")) for i in new_rows]
         if old_sig == new_sig:

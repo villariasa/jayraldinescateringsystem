@@ -2,13 +2,16 @@ import calendar
 from datetime import datetime, date as date_type
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFrame,
                                QLabel, QPushButton, QGridLayout, QScrollArea,
-                               QSizePolicy, QDialog, QLineEdit, QFormLayout, QTimeEdit)
+                               QSizePolicy, QDialog, QLineEdit, QFormLayout, QTimeEdit,
+                               QFileDialog, QMessageBox)
 from PySide6.QtCore import Qt, Signal, QSize, QTime
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
 from components.booking_modal import BookingModal
 from components.dialogs import confirm, success
 import utils.repository as repo
+import utils.exporter as _exporter
+import utils.importer as _importer
 
 
 class AnimatedCard(QFrame):
@@ -299,10 +302,36 @@ class CalendarPage(QWidget):
         header_row.addLayout(v_title)
         
         header_row.addStretch()
+
+        btn_template = QPushButton("  Download Template")
+        btn_template.setObjectName("secondaryButton")
+        btn_template.setIcon(btn_icon_secondary("download"))
+        btn_template.setIconSize(QSize(15, 15))
+        btn_template.setCursor(Qt.PointingHandCursor)
+        btn_template.clicked.connect(self._download_template)
+        header_row.addWidget(btn_template)
+
+        btn_import = QPushButton("  Import")
+        btn_import.setObjectName("secondaryButton")
+        btn_import.setIcon(btn_icon_secondary("import"))
+        btn_import.setIconSize(QSize(15, 15))
+        btn_import.setCursor(Qt.PointingHandCursor)
+        btn_import.clicked.connect(self._open_import_dialog)
+        header_row.addWidget(btn_import)
+
+        btn_export = QPushButton("  Export PDF")
+        btn_export.setObjectName("secondaryButton")
+        btn_export.setIcon(btn_icon_secondary("export"))
+        btn_export.setIconSize(QSize(15, 15))
+        btn_export.setCursor(Qt.PointingHandCursor)
+        btn_export.clicked.connect(self._export_pdf)
+        header_row.addWidget(btn_export)
+
         btn_add = QPushButton("  Add New Booking")
         btn_add.setObjectName("primaryButton")
         btn_add.setIcon(btn_icon_primary("plus"))
         btn_add.setIconSize(QSize(16, 16))
+        btn_add.setCursor(Qt.PointingHandCursor)
         btn_add.clicked.connect(self._open_booking_modal)
         header_row.addWidget(btn_add)
         main_layout.addLayout(header_row)
@@ -321,9 +350,17 @@ class CalendarPage(QWidget):
 
         # Calendar Header & Controls
         cal_head = QHBoxLayout()
+        cal_head.setSpacing(14)
         self.month_lbl = QLabel()
         self.month_lbl.setObjectName("h2")
         cal_head.addWidget(self.month_lbl)
+
+        self.month_stats_badge = QLabel("0 Total Bookings  •  0 Pax")
+        self.month_stats_badge.setStyleSheet(
+            "background: rgba(225, 29, 72, 0.1); color: #E11D48; font-weight: 700; "
+            "font-size: 12px; padding: 5px 14px; border-radius: 8px; border: 1px solid rgba(225, 29, 72, 0.25);"
+        )
+        cal_head.addWidget(self.month_stats_badge)
         
         cal_head.addStretch()
         legend = QLabel("Available  |  Near Full (400+)  |  Fully Booked (600)")
@@ -465,16 +502,23 @@ class CalendarPage(QWidget):
 
         try:
             from utils.signals import app_events
-            app_events().booking_saved.connect(self.reload)
-            app_events().data_changed.connect(self.reload)
+            app_events().booking_saved.connect(self._mark_dirty)
+            app_events().data_changed.connect(self._mark_dirty)
         except Exception:
             pass
 
+    def _mark_dirty(self):
+        self._dirty = True
+        if self.isVisible():
+            self.reload()
+
     def showEvent(self, event):
         super().showEvent(event)
-        self.reload()
+        if getattr(self, "_dirty", True):
+            self.reload()
 
     def reload(self):
+        self._dirty = False
         self._load_month_data()
         self.render_calendar()
 
@@ -483,16 +527,11 @@ class CalendarPage(QWidget):
     # ==========================================
     def _load_month_data(self):
         self._db_cache.clear()
-        import calendar as _cal
-        days_in_month = _cal.monthrange(self.current_year, self.current_month)[1]
-        for day in range(1, days_in_month + 1):
-            d = date_type(self.current_year, self.current_month, day)
-            try:
-                events = repo.get_calendar_events_for_date(d)
-            except Exception:
-                events = []
-            if events:
-                self._db_cache[(self.current_year, self.current_month, day)] = events
+        try:
+            month_events = repo.get_calendar_events_for_month(self.current_year, self.current_month)
+            self._db_cache.update(month_events or {})
+        except Exception as exc:
+            print(f"[CalendarPage] Error loading month data: {exc}")
 
     def go_prev_month(self):
         self.current_month -= 1
@@ -518,9 +557,21 @@ class CalendarPage(QWidget):
         self.render_calendar()
 
     def render_calendar(self):
-        # Update Header Label
+        # Update Header Label & Stats
         month_name = calendar.month_name[self.current_month]
         self.month_lbl.setText(f"{month_name} {self.current_year}")
+
+        # Compute total bookings and pax for this month
+        total_m_bookings = 0
+        total_m_pax = 0
+        for (y, m, d), ev_list in self._db_cache.items():
+            if y == self.current_year and m == self.current_month:
+                total_m_bookings += len(ev_list)
+                total_m_pax += sum(int(e.get("pax", 0) or 0) for e in ev_list)
+
+        self.month_stats_badge.setText(
+            f"{total_m_bookings} Total Booking{'s' if total_m_bookings != 1 else ''}  •  {total_m_pax:,} Pax"
+        )
 
         # Hide side panel on month change
         self.side_panel.setVisible(False)
@@ -622,7 +673,58 @@ class CalendarPage(QWidget):
             empty_lbl = QLabel("No events scheduled for this day.")
             empty_lbl.setStyleSheet("color: #94A3B8; font-style: italic; font-size: 13px;")
             self.cards_container.addWidget(empty_lbl)
-
         self._selected_day = day_num
         self._btn_manage.setVisible(True)
         self.side_panel.setVisible(True)
+
+    def _download_template(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Booking CSV Template", "jayraldines_booking_template.csv", "CSV Files (*.csv)"
+        )
+        if not path:
+            return
+        err = _importer.generate_sample_csv("bookings", path)
+        if not err:
+            QMessageBox.information(
+                self, "Template Saved",
+                f"Booking CSV template saved successfully to:\n{path}\n\nYou can fill in your bookings and import them anytime."
+            )
+        else:
+            QMessageBox.warning(self, "Save Failed", f"Could not generate booking template: {err}")
+
+    def _open_import_dialog(self):
+        from components.import_dialog import ImportWizardDialog
+        dlg = ImportWizardDialog(parent=self, default_entity="bookings")
+        if dlg.exec():
+            self.reload()
+
+    def _export_pdf(self):
+        month_name = calendar.month_name[self.current_month]
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Calendar PDF", f"jayraldines_calendar_{self.current_year}_{self.current_month:02d}.pdf", "PDF Files (*.pdf)"
+        )
+        if not path:
+            return
+
+        month_events = {}
+        for (y, m, d), ev_list in self._db_cache.items():
+            if y == self.current_year and m == self.current_month:
+                month_events[d] = [
+                    {
+                        "event_name": ev.get("name") or ev.get("event_name", ""),
+                        "pax": ev.get("pax", 0),
+                        "time": ev.get("time", "6:00 PM"),
+                        "location": ev.get("loc") or ev.get("venue", "—"),
+                        "ref": ev.get("ref", "—"),
+                        "status": ev.get("status", "CONFIRMED"),
+                    }
+                    for ev in ev_list
+                ]
+
+        biz = repo.get_business_info()
+        biz_name = biz.get("name", "Jayraldine's Catering")
+        ok = _exporter.export_calendar_pdf(path, self.current_year, self.current_month, month_events, biz_name=biz_name)
+        if ok:
+            QMessageBox.information(self, "Export Successful", f"Calendar PDF exported successfully to:\n{path}")
+        else:
+            QMessageBox.warning(self, "Export Failed", "PDF export failed. Make sure reportlab is installed.")

@@ -49,18 +49,49 @@ def get_all_customers() -> list[dict]:
 
 
 def add_customer(data: dict) -> Optional[int]:
-    result = db.callproc_out(
-        "sp_add_customer",
-        in_params=(
-            data["name"],
-            data.get("contact", ""),
-            data.get("email", ""),
-            data.get("address", ""),
-            data.get("status", "Active"),
-        ),
-        out_names=["p_customer_id"],
-    )
-    return result["p_customer_id"] if result else None
+    name = str(data.get("name", "")).strip()
+    if not name:
+        return None
+    contact = str(data.get("contact", "")).strip()
+    email = str(data.get("email", "")).strip()
+    address = str(data.get("address", "")).strip()
+    status = str(data.get("status", "Active")).strip()
+    if status not in ("Active", "Pending", "Inactive"):
+        status = "Active"
+
+    try:
+        result = db.callproc_out(
+            "sp_add_customer",
+            in_params=(name, contact, email, address, status),
+            out_names=["p_customer_id"],
+        )
+        if result and result.get("p_customer_id"):
+            return result["p_customer_id"]
+    except Exception as exc:
+        print(f"[repository] sp_add_customer procedure failed: {exc}")
+
+    # Fallback direct insert if procedure fails or returns None
+    try:
+        row = db.fetchone("""
+            INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status)
+            VALUES (%s, %s, %s, %s, %s::customer_status)
+            ON CONFLICT (cus_name, cus_contact) DO UPDATE
+            SET cus_email = EXCLUDED.cus_email,
+                cus_address = EXCLUDED.cus_address,
+                cus_status = EXCLUDED.cus_status
+            RETURNING cus_id
+        """, (name, contact, email, address, status))
+        if row and row.get("cus_id"):
+            return row["cus_id"]
+    except Exception as exc:
+        print(f"[repository] add_customer direct insert failed: {exc}")
+        existing = db.fetchone(
+            "SELECT cus_id FROM customers WHERE cus_name = %s LIMIT 1", (name,)
+        )
+        if existing and existing.get("cus_id"):
+            return existing["cus_id"]
+
+    return None
 
 
 def update_customer(customer_id: int, data: dict) -> None:
@@ -79,6 +110,96 @@ def update_customer(customer_id: int, data: dict) -> None:
 
 def delete_customer(customer_id: int) -> None:
     db.callproc_void("sp_delete_customer", in_params=(customer_id,))
+
+
+def delete_multiple_customers(customer_ids: list[int]) -> int:
+    """Deletes multiple customers by their IDs in a single operation."""
+    if not customer_ids:
+        return 0
+    count = 0
+    for cid in customer_ids:
+        try:
+            delete_customer(int(cid))
+            count += 1
+        except Exception as exc:
+            print(f"[repository] delete_multiple_customers failed for ID {cid}: {exc}")
+    return count
+
+
+def delete_multiple_bookings(booking_ids: list[int | str]) -> int:
+    """Deletes multiple bookings by their IDs or references."""
+    if not booking_ids:
+        return 0
+    count = 0
+    for bid in booking_ids:
+        try:
+            if isinstance(bid, str) and (bid.startswith("BK-") or bid.startswith("ORD-")):
+                row = db.fetchone("SELECT bk_id FROM bookings WHERE bk_booking_ref = %s", (bid,))
+                if row and row.get("bk_id"):
+                    delete_booking(int(row["bk_id"]))
+                    count += 1
+            else:
+                delete_booking(int(bid))
+                count += 1
+        except Exception as exc:
+            print(f"[repository] delete_multiple_bookings failed for ID {bid}: {exc}")
+    return count
+
+
+def merge_duplicate_customers() -> int:
+    """Finds duplicate customers (matching normalized name or contact number)
+    and consolidates all booking relations and event totals into a single master customer row."""
+    import re
+    all_custs = get_all_customers()
+    if not all_custs:
+        return 0
+
+    merged_count = 0
+    seen_groups = {}
+    for c in all_custs:
+        norm_name = re.sub(r"[^\w]", "", str(c.get("name", "")).lower())
+        norm_contact = re.sub(r"\D", "", str(c.get("contact", "")))
+        key = norm_name or norm_contact
+        if not key:
+            continue
+        seen_groups.setdefault(key, []).append(c)
+
+    for key, group in seen_groups.items():
+        if len(group) > 1:
+            group.sort(key=lambda x: (int(x.get("events") or 0), -(int(x.get("id") or 0))), reverse=True)
+            master = group[0]
+            master_id = master["id"]
+
+            for dup in group[1:]:
+                dup_id = dup["id"]
+                try:
+                    db.execute("UPDATE bookings SET bk_customer_id = %s, bk_customer_name = %s WHERE bk_customer_id = %s",
+                               (master_id, master["name"], dup_id))
+                    db.execute("UPDATE customer_follow_ups SET cf_customer_id = %s WHERE cf_customer_id = %s",
+                               (master_id, dup_id))
+                    delete_customer(dup_id)
+                    merged_count += 1
+                except Exception as exc:
+                    print(f"[repository] Failed merging duplicate customer {dup_id} -> {master_id}: {exc}")
+
+            try:
+                b_stats = db.fetchone("""
+                    SELECT COUNT(*) AS cnt, COALESCE(SUM(bk_total_amount), 0.0) AS spent
+                    FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
+                """, (master_id,))
+                if b_stats:
+                    ev_cnt = int(b_stats.get("cnt") or 0)
+                    sp_amt = float(b_stats.get("spent") or 0.0)
+                    tier = "Gold" if (ev_cnt >= 5 or sp_amt >= 100000) else ("Silver" if (ev_cnt >= 3 or sp_amt >= 50000) else "Bronze")
+                    db.execute("""
+                        UPDATE customers
+                        SET cus_total_events = %s, cus_total_spent = %s, cus_loyalty_tier = %s
+                        WHERE cus_id = %s
+                    """, (ev_cnt, sp_amt, tier, master_id))
+            except Exception as exc:
+                print(f"[repository] Error recalculating master customer stats: {exc}")
+
+    return merged_count
 
 
 def get_customer_names() -> list[str]:
@@ -209,9 +330,47 @@ def update_menu_item(item_id: int, data: dict) -> None:
     )
 
 
-def delete_menu_item(index: int, item_id: int) -> None:
+def delete_menu_item(arg1: int, arg2: int = None) -> None:
+    # Supports both delete_menu_item(item_id) and delete_menu_item(index, item_id)
+    if arg2 is not None:
+        item_id = int(arg2)
+        idx = int(arg1)
+    else:
+        item_id = int(arg1)
+        idx = 0
     db.callproc_void("sp_delete_menu_item", in_params=(item_id,))
-    menu_store.remove_item(index)
+    try:
+        menu_store.remove_item(idx)
+    except Exception:
+        pass
+
+
+def delete_multiple_menu_items(item_ids: list[int]) -> int:
+    """Deletes multiple menu items by their IDs."""
+    if not item_ids:
+        return 0
+    count = 0
+    for mid in item_ids:
+        try:
+            delete_menu_item(int(mid))
+            count += 1
+        except Exception as exc:
+            print(f"[repository] delete_multiple_menu_items failed for ID {mid}: {exc}")
+    return count
+
+
+def delete_multiple_packages(pkg_ids: list[int]) -> int:
+    """Deletes multiple packages by their IDs."""
+    if not pkg_ids:
+        return 0
+    count = 0
+    for pid in pkg_ids:
+        try:
+            if delete_package(int(pid)):
+                count += 1
+        except Exception as exc:
+            print(f"[repository] delete_multiple_packages failed for ID {pid}: {exc}")
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -270,26 +429,54 @@ def delete_occasion(name: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_packages() -> list[dict]:
-    rows = db.fetchall("""
+    pkg_rows = db.fetchall("""
         SELECT pkg_id            AS id,
-               pkg_name         AS name,
+               pkg_name          AS name,
                pkg_price_per_pax AS price_per_pax,
-               pkg_min_pax      AS min_pax,
-               pkg_description  AS description
-        FROM packages ORDER BY pkg_price_per_pax
+               pkg_min_pax       AS min_pax,
+               pkg_description   AS description
+        FROM packages
+        ORDER BY pkg_price_per_pax ASC
     """)
-    if not rows:
+    if not pkg_rows:
         return []
-    return [
-        {
-            "id":            r["id"],
+
+    # Batch fetch all package items
+    pi_rows = db.fetchall("""
+        SELECT pi.pi_id              AS id,
+               pi.pi_package_id      AS package_id,
+               pi.pi_menu_item_id    AS menu_item_id,
+               COALESCE(mi.mi_name, pi.pi_item_name, '') AS item_name,
+               COALESCE(mi.mi_category, pi.pi_category, 'General') AS category,
+               COALESCE(pi.pi_custom_price, 0.0) AS custom_price
+        FROM package_items pi
+        LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
+        ORDER BY pi.pi_package_id, item_name
+    """)
+    items_by_pkg: dict[int, list[dict]] = {}
+    for item in pi_rows or []:
+        p_id = item.get("package_id")
+        if p_id:
+            items_by_pkg.setdefault(p_id, []).append({
+                "id":           item["id"],
+                "menu_item_id": item["menu_item_id"],
+                "item_name":    item["item_name"],
+                "category":     item["category"],
+                "custom_price": float(item["custom_price"]),
+            })
+
+    result = []
+    for r in pkg_rows:
+        p_id = r["id"]
+        result.append({
+            "id":            p_id,
             "name":          r["name"],
             "price_per_pax": float(r["price_per_pax"]),
             "min_pax":       int(r["min_pax"]),
             "description":   r["description"] or "",
-        }
-        for r in rows
-    ]
+            "items":         items_by_pkg.get(p_id, []),
+        })
+    return result
 
 
 def get_package_items(package_id: int) -> list[dict]:
@@ -981,43 +1168,43 @@ def get_upcoming_events(limit: int = 10) -> list[dict]:
 def get_report_kpis(period_filter: str = "") -> dict:
     if period_filter:
         bkg_filter = period_filter
-        exp_filter = period_filter.replace("bk_event_date", "exp_expense_date").replace("bk_created_at", "exp_created_at").replace("DATE(bk_event_date)", "DATE(exp_expense_date)")
+        exp_filter = (
+            period_filter
+            .replace("bk_event_date", "exp_date")
+            .replace("bk_created_at", "exp_created_at")
+            .replace("DATE(bk_event_date)", "DATE(exp_date)")
+        )
         row = db.fetchone(
             f"""
             SELECT
-                COUNT(*)::INT                        AS total_bookings,
-                COALESCE(SUM(bk_pax),0)::INT         AS total_pax,
-                COALESCE(SUM(bk_total_amount),0)::FLOAT AS total_revenue,
-                0::FLOAT                             AS unpaid_amount,
-                COALESCE((SELECT COUNT(*) FROM bookings
-                          WHERE bk_created_at::DATE = CURRENT_DATE
-                            AND bk_status IN ('CONFIRMED','COMPLETED')),0)::INT AS today_bookings,
-                COALESCE((SELECT COUNT(*) FROM bookings
-                          WHERE bk_created_at::DATE BETWEEN date_trunc('week',CURRENT_DATE)::DATE
-                                AND (date_trunc('week',CURRENT_DATE)+INTERVAL '6 days')::DATE
-                            AND bk_status IN ('CONFIRMED','COMPLETED')),0)::INT AS week_bookings
+                COUNT(*)                           AS total_bookings,
+                COALESCE(SUM(bk_pax), 0)            AS total_pax,
+                COALESCE(SUM(bk_total_amount), 0)    AS total_revenue,
+                0                                  AS unpaid_amount,
+                (SELECT COUNT(*) FROM bookings WHERE DATE(bk_created_at) = DATE('now') AND bk_status IN ('CONFIRMED','COMPLETED')) AS today_bookings,
+                (SELECT COUNT(*) FROM bookings WHERE DATE(bk_created_at) >= DATE('now', '-7 days') AND bk_status IN ('CONFIRMED','COMPLETED')) AS week_bookings
             FROM bookings
             WHERE bk_status IN ('CONFIRMED', 'COMPLETED') {bkg_filter}
             """
         )
         exp_row = db.fetchone(
             f"""
-            SELECT COALESCE(SUM(exp_amount), 0)::FLOAT AS total_expenses
+            SELECT COALESCE(SUM(exp_amount), 0) AS total_expenses
             FROM expenses
             WHERE 1=1 {exp_filter}
             """
         )
     else:
         row = db.fetchone("SELECT * FROM v_report_kpis")
-        exp_row = db.fetchone("SELECT COALESCE(SUM(exp_amount), 0)::FLOAT AS total_expenses FROM expenses")
+        exp_row = db.fetchone("SELECT COALESCE(SUM(exp_amount), 0) AS total_expenses FROM expenses")
 
-    total_bookings = int(row["total_bookings"]) if row and "total_bookings" in row else 0
-    total_pax      = int(row["total_pax"]) if row and "total_pax" in row else 0
-    total_revenue  = float(row["total_revenue"]) if row and "total_revenue" in row else 0.0
-    unpaid_amount  = float(row["unpaid_amount"]) if row and "unpaid_amount" in row else 0.0
-    today_bookings = int(row["today_bookings"]) if row and "today_bookings" in row else 0
-    week_bookings  = int(row["week_bookings"]) if row and "week_bookings" in row else 0
-    total_expenses = float(exp_row["total_expenses"]) if exp_row and "total_expenses" in exp_row else 0.0
+    total_bookings = int(row["total_bookings"]) if row and row.get("total_bookings") is not None else 0
+    total_pax      = int(row["total_pax"]) if row and row.get("total_pax") is not None else 0
+    total_revenue  = float(row["total_revenue"]) if row and row.get("total_revenue") is not None else 0.0
+    unpaid_amount  = float(row["unpaid_amount"]) if row and row.get("unpaid_amount") is not None else 0.0
+    today_bookings = int(row["today_bookings"]) if row and row.get("today_bookings") is not None else 0
+    week_bookings  = int(row["week_bookings"]) if row and row.get("week_bookings") is not None else 0
+    total_expenses = float(exp_row["total_expenses"]) if exp_row and exp_row.get("total_expenses") is not None else 0.0
     net_profit     = total_revenue - total_expenses
 
     return {
@@ -1057,6 +1244,21 @@ def get_customer_order_frequency() -> list[dict]:
     return [{"name": r["name"], "count": int(r["booking_count"])} for r in rows] if rows else []
 
 
+def get_top_occasions(limit: int = 10) -> list[dict]:
+    rows = db.fetchall("""
+        SELECT bk_occasion AS occasion, COUNT(*) AS total
+        FROM bookings
+        WHERE bk_occasion IS NOT NULL AND TRIM(bk_occasion) != ''
+          AND bk_status IN ('CONFIRMED', 'COMPLETED')
+        GROUP BY bk_occasion
+        ORDER BY total DESC
+        LIMIT %s
+    """, (limit,))
+    if not rows:
+        return []
+    return [{"occasion": r["occasion"], "count": int(r["total"])} for r in rows]
+
+
 def get_recent_activity(limit: int = 5) -> list[dict]:
     rows = db.fetchall(
         "SELECT title, description, color, created_at FROM v_recent_activity LIMIT %s",
@@ -1064,19 +1266,34 @@ def get_recent_activity(limit: int = 5) -> list[dict]:
     )
     if not rows:
         return []
-    from datetime import timezone
-    now = datetime.now(timezone.utc)
+    now = datetime.now()
     result = []
     for r in rows:
-        ts = r["created_at"]
-        delta = (now - ts) if (hasattr(ts, "tzinfo") and ts.tzinfo) else (datetime.utcnow() - ts.replace(tzinfo=None))
-        secs = int(delta.total_seconds())
-        if secs < 60:        time_str = "just now"
-        elif secs < 3600:    time_str = f"{secs // 60} min ago"
-        elif secs < 86400:   time_str = f"{secs // 3600} hr ago"
-        else:                time_str = f"{secs // 86400}d ago"
-        result.append({"title": r["title"], "description": r["description"],
-                        "color": r["color"], "time": time_str})
+        ts = r.get("created_at")
+        dt_val = None
+        if isinstance(ts, datetime):
+            dt_val = ts.replace(tzinfo=None) if ts.tzinfo else ts
+        elif isinstance(ts, str):
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d"):
+                try:
+                    dt_val = datetime.strptime(ts.split(".")[0], "%Y-%m-%d %H:%M:%S")
+                    break
+                except ValueError:
+                    pass
+        if dt_val:
+            secs = max(0, int((now - dt_val).total_seconds()))
+            if secs < 60:        time_str = "just now"
+            elif secs < 3600:    time_str = f"{secs // 60} min ago"
+            elif secs < 86400:   time_str = f"{secs // 3600} hr ago"
+            else:                time_str = f"{secs // 86400}d ago"
+        else:
+            time_str = "recently"
+        result.append({
+            "title": r.get("title", "Activity"),
+            "description": r.get("description", ""),
+            "color": r.get("color", "#3B82F6"),
+            "time": time_str,
+        })
     return result
 
 
@@ -1204,12 +1421,37 @@ def get_all_expenses() -> list[dict]:
 
 
 def add_expense(data: dict) -> Optional[int]:
-    result = db.callproc_out(
-        "sp_add_expense",
-        in_params=(data["category"], data["description"], data["amount"], _parse_date(data["date"])),
-        out_names=["p_expense_id"],
-    )
-    return result["p_expense_id"] if result else None
+    cat = str(data.get("category", "Other")).strip() or "Other"
+    desc = str(data.get("description", "—")).strip() or "—"
+    try:
+        amt = float(data.get("amount", 0.0))
+    except (ValueError, TypeError):
+        amt = 0.0
+    d_val = _parse_date(data.get("date"))
+
+    try:
+        result = db.callproc_out(
+            "sp_add_expense",
+            in_params=(cat, desc, amt, d_val),
+            out_names=["p_expense_id"],
+        )
+        if result and result.get("p_expense_id"):
+            return result["p_expense_id"]
+    except Exception as exc:
+        print(f"[repository] sp_add_expense failed: {exc}")
+
+    # Direct fallback if procedure fails
+    try:
+        row = db.fetchone("""
+            INSERT INTO expenses (exp_category, exp_description, exp_amount, exp_date)
+            VALUES (%s, %s, %s, %s)
+            RETURNING exp_id
+        """, (cat, desc, amt, d_val))
+        if row and row.get("exp_id"):
+            return row["exp_id"]
+    except Exception as exc:
+        print(f"[repository] add_expense direct insert fallback failed: {exc}")
+    return None
 
 
 def update_expense(expense_id: int, data: dict) -> None:
@@ -1226,34 +1468,27 @@ def delete_expense(expense_id: int) -> None:
 def get_top_locations(limit: int = 10) -> list[dict]:
     rows = db.fetchall(
         """
-        SELECT
-            TRIM(
-                CASE
-                    WHEN bk_address LIKE '%%,%%' THEN
-                        SPLIT_PART(bk_address, ',',
-                            ARRAY_LENGTH(STRING_TO_ARRAY(TRIM(bk_address), ','), 1) - 1)
-                    ELSE TRIM(bk_address)
-                END
-            ) AS area,
-            COUNT(*) AS booking_count
+        SELECT bk_address, COUNT(*) AS booking_count
         FROM bookings
         WHERE bk_address IS NOT NULL AND TRIM(bk_address) != ''
           AND bk_status IN ('CONFIRMED', 'COMPLETED')
-        GROUP BY 1
-        HAVING TRIM(
-            CASE
-                WHEN bk_address LIKE '%%,%%' THEN
-                    SPLIT_PART(bk_address, ',',
-                        ARRAY_LENGTH(STRING_TO_ARRAY(TRIM(bk_address), ','), 1) - 1)
-                ELSE TRIM(bk_address)
-            END
-        ) != ''
+        GROUP BY bk_address
         ORDER BY booking_count DESC
         LIMIT %s
         """,
-        (limit,),
+        (limit * 2,),
     )
-    return [{"venue": r["area"], "count": int(r["booking_count"])} for r in rows] if rows else []
+    if not rows:
+        return []
+    areas: dict[str, int] = {}
+    for r in rows:
+        addr = (r.get("bk_address") or "").strip()
+        parts = [p.strip() for p in addr.split(",") if p.strip()]
+        area = parts[-2] if len(parts) >= 2 else (parts[0] if parts else "Cebu")
+        areas[area] = areas.get(area, 0) + int(r.get("booking_count", 1))
+
+    sorted_items = sorted(areas.items(), key=lambda x: x[1], reverse=True)[:limit]
+    return [{"venue": k, "count": v} for k, v in sorted_items]
 
 
 def get_profit_summary() -> list[dict]:
@@ -1527,6 +1762,80 @@ def delete_kitchen_task(task_id: int) -> None:
 # CALENDAR
 # ---------------------------------------------------------------------------
 
+def get_calendar_events_for_month(year: int, month: int) -> dict[tuple[int, int, int], list[dict]]:
+    """Fetch all bookings and manual calendar events for the entire month in 2 batch queries."""
+    import calendar as _cal
+    days_in_month = _cal.monthrange(year, month)[1]
+    start_d = date(year, month, 1)
+    end_d = date(year, month, days_in_month)
+
+    result_by_day: dict[tuple[int, int, int], list[dict]] = {}
+
+    booking_rows = db.fetchall(
+        """
+        SELECT bk_event_date    AS event_date,
+               bk_booking_ref   AS booking_ref,
+               bk_customer_name AS customer_name,
+               bk_pax           AS pax,
+               bk_event_time    AS event_time,
+               bk_venue         AS venue,
+               bk_occasion      AS occasion,
+               bk_status::TEXT  AS status
+        FROM bookings
+        WHERE bk_event_date >= %s AND bk_event_date <= %s
+          AND bk_status NOT IN ('CANCELLED')
+        ORDER BY bk_event_date, bk_event_time
+        """,
+        (start_d, end_d),
+    )
+    for r in booking_rows or []:
+        ed = r["event_date"]
+        if isinstance(ed, datetime):
+            ed = ed.date()
+        elif isinstance(ed, str):
+            ed = _parse_date(ed)
+        key = (ed.year, ed.month, ed.day)
+        t = r["event_time"]
+        time_str = t.strftime("%I:%M %p").lstrip("0") if hasattr(t, "strftime") else str(t)
+        label = r["customer_name"]
+        if r["occasion"]:
+            label = f"{r['customer_name']} — {r['occasion']}"
+        
+        result_by_day.setdefault(key, []).append({
+            "id": None, "name": label, "pax": int(r["pax"]),
+            "time": time_str, "loc": r["venue"] or "TBD",
+            "source": "booking", "ref": r["booking_ref"], "status": r["status"],
+        })
+
+    cal_rows = db.fetchall(
+        """
+        SELECT ce_event_date AS event_date,
+               ce_id         AS id,
+               ce_name       AS name,
+               ce_pax        AS pax,
+               ce_event_time AS event_time,
+               ce_location   AS location
+        FROM calendar_events
+        WHERE ce_event_date >= %s AND ce_event_date <= %s
+        ORDER BY ce_event_date, ce_id
+        """,
+        (start_d, end_d),
+    )
+    for r in cal_rows or []:
+        ed = r["event_date"]
+        if isinstance(ed, datetime):
+            ed = ed.date()
+        elif isinstance(ed, str):
+            ed = _parse_date(ed)
+        key = (ed.year, ed.month, ed.day)
+        result_by_day.setdefault(key, []).append({
+            "id": r["id"], "name": r["name"], "pax": int(r["pax"]),
+            "time": r["event_time"], "loc": r["location"], "source": "manual",
+        })
+
+    return result_by_day
+
+
 def get_calendar_events_for_date(event_date: date) -> list[dict]:
     result = []
 
@@ -1596,22 +1905,24 @@ def save_calendar_day(event_date: date, events: list[dict]) -> None:
 def get_booking_detail(db_id: int) -> Optional[dict]:
     row = db.fetchone(
         """
-        SELECT bk_id            AS id,
-               bk_customer_id   AS customer_id,
-               bk_booking_ref   AS booking_ref,
-               bk_customer_name AS customer_name,
-               bk_contact       AS contact,
-               bk_email         AS email,
-               bk_occasion      AS occasion,
-               bk_venue         AS venue,
-               bk_event_date    AS event_date,
-               bk_event_time    AS event_time,
-               bk_pax           AS pax,
-               bk_total_amount  AS total_amount,
-               bk_amount_paid   AS amount_paid,
-               bk_menu_type::TEXT AS menu_type,
-               bk_status::TEXT  AS status
-        FROM bookings WHERE bk_id = %s
+        SELECT b.bk_id            AS id,
+               b.bk_customer_id   AS customer_id,
+               b.bk_booking_ref   AS booking_ref,
+               b.bk_customer_name AS customer_name,
+               c.cus_contact      AS contact,
+               c.cus_email        AS email,
+               b.bk_occasion      AS occasion,
+               b.bk_venue         AS venue,
+               b.bk_event_date    AS event_date,
+               b.bk_event_time    AS event_time,
+               b.bk_pax           AS pax,
+               b.bk_total_amount  AS total_amount,
+               b.bk_amount_paid   AS amount_paid,
+               b.bk_menu_type     AS menu_type,
+               b.bk_status        AS status
+        FROM bookings b
+        LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
+        WHERE b.bk_id = %s
         """,
         (db_id,),
     )
@@ -1741,45 +2052,134 @@ def get_invoice_by_ref(invoice_ref: str) -> Optional[dict]:
 
 
 def get_customer_ledger(customer_id: int) -> list[dict]:
-    rows = db.fetchall(
-        """
-        SELECT entry_type, recorded_date, bk_event_date AS event_date, reference,
-               description, debit, credit, entry_status
-        FROM v_customer_ledger
-        WHERE customer_id = %s
-        ORDER BY recorded_date DESC, entry_type
-        """,
-        (customer_id,),
-    )
+    if not customer_id:
+        return []
+    try:
+        rows = db.fetchall(
+            """
+            SELECT entry_type, recorded_date, event_date, reference,
+                   description, debit, credit, entry_status
+            FROM v_customer_ledger
+            WHERE customer_id = %s
+            ORDER BY recorded_date DESC, entry_type
+            """,
+            (customer_id,),
+        )
+    except Exception as e:
+        print(f"[repository] get_customer_ledger DB error for cid {customer_id}: {e}")
+        rows = []
+
     if not rows:
         return []
     result = []
     for r in rows:
+        rec_d = r.get("recorded_date")
+        ev_d = r.get("event_date")
         result.append({
-            "entry_type":    r["entry_type"],
-            "recorded_date": r["recorded_date"].strftime("%b %d, %Y") if isinstance(r["recorded_date"], date) else str(r["recorded_date"]),
-            "event_date":    r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], date) else str(r["event_date"]),
-            "reference":     r["reference"] or "",
-            "description":   r["description"] or "",
-            "debit":         float(r["debit"]) if r["debit"] else 0.0,
-            "credit":        float(r["credit"]) if r["credit"] else 0.0,
-            "status":        r["entry_status"] or "",
+            "entry_type":    str(r.get("entry_type") or "Entry"),
+            "recorded_date": rec_d.strftime("%b %d, %Y") if isinstance(rec_d, (date, datetime)) else str(rec_d or "—"),
+            "event_date":    ev_d.strftime("%b %d, %Y") if isinstance(ev_d, (date, datetime)) else str(ev_d or "—"),
+            "reference":     str(r.get("reference") or "—"),
+            "description":   str(r.get("description") or "—"),
+            "debit":         float(r.get("debit") or 0.0),
+            "credit":        float(r.get("credit") or 0.0),
+            "status":        str(r.get("entry_status") or "CONFIRMED"),
         })
     return result
 
 
 # ---------------------------------------------------------------------------
-# CEBU ADDRESS SYSTEM
+# CEBU ADDRESS SYSTEM (In-Memory Cached for 0.1ms Instant Search)
 # ---------------------------------------------------------------------------
+
+_cebu_address_cache: Optional[list[dict]] = None
+
+
+def get_all_cebu_addresses() -> list[dict]:
+    global _cebu_address_cache
+    if _cebu_address_cache:
+        return _cebu_address_cache
+    try:
+        rows = db.fetchall("""
+            SELECT b.ab_id AS barangay_id, b.ab_name AS barangay,
+                   c.ac_id AS city_id, c.ac_name AS city,
+                   pr.ap_id AS province_id, pr.ap_name AS province,
+                   (b.ab_name || ', ' || c.ac_name || ', ' || pr.ap_name) AS display_text
+            FROM address_barangays b
+            JOIN address_cities    c  ON c.ac_id  = b.ab_city_id
+            JOIN address_provinces pr ON pr.ap_id = c.ac_province_id
+            ORDER BY c.ac_name, b.ab_name
+        """)
+        if rows:
+            _cebu_address_cache = [dict(r) for r in rows]
+            return _cebu_address_cache
+    except Exception as exc:
+        print(f"[repository] get_all_cebu_addresses query failed: {exc}")
+
+    _cebu_address_cache = _cebu_address_cache or []
+    return _cebu_address_cache
+
 
 def search_cebu_address(query: str, limit: int = 10) -> list[dict]:
     if not query or len(query.strip()) < 2:
         return []
-    rows = db.fetchall(
-        "SELECT * FROM fn_search_cebu_address(%s::text, %s::int)",
-        (query.strip(), limit),
-    )
-    return rows or []
+    all_addrs = get_all_cebu_addresses()
+    if not all_addrs:
+        try:
+            rows = db.fetchall(
+                "SELECT * FROM fn_search_cebu_address(%s::text, %s::int)",
+                (query.strip(), limit),
+            )
+            if rows:
+                return [dict(r) for r in rows]
+        except Exception:
+            pass
+
+    q_raw = query.strip().lower().replace(",", " ")
+    tokens = [t for t in q_raw.split() if t]
+    if not tokens:
+        return []
+
+    prefix_matches = []
+    phrase_matches = []
+    token_matches = []
+
+    for r in all_addrs:
+        b_name = r.get("barangay", "").lower()
+        c_name = r.get("city", "").lower()
+        p_name = r.get("province", "").lower()
+        display = r.get("display_text", f"{b_name}, {c_name}, {p_name}").lower()
+        search_blob = f"{b_name} {c_name} {p_name} {display}"
+
+        # 1. Highest priority: exact prefix on barangay or city
+        if b_name.startswith(tokens[0]) or c_name.startswith(tokens[0]):
+            if all(t in search_blob for t in tokens):
+                prefix_matches.append(r)
+                if len(prefix_matches) >= limit:
+                    return prefix_matches
+                continue
+
+        # 2. Second priority: full raw search query substring in display
+        if q_raw in display:
+            phrase_matches.append(r)
+            continue
+
+        # 3. Third priority: all tokens present anywhere in search blob
+        if all(t in search_blob for t in tokens):
+            token_matches.append(r)
+
+    combined = prefix_matches + phrase_matches + token_matches
+    # Deduplicate while preserving rank order
+    seen = set()
+    deduped = []
+    for item in combined:
+        b_id = item.get("barangay_id") or item.get("display_text")
+        if b_id not in seen:
+            seen.add(b_id)
+            deduped.append(item)
+            if len(deduped) >= limit:
+                break
+    return deduped
 
 
 def save_address(street: str, barangay_id: int, city_id: int,
@@ -1934,13 +2334,55 @@ def get_last_contact(customer_id: int) -> Optional[dict]:
 # PRIVATE HELPERS
 # ---------------------------------------------------------------------------
 
-def _parse_date(s: str) -> date:
-    for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y"):
+def _parse_date(s: Any) -> date:
+    from datetime import timedelta
+    import re
+    if isinstance(s, datetime):
+        return s.date()
+    if isinstance(s, date):
+        return s
+    if not s:
+        return date.today()
+
+    if isinstance(s, (int, float)):
         try:
-            return datetime.strptime(s.strip(), fmt).date()
+            if 20000 <= s <= 80000:
+                return (datetime(1899, 12, 30) + timedelta(days=float(s))).date()
+        except Exception:
+            pass
+
+    s_str = str(s).strip()
+    if not s_str:
+        return date.today()
+
+    clean_s = re.sub(r"[T\s]+\d{1,2}:\d{2}(:\d{2})?(\.\d+)?(\s*[AP]M)?.*$", "", s_str, flags=re.IGNORECASE).strip()
+
+    if clean_s.replace(".", "", 1).isdigit() and len(clean_s) in (5, 6, 7):
+        try:
+            num = float(clean_s)
+            if 20000 <= num <= 80000:
+                return (datetime(1899, 12, 30) + timedelta(days=num)).date()
+        except Exception:
+            pass
+
+    for fmt in (
+        "%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d",
+        "%b %d, %Y", "%B %d, %Y", "%b %d %Y", "%B %d %Y",
+        "%m/%d/%Y", "%d/%m/%Y", "%m-%d-%Y", "%d-%m-%Y",
+        "%d %b %Y", "%d %B %Y", "%d-%b-%Y", "%d-%B-%Y",
+        "%b-%d-%Y", "%B-%d-%Y",
+        "%m/%d/%y", "%d/%m/%y", "%y-%m-%d"
+    ):
+        try:
+            return datetime.strptime(clean_s, fmt).date()
         except ValueError:
             continue
-    raise ValueError(f"Cannot parse date: {s!r}")
+    try:
+        return datetime.fromisoformat(s_str[:10]).date()
+    except Exception:
+        pass
+    print(f"[repository] Warning: cannot parse date {s!r}, defaulting to today")
+    return date.today()
 
 
 def _parse_time(s: str) -> time:
@@ -1966,38 +2408,114 @@ def _parse_amount(s) -> float:
 # ---------------------------------------------------------------------------
 
 def get_available_years() -> list[int]:
-    """Every year that has invoice or expense data, newest first."""
+    """Every year that has booking, invoice or expense data, newest first."""
     try:
-        rows = db.fetchall("SELECT year FROM fn_available_years()")
+        rows = db.fetchall("""
+            SELECT DISTINCT CAST(strftime('%Y', bk_event_date) AS INTEGER) AS yr FROM bookings WHERE bk_event_date IS NOT NULL
+            UNION
+            SELECT DISTINCT CAST(strftime('%Y', exp_date) AS INTEGER) AS yr FROM expenses WHERE exp_date IS NOT NULL
+            ORDER BY yr DESC
+        """)
+        years = [int(r["yr"]) for r in rows if r.get("yr")]
+        if years:
+            return years
     except Exception:
-        return [datetime.now().year]
-    years = [int(r["year"]) for r in rows] if rows else []
-    return years or [datetime.now().year]
+        pass
+    return [datetime.now().year]
 
 
 def get_monthly_income_for_year(year: int) -> list[dict]:
-    rows = db.fetchall(
-        "SELECT month_label, month_num, total_revenue, total_paid"
-        " FROM fn_monthly_income(%s)", (year,)
-    )
-    if not rows:
-        return []
-    return [{"month": r["month_label"], "month_num": int(r["month_num"]),
-             "revenue": float(r["total_revenue"]), "paid": float(r["total_paid"])}
-            for r in rows]
+    year_str = str(year)
+    try:
+        rows = db.fetchall(
+            """
+            WITH months(m_num, m_label) AS (
+                VALUES
+                (1, 'Jan'), (2, 'Feb'), (3, 'Mar'), (4, 'Apr'),
+                (5, 'May'), (6, 'Jun'), (7, 'Jul'), (8, 'Aug'),
+                (9, 'Sep'), (10, 'Oct'), (11, 'Nov'), (12, 'Dec')
+            ),
+            bkg AS (
+                SELECT CAST(strftime('%m', bk_event_date) AS INTEGER) AS m_num,
+                       SUM(bk_total_amount) AS rev,
+                       SUM(bk_amount_paid) AS paid
+                FROM bookings
+                WHERE bk_status IN ('CONFIRMED', 'COMPLETED') AND strftime('%Y', bk_event_date) = %s
+                GROUP BY m_num
+            )
+            SELECT
+                months.m_label AS month_label,
+                months.m_num AS month_num,
+                COALESCE(bkg.rev, 0.0) AS total_revenue,
+                COALESCE(bkg.paid, 0.0) AS total_paid
+            FROM months
+            LEFT JOIN bkg ON bkg.m_num = months.m_num
+            ORDER BY months.m_num
+            """,
+            (year_str,)
+        )
+        if rows:
+            return [{"month": r["month_label"], "month_num": int(r["month_num"]),
+                     "revenue": float(r["total_revenue"]), "paid": float(r["total_paid"])}
+                    for r in rows]
+    except Exception:
+        pass
+    _MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    return [{"month": _MONTH_LABELS[m-1], "month_num": m, "revenue": 0.0, "paid": 0.0} for m in range(1, 13)]
 
 
 def get_profit_summary_for_year(year: int) -> list[dict]:
-    rows = db.fetchall(
-        "SELECT month_num, month_label, revenue, total_expense, net_profit"
-        " FROM fn_profit_summary(%s)", (year,)
-    )
-    if not rows:
-        return []
-    return [{"month": r["month_label"], "month_num": int(r["month_num"]),
-             "revenue": float(r["revenue"]), "expense": float(r["total_expense"]),
-             "profit": float(r["net_profit"])}
-            for r in rows]
+    year_str = str(year)
+    try:
+        rows = db.fetchall(
+            """
+            WITH months(m_num, m_label) AS (
+                VALUES
+                (1, 'Jan'), (2, 'Feb'), (3, 'Mar'), (4, 'Apr'),
+                (5, 'May'), (6, 'Jun'), (7, 'Jul'), (8, 'Aug'),
+                (9, 'Sep'), (10, 'Oct'), (11, 'Nov'), (12, 'Dec')
+            ),
+            rev AS (
+                SELECT CAST(strftime('%m', bk_event_date) AS INTEGER) AS m_num, SUM(bk_total_amount) AS revenue
+                FROM bookings
+                WHERE bk_status IN ('CONFIRMED', 'COMPLETED') AND strftime('%Y', bk_event_date) = %s
+                GROUP BY m_num
+            ),
+            exp AS (
+                SELECT CAST(strftime('%m', exp_date) AS INTEGER) AS m_num, SUM(exp_amount) AS total_expense
+                FROM expenses
+                WHERE strftime('%Y', exp_date) = %s
+                GROUP BY m_num
+            )
+            SELECT
+                months.m_num AS month_num,
+                months.m_label AS month_label,
+                COALESCE(rev.revenue, 0.0) AS revenue,
+                COALESCE(exp.total_expense, 0.0) AS total_expense,
+                (COALESCE(rev.revenue, 0.0) - COALESCE(exp.total_expense, 0.0)) AS net_profit
+            FROM months
+            LEFT JOIN rev ON rev.m_num = months.m_num
+            LEFT JOIN exp ON exp.m_num = months.m_num
+            ORDER BY months.m_num
+            """,
+            (year_str, year_str)
+        )
+        if rows:
+            return [{"month": r["month_label"], "month_num": int(r["month_num"]),
+                     "revenue": float(r["revenue"]), "expense": float(r["total_expense"]),
+                     "profit": float(r["net_profit"])}
+                    for r in rows]
+    except Exception:
+        pass
+    _MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    return [{"month": _MONTH_LABELS[m-1], "month_num": m, "revenue": 0.0, "expense": 0.0, "profit": 0.0} for m in range(1, 13)]
+
+
+def get_monthly_revenue_chart_data(year: int = None) -> list[dict]:
+    """Fetch monthly revenue, expense, and profit data for charts."""
+    if year:
+        return get_profit_summary_for_year(year)
+    return get_profit_summary()
 
 
 def get_weekly_summary(year: int, month: int) -> list[dict]:
@@ -2016,22 +2534,77 @@ def get_weekly_summary(year: int, month: int) -> list[dict]:
 
 def get_yearly_summary() -> list[dict]:
     """Revenue/expense/profit per year across all history."""
-    rows = db.fetchall(
-        "SELECT year, revenue, total_expense, net_profit FROM fn_yearly_summary()"
-    )
-    if not rows:
-        return []
-    return [{"year": int(r["year"]), "revenue": float(r["revenue"]),
-             "expense": float(r["total_expense"]), "profit": float(r["net_profit"])}
-            for r in rows]
+    try:
+        rows = db.fetchall(
+            """
+            WITH b_years AS (
+                SELECT CAST(strftime('%Y', bk_event_date) AS INTEGER) AS yr,
+                       SUM(bk_total_amount) AS rev
+                FROM bookings
+                WHERE bk_status IN ('CONFIRMED', 'COMPLETED')
+                GROUP BY yr
+            ),
+            e_years AS (
+                SELECT CAST(strftime('%Y', exp_date) AS INTEGER) AS yr,
+                       SUM(exp_amount) AS exp
+                FROM expenses
+                GROUP BY yr
+            ),
+            all_years AS (
+                SELECT yr FROM b_years UNION SELECT yr FROM e_years
+            )
+            SELECT
+                ay.yr AS year,
+                COALESCE(by.rev, 0.0) AS revenue,
+                COALESCE(ey.exp, 0.0) AS total_expense,
+                (COALESCE(by.rev, 0.0) - COALESCE(ey.exp, 0.0)) AS net_profit
+            FROM all_years ay
+            LEFT JOIN b_years by ON by.yr = ay.yr
+            LEFT JOIN e_years ey ON ey.yr = ay.yr
+            WHERE ay.yr IS NOT NULL
+            ORDER BY ay.yr DESC
+            """
+        )
+        if rows:
+            return [{"year": int(r["year"]), "revenue": float(r["revenue"]),
+                     "expense": float(r["total_expense"]), "profit": float(r["net_profit"])}
+                    for r in rows]
+    except Exception:
+        pass
+    return []
 
 
 def get_expense_breakdown(year: int, month: Optional[int] = None) -> list[dict]:
     """Expense totals per category for a year (or one month of it)."""
-    rows = db.fetchall(
-        "SELECT category, total FROM fn_expense_breakdown(%s, %s)", (year, month)
-    )
-    return [{"category": r["category"], "total": float(r["total"])} for r in rows] if rows else []
+    try:
+        if month:
+            rows = db.fetchall(
+                """
+                SELECT exp_category AS category, SUM(exp_amount) AS total
+                FROM expenses
+                WHERE CAST(strftime('%Y', exp_date) AS INTEGER) = %s
+                  AND CAST(strftime('%m', exp_date) AS INTEGER) = %s
+                GROUP BY exp_category
+                ORDER BY total DESC
+                """,
+                (year, month),
+            )
+        else:
+            rows = db.fetchall(
+                """
+                SELECT exp_category AS category, SUM(exp_amount) AS total
+                FROM expenses
+                WHERE CAST(strftime('%Y', exp_date) AS INTEGER) = %s
+                GROUP BY exp_category
+                ORDER BY total DESC
+                """,
+                (year,),
+            )
+        if rows:
+            return [{"category": r["category"], "total": float(r["total"])} for r in rows]
+    except Exception:
+        pass
+    return []
 
 
 def get_bookings_any_status() -> list[dict]:
@@ -2064,3 +2637,142 @@ def get_bookings_any_status() -> list[dict]:
         }
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# DATA RESET & PURGE MANAGEMENT
+# ---------------------------------------------------------------------------
+
+def get_data_counts() -> dict:
+    """Return row counts for all purgeable categories."""
+    def _c(tbl):
+        try:
+            r = db.fetchone(f"SELECT COUNT(*) AS c FROM {tbl}")
+            return int(r["c"]) if r and r.get("c") is not None else 0
+        except Exception:
+            return 0
+
+    return {
+        "bookings": _c("bookings"),
+        "invoices": _c("invoices"),
+        "payments": _c("payment_records"),
+        "customers": _c("customers"),
+        "expenses": _c("expenses"),
+        "menu_items": _c("menu_items"),
+        "packages": _c("packages"),
+        "calendar_events": _c("calendar_events"),
+        "notifications": _c("notifications"),
+        "audit_logs": _c("audit_logs"),
+    }
+
+
+def purge_bookings() -> int:
+    """Delete all bookings, invoices, payments, kitchen orders, and tasks."""
+    cnt = db.fetchone("SELECT COUNT(*) AS c FROM bookings")
+    c_val = int(cnt["c"]) if cnt and cnt.get("c") is not None else 0
+    db.execute("DELETE FROM booking_menu_items")
+    db.execute("DELETE FROM payment_records")
+    db.execute("DELETE FROM invoices")
+    db.execute("DELETE FROM kitchen_tasks")
+    db.execute("DELETE FROM kitchen_orders")
+    db.execute("DELETE FROM bookings")
+    return c_val
+
+
+def purge_customers(cascade_bookings=False) -> int:
+    """Delete all customers, loyalty records, follow-ups, and customer addresses."""
+    if cascade_bookings:
+        purge_bookings()
+    cnt = db.fetchone("SELECT COUNT(*) AS c FROM customers")
+    c_val = int(cnt["c"]) if cnt and cnt.get("c") is not None else 0
+    db.execute("DELETE FROM customer_follow_ups")
+    db.execute("DELETE FROM customer_loyalty_tiers")
+    db.execute("DELETE FROM customer_addresses")
+    db.execute("DELETE FROM customers")
+    return c_val
+
+
+def purge_expenses() -> int:
+    """Delete all expenses."""
+    cnt = db.fetchone("SELECT COUNT(*) AS c FROM expenses")
+    c_val = int(cnt["c"]) if cnt and cnt.get("c") is not None else 0
+    db.execute("DELETE FROM expenses")
+    return c_val
+
+
+def purge_menu_items() -> int:
+    """Delete all menu items and package item linkages."""
+    cnt = db.fetchone("SELECT COUNT(*) AS c FROM menu_items")
+    c_val = int(cnt["c"]) if cnt and cnt.get("c") is not None else 0
+    db.execute("DELETE FROM booking_menu_items")
+    db.execute("DELETE FROM package_items")
+    db.execute("DELETE FROM menu_items")
+    return c_val
+
+
+def purge_packages() -> int:
+    """Delete all packages and package item linkages."""
+    cnt = db.fetchone("SELECT COUNT(*) AS c FROM packages")
+    c_val = int(cnt["c"]) if cnt and cnt.get("c") is not None else 0
+    db.execute("DELETE FROM package_items")
+    db.execute("DELETE FROM packages")
+    return c_val
+
+
+def purge_calendar_events() -> int:
+    """Delete all manual calendar events."""
+    cnt = db.fetchone("SELECT COUNT(*) AS c FROM calendar_events")
+    c_val = int(cnt["c"]) if cnt and cnt.get("c") is not None else 0
+    db.execute("DELETE FROM calendar_events")
+    return c_val
+
+
+def purge_logs() -> int:
+    """Delete all notifications and audit logs."""
+    cnt = db.fetchone("SELECT (SELECT COUNT(*) FROM notifications) + (SELECT COUNT(*) FROM audit_logs) AS c")
+    c_val = int(cnt["c"]) if cnt and cnt.get("c") is not None else 0
+    db.execute("DELETE FROM notifications")
+    db.execute("DELETE FROM audit_logs")
+    return c_val
+
+
+def purge_selected_data(categories: list[str]) -> dict:
+    """Purge specific categories selected by user."""
+    results = {}
+    if "bookings" in categories:
+        results["bookings"] = purge_bookings()
+    if "customers" in categories:
+        results["customers"] = purge_customers(cascade_bookings=("bookings" in categories))
+    if "expenses" in categories:
+        results["expenses"] = purge_expenses()
+    if "menu_items" in categories:
+        results["menu_items"] = purge_menu_items()
+    if "packages" in categories:
+        results["packages"] = purge_packages()
+    if "calendar_events" in categories:
+        results["calendar_events"] = purge_calendar_events()
+    if "logs" in categories:
+        results["logs"] = purge_logs()
+
+    # Emit app-wide refresh signals
+    try:
+        from utils.signals import app_events
+        ev = app_events()
+        ev.booking_saved.emit()
+        ev.booking_updated.emit()
+        ev.payment_recorded.emit()
+        ev.kitchen_updated.emit()
+        ev.customer_saved.emit()
+        ev.menu_saved.emit()
+        ev.expense_saved.emit()
+        ev.data_changed.emit()
+    except Exception:
+        pass
+
+    return results
+
+
+def purge_all_data() -> dict:
+    """Completely wipe all operational data and reset system to clean state."""
+    all_cats = ["bookings", "customers", "expenses", "menu_items", "packages", "calendar_events", "logs"]
+    return purge_selected_data(all_cats)

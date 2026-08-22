@@ -294,25 +294,57 @@ def _name_key(name: str) -> str:
     return re.sub(r"\s+", " ", s).strip().lower()
 
 
+_COMMON_CUSTOMER_STOP_WORDS = {
+    "and", "the", "for", "all", "inc", "corp", "corporation", "company", "co", "ltd",
+    "del", "san", "los", "las", "sta", "sto", "city", "st", "ave", "dept", "group",
+    "services", "catering", "events", "total", "totals", "trend", "trends", "year", "years",
+    "month", "months", "week", "weeks", "day", "days", "compare", "comparison",
+    "last", "this", "show", "list", "how", "what", "who", "when", "why", "where",
+    "order", "orders", "booking", "bookings", "menu", "menus", "customer", "customers",
+    "expense", "expenses", "revenue", "profit", "income", "invoice", "invoices",
+    "payment", "payments", "food", "price", "balance", "cost", "costs", "sales",
+    "tell", "give", "view", "find", "get", "many", "much", "more", "details",
+    "history", "ledger", "account", "info", "information", "profile", "record", "records",
+    "dev", "const", "specialist", "transport", "trasport", "apartment", "house"
+}
+
+
 def _customer_matches(c: dict, q: str) -> bool:
-    """Match a customer by (honorific-cleaned) name, contact digits, or email."""
+    """Match a customer by name, contact digits, or email, avoiding false positive stop words."""
     needle = _name_key(q)
     name = _name_key(c.get("name") or "")
-    if name:
-        if name in q or (needle and (needle in name or name in needle)):
-            return True
-        if any(len(p) >= 3 and re.search(rf"\b{re.escape(p)}\b", needle or q)
-               for p in name.split()):
-            return True
-    # contact: any 4+ digit run of the query appearing in the stored number
+    if not name:
+        return False
+
+    # 1. Exact or whole-substring match of clean name
+    if name in needle or needle == name:
+        return True
+
+    # 2. Distinctive non-stopword tokens
+    name_tokens = [t for t in name.split() if t not in _COMMON_CUSTOMER_STOP_WORDS and len(t) >= 3]
+    q_tokens = set(needle.split())
+    if name_tokens:
+        matching = [t for t in name_tokens if t in q_tokens]
+        if len(name_tokens) >= 2:
+            if len(matching) >= 2:
+                return True
+            if len(matching) == 1 and len(matching[0]) >= 6:
+                return True
+        elif len(name_tokens) == 1:
+            if len(matching) == 1 and len(matching[0]) >= 4:
+                return True
+
+    # 3. Contact: 5+ digit exact run in query
     contact = re.sub(r"\D", "", str(c.get("contact") or ""))
-    if contact and any(d in contact for d in re.findall(r"\d{4,}", q)):
+    if contact and any(d in contact for d in re.findall(r"\d{5,}", q)):
         return True
-    # email: any 4+ char token of the query appearing in the address
+
+    # 4. Email match
     email = (c.get("email") or "").lower()
-    if email and any(t in email for t in re.findall(r"[\w.]{4,}", q.lower())
-                     if not t.isdigit()):
+    if email and any(t in email for t in re.findall(r"[\w.]{5,}", q.lower())
+                     if not t.isdigit() and t not in _COMMON_CUSTOMER_STOP_WORDS):
         return True
+
     return False
 
 
@@ -323,7 +355,7 @@ def _find_customer(q: str):
     exact = None
     for c in customers:
         name = _name_key(c.get("name") or "")
-        if name and (name in q or (needle and needle == name)):
+        if name and (name in needle or needle == name):
             exact = exact or c
     if exact:
         return exact
@@ -490,8 +522,15 @@ def _answer_compare(q: str) -> dict:
     t_old, t_new = _year_total(y_old, metric), _year_total(y_new, metric)
     by_m_old = {r["month_num"]: r.get(metric, 0.0) for r in _year_rows(y_old)}
     by_m_new = {r["month_num"]: r.get(metric, 0.0) for r in _year_rows(y_new)}
-    answer = (f"Total {metric} in {y_old} was {_peso(t_old)}; in {y_new} it is {_peso(t_new)} "
-              f"so far.{_pct(t_new, t_old)}")
+    if t_old == 0 and t_new > 0:
+        answer = f"Total {metric} in {y_old} was {_peso(0)} (no records found for {y_old}); in {y_new} it is {_peso(t_new)} so far."
+    elif t_old == 0 and t_new == 0:
+        answer = f"No {metric} records found for both {y_old} and {y_new} yet."
+    elif t_new == 0 and t_old > 0:
+        answer = f"Total {metric} in {y_old} was {_peso(t_old)}; in {y_new} there are no records recorded yet."
+    else:
+        answer = (f"Total {metric} in {y_old} was {_peso(t_old)}; in {y_new} it is {_peso(t_new)} "
+                  f"so far.{_pct(t_new, t_old)}")
     chart = {"type": "bar", "title": f"Monthly {label}: {y_old} vs {y_new}",
              "labels": _MONTH_LABELS,
              "series": [
@@ -3246,10 +3285,10 @@ _INTENTS = [
     (_answer_revenue_vs_expense_compare, r"\bcompare\b.{0,30}\b(expense|expenses|cost|costs|revenue|income|sales)\b|\b(revenue|income|sales)\b.{0,20}\bvs\b.{0,20}\b(expense|expenses|cost|costs)\b|\b(expense|expenses|cost|costs)\b.{0,20}\bvs\b.{0,20}\b(revenue|income|sales)\b|\bprofit margin\b|\bnet profit\b|\bnet income\b"),
     (_answer_monthly_revenue_vs_expenses, r"\bmonthly\b.{0,30}\b(revenue|income|sales).{0,20}(expense|expenses|cost)\b"),
     (_answer_average_booking_profitability, r"\baverage\b.{0,20}\b(profit|margin|profitability)\b|\bprofit per (booking|order|event)\b|\broi per (booking|order|event)\b"),
+    (_answer_trend,             r"\b(monthly|trend|trends|per month|show|graph|chart)\b.{0,24}\b(revenue|expense|profit|sales|total|totals)?\b|\b(revenue|expense|profit|total|totals)\b.{0,16}\b(monthly|trend|trends|per month)\b|\btotals?\s+and\s+trends?\b|\btrends?\s+and\s+totals?\b"),
     (_answer_compare,           r"\bcompare\b|\bvs\b|\bversus\b|\bgrowth\b|\bgrowing\b|\bshrink|\bdifference\b"),
     (_answer_weekly,            r"(?<!this )(?<!last )\bweek\b|\bweekly\b|\bper week\b"),
     (_answer_best_month,        r"(best|highest|top|strongest|peak|lowest|worst|weakest|slowest).{0,20}\bmonth\b|\bmonth\b.{0,24}(most|highest|best|least|lowest)"),
-    (_answer_trend,             r"\b(monthly|trend|per month|show|graph|chart)\b.{0,24}\b(revenue|expense|profit|sales)\b|\b(revenue|expense|profit)\b.{0,16}\b(monthly|trend|per month)\b"),
     (_answer_expense_breakdown, r"\bexpense\b.{0,24}(breakdown|category|categories|where|go)|\bbreakdown\b|where.{0,20}(expense|money)"),
     (_answer_top_customers,     r"(top|best|frequent|loyal).{0,16}customer|customer.{0,16}(top|most)|\bwho\b.{0,24}customer"),
     (_answer_unpaid,            r"\bunpaid\b|\boutstanding\b|\bbalance\b|\bcollect\b|\bowe\b|\bdebt\b|\breceivable"),
@@ -3293,7 +3332,7 @@ _INTENTS = [
 _KEYWORD_HANDLERS = {
     _answer_compare:           {"compare", "vs", "versus", "difference", "growth", "better", "worse"},
     _answer_weekly:            {"week", "weekly"},
-    _answer_trend:             {"trend", "monthly", "graph", "chart", "show"},
+    _answer_trend:             {"trend", "trends", "monthly", "graph", "chart", "show"},
     _answer_expense_breakdown: {"breakdown", "categories", "category", "expense", "expenses", "spending"},
     _answer_top_customers:     {"customer", "customers", "loyal", "frequent"},
     _answer_unpaid:            {"unpaid", "outstanding", "balance", "collect", "owe", "due"},
@@ -3304,7 +3343,7 @@ _KEYWORD_HANDLERS = {
     _answer_bookings_count:    {"bookings", "booking", "orders", "reservations"},
     _answer_payment_methods:   {"payment", "gcash", "cash", "bank"},
     _answer_business_info:     {"business", "contact", "address", "downpayment", "policy"},
-    _answer_total:             {"revenue", "profit", "income", "sales", "total", "much"},
+    _answer_total:             {"revenue", "profit", "income", "sales", "total", "totals", "much"},
     _answer_follow_ups:        {"followup", "followups", "overdue"},
     _answer_notifications:     {"notification", "notifications", "unread", "alerts"},
     _answer_daily_briefing:    {"briefing", "brief"},
@@ -3617,19 +3656,19 @@ def _ask_internal(q: str, raw: str) -> dict:
             customer = _find_customer(q)
             return _answer_communication_history(q, customer) if customer else _plain("Communication history for whom? Include their name, e.g. \"communication history for Maria\".")
 
-        # 3. Customer name mentioned
-        customer = _find_customer(q)
-        if customer:
-            return _answer_customer(q, customer)
-
-        # 4. Two months or two years
+        # 3. Two months or two years comparison
         if len(_extract_months(q)) >= 2 or len(_extract_years(q)) >= 2:
             return _answer_compare(q)
 
-        # 5. Ordered intent patterns
+        # 4. Primary ordered intent patterns (Trends, Totals, Comparisons, Suggestions, Invoices, Bookings)
         for handler, pattern in _INTENTS:
             if re.search(pattern, q):
                 return handler(q)
+
+        # 5. Customer name mentioned (only if not an analytical command)
+        customer = _find_customer(q)
+        if customer:
+            return _answer_customer(q, customer)
 
         # 6. Fuzzy keyword scoring as a last resort
         tokens = set(q.split())

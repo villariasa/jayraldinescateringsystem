@@ -23,7 +23,7 @@ def create_installer():
     zip_target = root / "app_package.zip"
     print(f"[1/3] Compressing application files into {zip_target.name}...")
     
-    with zipfile.ZipFile(zip_target, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(zip_target, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for folder, _, files in os.walk(dist_app):
             for f in files:
                 file_path = Path(folder) / f
@@ -47,6 +47,22 @@ def create_installer():
         "--add-data", f"app_package.zip;.",
         "--add-data", f"assets;assets",
         "--distpath", str(output_dir),
+        "--exclude-module", "reportlab",
+        "--exclude-module", "openpyxl",
+        "--exclude-module", "psycopg2",
+        "--exclude-module", "tkinter",
+        "--exclude-module", "matplotlib",
+        "--exclude-module", "scipy",
+        "--exclude-module", "numpy",
+        "--exclude-module", "unittest",
+        "--exclude-module", "PySide6.QtWebEngine",
+        "--exclude-module", "PySide6.QtWebEngineWidgets",
+        "--exclude-module", "PySide6.QtMultimedia",
+        "--exclude-module", "PySide6.QtOpenGL",
+        "--exclude-module", "PySide6.QtPdf",
+        "--exclude-module", "PySide6.QtQuick",
+        "--exclude-module", "PySide6.QtQml",
+        "--exclude-module", "PySide6.Qt3DCore",
         "--noconfirm"
     ]
     

@@ -40,6 +40,7 @@ class SpeechBubble(QWidget):
     """Speech bubble attached to the mascot that stays strictly inside the application."""
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._mascot = parent
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.hide()
 
@@ -66,14 +67,16 @@ class SpeechBubble(QWidget):
             f"border-radius: 12px; padding: 8px 12px; font-size: 12px; font-weight: 600;"
         )
 
-    def popup_at(self, global_pos: QPoint, text: str, duration_ms: int = 3500):
+    def popup_at(self, global_pos: QPoint = None, text: str = "", duration_ms: int = 3500):
         if not text:
             return
-        mascot = self.parent()
+        mascot = self._mascot or self.parent()
         if mascot and hasattr(mascot, "window"):
             win = mascot.window()
-            if win and (not win.isVisible() or win.isMinimized() or not win.isActiveWindow()):
+            if win and (not win.isVisible() or win.isMinimized()):
                 return
+            if win and self.parent() != win:
+                self.setParent(win)
         self._update_style()
         self._label.setText(text)
         self.adjustSize()
@@ -82,18 +85,26 @@ class SpeechBubble(QWidget):
         self.raise_()
         self._timer.start(duration_ms)
 
-    def reposition(self, global_pos: QPoint):
-        mascot = self.parent()
+    def reposition(self, global_pos: QPoint = None):
+        mascot = self._mascot or self.parent()
         if mascot:
-            p = mascot.parentWidget()
-            if p:
-                mx = max(4, min(mascot.x() - (self.width() - mascot.width()) // 2, p.width() - self.width() - 4))
-                my = max(4, mascot.y() - self.height() - 4)
-                self.move(mx, my)
+            win = mascot.window()
+            if win:
+                if self.parent() != win:
+                    self.setParent(win)
+                m_pos = mascot.mapTo(win, QPoint(0, 0))
+                bw = self.width()
+                bh = self.height()
+                bx = max(10, min(m_pos.x() + (mascot.width() - bw) // 2, win.width() - bw - 10))
+                by = m_pos.y() - bh - 8
+                if by < 10:
+                    by = m_pos.y() + mascot.height() + 8
+                self.move(bx, by)
                 return
-        x = global_pos.x() - self.width() // 2
-        y = global_pos.y() - self.height() - 6
-        self.move(x, y)
+        if global_pos:
+            x = global_pos.x() - self.width() // 2
+            y = global_pos.y() - self.height() - 6
+            self.move(x, y)
 
 
 class ChefMascot(QWidget):
@@ -142,13 +153,14 @@ class ChefMascot(QWidget):
 
         self._blink_timer = QTimer(self)
         self._blink_timer.timeout.connect(self._blink)
-        self._blink_timer.start(3200)
+        self._blink_timer.start(6000)  # reduced from 3200 to lower repaint frequency
 
         self._reset_expr_timer = QTimer(self)
         self._reset_expr_timer.setSingleShot(True)
         self._reset_expr_timer.timeout.connect(self._reset_expression)
 
-        create_soft_shadow(self, radius=14, y_offset=6, opacity=35)
+        # Skip QGraphicsDropShadowEffect — it forces full software rasterization on
+        # older Intel HD GPUs. Use a lightweight styled border instead.
         ThemeManager().theme_changed.connect(self._on_theme_or_accent_changed)
         AccentManager().accent_changed.connect(self._on_theme_or_accent_changed)
 
@@ -427,9 +439,9 @@ class ChefMascot(QWidget):
 
     def _start_idle(self):
         anim = QPropertyAnimation(self, b"bob_offset", self)
-        anim.setDuration(1600)
+        anim.setDuration(2400)  # slowed from 1600ms to reduce GPU load
         anim.setStartValue(0.0)
-        anim.setKeyValueAt(0.5, -6.0)
+        anim.setKeyValueAt(0.5, -5.0)
         anim.setEndValue(0.0)
         anim.setEasingCurve(QEasingCurve.InOutSine)
         anim.setLoopCount(-1)

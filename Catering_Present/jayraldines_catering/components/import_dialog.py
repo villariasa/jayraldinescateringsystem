@@ -11,12 +11,91 @@ from PySide6.QtWidgets import (
     QComboBox, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView,
     QStackedWidget, QFileDialog, QMessageBox, QProgressBar, QWidget
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QThread, Signal
 from PySide6.QtGui import QColor
 
 from utils.accent import AccentManager
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
 import utils.importer as importer
+
+
+class ImportTaskWorker(QThread):
+    progress = Signal(int, str)
+    finished = Signal(dict)
+
+    def __init__(self, file_path: str, entity_type: str, master_dict=None, headers=None, data_rows=None, mapping=None, prepared_rows=None, counts=None):
+        super().__init__()
+        self.file_path = file_path
+        self.entity_type = entity_type
+        self.master_dict = master_dict
+        self.headers = headers or []
+        self.data_rows = data_rows or []
+        self.mapping = mapping or {}
+        self.prepared_rows = prepared_rows or []
+        self.counts = counts or {}
+
+    def run(self):
+        result = {}
+        try:
+            if self.entity_type == "all_in_one":
+                self.progress.emit(15, "Parsing master file sections...")
+                master_dict = self.master_dict
+                if not master_dict:
+                    master_dict, _ = importer.parse_master_file(self.file_path)
+
+                total_success = 0
+                total_fail = 0
+                all_errors = []
+                summary_breakdown = []
+
+                if master_dict:
+                    sections = list(master_dict.items())
+                    total_sec = len(sections)
+                    for i, (ent_key, (hdrs, d_rows)) in enumerate(sections, start=1):
+                        if not d_rows:
+                            continue
+                        self.progress.emit(20 + int((i / max(1, total_sec)) * 70), f"Importing {ent_key.replace('_', ' ').title()} ({len(d_rows)} rows)...")
+                        mapping = importer.auto_map_headers(hdrs, ent_key)
+                        prep_rows, _ = importer.validate_and_prepare_rows(d_rows, mapping, ent_key)
+                        s_cnt, f_cnt, errs = importer.execute_batch_import(prep_rows, ent_key, skip_errors=True)
+                        total_success += s_cnt
+                        total_fail += f_cnt
+                        all_errors.extend(errs)
+                        summary_breakdown.append(f"• {ent_key.replace('_', ' ').title()}: {s_cnt} imported, {f_cnt} skipped")
+
+                self.progress.emit(100, "Import complete!")
+                result = {
+                    "is_all_in_one": True,
+                    "total_success": total_success,
+                    "total_fail": total_fail,
+                    "all_errors": all_errors,
+                    "summary_breakdown": summary_breakdown,
+                }
+            else:
+                prep_rows = self.prepared_rows
+                if not prep_rows:
+                    self.progress.emit(20, "Auto-mapping and validating rows...")
+                    mapping = importer.auto_map_headers(self.headers, self.entity_type)
+                    prep_rows, _ = importer.validate_and_prepare_rows(self.data_rows, mapping, self.entity_type)
+
+                self.progress.emit(50, f"Executing database batch import ({len(prep_rows)} rows)...")
+                s_cnt, f_cnt, errors = importer.execute_batch_import(prep_rows, self.entity_type, skip_errors=True)
+                self.progress.emit(100, "Import complete!")
+                result = {
+                    "is_all_in_one": False,
+                    "total_success": s_cnt,
+                    "total_fail": f_cnt,
+                    "all_errors": errors,
+                    "entity_type": self.entity_type,
+                }
+        except Exception as exc:
+            result = {
+                "error": str(exc),
+                "total_success": 0,
+                "total_fail": 1,
+                "all_errors": [str(exc)],
+            }
+        self.finished.emit(result)
 
 
 class ImportWizardDialog(QDialog):
@@ -478,34 +557,38 @@ class ImportWizardDialog(QDialog):
         self._execute_import()
 
     def _execute_import(self):
-        if self._entity_type == "all_in_one":
-            self._progress_bar.setValue(25)
-            total_success = 0
-            total_fail = 0
-            all_errors = []
-            summary_breakdown = []
+        self._btn_next.setEnabled(False)
+        self._progress_bar.setValue(5)
+        self._lbl_exec_status.setText("⏳ Importing records in background...")
+        self._lbl_result_summary.setText("Please wait while the records are validated and saved to the database.")
 
-            master_dict = getattr(self, "_master_dict", None)
-            if not master_dict:
-                master_dict, _ = importer.parse_master_file(self._file_path)
+        worker = ImportTaskWorker(
+            file_path=self._file_path,
+            entity_type=self._entity_type,
+            master_dict=getattr(self, "_master_dict", None),
+            headers=self._headers,
+            data_rows=self._data_rows,
+            mapping=self._mapping,
+            prepared_rows=self._prepared_rows,
+            counts=self._counts
+        )
+        worker.progress.connect(self._on_worker_progress)
+        worker.finished.connect(self._on_worker_finished)
+        self._import_worker = worker
+        worker.start()
 
-            if master_dict:
-                step_pct = 25
-                for ent_key, (hdrs, d_rows) in master_dict.items():
-                    if not d_rows:
-                        continue
-                    mapping = importer.auto_map_headers(hdrs, ent_key)
-                    prep_rows, _ = importer.validate_and_prepare_rows(d_rows, mapping, ent_key)
-                    s_cnt, f_cnt, errs = importer.execute_batch_import(prep_rows, ent_key, skip_errors=True)
-                    total_success += s_cnt
-                    total_fail += f_cnt
-                    all_errors.extend(errs)
-                    summary_breakdown.append(f"• {ent_key.replace('_', ' ').title()}: {s_cnt} imported, {f_cnt} skipped")
-                    step_pct += 15
-                    self._progress_bar.setValue(min(90, step_pct))
+    def _on_worker_progress(self, val: int, msg: str):
+        self._progress_bar.setValue(val)
+        self._lbl_exec_status.setText(f"⏳ {msg}")
 
-            self._progress_bar.setValue(100)
+    def _on_worker_finished(self, result: dict):
+        self._progress_bar.setValue(100)
+        total_success = result.get("total_success", 0)
+        total_fail = result.get("total_fail", 0)
+        all_errors = result.get("all_errors", [])
 
+        if result.get("is_all_in_one"):
+            summary_breakdown = result.get("summary_breakdown", [])
             if total_success > 0:
                 self._lbl_exec_status.setText("✅ All-in-One Master Import Completed!")
                 msg = (
@@ -520,49 +603,22 @@ class ImportWizardDialog(QDialog):
                     f"Could not import records from this file. Total skipped: {total_fail}.\n"
                     f"Please verify that the required columns are filled."
                 )
-
-            if all_errors:
-                msg += "\n\nIssue details:\n" + "\n".join(all_errors[:6])
-
-            self._lbl_result_summary.setText(msg)
-            self._btn_next.setText("Finish & Close")
-            self._btn_next.setEnabled(True)
-            self._emit_refresh_signals()
-            return
-
-        valid_cnt = self._counts.get("valid", 0) + self._counts.get("warning", 0)
-        if valid_cnt == 0:
-            # Re-validate with auto-mapping if coming directly from Fast Import
-            self._mapping = importer.auto_map_headers(self._headers, self._entity_type)
-            self._prepared_rows, self._counts = importer.validate_and_prepare_rows(
-                self._data_rows, self._mapping, self._entity_type
-            )
-            valid_cnt = self._counts.get("valid", 0) + self._counts.get("warning", 0)
-
-        if valid_cnt == 0:
-            QMessageBox.warning(self, "No Valid Rows", "There are no valid data rows to import.")
-            return
-
-        self._progress_bar.setValue(50)
-        success_cnt, fail_cnt, errors = importer.execute_batch_import(
-            self._prepared_rows, self._entity_type, skip_errors=True
-        )
-        self._progress_bar.setValue(100)
-
-        entity_title = importer.ENTITY_SCHEMAS.get(self._entity_type, {}).get("title", "records")
-        if success_cnt > 0:
-            self._lbl_exec_status.setText("✅ Import Completed!")
-            msg = (
-                f"Successfully imported {success_cnt} {entity_title} into the database.\n"
-                f"Skipped / Failed: {fail_cnt} records.\n\n"
-                f"All active pages have been updated automatically."
-            )
         else:
-            self._lbl_exec_status.setText("⚠ Import Incomplete")
-            msg = f"0 records imported. Skipped / Failed: {fail_cnt} records."
+            ent_type = result.get("entity_type", self._entity_type)
+            entity_title = importer.ENTITY_SCHEMAS.get(ent_type, {}).get("title", "records")
+            if total_success > 0:
+                self._lbl_exec_status.setText("✅ Import Completed!")
+                msg = (
+                    f"Successfully imported {total_success} {entity_title} into the database.\n"
+                    f"Skipped / Failed: {total_fail} records.\n\n"
+                    f"All active pages have been updated automatically."
+                )
+            else:
+                self._lbl_exec_status.setText("⚠ Import Incomplete")
+                msg = f"0 records imported. Skipped / Failed: {total_fail} records."
 
-        if errors:
-            msg += "\n\nIssue details:\n" + "\n".join(errors[:6])
+        if all_errors:
+            msg += "\n\nIssue details:\n" + "\n".join(all_errors[:6])
 
         self._lbl_result_summary.setText(msg)
         self._btn_next.setText("Finish & Close")

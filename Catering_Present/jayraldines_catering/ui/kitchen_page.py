@@ -10,6 +10,7 @@ from components.dialogs import confirm, success
 import utils.repository as repo
 from utils.session import get_actor
 from utils.signals import app_events
+from utils.data_loader import DataLoader
 
 
 _STATUSES    = ["Queued", "Preparing", "In Progress", "Ready", "Delivered", "Cancelled"]
@@ -92,11 +93,26 @@ class KitchenPage(QWidget):
         ThemeManager().theme_changed.connect(self._on_theme_changed)
 
     def reload(self):
-        try:
-            repo.sync_kitchen_from_bookings()
-            new_rows = repo.get_all_orders() or []
-        except Exception:
+        prev = getattr(self, "_kitchen_loader", None)
+        if prev is not None and prev.isRunning():
             return
+        loader = DataLoader(self._fetch_kitchen_data)
+        loader.data_ready.connect(self._on_kitchen_data_ready)
+        loader.load_error.connect(lambda msg: print(f"[Kitchen] Load error: {msg}"))
+        self._kitchen_loader = loader
+        loader.start()
+
+    def _fetch_kitchen_data(self):
+        repo.sync_kitchen_from_bookings()
+        return repo.get_all_orders() or []
+
+    def _on_kitchen_data_ready(self, new_rows):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
         old_sig = [(o.get("db_id"), o.get("status")) for o in self._orders]
         new_sig = [(o.get("db_id"), o.get("status")) for o in new_rows]
         if old_sig == new_sig:

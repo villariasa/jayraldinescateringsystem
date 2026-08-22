@@ -241,10 +241,8 @@ class BookingModal(QDialog):
         self._booking_data = booking_data or {}
         self._edit_mode = bool(booking_data)
         self.setWindowTitle("Edit Booking" if self._edit_mode else "New Booking")
-        import sys
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        if sys.platform != "win32":
-            self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMinimumSize(700, 660)
         self.setModal(True)
 
@@ -256,13 +254,10 @@ class BookingModal(QDialog):
         self.setStyleSheet(QApplication.instance().styleSheet())
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 20, 20, 20)
+        outer.setContentsMargins(0, 0, 0, 0)
 
         self._container = QFrame()
         self._container.setObjectName("modalCard")
-        if sys.platform != "win32":
-            from utils.animations import create_soft_shadow
-            create_soft_shadow(self._container, radius=36, y_offset=10, opacity=50)
 
         container_layout = QVBoxLayout(self._container)
         container_layout.setContentsMargins(32, 28, 32, 24)
@@ -375,15 +370,11 @@ class BookingModal(QDialog):
         left = QVBoxLayout()
         left.addWidget(_field_label("Contact Number"))
         self.f_contact = _input("+63 9XX XXX XXXX")
-        self.f_contact.setReadOnly(True)
-        self.f_contact.setStyleSheet(_readonly_input_style())
         left.addWidget(self.f_contact)
 
         right = QVBoxLayout()
         right.addWidget(_field_label("Email"))
         self.f_email = _input("email@example.com")
-        self.f_email.setReadOnly(True)
-        self.f_email.setStyleSheet(_readonly_input_style())
         right.addWidget(self.f_email)
 
         row.addLayout(left)
@@ -392,8 +383,6 @@ class BookingModal(QDialog):
 
         lay.addWidget(_field_label("Address"))
         self.f_address = _input("Street, Barangay, City")
-        self.f_address.setReadOnly(True)
-        self.f_address.setStyleSheet(_readonly_input_style())
         lay.addWidget(self.f_address)
         lay.addStretch()
 
@@ -407,9 +396,14 @@ class BookingModal(QDialog):
         return w
 
     def _on_customer_selected(self, data: dict):
-        self.f_contact.setText(data.get("contact", ""))
-        self.f_email.setText(data.get("email", ""))
-        self.f_address.setText(data.get("address", ""))
+        if data.get("contact"):
+            self.f_contact.setText(str(data.get("contact", "")))
+        if data.get("email"):
+            self.f_email.setText(str(data.get("email", "")))
+        if data.get("address"):
+            self.f_address.setText(str(data.get("address", "")))
+            if hasattr(self, "f_venue") and not self.f_venue.text().strip():
+                self.f_venue.setText(str(data.get("address", "")))
         self.f_customer_search.clear_error()
 
     def _on_customer_cleared(self):
@@ -963,10 +957,19 @@ class BookingModal(QDialog):
 
     def _validate_current(self):
         if self._step == 0:
-            if self.f_customer_search.get_selection() is None:
+            sel = self.f_customer_search.get_selection()
+            if not sel or not sel.get("name", "").strip():
                 self.f_customer_search.set_error()
                 return False
             self.f_customer_search.clear_error()
+            if hasattr(self, "f_contact") and self.f_contact.text().strip():
+                sel["contact"] = self.f_contact.text().strip()
+            if hasattr(self, "f_email") and self.f_email.text().strip():
+                sel["email"] = self.f_email.text().strip()
+            if hasattr(self, "f_address") and self.f_address.text().strip():
+                sel["address"] = self.f_address.text().strip()
+                if hasattr(self, "f_venue") and not self.f_venue.text().strip():
+                    self.f_venue.setText(self.f_address.text().strip())
         if self._step == 1:
             if not self.f_occasion.currentText().strip():
                 self.f_occasion.setFocus()
@@ -1065,7 +1068,8 @@ class BookingModal(QDialog):
             "menu_type":    menu_type,
             "menu_value":   menu_value,
             "total":        total,
-            "status":       "PENDING",
+            "amount_paid":  total,
+            "status":       "CONFIRMED",
         }
         self.booking_saved.emit(data)
         self.accept()

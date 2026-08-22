@@ -12,12 +12,10 @@ from PySide6.QtWidgets import QGraphicsOpacityEffect, QGraphicsDropShadowEffect
 from PySide6.QtGui import QColor
 
 def create_soft_shadow(widget, radius=15, y_offset=4, opacity=20):
-    shadow = QGraphicsDropShadowEffect(widget)
-    shadow.setBlurRadius(radius)
-    shadow.setColor(QColor(0, 0, 0, opacity))
-    shadow.setOffset(0, y_offset)
-    widget.setGraphicsEffect(shadow)
-    return shadow
+    # QGraphicsDropShadowEffect forces full software rasterization on older
+    # Intel HD (4600 etc.) GPUs — disabled globally for performance.
+    # Visual appearance is maintained via CSS border/background styles.
+    return None
 
 def apply_fade_in(widget, duration=600):
     """Applies a smooth fade-in effect to a widget on load.

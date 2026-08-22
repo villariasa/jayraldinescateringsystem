@@ -1,10 +1,10 @@
-import csv
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
-    QLabel, QPushButton, QTableWidget, QHeaderView,
-    QDialog, QFileDialog, QMessageBox, QInputDialog, QScrollArea
+    QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
+    QDialog, QFileDialog, QMessageBox, QInputDialog, QScrollArea,
+    QCheckBox, QComboBox, QLineEdit, QDateEdit, QSpinBox, QDoubleSpinBox
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QDate
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red, get_icon
@@ -15,6 +15,7 @@ from components.filter_popover import FilterPopover
 import utils.repository as repo
 from utils.session import get_actor
 from utils.signals import app_events
+from utils.data_loader import run_async
 
 
 _STATUS_COLORS = {
@@ -80,28 +81,306 @@ def _action_buttons(status, on_approve, on_decline):
     return widget
 
 
+_OCCASIONS_LIST = [
+    "Wedding", "Birthday", "Debut", "Corporate Event", "Anniversary", "Christening", "Graduation", "Holiday Party", "Party"
+]
+
+
+class AddMultipleBookingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Multiple Orders & Bookings")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setMinimumSize(960, 550)
+        self.setModal(True)
+        self._added_count = 0
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+        container = QFrame()
+        container.setObjectName("card")
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(14)
+
+        header = QHBoxLayout()
+        title = QLabel("Add Multiple Orders & Bookings")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        sub = QLabel("Quickly enter multiple catering reservations with integrated date picker & occasion selector:")
+        sub.setObjectName("subtitle")
+        lay.addWidget(sub)
+
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels([
+            "Customer Name *", "Contact / Phone", "Occasion", "Event Date (Calendar) *", "Pax *", "Total Amount (₱) *"
+        ])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.table.verticalHeader().setDefaultSectionSize(46)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background: #0F172A;
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 8px;
+                gridline-color: rgba(255,255,255,0.06);
+                font-size: 13px;
+                color: #F9FAFB;
+            }
+            QTableWidget::item {
+                padding: 4px 6px;
+                color: #F9FAFB;
+                border-bottom: 1px solid rgba(255,255,255,0.05);
+            }
+            QTableWidget::item:selected {
+                background-color: rgba(225,29,72,0.25);
+                color: #FFFFFF;
+            }
+            QHeaderView::section {
+                background-color: #111827;
+                color: #9CA3AF;
+                font-weight: 700;
+                font-size: 11px;
+                padding: 10px 8px;
+                border: none;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+            }
+        """)
+
+        # Add 5 initial rows
+        for _ in range(5):
+            self._add_row()
+
+        lay.addWidget(self.table)
+
+        row_actions = QHBoxLayout()
+        add_row_btn = QPushButton("  + Add Row")
+        add_row_btn.setObjectName("secondaryButton")
+        add_row_btn.clicked.connect(self._add_row)
+        del_row_btn = QPushButton("  - Remove Selected Row")
+        del_row_btn.setObjectName("secondaryButton")
+        del_row_btn.clicked.connect(self._delete_selected_row)
+        row_actions.addWidget(add_row_btn)
+        row_actions.addWidget(del_row_btn)
+        row_actions.addStretch()
+        lay.addLayout(row_actions)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.hide()
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("  Save All Orders")
+        save.setObjectName("primaryButton")
+        save.setIcon(btn_icon_primary("check"))
+        save.setIconSize(QSize(15, 15))
+        save.setCursor(Qt.PointingHandCursor)
+        save.clicked.connect(self._save_all)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(container)
+
+    def _add_row(self):
+        r = self.table.rowCount()
+        self.table.insertRow(r)
+
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("Customer / Company Name *")
+        name_edit.setFixedHeight(34)
+        name_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
+        self.table.setCellWidget(r, 0, name_edit)
+
+        contact_edit = QLineEdit()
+        contact_edit.setPlaceholderText("09171234567")
+        contact_edit.setFixedHeight(34)
+        contact_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
+        self.table.setCellWidget(r, 1, contact_edit)
+
+        occ_combo = QComboBox()
+        occ_combo.addItems(_OCCASIONS_LIST)
+        occ_combo.setCurrentText("Party")
+        occ_combo.setFixedHeight(34)
+        occ_combo.setStyleSheet("""
+            QComboBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; }
+            QComboBox:focus { border-color: #E11D48; }
+            QComboBox QAbstractItemView { background: #1E293B; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; border: 1px solid #334155; }
+        """)
+        self.table.setCellWidget(r, 2, occ_combo)
+
+        date_edit = QDateEdit(QDate.currentDate())
+        date_edit.setCalendarPopup(True)
+        date_edit.setDisplayFormat("yyyy-MM-dd")
+        date_edit.setFixedHeight(34)
+        date_edit.setStyleSheet("""
+            QDateEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; }
+            QDateEdit:focus { border-color: #E11D48; }
+            QCalendarWidget QWidget { background-color: #1E293B; color: #FFFFFF; }
+            QCalendarWidget QAbstractItemView:enabled { background-color: #0F172A; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; }
+        """)
+        self.table.setCellWidget(r, 3, date_edit)
+
+        pax_spin = QSpinBox()
+        pax_spin.setRange(1, 10000)
+        pax_spin.setValue(50)
+        pax_spin.setFixedHeight(34)
+        pax_spin.setStyleSheet("QSpinBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QSpinBox:focus { border-color: #E11D48; }")
+        self.table.setCellWidget(r, 4, pax_spin)
+
+        total_spin = QDoubleSpinBox()
+        total_spin.setRange(0, 9999999)
+        total_spin.setPrefix("₱ ")
+        total_spin.setDecimals(2)
+        total_spin.setSingleStep(500)
+        total_spin.setValue(15000.0)
+        total_spin.setFixedHeight(34)
+        total_spin.setStyleSheet("QDoubleSpinBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QDoubleSpinBox:focus { border-color: #E11D48; }")
+        self.table.setCellWidget(r, 5, total_spin)
+
+    def _delete_selected_row(self):
+        curr = self.table.currentRow()
+        if curr >= 0:
+            self.table.removeRow(curr)
+
+    def _save_all(self):
+        rows_to_save = []
+        for r in range(self.table.rowCount()):
+            name_w = self.table.cellWidget(r, 0)
+            contact_w = self.table.cellWidget(r, 1)
+            occ_w = self.table.cellWidget(r, 2)
+            date_w = self.table.cellWidget(r, 3)
+            pax_w = self.table.cellWidget(r, 4)
+            total_w = self.table.cellWidget(r, 5)
+
+            name = name_w.text().strip() if isinstance(name_w, QLineEdit) else ""
+            contact = contact_w.text().strip() if isinstance(contact_w, QLineEdit) else ""
+            occ = occ_w.currentText().strip() if isinstance(occ_w, QComboBox) else "Party"
+            date_val = date_w.date().toString("yyyy-MM-dd") if isinstance(date_w, QDateEdit) else ""
+            pax = pax_w.value() if isinstance(pax_w, QSpinBox) else 50
+            tot = total_w.value() if isinstance(total_w, QDoubleSpinBox) else 0.0
+
+            if not name:
+                continue
+
+            rows_to_save.append({
+                "name": name,
+                "contact": contact,
+                "occasion": occ,
+                "date": date_val,
+                "event_time": "18:00",
+                "venue": "Client Venue",
+                "pax": pax,
+                "total": tot,
+                "amount_paid": tot,
+                "payment_mode": "Cash",
+                "status": "CONFIRMED",
+                "notes": "Batch created order",
+                "menu_type": "Standard",
+                "package_id": 1,
+            })
+
+        if not rows_to_save:
+            self._err.setText("Please enter at least one booking / customer.")
+            self._err.show()
+            return
+
+        saved = 0
+        for b_data in rows_to_save:
+            cust = repo.get_customer_by_name(b_data["name"])
+            if not cust:
+                cid = repo.add_customer({
+                    "name": b_data["name"],
+                    "contact": b_data.get("contact", ""),
+                    "email": "",
+                    "address": b_data.get("venue", "Cebu"),
+                    "status": "Active"
+                })
+            else:
+                cid = cust["id"]
+
+            b_data["customer_id"] = cid
+            ref = repo.add_booking(b_data)
+            if ref:
+                saved += 1
+
+        self._added_count = saved
+        self.accept()
+
+
 class BookingPage(QWidget):
     def __init__(self):
         super().__init__()
-        db_rows = repo.get_all_bookings()
-        self._bookings = db_rows if db_rows else []
+        self._dirty = True
+        self._bookings = []
+        self._selected_refs: set[str] = set()
+        self._card_checkboxes: dict[str, QCheckBox] = {}
         self._active_filter = "All"
         self._filter_popover = None
         self._build_ui()
-        app_events().booking_saved.connect(self._refresh_bookings)
-        app_events().data_changed.connect(self._refresh_bookings)
+        db_rows = repo.get_all_bookings()
+        self._bookings = db_rows if db_rows else []
+        self._populate_table()
+        self._dirty = False
+        app_events().booking_saved.connect(self._mark_dirty_and_reload)
+        app_events().data_changed.connect(self._mark_dirty)
+
+    def _mark_dirty(self):
+        self._dirty = True
+
+    def _mark_dirty_and_reload(self):
+        self._dirty = True
+        if self.isVisible():
+            self._refresh_bookings()
 
     def showEvent(self, event):
         super().showEvent(event)
-        self._refresh_bookings()
+        if self._dirty:
+            self._refresh_bookings()
 
     def reload(self):
-        self._refresh_bookings()
+        self._mark_dirty()
+        if self.isVisible():
+            self._refresh_bookings()
 
     def _refresh_bookings(self):
-        db_rows = repo.get_all_bookings()
-        if db_rows is not None:
-            self._bookings = db_rows
+        self._dirty = False
+        run_async(self, repo.get_all_bookings, self._on_bookings_loaded)
+
+    def _on_bookings_loaded(self, data):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        if data is not None:
+            self._bookings = data
+            self._selected_refs.clear()
             self._populate_table()
 
     def _build_ui(self):
@@ -128,6 +407,12 @@ class BookingPage(QWidget):
         self.btn_new.clicked.connect(self._open_modal)
         header_row.addWidget(self.btn_new)
 
+        self.btn_multi_add = QPushButton("  + Quick Multi-Order")
+        self.btn_multi_add.setObjectName("secondaryButton")
+        self.btn_multi_add.setCursor(Qt.PointingHandCursor)
+        self.btn_multi_add.clicked.connect(self._open_multi_add_dialog)
+        header_row.addWidget(self.btn_multi_add)
+
         self.btn_import = QPushButton("  Import")
         self.btn_import.setObjectName("secondaryButton")
         self.btn_import.setIcon(btn_icon_secondary("export"))
@@ -138,8 +423,8 @@ class BookingPage(QWidget):
 
         table_card = AnimatedCard()
         table_layout = QVBoxLayout(table_card)
-        table_layout.setContentsMargins(24, 24, 24, 24)
-        table_layout.setSpacing(16)
+        table_layout.setContentsMargins(24, 20, 24, 20)
+        table_layout.setSpacing(14)
 
         t_head = QHBoxLayout()
         t_title = QLabel("Current Bookings")
@@ -162,6 +447,60 @@ class BookingPage(QWidget):
         t_head.addWidget(self._btn_filter)
         t_head.addWidget(btn_export)
         table_layout.addLayout(t_head)
+
+        # Batch Selection Toolbar
+        batch_toolbar = QHBoxLayout()
+        batch_toolbar.setContentsMargins(2, 2, 2, 2)
+        batch_toolbar.setSpacing(12)
+
+        self._cb_select_all = QCheckBox("Select All")
+        self._cb_select_all.setStyleSheet("QCheckBox { font-weight: 600; font-size: 13px; color: #9CA3AF; }")
+        self._cb_select_all.stateChanged.connect(self._toggle_select_all)
+        batch_toolbar.addWidget(self._cb_select_all)
+
+        self._lbl_selected_count = QLabel("0 selected")
+        self._lbl_selected_count.setStyleSheet("font-size: 12px; color: #6B7280; font-weight: 600;")
+        batch_toolbar.addWidget(self._lbl_selected_count)
+
+        batch_toolbar.addStretch()
+
+        self._btn_batch_approve = QPushButton("  Batch Confirm")
+        self._btn_batch_approve.setObjectName("secondaryButton")
+        self._btn_batch_approve.setIcon(get_icon("check", color="#22C55E", size=QSize(13, 13)))
+        self._btn_batch_approve.setIconSize(QSize(13, 13))
+        self._btn_batch_approve.setEnabled(False)
+        self._btn_batch_approve.setCursor(Qt.PointingHandCursor)
+        self._btn_batch_approve.clicked.connect(self._batch_approve_bookings)
+        batch_toolbar.addWidget(self._btn_batch_approve)
+
+        self._btn_batch_cancel = QPushButton("  Batch Cancel")
+        self._btn_batch_cancel.setObjectName("secondaryButton")
+        self._btn_batch_cancel.setIcon(get_icon("close", color="#F59E0B", size=QSize(13, 13)))
+        self._btn_batch_cancel.setIconSize(QSize(13, 13))
+        self._btn_batch_cancel.setEnabled(False)
+        self._btn_batch_cancel.setCursor(Qt.PointingHandCursor)
+        self._btn_batch_cancel.clicked.connect(self._batch_cancel_bookings)
+        batch_toolbar.addWidget(self._btn_batch_cancel)
+
+        self._btn_delete_selected = QPushButton("  Delete Selected")
+        self._btn_delete_selected.setIcon(btn_icon_red("trash"))
+        self._btn_delete_selected.setIconSize(QSize(13, 13))
+        self._btn_delete_selected.setCursor(Qt.PointingHandCursor)
+        self._btn_delete_selected.setEnabled(False)
+        self._btn_delete_selected.setStyleSheet(
+            "QPushButton { background: rgba(225,29,72,0.15); border: 1px solid rgba(225,29,72,0.3); color: #E11D48; border-radius: 8px; padding: 6px 14px; font-weight: 600; font-size: 12px; }"
+            "QPushButton:hover { background: rgba(225,29,72,0.25); border-color: #E11D48; }"
+            "QPushButton:disabled { opacity: 0.35; background: rgba(255,255,255,0.04); border-color: transparent; color: #6B7280; }"
+        )
+        self._btn_delete_selected.clicked.connect(self._delete_selected_bookings)
+        batch_toolbar.addWidget(self._btn_delete_selected)
+
+        table_layout.addLayout(batch_toolbar)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        table_layout.addWidget(div)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -193,6 +532,7 @@ class BookingPage(QWidget):
         if hasattr(self, "cards_container"):
             self.cards_container.setUpdatesEnabled(False)
         try:
+            self._card_checkboxes.clear()
             while self.cards_layout.count():
                 item = self.cards_layout.takeAt(0)
                 if item:
@@ -214,16 +554,25 @@ class BookingPage(QWidget):
                     self.cards_layout.addWidget(card)
 
             self.cards_layout.addStretch()
+            self._update_selection_ui()
         finally:
             if hasattr(self, "cards_container"):
                 self.cards_container.setUpdatesEnabled(True)
 
     def _create_booking_card(self, b: dict) -> QFrame:
+        bref = b["id"]
         card = QFrame()
         card.setObjectName("entryCard")
         lay = QHBoxLayout(card)
-        lay.setContentsMargins(18, 14, 18, 14)
-        lay.setSpacing(16)
+        lay.setContentsMargins(14, 14, 18, 14)
+        lay.setSpacing(14)
+
+        # Col 0: Checkbox
+        cb = QCheckBox()
+        cb.setChecked(bref in self._selected_refs)
+        cb.stateChanged.connect(lambda state, ref=bref: self._on_card_checked(ref, state))
+        self._card_checkboxes[bref] = cb
+        lay.addWidget(cb, alignment=Qt.AlignVCenter)
 
         # Col 1: Date & Reference ID
         c1 = QVBoxLayout()
@@ -328,30 +677,13 @@ class BookingPage(QWidget):
 
     def _approve_booking(self, ref):
         b = next((x for x in self._bookings if x["id"] == ref), None)
-        if not b or b["status"] != "PENDING":
-            return
-        if b.get("db_id"):
-            try:
-                from datetime import datetime
-                event_date = datetime.strptime(b["date"].strip(), "%b %d, %Y").date()
-                cap = repo.check_date_capacity(event_date, exclude_id=b["db_id"])
-                pax = int(b["pax"])
-                if cap["booked_pax"] + pax > cap["max_pax"]:
-                    QMessageBox.warning(
-                        self, "Capacity Exceeded",
-                        f"Cannot approve: this would put {cap['booked_pax'] + pax} pax on {b['date']}.\n"
-                        f"Maximum daily capacity is {cap['max_pax']} pax."
-                    )
-                    return
-            except Exception as exc:
-                print(f"[capacity check] {exc}")
-        from components.confirm_booking_dialog import ConfirmBookingDialog
-        from PySide6.QtWidgets import QDialog
-        dlg = ConfirmBookingDialog(b, parent=self)
-        if dlg.exec() != QDialog.Accepted:
+        if not b:
             return
 
         try:
+            from datetime import date as _d
+            from components.confirm_booking_dialog import _parse_amount
+
             if b.get("db_id"):
                 repo.update_booking_status(b["db_id"], "CONFIRMED")
                 try:
@@ -373,25 +705,34 @@ class BookingPage(QWidget):
                     inv = repo.auto_create_invoice(b["db_id"])
                     if inv:
                         inv_id = inv.get("id") or inv.get("invoice_id")
+                    if not inv_id:
+                        inv_info = repo.get_invoice_payment_info(b["db_id"])
+                        if inv_info:
+                            inv_id = inv_info.get("invoice_id")
                 except Exception as exc:
                     print(f"[booking] auto_create_invoice failed: {exc}")
 
-            # Record full payment if checked (checked by default!)
-            if dlg.is_auto_pay_checked() and inv_id and b.get("total"):
+            # Record full payment
+            if b.get("db_id"):
                 try:
-                    from datetime import date as _d
-                    from components.confirm_booking_dialog import _parse_amount
-                    tot_amount = _parse_amount(b["total"])
-                    method = dlg.get_payment_method()
-                    remarks = dlg.get_payment_remarks()
-                    repo.add_payment_record(inv_id, tot_amount, _d.today(), method=method, note=remarks)
+                    tot_amount = _parse_amount(b.get("total", 0.0))
+                    method = b.get("payment_mode") or "Cash"
+                    remarks = "Auto-confirmed full payment"
+                    if tot_amount > 0:
+                        try:
+                            repo.pay_invoice(b["db_id"], tot_amount, _d.today(), method=method, note=remarks)
+                        except Exception:
+                            if inv_id:
+                                repo.add_payment_record(inv_id, tot_amount, _d.today(), method=method, note=remarks)
+                    b["amount_paid"] = tot_amount
+                    b["paid"] = tot_amount
                     app_events().payment_recorded.emit()
+                    app_events().booking_updated.emit()
                 except Exception as p_exc:
                     print(f"[booking] auto payment record failed: {p_exc}")
 
             self._populate_table()
-            msg = "Booking confirmed and marked as FULLY PAID!" if dlg.is_auto_pay_checked() else "Booking approved successfully."
-            success(self, message=msg)
+            success(self, message="Booking confirmed and marked as FULLY PAID!")
             repo.write_audit_log(get_actor(), "APPROVE", "bookings", b.get("db_id"), None, {"status": "CONFIRMED"})
 
             try:
@@ -624,4 +965,114 @@ class BookingPage(QWidget):
         dlg = ImportWizardDialog(default_entity="bookings", parent=self)
         if dlg.exec():
             self._refresh_bookings()
+
+    def _on_card_checked(self, ref: str, state):
+        if not ref:
+            return
+        if state:
+            self._selected_refs.add(ref)
+        else:
+            self._selected_refs.discard(ref)
+        self._update_selection_ui()
+
+    def _toggle_select_all(self, state):
+        visible_refs = [b["id"] for b in self._visible_bookings()]
+        if state:
+            self._selected_refs.update(visible_refs)
+        else:
+            self._selected_refs.difference_update(visible_refs)
+
+        for ref, cb in self._card_checkboxes.items():
+            if ref in visible_refs:
+                cb.blockSignals(True)
+                cb.setChecked(bool(state))
+                cb.blockSignals(False)
+
+        self._update_selection_ui()
+
+    def _update_selection_ui(self):
+        count = len(self._selected_refs)
+        self._lbl_selected_count.setText(f"{count} selected")
+        self._btn_delete_selected.setEnabled(count > 0)
+        self._btn_delete_selected.setText(f"  Delete Selected ({count})" if count > 0 else "  Delete Selected")
+        self._btn_batch_approve.setEnabled(count > 0)
+        self._btn_batch_approve.setText(f"  Batch Confirm ({count})" if count > 0 else "  Batch Confirm")
+        self._btn_batch_cancel.setEnabled(count > 0)
+        self._btn_batch_cancel.setText(f"  Batch Cancel ({count})" if count > 0 else "  Batch Cancel")
+
+        all_visible_refs = [b["id"] for b in self._visible_bookings()]
+        all_checked = len(all_visible_refs) > 0 and all(r in self._selected_refs for r in all_visible_refs)
+        self._cb_select_all.blockSignals(True)
+        self._cb_select_all.setChecked(all_checked)
+        self._cb_select_all.blockSignals(False)
+
+    def _delete_selected_bookings(self):
+        if not self._selected_refs:
+            return
+        count = len(self._selected_refs)
+        if not confirm(self, title="Delete Multiple Bookings",
+                       message=f"Are you sure you want to permanently delete {count} selected booking(s)/order(s)?\nThis cannot be undone.",
+                       confirm_label=f"Delete {count} Orders", danger=True):
+            return
+
+        db_ids_or_refs = []
+        for ref in list(self._selected_refs):
+            b = next((x for x in self._bookings if x["id"] == ref), None)
+            if b and b.get("db_id"):
+                db_ids_or_refs.append(b["db_id"])
+            else:
+                db_ids_or_refs.append(ref)
+
+        deleted = repo.delete_multiple_bookings(db_ids_or_refs)
+        self._selected_refs.clear()
+        self.reload()
+        app_events().booking_saved.emit()
+        app_events().data_changed.emit()
+        success(self, message=f"Successfully deleted {deleted} order(s).")
+
+    def _batch_approve_bookings(self):
+        if not self._selected_refs:
+            return
+        count = len(self._selected_refs)
+        if not confirm(self, title="Batch Confirm Bookings",
+                       message=f"Confirm and approve {count} selected booking(s)? This will mark them as CONFIRMED and auto-generate invoices.",
+                       confirm_label=f"Confirm {count} Bookings"):
+            return
+
+        for ref in list(self._selected_refs):
+            try:
+                self._approve_booking(ref)
+            except Exception:
+                pass
+
+        self._selected_refs.clear()
+        self.reload()
+        success(self, message=f"Batch confirmed {count} booking(s) successfully.")
+
+    def _batch_cancel_bookings(self):
+        if not self._selected_refs:
+            return
+        count = len(self._selected_refs)
+        if not confirm(self, title="Batch Cancel Bookings",
+                       message=f"Cancel {count} selected booking(s)?",
+                       confirm_label=f"Cancel {count} Bookings", danger=True):
+            return
+
+        for ref in list(self._selected_refs):
+            b = next((x for x in self._bookings if x["id"] == ref), None)
+            if b and b.get("db_id"):
+                repo.update_booking_status(b["db_id"], "CANCELLED", "Batch cancelled by user")
+        self._selected_refs.clear()
+        self.reload()
+        app_events().booking_saved.emit()
+        app_events().data_changed.emit()
+        success(self, message=f"Batch cancelled {count} booking(s).")
+
+    def _open_multi_add_dialog(self):
+        dlg = AddMultipleBookingsDialog(self)
+        if dlg.exec():
+            self.reload()
+            app_events().booking_saved.emit()
+            app_events().data_changed.emit()
+            success(self, message=f"Added {dlg._added_count} booking(s) successfully.")
 

@@ -121,6 +121,14 @@ class ToastManager:
             self._stack.remove(toast)
         except ValueError:
             pass
+        try:
+            from shiboken6 import isValid
+            if self._window and not isValid(self._window):
+                self._window = None
+                self._stack.clear()
+                return
+        except Exception:
+            pass
         self._reposition()
 
     def set_window(self, window) -> None:

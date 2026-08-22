@@ -184,7 +184,10 @@ class TopBar(QFrame):
         self.search_box.setObjectName("searchBox")
         self.search_box.setPlaceholderText("Search...")
         self.search_box.setFixedHeight(32)
-        self.search_box.textChanged.connect(self.search_changed.emit)
+        self._search_debounce = QTimer(self)
+        self._search_debounce.setSingleShot(True)
+        self._search_debounce.timeout.connect(lambda: self.search_changed.emit(self.search_box.text()))
+        self.search_box.textChanged.connect(lambda: self._search_debounce.start(180))
         self.search_inner.addWidget(self.search_box)
         self.main_layout.addWidget(self.search_wrap)
 

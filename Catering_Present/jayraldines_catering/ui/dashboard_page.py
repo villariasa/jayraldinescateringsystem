@@ -13,6 +13,7 @@ from utils.theme import ThemeManager
 from utils.accent import AccentManager
 import utils.repository as repo
 from utils import exporter as _exporter
+from utils.data_loader import DataLoader
 
 
 class AnimatedCard(QFrame):
@@ -415,10 +416,14 @@ class PeriodSummaryCard(AnimatedCard):
         return [(r["month"], r["revenue"], r["expense"]) for r in rows]
 
     def refresh(self):
-        try:
-            data = self._fetch()
-        except Exception:
-            data = []
+        self.render_chart()
+
+    def render_chart(self, data=None):
+        if data is None:
+            try:
+                data = self._fetch()
+            except Exception:
+                data = []
 
         if self._chart_view is not None:
             self._chart_holder.removeWidget(self._chart_view)
@@ -904,13 +909,29 @@ class DashboardPage(QWidget):
         chart_images = []
         try:
             import tempfile, os as _os
-            pixmap = self.summary_card.grab()
-            if not pixmap.isNull():
-                png = _os.path.join(tempfile.mkdtemp(prefix="jc_dash_"), "summary.png")
-                if pixmap.save(png, "PNG"):
-                    chart_images.append(("Revenue Summary", png))
-        except Exception:
-            pass
+            from PySide6.QtGui import QPixmap
+            sz = self.summary_card.size()
+            w = max(10, sz.width())
+            h = max(10, sz.height())
+            pixmap = QPixmap(w * 2, h * 2)
+            pixmap.setDevicePixelRatio(2.0)
+            self.summary_card.render(pixmap)
+            if pixmap.isNull():
+                pixmap = self.summary_card.grab()
+
+            png = _os.path.join(tempfile.mkdtemp(prefix="jc_dash_"), "summary.png")
+            if pixmap.save(png, "PNG"):
+                chart_images.append(("Revenue Summary", png))
+        except Exception as exc:
+            print(f"[dashboard] chart capture fallback: {exc}")
+            try:
+                pixmap = self.summary_card.grab()
+                if not pixmap.isNull():
+                    png = _os.path.join(tempfile.mkdtemp(prefix="jc_dash_"), "summary.png")
+                    if pixmap.save(png, "PNG"):
+                        chart_images.append(("Revenue Summary", png))
+            except Exception:
+                pass
         ok = _exporter.export_pdf(path, kpis, bookings, "Dashboard Report", "All Time",
                                   sections=sections, chart_images=chart_images)
         if ok:
@@ -939,33 +960,69 @@ class DashboardPage(QWidget):
     def reload(self):
         self._load_data()
 
-    def _load_data(self):
-        kpis = repo.get_dashboard_kpis()
+    def _fetch_dashboard_data(self):
+        """Runs in background thread — fetches all dashboard data in one shot."""
+        try:
+            now = datetime.now()
+            rows = repo.get_monthly_revenue_chart_data(now.year)
+            chart_data = [(r["month"], r["revenue"], r["expense"]) for r in rows] if rows else []
+        except Exception:
+            chart_data = []
 
-        todays = kpis.get("todays_events", 0)
+        return {
+            "kpis":       repo.get_dashboard_kpis(),
+            "profit":     repo.get_profit_summary(),
+            "events":     repo.get_upcoming_events(limit=20),
+            "activity":   repo.get_recent_activity(limit=10),
+            "chart_data": chart_data,
+            "followups":  repo.get_todays_follow_ups(),
+        }
+
+    def _load_data(self):
+        prev = getattr(self, "_dash_loader", None)
+        if prev is not None and prev.isRunning():
+            return  # already loading
+        loader = DataLoader(self._fetch_dashboard_data)
+        loader.data_ready.connect(self._on_dash_data_ready)
+        loader.load_error.connect(
+            lambda msg: print(f"[Dashboard] Load error: {msg}")
+        )
+        self._dash_loader = loader
+        loader.start()
+
+    def _on_dash_data_ready(self, data):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        kpis        = data.get("kpis", {})
+        profit_data = data.get("profit", [])
+        events      = data.get("events", [])
+        activity    = data.get("activity", [])
+        chart_data  = data.get("chart_data", [])
+        followups   = data.get("followups", [])
+
+        todays  = kpis.get("todays_events", 0)
         pending = kpis.get("pending_bookings", 0)
         revenue = kpis.get("weekly_revenue", 0.0)
-        unpaid = kpis.get("unpaid_invoices", 0.0)
-        pax = kpis.get("todays_pax", 0)
+        unpaid  = kpis.get("unpaid_invoices", 0.0)
+        pax     = kpis.get("todays_pax", 0)
 
         self._kpi_today.update_value(str(todays))
         self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} today")
-
         self._kpi_pending.update_value(str(pending))
         self._kpi_pending.update_trend("Requires review" if pending > 0 else "All clear")
-
         self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
         self._kpi_revenue.update_trend("This week's revenue")
-
         self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
         self._kpi_unpaid.update_trend("Outstanding balance")
 
         try:
-            profit_data = repo.get_profit_summary()
             total_rev = sum(r["revenue"] for r in profit_data)
             total_exp = sum(r["expense"] for r in profit_data)
             net = total_rev - total_exp
-            profit_color = "success" if net >= 0 else "danger"
             self._kpi_profit.update_value(f"₱ {net:,.0f}")
             self._kpi_profit.update_trend(f"Rev ₱{total_rev:,.0f} − Exp ₱{total_exp:,.0f}")
         except Exception:
@@ -982,13 +1039,13 @@ class DashboardPage(QWidget):
         self._cap_pct_lbl.setText(f"{pct}% Capacity")
         self._cap_rem_lbl.setText(f"{max(0, 600 - pax)} slots remaining")
 
-        self.summary_card.refresh()
+        self.summary_card.render_chart(chart_data)
 
-        self._cached_events = repo.get_upcoming_events(limit=20)
-        self._cached_activity = repo.get_recent_activity(limit=10)
+        self._cached_events   = events
+        self._cached_activity = activity
         self._rebuild_events()
         self._rebuild_activity()
-        self._rebuild_followup_alerts()
+        self._rebuild_followup_alerts(followups)
 
     def _clear_layout_from(self, layout, from_index: int):
         while layout.count() > from_index:
@@ -1083,12 +1140,13 @@ class DashboardPage(QWidget):
                 ))
         self._act_lay.addStretch()
 
-    def _rebuild_followup_alerts(self):
+    def _rebuild_followup_alerts(self, followups=None):
         self._clear_layout_from(self._followup_lay, self._fu_items_start)
-        try:
-            followups = repo.get_todays_follow_ups()
-        except Exception:
-            followups = []
+        if followups is None:
+            try:
+                followups = repo.get_todays_follow_ups()
+            except Exception:
+                followups = []
         if not followups:
             self._fu_badge.setText("None due")
             self._fu_badge.setObjectName("badgeSuccess")

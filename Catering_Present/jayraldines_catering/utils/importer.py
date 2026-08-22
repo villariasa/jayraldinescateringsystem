@@ -7,7 +7,7 @@ import os
 import re
 import csv
 import math
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from typing import List, Dict, Tuple, Any, Optional
 
 import utils.repository as repo
@@ -23,6 +23,7 @@ ENTITY_SCHEMAS = {
             "customer_name": {"label": "Customer Name", "required": True},
             "contact": {"label": "Contact Number", "required": False},
             "event_date": {"label": "Event Date", "required": True},
+            "event_time": {"label": "Event Time", "required": False},
             "venue": {"label": "Venue / Location", "required": False},
             "occasion": {"label": "Occasion", "required": False},
             "pax": {"label": "Guest Count (Pax)", "required": True},
@@ -43,18 +44,21 @@ ENTITY_SCHEMAS = {
         "fields": {
             "name": {"label": "Customer Name", "required": True},
             "contact": {"label": "Contact Number", "required": False},
+            "email": {"label": "Email Address", "required": False},
+            "address": {"label": "Address", "required": False},
+            "occasion": {"label": "Occasion", "required": False},
+            "venue": {"label": "Venue / Location", "required": False},
             "date": {"label": "Event Date", "required": True},
             "time": {"label": "Event Time", "required": False},
-            "venue": {"label": "Venue / Location", "required": False},
-            "occasion": {"label": "Occasion", "required": False},
             "pax": {"label": "Guest Count (Pax)", "required": True},
             "total": {"label": "Total Amount (₱)", "required": True},
+            "notes": {"label": "Special Notes / Add-ons", "required": False},
             "status": {"label": "Status", "required": False},
         },
         "sample": [
-            ["Customer Name", "Contact Number", "Event Date", "Event Time", "Venue", "Occasion", "Guest Count (Pax)", "Total Amount (₱)", "Status"],
-            ["Engr. Rodrigo Tan", "09178889900", datetime.now().strftime("%Y-%m-%d"), "6:00 PM", "Grand Ballroom Cebu", "Wedding", "150", "45000.00", "CONFIRMED"],
-            ["Capt. Juanito Dela Cruz", "09182223344", datetime.now().strftime("%Y-%m-%d"), "12:00 PM", "Lahug Clubhouse", "Birthday", "80", "28000.00", "PENDING"],
+            ["Customer Name", "Contact Number", "Email Address", "Address", "Occasion", "Venue", "Event Date", "Event Time", "Guest Count (Pax)", "Total Amount (₱)", "Special Notes / Add-ons", "Status"],
+            ["Engr. Rodrigo Tan", "09178889900", "rodrigo.tan@example.com", "Cebu City", "Wedding", "Grand Ballroom Cebu", datetime.now().strftime("%Y-%m-%d"), "6:00 PM", "150", "45000.00", "Includes Lechon & Backdrop", "CONFIRMED"],
+            ["Capt. Juanito Dela Cruz", "09182223344", "juanito.dc@example.com", "Mandaue City", "Birthday", "Lahug Clubhouse", datetime.now().strftime("%Y-%m-%d"), "12:00 PM", "80", "28000.00", "Buffet Setup", "CONFIRMED"],
         ]
     },
     "customers": {
@@ -64,12 +68,13 @@ ENTITY_SCHEMAS = {
             "contact": {"label": "Contact Number", "required": False},
             "email": {"label": "Email Address", "required": False},
             "address": {"label": "Address", "required": False},
+            "status": {"label": "Status", "required": False},
             "notes": {"label": "Notes / History", "required": False},
         },
         "sample": [
-            ["Customer Name", "Contact Number", "Email Address", "Address", "Notes"],
-            ["Maria Santos", "09171234567", "maria@example.com", "Cebu City", "VIP Client"],
-            ["Juan Dela Cruz", "09189876543", "juan@example.com", "Mandaue City", "Prefers Pork Lechon"],
+            ["Customer Name", "Contact Number", "Email Address", "Address", "Status", "Notes"],
+            ["Maria Santos", "09171234567", "maria@example.com", "Cebu City", "Active", "VIP Client"],
+            ["Juan Dela Cruz", "09189876543", "juan@example.com", "Mandaue City", "Active", "Prefers Pork Lechon"],
         ]
     },
     "expenses": {
@@ -109,6 +114,7 @@ ENTITY_HEADER_ALIASES = {
         "customer_name": ["customer name", "client name", "customer", "client", "name", "full name"],
         "contact": ["contact number", "contact", "phone number", "phone", "mobile", "cellphone", "tel"],
         "event_date": ["event date", "booking date", "date", "fecha"],
+        "event_time": ["event time", "time", "start time", "schedule"],
         "venue": ["venue location", "venue", "event venue", "location", "place", "event location", "site", "address"],
         "occasion": ["occasion", "event type", "event", "celebration", "party", "theme"],
         "pax": ["guest count pax", "guest count", "pax", "guests", "number of guests", "attendees", "headcount", "capacity"],
@@ -121,12 +127,15 @@ ENTITY_HEADER_ALIASES = {
     "bookings": {
         "name": ["customer name", "client name", "customer", "client", "full name", "name"],
         "contact": ["contact number", "contact", "phone number", "phone", "mobile", "cellphone", "tel"],
+        "email": ["email address", "email", "e-mail", "mail"],
+        "address": ["address", "home address", "client address", "city", "street"],
         "date": ["event date", "booking date", "date", "fecha"],
         "time": ["event time", "time", "schedule", "start time"],
-        "venue": ["venue location", "venue", "event venue", "location", "place", "event location", "site", "address"],
+        "venue": ["venue location", "venue", "event venue", "location", "place", "event location", "site"],
         "occasion": ["occasion", "event", "event type", "celebration", "party", "theme"],
         "pax": ["guest count pax", "guest count", "pax", "guests", "number of guests", "attendees", "headcount", "capacity"],
         "total": ["total amount", "total", "amount", "booking total", "cost", "price", "subtotal", "grand total", "fee"],
+        "notes": ["special notes add-ons", "special notes", "notes", "add-ons", "remarks", "inclusions", "details", "comments"],
         "status": ["status", "booking status", "state", "order status"],
     },
     "customers": {
@@ -134,6 +143,7 @@ ENTITY_HEADER_ALIASES = {
         "contact": ["contact number", "contact", "phone number", "phone", "mobile", "cellphone", "tel"],
         "email": ["email address", "email", "e-mail", "mail"],
         "address": ["home address", "address", "location", "city", "street"],
+        "status": ["status", "customer status", "state", "account status"],
         "notes": ["notes", "history", "remarks", "memo", "details", "comments"],
     },
     "expenses": {
@@ -238,22 +248,69 @@ def normalize_amount(raw: Any) -> float:
 
 
 def normalize_date(raw: Any) -> str:
+    from datetime import timedelta
     if not raw:
-        return datetime.now().strftime("%b %d, %Y")
+        return datetime.now().strftime("%Y-%m-%d")
+
+    if isinstance(raw, datetime):
+        return raw.strftime("%Y-%m-%d")
+    if isinstance(raw, date):
+        return raw.strftime("%Y-%m-%d")
+
+    # Numeric Excel serial date (e.g. 45000 -> date in 2023-2030)
+    if isinstance(raw, (int, float)):
+        try:
+            if 20000 <= raw <= 80000:
+                dt = datetime(1899, 12, 30) + timedelta(days=float(raw))
+                return dt.strftime("%Y-%m-%d")
+        except Exception:
+            pass
 
     s = str(raw).strip()
+    if not s:
+        return datetime.now().strftime("%Y-%m-%d")
+
+    # If already YYYY-MM-DD
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+        return s
+
+    # Strip time suffix if present e.g. " 00:00:00", "T18:30:00", " 12:00:00 PM"
+    clean_s = re.sub(r"[T\s]+\d{1,2}:\d{2}(:\d{2})?(\.\d+)?(\s*[AP]M)?.*$", "", s, flags=re.IGNORECASE).strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", clean_s):
+        return clean_s
+
+    # Also check if clean_s is numeric excel serial as string
+    if clean_s.replace(".", "", 1).isdigit() and len(clean_s) in (5, 6, 7):
+        try:
+            num = float(clean_s)
+            if 20000 <= num <= 80000:
+                dt = datetime(1899, 12, 30) + timedelta(days=num)
+                return dt.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
     date_formats = [
-        "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%b %d, %Y", "%B %d, %Y",
-        "%Y/%m/%d", "%d-%m-%Y", "%m-%d-%Y", "%d %b %Y", "%d %B %Y"
+        "%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d",
+        "%b %d, %Y", "%B %d, %Y", "%b %d %Y", "%B %d %Y",
+        "%m/%d/%Y", "%d/%m/%Y", "%m-%d-%Y", "%d-%m-%Y",
+        "%d %b %Y", "%d %B %Y", "%d-%b-%Y", "%d-%B-%Y",
+        "%b-%d-%Y", "%B-%d-%Y",
+        "%m/%d/%y", "%d/%m/%y", "%y-%m-%d"
     ]
     for fmt in date_formats:
         try:
-            dt = datetime.strptime(s, fmt)
-            return dt.strftime("%b %d, %Y")
+            dt = datetime.strptime(clean_s, fmt)
+            return dt.strftime("%Y-%m-%d")
         except ValueError:
             continue
 
-    return datetime.now().strftime("%b %d, %Y")
+    try:
+        dt = datetime.fromisoformat(s[:10])
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+
+    return datetime.now().strftime("%Y-%m-%d")
 
 
 def normalize_pax(raw: Any) -> int:
@@ -581,13 +638,21 @@ def execute_batch_import(
     for row_info in prepared_rows:
         if row_info["_status"] == "error" and skip_errors:
             fail_count += 1
+            err_details = ", ".join(row_info.get("_issues", ["Validation failed"]))
+            errors.append(f"Row {row_info['_row_index']} skipped: {err_details}")
             continue
 
         data = row_info["_data"]
         try:
             if entity_type == "customers":
+                cust_name = data.get("name", "").strip()
+                if not cust_name:
+                    fail_count += 1
+                    errors.append(f"Row {row_info['_row_index']} [Customer Name]: Value cannot be empty.")
+                    continue
+
                 res = repo.add_customer({
-                    "name": data.get("name", "").strip(),
+                    "name": cust_name,
                     "contact": data.get("contact", "").strip(),
                     "email": data.get("email", "").strip(),
                     "address": data.get("address", "").strip(),
@@ -598,42 +663,47 @@ def execute_batch_import(
                     success_count += 1
                 else:
                     fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']}: Customer database insert failed.")
+                    errors.append(f"Row {row_info['_row_index']} [Customer: '{cust_name}']: Database insert failed.")
 
             elif entity_type == "expenses":
                 amount_val = float(data.get("amount", 0.0))
                 if amount_val <= 0:
                     fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']}: Expense amount must be greater than 0.")
+                    errors.append(f"Row {row_info['_row_index']} [Amount]: Expense amount must be greater than 0.")
                     continue
 
                 res = repo.add_expense({
                     "category": normalize_expense_category(data.get("category")),
                     "description": data.get("description", "Imported Expense").strip() or "Imported Expense",
                     "amount": amount_val,
-                    "date": data.get("date") or datetime.now().strftime("%b %d, %Y"),
+                    "date": data.get("date") or datetime.now().strftime("%Y-%m-%d"),
                 })
                 if res:
                     success_count += 1
                 else:
                     fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']}: Expense database insert failed.")
+                    errors.append(f"Row {row_info['_row_index']} [Category: '{data.get('category')}']: Expense database insert failed.")
 
             elif entity_type == "bookings":
+                cust_name = data.get("name", "").strip()
                 total_val = float(data.get("total", 0.0))
+                if not cust_name:
+                    fail_count += 1
+                    errors.append(f"Row {row_info['_row_index']} [Customer Name]: Booking customer name cannot be empty.")
+                    continue
                 if total_val <= 0:
                     fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']}: Booking total amount must be greater than 0.")
+                    errors.append(f"Row {row_info['_row_index']} [Total Amount]: Booking total amount must be greater than 0.")
                     continue
 
                 bkg_payload = {
-                    "name": data.get("name", "").strip(),
+                    "name": cust_name,
                     "contact": data.get("contact", "").strip(),
                     "email": data.get("email", "").strip(),
                     "address": data.get("venue", "").strip() or data.get("address", "").strip() or "Cebu City",
                     "occasion": data.get("occasion", "").strip() or "Catering Event",
                     "venue": data.get("venue", "").strip() or "Catering Venue",
-                    "date": data.get("date") or datetime.now().strftime("%b %d, %Y"),
+                    "date": data.get("date") or datetime.now().strftime("%Y-%m-%d"),
                     "time": data.get("time", "").strip() or "6:00 PM",
                     "pax": int(data.get("pax", 50)),
                     "notes": data.get("notes", "").strip(),
@@ -659,17 +729,18 @@ def execute_batch_import(
                     success_count += 1
                 else:
                     fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']}: Booking database insert failed.")
+                    errors.append(f"Row {row_info['_row_index']} [Booking: '{cust_name}']: Booking database insert failed.")
 
             elif entity_type == "menu_items":
+                item_name = data.get("name", "New Item").strip() or "New Item"
                 price_val = float(data.get("price", 0.0))
                 if price_val <= 0:
                     fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']}: Menu item price must be greater than 0.")
+                    errors.append(f"Row {row_info['_row_index']} [Price]: Menu item price must be greater than 0.")
                     continue
 
                 item_payload = {
-                    "item": data.get("name", "New Item").strip() or "New Item",
+                    "item": item_name,
                     "category": normalize_menu_category(data.get("category")),
                     "package": "Standard",
                     "price": price_val,
@@ -681,14 +752,71 @@ def execute_batch_import(
                     success_count += 1
                 else:
                     fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']}: Menu item database insert failed.")
+                    errors.append(f"Row {row_info['_row_index']} [Item: '{item_name}']: Menu item database insert failed.")
+
+            elif entity_type == "all_in_one":
+                # Create customer & booking if present
+                cust_name = (data.get("customer_name") or data.get("name", "")).strip()
+                row_success = False
+                if cust_name:
+                    repo.add_customer({
+                        "name": cust_name,
+                        "contact": data.get("contact", "").strip(),
+                        "email": data.get("email", "").strip(),
+                        "address": data.get("venue", "").strip(),
+                        "status": "Active",
+                    })
+
+                    total_amt = float(data.get("total_amount") or data.get("total", 0.0))
+                    if total_amt > 0:
+                        bkg_res = repo.create_booking({
+                            "name": cust_name,
+                            "contact": data.get("contact", "").strip(),
+                            "email": data.get("email", "").strip(),
+                            "address": data.get("venue", "").strip() or "Cebu City",
+                            "occasion": data.get("occasion", "").strip() or "Event",
+                            "venue": data.get("venue", "").strip() or "TBD",
+                            "date": data.get("event_date") or data.get("date") or datetime.now().strftime("%Y-%m-%d"),
+                            "time": data.get("event_time") or data.get("time") or "6:00 PM",
+                            "pax": int(data.get("pax", 50)),
+                            "total": total_amt,
+                            "menu_type": "package",
+                            "payment_mode": "Cash",
+                            "amount_paid": 0.0,
+                        })
+                        if bkg_res and bkg_res.get("booking_id"):
+                            row_success = True
+
+                # Create expense if present
+                exp_amt = float(data.get("expense_amount") or data.get("amount", 0.0))
+                if exp_amt > 0:
+                    exp_res = repo.add_expense({
+                        "category": normalize_expense_category(data.get("expense_category") or data.get("category")),
+                        "description": data.get("expense_description", "Master File Expense").strip() or "Master File Expense",
+                        "amount": exp_amt,
+                        "date": data.get("expense_date") or data.get("date") or datetime.now().strftime("%Y-%m-%d"),
+                    })
+                    if exp_res:
+                        row_success = True
+
+                if row_success:
+                    success_count += 1
+                else:
+                    fail_count += 1
+                    errors.append(f"Row {row_info['_row_index']}: No valid booking or expense data could be imported.")
 
         except Exception as e:
             fail_count += 1
             errors.append(f"Row {row_info['_row_index']}: {e}")
 
-    # Emit app data change signals
+    # Emit app data change signals and run automatic deduplication
     if success_count > 0:
+        try:
+            if entity_type in ("customers", "bookings", "all_in_one"):
+                repo.merge_duplicate_customers()
+        except Exception:
+            pass
+
         try:
             from utils.signals import app_events
             ev = app_events()
@@ -699,6 +827,10 @@ def execute_batch_import(
                 ev.customer_saved.emit()
             elif entity_type == "bookings":
                 ev.booking_saved.emit()
+            elif entity_type == "all_in_one":
+                ev.customer_saved.emit()
+                ev.booking_saved.emit()
+                ev.expense_saved.emit()
         except Exception:
             pass
 

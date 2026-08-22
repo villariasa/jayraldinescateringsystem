@@ -2,6 +2,6 @@
 Centralized Version and Application Metadata for Jayraldine's Catering.
 """
 
-__version__ = "1.3.1"
+__version__ = "4.0.3"
 APP_NAME = "Jayraldine's Catering"
-BUILD_ID = "2026.08.16-v1.3.1"
+BUILD_ID = "2026.08.21-v4.0.3"

@@ -13,6 +13,7 @@ from components.dialogs import confirm, success
 from utils.theme import ThemeManager
 import utils.menu_store as menu_store
 import utils.repository as repo
+from utils.data_loader import run_async
 
 _CATEGORIES = ["Main Course", "Noodles", "Soup", "Vegetables", "Dessert", "Drinks", "Bread", "Other"]
 _PACKAGES   = ["Budget", "Standard", "Premium", "Custom"]
@@ -521,25 +522,437 @@ class PackageDialog(QDialog):
         return self._result
 
 
+class AddMultipleMenuItemsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Multiple Menu Items")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setMinimumSize(940, 540)
+        self.setModal(True)
+        self._added_count = 0
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+        container = QFrame()
+        container.setObjectName("card")
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(14)
+
+        header = QHBoxLayout()
+        title = QLabel("Add Multiple Menu Items")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        sub = QLabel("Quickly add multiple dishes and culinary offerings to the menu:")
+        sub.setObjectName("subtitle")
+        lay.addWidget(sub)
+
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels([
+            "Item Name *", "Category *", "Package Tier", "Price (₱) *", "Status", "Description"
+        ])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(46)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background: #0F172A;
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 8px;
+                gridline-color: rgba(255,255,255,0.06);
+                font-size: 13px;
+                color: #F9FAFB;
+            }
+            QTableWidget::item { padding: 4px 6px; color: #F9FAFB; border-bottom: 1px solid rgba(255,255,255,0.05); }
+            QTableWidget::item:selected { background-color: rgba(225,29,72,0.25); color: #FFFFFF; }
+            QHeaderView::section { background-color: #111827; color: #9CA3AF; font-weight: 700; font-size: 11px; padding: 10px 8px; border: none; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        """)
+
+        for _ in range(5):
+            self._add_row()
+
+        lay.addWidget(self.table)
+
+        row_actions = QHBoxLayout()
+        add_row_btn = QPushButton("  + Add Row")
+        add_row_btn.setObjectName("secondaryButton")
+        add_row_btn.clicked.connect(self._add_row)
+        del_row_btn = QPushButton("  - Remove Selected Row")
+        del_row_btn.setObjectName("secondaryButton")
+        del_row_btn.clicked.connect(self._delete_selected_row)
+        row_actions.addWidget(add_row_btn)
+        row_actions.addWidget(del_row_btn)
+        row_actions.addStretch()
+        lay.addLayout(row_actions)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.hide()
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("  Save All Items")
+        save.setObjectName("primaryButton")
+        save.setIcon(btn_icon_primary("check"))
+        save.setIconSize(QSize(15, 15))
+        save.setCursor(Qt.PointingHandCursor)
+        save.clicked.connect(self._save_all)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(container)
+
+    def _add_row(self):
+        r = self.table.rowCount()
+        self.table.insertRow(r)
+
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("e.g. Special Pork Humba")
+        name_edit.setFixedHeight(34)
+        name_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
+        self.table.setCellWidget(r, 0, name_edit)
+
+        cat_combo = QComboBox()
+        cat_combo.addItems(_CATEGORIES)
+        cat_combo.setFixedHeight(34)
+        cat_combo.setStyleSheet("QComboBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QComboBox:focus { border-color: #E11D48; } QComboBox QAbstractItemView { background: #1E293B; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; border: 1px solid #334155; }")
+        self.table.setCellWidget(r, 1, cat_combo)
+
+        pkg_combo = QComboBox()
+        pkg_combo.addItems(_PACKAGES)
+        pkg_combo.setCurrentText("Standard")
+        pkg_combo.setFixedHeight(34)
+        pkg_combo.setStyleSheet("QComboBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QComboBox:focus { border-color: #E11D48; } QComboBox QAbstractItemView { background: #1E293B; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; border: 1px solid #334155; }")
+        self.table.setCellWidget(r, 2, pkg_combo)
+
+        price_spin = QDoubleSpinBox()
+        price_spin.setRange(0, 999999)
+        price_spin.setPrefix("₱ ")
+        price_spin.setDecimals(2)
+        price_spin.setSingleStep(50)
+        price_spin.setValue(350.0)
+        price_spin.setFixedHeight(34)
+        price_spin.setStyleSheet("QDoubleSpinBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QDoubleSpinBox:focus { border-color: #E11D48; }")
+        self.table.setCellWidget(r, 3, price_spin)
+
+        status_combo = QComboBox()
+        status_combo.addItems(_STATUSES)
+        status_combo.setCurrentText("Available")
+        status_combo.setFixedHeight(34)
+        status_combo.setStyleSheet("QComboBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QComboBox:focus { border-color: #E11D48; } QComboBox QAbstractItemView { background: #1E293B; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; border: 1px solid #334155; }")
+        self.table.setCellWidget(r, 4, status_combo)
+
+        desc_edit = QLineEdit()
+        desc_edit.setPlaceholderText("Short description / serving size")
+        desc_edit.setFixedHeight(34)
+        desc_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
+        self.table.setCellWidget(r, 5, desc_edit)
+
+    def _delete_selected_row(self):
+        curr = self.table.currentRow()
+        if curr >= 0:
+            self.table.removeRow(curr)
+
+    def _save_all(self):
+        rows_to_save = []
+        for r in range(self.table.rowCount()):
+            name_w = self.table.cellWidget(r, 0)
+            cat_w = self.table.cellWidget(r, 1)
+            pkg_w = self.table.cellWidget(r, 2)
+            price_w = self.table.cellWidget(r, 3)
+            status_w = self.table.cellWidget(r, 4)
+            desc_w = self.table.cellWidget(r, 5)
+
+            name = name_w.text().strip() if isinstance(name_w, QLineEdit) else ""
+            cat = cat_w.currentText().strip() if isinstance(cat_w, QComboBox) else "Main Course"
+            pkg = pkg_w.currentText().strip() if isinstance(pkg_w, QComboBox) else "Standard"
+            price = price_w.value() if isinstance(price_w, QDoubleSpinBox) else 0.0
+            status = status_w.currentText().strip() if isinstance(status_w, QComboBox) else "Available"
+            desc = desc_w.text().strip() if isinstance(desc_w, QLineEdit) else ""
+
+            if not name:
+                continue
+
+            rows_to_save.append({
+                "item": name,
+                "category": cat,
+                "package": pkg,
+                "price": price,
+                "status": status,
+                "description": desc,
+            })
+
+        if not rows_to_save:
+            self._err.setText("Please enter at least one menu item.")
+            self._err.show()
+            return
+
+        saved = 0
+        for item_data in rows_to_save:
+            res = repo.add_menu_item(item_data)
+            if res:
+                saved += 1
+
+        self._added_count = saved
+        self.accept()
+
+
+class AddMultiplePackagesDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Multiple Packages")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setMinimumSize(880, 520)
+        self.setModal(True)
+        self._added_count = 0
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+        container = QFrame()
+        container.setObjectName("card")
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(14)
+
+        header = QHBoxLayout()
+        title = QLabel("Add Multiple Packages")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        sub = QLabel("Quickly add multiple catering packages:")
+        sub.setObjectName("subtitle")
+        lay.addWidget(sub)
+
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels([
+            "Package Name *", "Price per Pax (₱) *", "Min Pax *", "Description"
+        ])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(46)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background: #0F172A;
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 8px;
+                gridline-color: rgba(255,255,255,0.06);
+                font-size: 13px;
+                color: #F9FAFB;
+            }
+            QTableWidget::item { padding: 4px 6px; color: #F9FAFB; border-bottom: 1px solid rgba(255,255,255,0.05); }
+            QTableWidget::item:selected { background-color: rgba(225,29,72,0.25); color: #FFFFFF; }
+            QHeaderView::section { background-color: #111827; color: #9CA3AF; font-weight: 700; font-size: 11px; padding: 10px 8px; border: none; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        """)
+
+        for _ in range(5):
+            self._add_row()
+
+        lay.addWidget(self.table)
+
+        row_actions = QHBoxLayout()
+        add_row_btn = QPushButton("  + Add Row")
+        add_row_btn.setObjectName("secondaryButton")
+        add_row_btn.clicked.connect(self._add_row)
+        del_row_btn = QPushButton("  - Remove Selected Row")
+        del_row_btn.setObjectName("secondaryButton")
+        del_row_btn.clicked.connect(self._delete_selected_row)
+        row_actions.addWidget(add_row_btn)
+        row_actions.addWidget(del_row_btn)
+        row_actions.addStretch()
+        lay.addLayout(row_actions)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.hide()
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("  Save All Packages")
+        save.setObjectName("primaryButton")
+        save.setIcon(btn_icon_primary("check"))
+        save.setIconSize(QSize(15, 15))
+        save.setCursor(Qt.PointingHandCursor)
+        save.clicked.connect(self._save_all)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(container)
+
+    def _add_row(self):
+        r = self.table.rowCount()
+        self.table.insertRow(r)
+
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("e.g. Platinum Buffet Feast")
+        name_edit.setFixedHeight(34)
+        name_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
+        self.table.setCellWidget(r, 0, name_edit)
+
+        price_spin = QDoubleSpinBox()
+        price_spin.setRange(0, 999999)
+        price_spin.setPrefix("₱ ")
+        price_spin.setDecimals(2)
+        price_spin.setSingleStep(50)
+        price_spin.setValue(450.0)
+        price_spin.setFixedHeight(34)
+        price_spin.setStyleSheet("QDoubleSpinBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QDoubleSpinBox:focus { border-color: #E11D48; }")
+        self.table.setCellWidget(r, 1, price_spin)
+
+        pax_spin = QSpinBox()
+        pax_spin.setRange(1, 5000)
+        pax_spin.setValue(50)
+        pax_spin.setFixedHeight(34)
+        pax_spin.setStyleSheet("QSpinBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QSpinBox:focus { border-color: #E11D48; }")
+        self.table.setCellWidget(r, 2, pax_spin)
+
+        desc_edit = QLineEdit()
+        desc_edit.setPlaceholderText("Package inclusions and description")
+        desc_edit.setFixedHeight(34)
+        desc_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
+        self.table.setCellWidget(r, 3, desc_edit)
+
+    def _delete_selected_row(self):
+        curr = self.table.currentRow()
+        if curr >= 0:
+            self.table.removeRow(curr)
+
+    def _save_all(self):
+        rows_to_save = []
+        for r in range(self.table.rowCount()):
+            name_w = self.table.cellWidget(r, 0)
+            price_w = self.table.cellWidget(r, 1)
+            pax_w = self.table.cellWidget(r, 2)
+            desc_w = self.table.cellWidget(r, 3)
+
+            name = name_w.text().strip() if isinstance(name_w, QLineEdit) else ""
+            price = price_w.value() if isinstance(price_w, QDoubleSpinBox) else 0.0
+            min_pax = pax_w.value() if isinstance(pax_w, QSpinBox) else 50
+            desc = desc_w.text().strip() if isinstance(desc_w, QLineEdit) else ""
+
+            if not name:
+                continue
+
+            rows_to_save.append({
+                "name": name,
+                "price_per_pax": price,
+                "min_pax": min_pax,
+                "description": desc,
+                "items": []
+            })
+
+        if not rows_to_save:
+            self._err.setText("Please enter at least one package.")
+            self._err.show()
+            return
+
+        saved = 0
+        for pkg_data in rows_to_save:
+            res = repo.add_package(pkg_data)
+            if res:
+                saved += 1
+
+        self._added_count = saved
+        self.accept()
+
+
 class MenuPage(QWidget):
     def __init__(self):
         super().__init__()
+        self._dirty = True
+        self._selected_item_ids = set()
+        self._selected_pkg_ids = set()
+        self._item_checkboxes = {}
+        self._pkg_checkboxes = {}
         self._build_ui()
-        self._populate_table()
-        self._populate_packages_table()
+        self._do_reload()
 
         try:
             from utils.signals import app_events
-            app_events().data_changed.connect(self.reload)
+            app_events().data_changed.connect(self._mark_dirty)
         except Exception:
             pass
 
+    def _mark_dirty(self):
+        self._dirty = True
+
     def showEvent(self, event):
         super().showEvent(event)
-        self.reload()
+        if self._dirty:
+            self._do_reload()
 
     def reload(self):
+        self._mark_dirty()
+        if self.isVisible():
+            self._do_reload()
+
+    def _do_reload(self):
+        self._dirty = False
+        run_async(self, repo.get_all_menu_items, self._on_menu_items_loaded)
+        run_async(self, repo.get_all_packages, self._on_packages_loaded)
+
+    def _on_menu_items_loaded(self, data):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        self._menu_items_data = data if data else (menu_store.all_items() if hasattr(menu_store, "all_items") else [])
         self._populate_table()
+
+    def _on_packages_loaded(self, data):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        self._packages_cache = data or []
         self._populate_packages_table()
 
     def _build_ui(self):
@@ -568,6 +981,7 @@ class MenuPage(QWidget):
 
         toolbar = QHBoxLayout()
         toolbar.addStretch()
+
         add_btn = QPushButton("  Add Item")
         add_btn.setObjectName("primaryButton")
         add_btn.setIcon(btn_icon_primary("plus"))
@@ -575,17 +989,72 @@ class MenuPage(QWidget):
         add_btn.setCursor(Qt.PointingHandCursor)
         add_btn.clicked.connect(self._open_add_dialog)
         toolbar.addWidget(add_btn)
+
+        multi_add_btn = QPushButton("  + Quick Multi-Add")
+        multi_add_btn.setObjectName("secondaryButton")
+        multi_add_btn.setCursor(Qt.PointingHandCursor)
+        multi_add_btn.clicked.connect(self._open_multi_add_items_dialog)
+        toolbar.addWidget(multi_add_btn)
+
+        import_btn = QPushButton("  Import")
+        import_btn.setObjectName("secondaryButton")
+        import_btn.setIcon(btn_icon_secondary("export"))
+        import_btn.setIconSize(QSize(15, 15))
+        import_btn.setCursor(Qt.PointingHandCursor)
+        import_btn.clicked.connect(self._open_import_items_dialog)
+        toolbar.addWidget(import_btn)
+
         export_btn = QPushButton("  Export")
         export_btn.setObjectName("secondaryButton")
         export_btn.setIcon(btn_icon_secondary("export"))
         export_btn.setIconSize(QSize(15, 15))
+        export_btn.setCursor(Qt.PointingHandCursor)
+        export_btn.clicked.connect(self._export_menu_items)
         toolbar.addWidget(export_btn)
+
         lay.addLayout(toolbar)
 
         card = QFrame()
         card.setObjectName("card")
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(20, 20, 20, 20)
+        card_layout.setSpacing(14)
+
+        # Batch Selection Toolbar for Menu Items
+        batch_toolbar = QHBoxLayout()
+        batch_toolbar.setContentsMargins(4, 0, 4, 4)
+        batch_toolbar.setSpacing(12)
+
+        self._cb_select_all_items = QCheckBox("Select All")
+        self._cb_select_all_items.setStyleSheet("QCheckBox { font-weight: 600; font-size: 13px; color: #9CA3AF; }")
+        self._cb_select_all_items.stateChanged.connect(self._toggle_select_all_items)
+        batch_toolbar.addWidget(self._cb_select_all_items)
+
+        self._lbl_items_selected_count = QLabel("0 selected")
+        self._lbl_items_selected_count.setStyleSheet("font-size: 12px; color: #6B7280; font-weight: 600;")
+        batch_toolbar.addWidget(self._lbl_items_selected_count)
+
+        batch_toolbar.addStretch()
+
+        self._btn_delete_selected_items = QPushButton("  Delete Selected")
+        self._btn_delete_selected_items.setIcon(btn_icon_red("trash"))
+        self._btn_delete_selected_items.setIconSize(QSize(13, 13))
+        self._btn_delete_selected_items.setCursor(Qt.PointingHandCursor)
+        self._btn_delete_selected_items.setEnabled(False)
+        self._btn_delete_selected_items.setStyleSheet(
+            "QPushButton { background: rgba(225,29,72,0.15); border: 1px solid rgba(225,29,72,0.3); color: #E11D48; border-radius: 8px; padding: 6px 14px; font-weight: 600; font-size: 12px; }"
+            "QPushButton:hover { background: rgba(225,29,72,0.25); border-color: #E11D48; }"
+            "QPushButton:disabled { opacity: 0.35; background: rgba(255,255,255,0.04); border-color: transparent; color: #6B7280; }"
+        )
+        self._btn_delete_selected_items.clicked.connect(self._delete_selected_menu_items)
+        batch_toolbar.addWidget(self._btn_delete_selected_items)
+
+        card_layout.addLayout(batch_toolbar)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        card_layout.addWidget(div)
 
         self.menu_scroll = QScrollArea()
         self.menu_scroll.setWidgetResizable(True)
@@ -613,6 +1082,7 @@ class MenuPage(QWidget):
 
         toolbar = QHBoxLayout()
         toolbar.addStretch()
+
         add_pkg_btn = QPushButton("  Add Package")
         add_pkg_btn.setObjectName("primaryButton")
         add_pkg_btn.setIcon(btn_icon_primary("plus"))
@@ -620,12 +1090,64 @@ class MenuPage(QWidget):
         add_pkg_btn.setCursor(Qt.PointingHandCursor)
         add_pkg_btn.clicked.connect(self._open_add_package_dialog)
         toolbar.addWidget(add_pkg_btn)
+
+        multi_pkg_btn = QPushButton("  + Quick Multi-Add")
+        multi_pkg_btn.setObjectName("secondaryButton")
+        multi_pkg_btn.setCursor(Qt.PointingHandCursor)
+        multi_pkg_btn.clicked.connect(self._open_multi_add_packages_dialog)
+        toolbar.addWidget(multi_pkg_btn)
+
+        export_pkg_btn = QPushButton("  Export")
+        export_pkg_btn.setObjectName("secondaryButton")
+        export_pkg_btn.setIcon(btn_icon_secondary("export"))
+        export_pkg_btn.setIconSize(QSize(15, 15))
+        export_pkg_btn.setCursor(Qt.PointingHandCursor)
+        export_pkg_btn.clicked.connect(self._export_packages)
+        toolbar.addWidget(export_pkg_btn)
+
         lay.addLayout(toolbar)
 
         card = QFrame()
         card.setObjectName("card")
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(20, 20, 20, 20)
+        card_layout.setSpacing(14)
+
+        # Batch Selection Toolbar for Packages
+        batch_toolbar = QHBoxLayout()
+        batch_toolbar.setContentsMargins(4, 0, 4, 4)
+        batch_toolbar.setSpacing(12)
+
+        self._cb_select_all_pkgs = QCheckBox("Select All")
+        self._cb_select_all_pkgs.setStyleSheet("QCheckBox { font-weight: 600; font-size: 13px; color: #9CA3AF; }")
+        self._cb_select_all_pkgs.stateChanged.connect(self._toggle_select_all_packages)
+        batch_toolbar.addWidget(self._cb_select_all_pkgs)
+
+        self._lbl_pkgs_selected_count = QLabel("0 selected")
+        self._lbl_pkgs_selected_count.setStyleSheet("font-size: 12px; color: #6B7280; font-weight: 600;")
+        batch_toolbar.addWidget(self._lbl_pkgs_selected_count)
+
+        batch_toolbar.addStretch()
+
+        self._btn_delete_selected_pkgs = QPushButton("  Delete Selected")
+        self._btn_delete_selected_pkgs.setIcon(btn_icon_red("trash"))
+        self._btn_delete_selected_pkgs.setIconSize(QSize(13, 13))
+        self._btn_delete_selected_pkgs.setCursor(Qt.PointingHandCursor)
+        self._btn_delete_selected_pkgs.setEnabled(False)
+        self._btn_delete_selected_pkgs.setStyleSheet(
+            "QPushButton { background: rgba(225,29,72,0.15); border: 1px solid rgba(225,29,72,0.3); color: #E11D48; border-radius: 8px; padding: 6px 14px; font-weight: 600; font-size: 12px; }"
+            "QPushButton:hover { background: rgba(225,29,72,0.25); border-color: #E11D48; }"
+            "QPushButton:disabled { opacity: 0.35; background: rgba(255,255,255,0.04); border-color: transparent; color: #6B7280; }"
+        )
+        self._btn_delete_selected_pkgs.clicked.connect(self._delete_selected_packages)
+        batch_toolbar.addWidget(self._btn_delete_selected_pkgs)
+
+        card_layout.addLayout(batch_toolbar)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        card_layout.addWidget(div)
 
         self.pkg_scroll = QScrollArea()
         self.pkg_scroll.setWidgetResizable(True)
@@ -645,36 +1167,104 @@ class MenuPage(QWidget):
 
         self._tabs.addTab(tab, "Packages")
 
-    def _populate_table(self):
-        while self.menu_cards_layout.count():
-            item = self.menu_cards_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        q = getattr(self, "_filter_q", "")
-        db_items = repo.get_all_menu_items()
-        items = db_items if db_items else menu_store.all_items()
-        if q:
-            items = [i for i in items if q in i["item"].lower() or q in i["category"].lower() or q in i["package"].lower()]
-
-        if not items:
-            empty_lbl = QLabel("No menu items found.")
-            empty_lbl.setObjectName("subtitle")
-            empty_lbl.setAlignment(Qt.AlignCenter)
-            self.menu_cards_layout.addWidget(empty_lbl)
-        else:
+    def _toggle_select_all_items(self, state):
+        items = getattr(self, "_menu_items_data", []) or []
+        if state == 2:  # Checked
             for item in items:
-                m_card = self._create_menu_item_card(item)
-                self.menu_cards_layout.addWidget(m_card)
+                if item.get("id"):
+                    self._selected_item_ids.add(item["id"])
+        else:
+            self._selected_item_ids.clear()
 
-        self.menu_cards_layout.addStretch()
+        for cid, cb in self._item_checkboxes.items():
+            cb.blockSignals(True)
+            cb.setChecked(cid in self._selected_item_ids)
+            cb.blockSignals(False)
+
+        self._update_items_selection_ui()
+
+    def _toggle_select_all_packages(self, state):
+        pkgs = getattr(self, "_packages_data", []) or []
+        if state == 2:
+            for p in pkgs:
+                if p.get("id"):
+                    self._selected_pkg_ids.add(p["id"])
+        else:
+            self._selected_pkg_ids.clear()
+
+        for pid, cb in self._pkg_checkboxes.items():
+            cb.blockSignals(True)
+            cb.setChecked(pid in self._selected_pkg_ids)
+            cb.blockSignals(False)
+
+        self._update_pkgs_selection_ui()
+
+    def _update_items_selection_ui(self):
+        count = len(self._selected_item_ids)
+        self._lbl_items_selected_count.setText(f"{count} selected")
+        self._btn_delete_selected_items.setEnabled(count > 0)
+        if count > 0:
+            self._btn_delete_selected_items.setText(f"  Delete Selected ({count})")
+        else:
+            self._btn_delete_selected_items.setText("  Delete Selected")
+
+    def _update_pkgs_selection_ui(self):
+        count = len(self._selected_pkg_ids)
+        self._lbl_pkgs_selected_count.setText(f"{count} selected")
+        self._btn_delete_selected_pkgs.setEnabled(count > 0)
+        if count > 0:
+            self._btn_delete_selected_pkgs.setText(f"  Delete Selected ({count})")
+        else:
+            self._btn_delete_selected_pkgs.setText("  Delete Selected")
+
+    def _populate_table(self):
+        self.menu_container.setUpdatesEnabled(False)
+        self._item_checkboxes.clear()
+        try:
+            while self.menu_cards_layout.count():
+                item = self.menu_cards_layout.takeAt(0)
+                if item.widget():
+                    item.widget().hide()
+                    item.widget().deleteLater()
+
+            q = getattr(self, "_filter_q", "")
+            items = getattr(self, "_menu_items_data", None)
+            if items is None:
+                items = repo.get_all_menu_items() or menu_store.all_items()
+            if q:
+                items = [i for i in items if q in i["item"].lower() or q in i["category"].lower() or q in i["package"].lower()]
+
+            if not items:
+                empty_lbl = QLabel("No menu items found.")
+                empty_lbl.setObjectName("subtitle")
+                empty_lbl.setAlignment(Qt.AlignCenter)
+                self.menu_cards_layout.addWidget(empty_lbl)
+            else:
+                for item in items:
+                    m_card = self._create_menu_item_card(item)
+                    self.menu_cards_layout.addWidget(m_card)
+
+            self.menu_cards_layout.addStretch()
+            self._update_items_selection_ui()
+        finally:
+            self.menu_container.setUpdatesEnabled(True)
 
     def _create_menu_item_card(self, item: dict) -> QFrame:
         card = QFrame()
         card.setObjectName("entryCard")
         lay = QHBoxLayout(card)
         lay.setContentsMargins(18, 14, 18, 14)
-        lay.setSpacing(16)
+        lay.setSpacing(14)
+
+        item_id = item.get("id")
+
+        # Multi-select Checkbox
+        chk = QCheckBox()
+        chk.setChecked(item_id in self._selected_item_ids if item_id else False)
+        chk.stateChanged.connect(lambda state, iid=item_id: self._on_item_checked(iid, state))
+        if item_id:
+            self._item_checkboxes[item_id] = chk
+        lay.addWidget(chk)
 
         c1 = QVBoxLayout()
         c1.setSpacing(2)
@@ -726,13 +1316,28 @@ class MenuPage(QWidget):
 
         return card
 
+    def _on_item_checked(self, item_id: int, state: int):
+        if not item_id:
+            return
+        if state == 2:
+            self._selected_item_ids.add(item_id)
+        else:
+            self._selected_item_ids.discard(item_id)
+        self._update_items_selection_ui()
+
     def _edit_item_dict(self, item: dict):
         dlg = MenuItemDialog(self, item_data=item)
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
             if result and item.get("id"):
                 repo.update_menu_item(item["id"], result)
+                self._menu_items_data = repo.get_all_menu_items() or menu_store.all_items()
                 self._populate_table()
+                try:
+                    from utils.signals import app_events
+                    app_events().data_changed.emit()
+                except Exception:
+                    pass
                 success(self, message="Menu item updated successfully.")
 
     def _delete_item_dict(self, item: dict):
@@ -742,9 +1347,34 @@ class MenuPage(QWidget):
                        message=f"Are you sure you want to delete '{item_name}'? This cannot be undone.",
                        confirm_label="Delete", danger=True):
             return
-        repo.delete_menu_item(0, item_id)
+        repo.delete_menu_item(item_id)
+        self._menu_items_data = repo.get_all_menu_items() or menu_store.all_items()
         self._populate_table()
+        try:
+            from utils.signals import app_events
+            app_events().data_changed.emit()
+        except Exception:
+            pass
         success(self, message="Menu item deleted successfully.")
+
+    def _delete_selected_menu_items(self):
+        if not self._selected_item_ids:
+            return
+        count = len(self._selected_item_ids)
+        if not confirm(self, title="Delete Multiple Menu Items",
+                       message=f"Are you sure you want to permanently delete {count} selected menu item(s)?\nThis cannot be undone.",
+                       confirm_label=f"Delete {count} Items", danger=True):
+            return
+
+        deleted = repo.delete_multiple_menu_items(list(self._selected_item_ids))
+        self._selected_item_ids.clear()
+        self.reload()
+        try:
+            from utils.signals import app_events
+            app_events().data_changed.emit()
+        except Exception:
+            pass
+        success(self, message=f"Successfully deleted {deleted} menu item(s).")
 
     def _open_add_dialog(self):
         dlg = MenuItemDialog(self)
@@ -752,36 +1382,99 @@ class MenuPage(QWidget):
             result = dlg.get_result()
             if result:
                 repo.add_menu_item(result)
+                self._menu_items_data = repo.get_all_menu_items() or menu_store.all_items()
                 self._populate_table()
+                try:
+                    from utils.signals import app_events
+                    app_events().data_changed.emit()
+                except Exception:
+                    pass
                 success(self, message="Menu item added successfully.")
 
+    def _open_multi_add_items_dialog(self):
+        dlg = AddMultipleMenuItemsDialog(self)
+        if dlg.exec():
+            self.reload()
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+            except Exception:
+                pass
+            success(self, message=f"Added {dlg._added_count} menu item(s) successfully.")
+
+    def _open_import_items_dialog(self):
+        from components.import_dialog import ImportWizardDialog
+        dlg = ImportWizardDialog(default_entity="menu_items", parent=self)
+        if dlg.exec():
+            self.reload()
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+            except Exception:
+                pass
+
+    def _export_menu_items(self):
+        import csv
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(self, "Export Menu Items", "menu_items.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+        items = getattr(self, "_menu_items_data", []) or []
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Item Name", "Category", "Package", "Price", "Status", "Description"])
+            for it in items:
+                writer.writerow([it.get("item", ""), it.get("category", ""), it.get("package", ""), it.get("price", 0), it.get("status", ""), it.get("description", "")])
+        success(self, message=f"Exported menu items to:\n{path}")
+
     def _populate_packages_table(self):
-        while self.pkg_cards_layout.count():
-            item = self.pkg_cards_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        if hasattr(self, "pkg_container"):
+            self.pkg_container.setUpdatesEnabled(False)
+        self._pkg_checkboxes.clear()
+        try:
+            while self.pkg_cards_layout.count():
+                item = self.pkg_cards_layout.takeAt(0)
+                if item.widget():
+                    item.widget().hide()
+                    item.widget().deleteLater()
 
-        packages = repo.get_all_packages()
-        self._packages_data = packages
+            packages = getattr(self, "_packages_cache", None)
+            if packages is None:
+                packages = repo.get_all_packages()
+            self._packages_data = packages
 
-        if not packages:
-            empty_lbl = QLabel("No packages found.")
-            empty_lbl.setStyleSheet("color: #9CA3AF; font-size: 13px; padding: 24px;")
-            empty_lbl.setAlignment(Qt.AlignCenter)
-            self.pkg_cards_layout.addWidget(empty_lbl)
-        else:
-            for pkg in packages:
-                p_card = self._create_package_card(pkg)
-                self.pkg_cards_layout.addWidget(p_card)
+            if not packages:
+                empty_lbl = QLabel("No packages found.")
+                empty_lbl.setStyleSheet("color: #9CA3AF; font-size: 13px; padding: 24px;")
+                empty_lbl.setAlignment(Qt.AlignCenter)
+                self.pkg_cards_layout.addWidget(empty_lbl)
+            else:
+                for pkg in packages:
+                    p_card = self._create_package_card(pkg)
+                    self.pkg_cards_layout.addWidget(p_card)
 
-        self.pkg_cards_layout.addStretch()
+            self.pkg_cards_layout.addStretch()
+            self._update_pkgs_selection_ui()
+        finally:
+            if hasattr(self, "pkg_container"):
+                self.pkg_container.setUpdatesEnabled(True)
 
     def _create_package_card(self, pkg: dict) -> QFrame:
         card = QFrame()
         card.setObjectName("entryCard")
         lay = QHBoxLayout(card)
         lay.setContentsMargins(18, 14, 18, 14)
-        lay.setSpacing(16)
+        lay.setSpacing(14)
+
+        pkg_id = pkg.get("id")
+
+        # Multi-select Checkbox
+        chk = QCheckBox()
+        chk.setChecked(pkg_id in self._selected_pkg_ids if pkg_id else False)
+        chk.stateChanged.connect(lambda state, pid=pkg_id: self._on_pkg_checked(pid, state))
+        if pkg_id:
+            self._pkg_checkboxes[pkg_id] = chk
+        lay.addWidget(chk)
 
         c1 = QVBoxLayout()
         c1.setSpacing(2)
@@ -794,10 +1487,13 @@ class MenuPage(QWidget):
         c1.addWidget(desc_lbl)
         lay.addLayout(c1, 3)
 
-        pkg_items = repo.get_package_items(pkg["id"]) if pkg.get("id") else []
+        pkg_items = pkg.get("items")
+        if pkg_items is None and pkg.get("id"):
+            pkg_items = repo.get_package_items(pkg["id"])
+        pkg_items = pkg_items or []
         item_count = len(pkg_items)
         if item_count > 0:
-            names = ", ".join(i["item_name"] for i in pkg_items[:3])
+            names = ", ".join(i.get("item_name", "") for i in pkg_items[:3] if i.get("item_name"))
             if item_count > 3:
                 names += f" +{item_count - 3} more"
             items_str = f"📦 {item_count} items ({names})"
@@ -848,6 +1544,15 @@ class MenuPage(QWidget):
 
         return card
 
+    def _on_pkg_checked(self, pkg_id: int, state: int):
+        if not pkg_id:
+            return
+        if state == 2:
+            self._selected_pkg_ids.add(pkg_id)
+        else:
+            self._selected_pkg_ids.discard(pkg_id)
+        self._update_pkgs_selection_ui()
+
     def _open_add_package_dialog(self):
         dlg = PackageDialog(self)
         if dlg.exec() == QDialog.Accepted:
@@ -856,10 +1561,41 @@ class MenuPage(QWidget):
                 pkg_id = repo.add_package(result)
                 if pkg_id:
                     repo.set_package_items(pkg_id, result.get("items", []))
+                    self._packages_cache = repo.get_all_packages()
                     self._populate_packages_table()
+                    try:
+                        from utils.signals import app_events
+                        app_events().data_changed.emit()
+                    except Exception:
+                        pass
                     success(self, message="Package added successfully.")
                 else:
                     QMessageBox.warning(self, "Error", "Failed to add package. Name may already exist.")
+
+    def _open_multi_add_packages_dialog(self):
+        dlg = AddMultiplePackagesDialog(self)
+        if dlg.exec():
+            self.reload()
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+            except Exception:
+                pass
+            success(self, message=f"Added {dlg._added_count} package(s) successfully.")
+
+    def _export_packages(self):
+        import csv
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(self, "Export Packages", "packages.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+        pkgs = getattr(self, "_packages_data", []) or []
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Package Name", "Price per Pax", "Min Pax", "Description"])
+            for p in pkgs:
+                writer.writerow([p.get("name", ""), p.get("price_per_pax", 0), p.get("min_pax", 1), p.get("description", "")])
+        success(self, message=f"Exported packages to:\n{path}")
 
     def _edit_package_dict(self, pkg: dict):
         dlg = PackageDialog(self, pkg_data=pkg)
@@ -869,7 +1605,13 @@ class MenuPage(QWidget):
                 ok = repo.update_package(pkg["id"], result)
                 if ok:
                     repo.set_package_items(pkg["id"], result.get("items", []))
+                    self._packages_cache = repo.get_all_packages()
                     self._populate_packages_table()
+                    try:
+                        from utils.signals import app_events
+                        app_events().data_changed.emit()
+                    except Exception:
+                        pass
                     success(self, message="Package updated successfully.")
                 else:
                     QMessageBox.warning(self, "Error", "Failed to update package.")
@@ -882,11 +1624,36 @@ class MenuPage(QWidget):
             return
         ok = repo.delete_package(pkg.get("id"))
         if ok:
+            self._packages_cache = repo.get_all_packages()
             self._populate_packages_table()
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+            except Exception:
+                pass
             success(self, message="Package deleted successfully.")
         else:
             QMessageBox.warning(self, "Cannot Delete",
                                 "This package is linked to existing bookings and cannot be deleted.")
+
+    def _delete_selected_packages(self):
+        if not self._selected_pkg_ids:
+            return
+        count = len(self._selected_pkg_ids)
+        if not confirm(self, title="Delete Multiple Packages",
+                       message=f"Are you sure you want to delete {count} selected package(s)?\nPackages linked to existing bookings cannot be deleted.",
+                       confirm_label=f"Delete {count} Packages", danger=True):
+            return
+
+        deleted = repo.delete_multiple_packages(list(self._selected_pkg_ids))
+        self._selected_pkg_ids.clear()
+        self.reload()
+        try:
+            from utils.signals import app_events
+            app_events().data_changed.emit()
+        except Exception:
+            pass
+        success(self, message=f"Successfully deleted {deleted} package(s).")
 
     def filter_search(self, text):
         q = text.lower()

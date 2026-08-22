@@ -60,6 +60,8 @@ class SettingsPage(QWidget):
         lay.addWidget(self._build_theme_card())
         lay.addWidget(self._build_backup_card())
         lay.addWidget(self._build_audit_card())
+        lay.addWidget(self._build_diagnostics_card())
+        lay.addWidget(self._build_purge_data_card())
         lay.addStretch()
 
         scroll.setWidget(content)
@@ -848,52 +850,391 @@ class SettingsPage(QWidget):
         new_theme = self._theme.toggle()
         self._theme_lbl.setText("Dark Mode" if new_theme == "dark" else "Light Mode")
 
-    def _backup_db(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Backup Database", "jayraldines_backup.sql", "SQL Files (*.sql)"
+    def _build_diagnostics_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        sec_title = QLabel("System Diagnostics & Error Logs")
+        sec_title.setObjectName("h3")
+        lay.addWidget(sec_title)
+
+        desc = QLabel(
+            "If you experience any issues, click 'Export Diagnostic Report' to automatically "
+            "generate a troubleshooting text file on your Desktop to send to support."
         )
-        if not path:
-            return
+        desc.setObjectName("subtitle")
+        desc.setWordWrap(True)
+        lay.addWidget(desc)
+
+        import utils.db as db
+        from utils.logger import get_log_file_path
+        engine = db.get_engine_type().upper()
+
+        info_box = QFrame()
+        info_box.setStyleSheet("background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px;")
+        info_lay = QVBoxLayout(info_box)
+        info_lay.setSpacing(6)
+
+        lbl_engine = QLabel(f"<b>Database Engine:</b> {engine} (High Performance Embedded)")
+        lbl_log = QLabel(f"<b>Active Log File:</b> {get_log_file_path()}")
+        lbl_log.setWordWrap(True)
+        info_lay.addWidget(lbl_engine)
+        info_lay.addWidget(lbl_log)
+        lay.addWidget(info_box)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+
+        export_btn = QPushButton("  Export Diagnostic Report")
+        export_btn.setObjectName("primaryButton")
+        export_btn.setIcon(btn_icon_primary("download"))
+        export_btn.setIconSize(QSize(15, 15))
+        export_btn.setFixedHeight(36)
+        export_btn.setCursor(Qt.PointingHandCursor)
+        export_btn.clicked.connect(self._export_diagnostics)
+
+        open_log_btn = QPushButton("  Open Log Folder")
+        open_log_btn.setObjectName("secondaryButton")
+        open_log_btn.setIcon(btn_icon_secondary("search"))
+        open_log_btn.setIconSize(QSize(15, 15))
+        open_log_btn.setFixedHeight(36)
+        open_log_btn.setCursor(Qt.PointingHandCursor)
+        open_log_btn.clicked.connect(self._open_log_folder)
+
+        btn_row.addWidget(export_btn)
+        btn_row.addWidget(open_log_btn)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+
+        return card
+
+    def _export_diagnostics(self):
         try:
-            result = subprocess.run(
-                ["pg_dump", "-U", "postgres", "-d", "jayraldines_catering", "-f", path],
-                capture_output=True, text=True, timeout=60
-            )
-            if result.returncode == 0:
-                success(self, message=f"Database backed up successfully to:\n{path}")
-            else:
-                QMessageBox.warning(self, "Backup Failed", result.stderr or "pg_dump returned an error.")
-        except FileNotFoundError:
-            QMessageBox.warning(self, "Not Found",
-                "pg_dump not found. Make sure PostgreSQL is installed and in your PATH.")
+            from utils.logger import export_diagnostic_report
+            report_path = export_diagnostic_report()
+            success(self, message=f"Diagnostic report exported to Desktop:\n\n{report_path.name}\n\nYou can send this file to support.")
         except Exception as exc:
-            QMessageBox.warning(self, "Backup Error", str(exc))
+            QMessageBox.warning(self, "Export Failed", f"Could not generate report: {exc}")
+
+    def _open_log_folder(self):
+        import os
+        from utils.logger import get_log_dir
+        log_dir = get_log_dir()
+        try:
+            if os.name == "nt":
+                os.startfile(str(log_dir))
+            else:
+                subprocess.Popen(["xdg-open", str(log_dir)])
+        except Exception as exc:
+            QMessageBox.warning(self, "Error", f"Could not open folder: {exc}")
+
+    def _backup_db(self):
+        import utils.db as db
+        import shutil
+        engine = db.get_engine_type()
+        if engine == "sqlite":
+            src = db.get_sqlite_db_path()
+            if not src.exists():
+                QMessageBox.warning(self, "Error", "Database file does not exist yet.")
+                return
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Backup Database", "jayraldines_backup.db", "SQLite Database (*.db *.bak)"
+            )
+            if not path:
+                return
+            try:
+                shutil.copy2(src, path)
+                success(self, message=f"Database backed up successfully to:\n{path}")
+            except Exception as exc:
+                QMessageBox.warning(self, "Backup Error", str(exc))
+        else:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Backup Database", "jayraldines_backup.sql", "SQL Files (*.sql)"
+            )
+            if not path:
+                return
+            try:
+                result = subprocess.run(
+                    ["pg_dump", "-U", "postgres", "-d", "jayraldines_catering", "-f", path],
+                    capture_output=True, text=True, timeout=60
+                )
+                if result.returncode == 0:
+                    success(self, message=f"Database backed up successfully to:\n{path}")
+                else:
+                    QMessageBox.warning(self, "Backup Failed", result.stderr or "pg_dump returned an error.")
+            except FileNotFoundError:
+                QMessageBox.warning(self, "Not Found",
+                    "pg_dump not found. Make sure PostgreSQL is installed and in your PATH.")
+            except Exception as exc:
+                QMessageBox.warning(self, "Backup Error", str(exc))
 
     def _restore_db(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Restore Database", "", "SQL Files (*.sql)"
+        import utils.db as db
+        import shutil
+        engine = db.get_engine_type()
+        if engine == "sqlite":
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Restore Database", "", "SQLite Database (*.db *.bak)"
+            )
+            if not path:
+                return
+            confirm = QMessageBox.warning(
+                self, "Confirm Restore",
+                "This will OVERWRITE all current data with the selected backup.\n\nAre you sure?",
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+            if confirm != QMessageBox.Yes:
+                return
+            try:
+                db.close()
+                dst = db.get_sqlite_db_path()
+                shutil.copy2(path, dst)
+                db.connect()
+                success(self, message="Database restored successfully. Please restart the application.")
+            except Exception as exc:
+                QMessageBox.warning(self, "Restore Error", str(exc))
+        else:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Restore Database", "", "SQL Files (*.sql)"
+            )
+            if not path:
+                return
+            confirm = QMessageBox.warning(
+                self, "Confirm Restore",
+                "This will OVERWRITE all current data with the selected backup.\n\nAre you sure?",
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+            if confirm != QMessageBox.Yes:
+                return
+            try:
+                result = subprocess.run(
+                    ["psql", "-U", "postgres", "-d", "jayraldines_catering", "-f", path],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    success(self, message="Database restored successfully. Please restart the application.")
+                else:
+                    QMessageBox.warning(self, "Restore Failed", result.stderr or "psql returned an error.")
+            except FileNotFoundError:
+                QMessageBox.warning(self, "Not Found",
+                    "psql not found. Make sure PostgreSQL is installed and in your PATH.")
+            except Exception as exc:
+                QMessageBox.warning(self, "Restore Error", str(exc))
+
+    def _build_purge_data_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        card.setStyleSheet("QFrame#card { border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; }")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        # Title Row
+        head_lay = QHBoxLayout()
+        sec_title = QLabel("Data Reset & Purge Management")
+        sec_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #EF4444;")
+        head_lay.addWidget(sec_title)
+        head_lay.addStretch()
+
+        badge = QLabel("Danger Zone")
+        badge.setStyleSheet(
+            "background: rgba(239, 68, 68, 0.15); color: #EF4444; font-weight: 700; "
+            "font-size: 11px; padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(239, 68, 68, 0.3);"
         )
-        if not path:
+        head_lay.addWidget(badge)
+        lay.addLayout(head_lay)
+
+        desc = QLabel(
+            "Select specific operational data categories to delete, or perform a complete factory wipe. "
+            "Deleted data cannot be recovered. Please create a database backup before proceeding."
+        )
+        desc.setObjectName("subtitle")
+        desc.setWordWrap(True)
+        lay.addWidget(desc)
+
+        # Checkbox selection box
+        chk_box = QFrame()
+        chk_box.setStyleSheet(
+            "background: rgba(0,0,0,0.12); border: 1px solid rgba(255,255,255,0.06); "
+            "border-radius: 8px; padding: 14px;"
+        )
+        chk_lay = QVBoxLayout(chk_box)
+        chk_lay.setSpacing(10)
+
+        self._purge_cbs = {}
+        items = [
+            ("bookings",        "Bookings & Invoices",           "Deletes bookings, invoices, payments, and kitchen orders"),
+            ("customers",       "Customers & Contacts",          "Deletes customer profiles, addresses, and follow-ups"),
+            ("expenses",        "Expenses & Costs",              "Deletes all operational expense entries"),
+            ("menu_items",      "Menu Items & Catalog",          "Deletes all menu catalog items and dishes"),
+            ("packages",        "Catering Packages",             "Deletes all catering packages and set menus"),
+            ("calendar_events", "Manual Calendar Events",        "Deletes custom calendar reminders and events"),
+            ("logs",            "Notifications & Audit Logs",    "Deletes notifications and system audit logs"),
+        ]
+
+        for key, title, sub in items:
+            row_w = QWidget()
+            row_l = QHBoxLayout(row_w)
+            row_l.setContentsMargins(0, 0, 0, 0)
+            row_l.setSpacing(10)
+
+            cb = QCheckBox(title)
+            cb.setStyleSheet("font-weight: 600; font-size: 13px;")
+            cnt_lbl = QLabel("(0 records)")
+            cnt_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+            sub_lbl = QLabel(f"— {sub}")
+            sub_lbl.setStyleSheet("color: #6B7280; font-size: 11px;")
+
+            row_l.addWidget(cb)
+            row_l.addWidget(cnt_lbl)
+            row_l.addWidget(sub_lbl)
+            row_l.addStretch()
+
+            self._purge_cbs[key] = (cb, cnt_lbl)
+            chk_lay.addWidget(row_w)
+
+        lay.addWidget(chk_box)
+
+        # Quick Actions Row
+        quick_row = QHBoxLayout()
+        quick_row.setSpacing(10)
+
+        btn_select_all = QPushButton("Select All")
+        btn_select_all.setObjectName("secondaryButton")
+        btn_select_all.setFixedHeight(28)
+        btn_select_all.setCursor(Qt.PointingHandCursor)
+        btn_select_all.clicked.connect(self._select_all_purge)
+        quick_row.addWidget(btn_select_all)
+
+        btn_deselect_all = QPushButton("Deselect All")
+        btn_deselect_all.setObjectName("secondaryButton")
+        btn_deselect_all.setFixedHeight(28)
+        btn_deselect_all.setCursor(Qt.PointingHandCursor)
+        btn_deselect_all.clicked.connect(self._deselect_all_purge)
+        quick_row.addWidget(btn_deselect_all)
+
+        btn_refresh_counts = QPushButton("Refresh Counts")
+        btn_refresh_counts.setObjectName("secondaryButton")
+        btn_refresh_counts.setFixedHeight(28)
+        btn_refresh_counts.setCursor(Qt.PointingHandCursor)
+        btn_refresh_counts.clicked.connect(self._refresh_purge_counts)
+        quick_row.addWidget(btn_refresh_counts)
+
+        quick_row.addStretch()
+        lay.addLayout(quick_row)
+
+        # Execution Buttons Row
+        exec_row = QHBoxLayout()
+        exec_row.setSpacing(14)
+
+        btn_delete_selected = QPushButton("  Delete Selected Data")
+        btn_delete_selected.setFixedHeight(36)
+        btn_delete_selected.setCursor(Qt.PointingHandCursor)
+        btn_delete_selected.setStyleSheet(
+            "QPushButton { background: transparent; color: #EF4444; border: 1.5px solid #EF4444; "
+            "font-weight: 700; border-radius: 8px; padding: 6px 18px; } "
+            "QPushButton:hover { background: rgba(239, 68, 68, 0.12); }"
+        )
+        btn_delete_selected.clicked.connect(self._on_purge_selected)
+        exec_row.addWidget(btn_delete_selected)
+
+        btn_delete_all = QPushButton("  Delete All Data (Complete Reset)")
+        btn_delete_all.setFixedHeight(36)
+        btn_delete_all.setCursor(Qt.PointingHandCursor)
+        btn_delete_all.setStyleSheet(
+            "QPushButton { background: #DC2626; color: #FFFFFF; border: none; "
+            "font-weight: 700; border-radius: 8px; padding: 6px 20px; } "
+            "QPushButton:hover { background: #B91C1C; }"
+        )
+        btn_delete_all.clicked.connect(self._on_purge_all)
+        exec_row.addWidget(btn_delete_all)
+
+        exec_row.addStretch()
+        lay.addLayout(exec_row)
+
+        self._refresh_purge_counts()
+        return card
+
+    def _select_all_purge(self):
+        for cb, _ in self._purge_cbs.values():
+            cb.setChecked(True)
+
+    def _deselect_all_purge(self):
+        for cb, _ in self._purge_cbs.values():
+            cb.setChecked(False)
+
+    def _refresh_purge_counts(self):
+        counts = repo.get_data_counts()
+        label_map = {
+            "bookings": f"({counts.get('bookings', 0)} bookings, {counts.get('invoices', 0)} invoices)",
+            "customers": f"({counts.get('customers', 0)} records)",
+            "expenses": f"({counts.get('expenses', 0)} records)",
+            "menu_items": f"({counts.get('menu_items', 0)} items)",
+            "packages": f"({counts.get('packages', 0)} packages)",
+            "calendar_events": f"({counts.get('calendar_events', 0)} events)",
+            "logs": f"({counts.get('notifications', 0)} notifs, {counts.get('audit_logs', 0)} logs)",
+        }
+        for key, (_, lbl) in self._purge_cbs.items():
+            if key in label_map:
+                lbl.setText(label_map[key])
+
+    def _on_purge_selected(self):
+        selected = [k for k, (cb, _) in self._purge_cbs.items() if cb.isChecked()]
+        if not selected:
+            QMessageBox.information(self, "No Selection", "Please check at least one category to delete.")
             return
+
+        names = [cb.text() for k, (cb, _) in self._purge_cbs.items() if cb.isChecked()]
+        list_str = "\n".join(f"  • {n}" for n in names)
+
         confirm = QMessageBox.warning(
-            self, "Confirm Restore",
-            "This will OVERWRITE all current data with the selected backup.\n\nAre you sure?",
+            self,
+            "Confirm Data Deletion",
+            f"Are you sure you want to PERMANENTLY delete the following categories?\n\n"
+            f"{list_str}\n\n"
+            f"This action CANNOT be undone.",
             QMessageBox.Yes | QMessageBox.Cancel,
             QMessageBox.Cancel,
         )
         if confirm != QMessageBox.Yes:
             return
+
         try:
-            result = subprocess.run(
-                ["psql", "-U", "postgres", "-d", "jayraldines_catering", "-f", path],
-                capture_output=True, text=True, timeout=120
-            )
-            if result.returncode == 0:
-                success(self, message="Database restored successfully. Please restart the application.")
-            else:
-                QMessageBox.warning(self, "Restore Failed", result.stderr or "psql returned an error.")
-        except FileNotFoundError:
-            QMessageBox.warning(self, "Not Found",
-                "psql not found. Make sure PostgreSQL is installed and in your PATH.")
+            repo.purge_selected_data(selected)
+            self._deselect_all_purge()
+            self._refresh_purge_counts()
+            success(self, message="Selected data has been deleted successfully.\nAll views have been refreshed.")
         except Exception as exc:
-            QMessageBox.warning(self, "Restore Error", str(exc))
+            QMessageBox.critical(self, "Deletion Error", f"An error occurred during deletion:\n{exc}")
+
+    def _on_purge_all(self):
+        confirm = QMessageBox.critical(
+            self,
+            "FACTORY RESET CONFIRMATION",
+            "WARNING: You are about to DELETE ALL DATA in the system:\n\n"
+            "  • All Bookings, Invoices & Payments\n"
+            "  • All Customers & Addresses\n"
+            "  • All Expenses\n"
+            "  • All Menu Items & Packages\n"
+            "  • All Calendar Events & Logs\n\n"
+            "The system will be completely wiped clean.\n\n"
+            "Are you absolutely certain?",
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            repo.purge_all_data()
+            self._deselect_all_purge()
+            self._refresh_purge_counts()
+            success(self, message="All data has been permanently deleted.\nSystem has been reset to clean state.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Reset Error", f"An error occurred during reset:\n{exc}")
+

@@ -48,8 +48,14 @@ class TestImporter(unittest.TestCase):
         self.assertEqual(importer.normalize_amount("invalid"), 0.0)
 
     def test_normalize_date(self):
-        self.assertEqual(importer.normalize_date("2026-08-16"), "Aug 16, 2026")
-        self.assertEqual(importer.normalize_date("08/16/2026"), "Aug 16, 2026")
+        from datetime import datetime
+        self.assertEqual(importer.normalize_date("2026-08-16"), "2026-08-16")
+        self.assertEqual(importer.normalize_date("08/16/2026"), "2026-08-16")
+        self.assertEqual(importer.normalize_date("2026-08-16 00:00:00"), "2026-08-16")
+        self.assertEqual(importer.normalize_date("2026-08-16T18:30:00"), "2026-08-16")
+        self.assertEqual(importer.normalize_date("8/16/2026 12:00:00 AM"), "2026-08-16")
+        self.assertEqual(importer.normalize_date(datetime(2026, 8, 16, 10, 0)), "2026-08-16")
+        self.assertEqual(importer.normalize_date(46280), "2026-09-15")
 
     def test_normalize_enums(self):
         self.assertEqual(importer.normalize_expense_category("pork meat"), "Food Cost")

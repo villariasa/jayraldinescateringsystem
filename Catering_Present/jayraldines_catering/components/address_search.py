@@ -25,6 +25,8 @@ class AddressSearchWidget(QWidget):
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._run_search)
         self._build_ui()
+        # Warm up the in-memory address cache in background
+        QTimer.singleShot(50, lambda: repo.get_all_cebu_addresses())
 
     # ------------------------------------------------------------------
     # Public API
@@ -157,11 +159,11 @@ class AddressSearchWidget(QWidget):
 
     def _open_dropdown(self, count: int):
         self._dropdown.setStyleSheet(self._dropdown_style())
-        h = min(count * 36 + 8, self._DROPDOWN_MAX_H)
-        self._dropdown.setMaximumHeight(h)
+        h = min(count * 38 + 10, self._DROPDOWN_MAX_H)
+        self._dropdown.setFixedHeight(h)
 
     def _close_dropdown(self):
-        self._dropdown.setMaximumHeight(0)
+        self._dropdown.setFixedHeight(0)
         self._dropdown.clear()
 
     def _on_text_changed(self, text: str):
@@ -180,7 +182,7 @@ class AddressSearchWidget(QWidget):
             return
 
         self._hide_widget(self._hint)
-        self._debounce.start(300)
+        self._debounce.start(120)
 
     def _run_search(self):
         query = self._search.text().strip()

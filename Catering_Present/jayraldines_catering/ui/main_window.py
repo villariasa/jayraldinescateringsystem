@@ -95,7 +95,7 @@ class MainWindow(QMainWindow):
 
         self._dash_timer = QTimer(self)
         self._dash_timer.timeout.connect(self._reload_dashboard)
-        self._dash_timer.start(60_000)
+        self._dash_timer.start(120_000)  # every 2 min instead of 1 min
 
         from utils.signals import app_events
         _ev = app_events()
@@ -120,6 +120,15 @@ class MainWindow(QMainWindow):
         self._floating_ai.raise_()
 
         self._navigate(0)
+
+        # Pre-construct remaining pages in the background during idle time (0ms tab switches)
+        QTimer.singleShot(250, self._warmup_pages)
+
+    def _warmup_pages(self):
+        """Pre-construct pages sequentially so clicks on any module never wait for cold-start UI building."""
+        for idx in range(len(_PAGE_MODULES)):
+            if self._pages[idx] is None:
+                self._get_page(idx)
 
     def _get_page(self, index: int):
         if self._pages[index] is not None:
@@ -158,15 +167,16 @@ class MainWindow(QMainWindow):
         return page
 
     def _navigate(self, index: int):
+        first_time = self._pages[index] is None
         page = self._get_page(index)
         self.stack.setCurrentIndex(index)
         self.topbar.set_page(index)
         self.sidebar.handle_click(index)
-        if hasattr(page, "reload"):
+        if not first_time and hasattr(page, "reload"):
             try:
                 page.reload()
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[MainWindow] Error reloading page {index}: {exc}")
         if hasattr(self, "_floating_ai") and self._floating_ai:
             self._floating_ai.setVisible(index != 9)
 
@@ -222,18 +232,23 @@ class MainWindow(QMainWindow):
             self._pages[0].reload()
 
     def _on_booking_saved(self):
-        if self._pages[1] is not None:
-            self._pages[1].reload()
-        if self._pages[4] is not None:
-            self._pages[4].reload()
-        if self._pages[5] is not None:
-            self._pages[5].reload()
-        if self._pages[6] is not None:
-            self._pages[6].reload()
-        if self._pages[0] is not None:
-            self._pages[0].reload()
-        if self._pages[7] is not None:
-            self._pages[7].reload()
+        # Reload booking page if visible; mark others dirty for lazy reload
+        for idx in [1, 4, 5, 6, 0, 7]:
+            p = self._pages[idx] if idx < len(self._pages) else None
+            if p is None:
+                continue
+            if hasattr(p, "_mark_dirty"):
+                p._mark_dirty()
+            elif hasattr(p, "_dirty"):
+                p._dirty = True
+        # Immediately reload only the currently visible page
+        cur = self.stack.currentIndex()
+        p = self._pages[cur] if cur < len(self._pages) else None
+        if p is not None and hasattr(p, "reload"):
+            try:
+                p.reload()
+            except Exception:
+                pass
         self._poll_notifications()
 
     def _on_payment_recorded(self):
@@ -258,21 +273,39 @@ class MainWindow(QMainWindow):
         self._poll_notifications()
 
     def _on_customer_saved(self):
-        if self._pages[2] is not None:  # CustomersPage
-            self._pages[2].reload()
-        if self._pages[1] is not None:  # BookingPage
-            self._pages[1].reload()
-        if self._pages[0] is not None:  # DashboardPage
-            self._pages[0].reload()
+        for idx in [2, 1, 0]:
+            p = self._pages[idx] if idx < len(self._pages) else None
+            if p is None:
+                continue
+            if hasattr(p, "_mark_dirty"):
+                p._mark_dirty()
+            elif hasattr(p, "_dirty"):
+                p._dirty = True
+        cur = self.stack.currentIndex()
+        p = self._pages[cur] if cur < len(self._pages) else None
+        if p is not None and hasattr(p, "reload"):
+            try:
+                p.reload()
+            except Exception:
+                pass
         self._poll_notifications()
 
     def _reload_all_pages(self):
-        for p in self._pages:
-            if p is not None and hasattr(p, "reload"):
+        """Only reload the current visible page; mark all others dirty so they
+        refresh lazily when the user navigates to them."""
+        current_idx = self.stack.currentIndex()
+        for i, p in enumerate(self._pages):
+            if p is None:
+                continue
+            if hasattr(p, "_mark_dirty"):
+                p._mark_dirty()
+            elif hasattr(p, "_dirty"):
+                p._dirty = True
+            if i == current_idx and hasattr(p, "reload"):
                 try:
                     p.reload()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(f"[MainWindow] Error reloading page {i}: {exc}")
         self._poll_notifications()
 
     def _on_theme_changed(self, _theme: str):

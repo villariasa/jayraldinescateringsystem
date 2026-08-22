@@ -609,6 +609,18 @@ QTableWidget#menuTable::item:hover {
     color: #0F172A;
 }
 
+QTableWidget QLineEdit {
+    background-color: #FFFFFF;
+    color: #0F172A;
+    border: 1.5px solid #E11D48;
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin: 1px;
+    selection-background-color: #E11D48;
+    selection-color: #FFFFFF;
+    font-size: 13px;
+}
+
 /* --- TOOLTIP --- */
 QToolTip {
     background-color: #0F172A;

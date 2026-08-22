@@ -744,11 +744,12 @@ class ReportsPage(QWidget):
         unpaid     = kpis.get("unpaid_amount", 0.0)
         today_bk   = kpis.get("today_bookings", 0)
         week_bk    = kpis.get("week_bookings", 0)
+        month_bk   = kpis.get("month_bookings", 0)
 
         profit_color = "#22C55E" if profit >= 0 else "#EF4444"
 
         self._kpi_cards = [
-            self._kpi("Total Bookings",   str(total_bk),            f"{today_bk} Today | {week_bk} This Week"),
+            self._kpi("Total Bookings",   str(total_bk),            f"{today_bk} Today • {week_bk} Week • {month_bk} Month"),
             self._kpi("Total Revenue",    f"PHP {revenue:,.0f}",     "Confirmed income", "#22C55E"),
             self._kpi("Total Expenses",   f"PHP {expenses:,.0f}",    "All operational costs", "#F97316"),
             self._kpi("Net Profit",       f"PHP {profit:,.0f}",      "Revenue − Expenses", profit_color),
@@ -915,17 +916,17 @@ class ReportsPage(QWidget):
         self._locations_chart_layout.reload()
 
     def _period_sql_filter(self) -> str:
-        p = self._period
+        p = getattr(self, "_period", "All Time")
         if p == "Today":
-            return "AND DATE(bk_event_date) = CURRENT_DATE"
+            return "AND DATE(bk_event_date) = DATE('now')"
         if p == "This Week":
-            return "AND bk_event_date >= date_trunc('week', CURRENT_DATE) AND bk_event_date < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'"
+            return "AND DATE(bk_event_date) >= DATE('now', 'weekday 0', '-6 days') AND DATE(bk_event_date) <= DATE('now', 'weekday 0')"
         if p == "This Month":
-            return "AND date_trunc('month', bk_event_date) = date_trunc('month', CURRENT_DATE)"
+            return "AND strftime('%Y-%m', bk_event_date) = strftime('%Y-%m', 'now')"
         if p == "This Year":
-            return "AND EXTRACT(YEAR FROM bk_event_date) = EXTRACT(YEAR FROM CURRENT_DATE)"
+            return "AND strftime('%Y', bk_event_date) = strftime('%Y', 'now')"
         if p == "Last Year":
-            return "AND EXTRACT(YEAR FROM bk_event_date) = EXTRACT(YEAR FROM CURRENT_DATE) - 1"
+            return "AND CAST(strftime('%Y', bk_event_date) AS INT) = CAST(strftime('%Y', 'now') AS INT) - 1"
         return ""
 
     def reload(self):
@@ -935,22 +936,103 @@ class ReportsPage(QWidget):
         self._locations_chart_layout.reload()
 
     def _reload_kpis(self):
-        fltr = self._period_sql_filter()
-        kpis = repo.get_report_kpis(period_filter=fltr)
-        revenue  = float(kpis.get("total_revenue", 0))
-        expenses = float(kpis.get("total_expenses", 0))
-        profit   = float(kpis.get("net_profit", revenue - expenses))
+        p = getattr(self, "_period", "All Time")
+        from datetime import datetime, date, timedelta
+        today = date.today()
+
+        all_bookings = repo.get_all_bookings() or []
+        all_expenses = repo.get_all_expenses() or []
+
+        def _get_date(d_str):
+            if not d_str:
+                return None
+            for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%Y/%m/%d"):
+                try:
+                    return datetime.strptime(str(d_str).strip(), fmt).date()
+                except ValueError:
+                    continue
+            return None
+
+        # Filter bookings for period
+        filtered_b = []
+        for b in all_bookings:
+            b_date = _get_date(b.get("date"))
+            if not b_date:
+                continue
+
+            if p in ("All Time", "All", ""):
+                filtered_b.append(b)
+            elif p == "Today" and b_date == today:
+                filtered_b.append(b)
+            elif p == "This Week":
+                start_w = today - timedelta(days=today.weekday())
+                end_w = start_w + timedelta(days=6)
+                if start_w <= b_date <= end_w:
+                    filtered_b.append(b)
+            elif p == "This Month":
+                if b_date.month == today.month and b_date.year == today.year:
+                    filtered_b.append(b)
+            elif p == "This Year":
+                if b_date.year == today.year:
+                    filtered_b.append(b)
+            elif p == "Last Year":
+                if b_date.year == today.year - 1:
+                    filtered_b.append(b)
+
+        # Filter expenses for period
+        filtered_e = []
+        for e in all_expenses:
+            e_date = _get_date(e.get("date"))
+            if not e_date:
+                continue
+
+            if p in ("All Time", "All", ""):
+                filtered_e.append(e)
+            elif p == "Today" and e_date == today:
+                filtered_e.append(e)
+            elif p == "This Week":
+                start_w = today - timedelta(days=today.weekday())
+                end_w = start_w + timedelta(days=6)
+                if start_w <= e_date <= end_w:
+                    filtered_e.append(e)
+            elif p == "This Month":
+                if e_date.month == today.month and e_date.year == today.year:
+                    filtered_e.append(e)
+            elif p == "This Year":
+                if e_date.year == today.year:
+                    filtered_e.append(e)
+            elif p == "Last Year":
+                if e_date.year == today.year - 1:
+                    filtered_e.append(e)
+
+        # Compute KPI numbers
+        confirmed_b = [b for b in filtered_b if b.get("status", "").upper() in ("CONFIRMED", "COMPLETED")]
+        target_b = confirmed_b if confirmed_b else filtered_b
+        total_bookings = len(target_b)
+        total_pax = sum(int(b.get("pax", 0) or 0) for b in target_b)
+
+        from components.confirm_booking_dialog import _parse_amount
+        total_revenue = sum(_parse_amount(b.get("total", 0)) for b in target_b)
+        total_expenses = sum(float(e.get("amount", 0) or 0) for e in filtered_e)
+        profit = total_revenue - total_expenses
+
+        # Calculate today, week, and month bookings from all bookings
+        start_w = today - timedelta(days=today.weekday())
+        end_w = start_w + timedelta(days=6)
+        today_bk = sum(1 for b in all_bookings if _get_date(b.get("date")) == today)
+        week_bk = sum(1 for b in all_bookings if _get_date(b.get("date")) and start_w <= _get_date(b.get("date")) <= end_w)
+        month_bk = sum(1 for b in all_bookings if _get_date(b.get("date")) and _get_date(b.get("date")).month == today.month and _get_date(b.get("date")).year == today.year)
 
         vals = [
-            str(kpis.get("total_bookings", 0)),
-            f"PHP {revenue:,.0f}",
-            f"PHP {expenses:,.0f}",
+            str(total_bookings),
+            f"PHP {total_revenue:,.0f}",
+            f"PHP {total_expenses:,.0f}",
             f"PHP {profit:,.0f}",
-            f"{int(kpis.get('total_pax', 0)):,}",
-            f"PHP {float(kpis.get('unpaid_amount', 0)):,.0f}",
+            f"{total_pax:,}",
+            f"PHP 0",
         ]
         subs = [
-            f"{kpis.get('today_bookings',0)} Today | {kpis.get('week_bookings',0)} This Week",
+            f"{today_bk} Today • {week_bk} Week • {month_bk} Month",
             "Confirmed income",
             "All operational costs",
             "Revenue − Expenses",
@@ -972,16 +1054,54 @@ class ReportsPage(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        fltr = self._period_sql_filter()
-        db_bookings = repo.get_all_bookings(period_filter=fltr) or []
+        all_bookings = repo.get_all_bookings() or []
+        p = getattr(self, "_period", "All Time")
+        from datetime import datetime, date, timedelta
+        today = date.today()
 
-        if not db_bookings:
+        def _get_date(d_str):
+            if not d_str:
+                return None
+            for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%Y/%m/%d"):
+                try:
+                    return datetime.strptime(str(d_str).strip(), fmt).date()
+                except ValueError:
+                    continue
+            return None
+
+        filtered_bookings = []
+        if p in ("All Time", "All", ""):
+            filtered_bookings = all_bookings
+        else:
+            for b in all_bookings:
+                b_date = _get_date(b.get("date"))
+                if not b_date:
+                    continue
+
+                if p == "Today" and b_date == today:
+                    filtered_bookings.append(b)
+                elif p == "This Week":
+                    start_w = today - timedelta(days=today.weekday())
+                    end_w = start_w + timedelta(days=6)
+                    if start_w <= b_date <= end_w:
+                        filtered_bookings.append(b)
+                elif p == "This Month":
+                    if b_date.month == today.month and b_date.year == today.year:
+                        filtered_bookings.append(b)
+                elif p == "This Year":
+                    if b_date.year == today.year:
+                        filtered_bookings.append(b)
+                elif p == "Last Year":
+                    if b_date.year == today.year - 1:
+                        filtered_bookings.append(b)
+
+        if not filtered_bookings:
             empty_lbl = QLabel("No booking statistics for this period.")
             empty_lbl.setObjectName("subtitle")
             empty_lbl.setAlignment(Qt.AlignCenter)
             self.table_cards_layout.addWidget(empty_lbl)
         else:
-            for b in db_bookings:
+            for b in filtered_bookings:
                 pax_val = int(b.get("pax", 0))
                 limit_status = "LIMIT REACHED" if pax_val >= 600 else ("NEAR LIMIT" if pax_val >= 400 else "")
                 card = QFrame()
@@ -1231,8 +1351,9 @@ class ReportsPage(QWidget):
         return kpis, bookings, self._period
 
     def _grab_chart_images(self) -> list:
-        """Screenshot each chart card into a temp PNG: [(title, png_path)]."""
+        """High-resolution capture of each chart card into a temp PNG: [(title, png_path)]."""
         import tempfile
+        from PySide6.QtGui import QPixmap
         cards = [
             ("Income Trend",              "line_card"),
             ("Payment Methods",           "donut_card"),
@@ -1250,14 +1371,27 @@ class ReportsPage(QWidget):
             if card is None or card.width() < 10:
                 continue
             try:
-                pixmap = card.grab()
+                sz = card.size()
+                w = max(10, sz.width())
+                h = max(10, sz.height())
+                pixmap = QPixmap(w * 2, h * 2)
+                pixmap.setDevicePixelRatio(2.0)
+                card.render(pixmap)
                 if pixmap.isNull():
-                    continue
+                    pixmap = card.grab()
+
                 png = os.path.join(tmp_dir, f"{attr}.png")
                 if pixmap.save(png, "PNG"):
                     images.append((title, png))
             except Exception:
-                continue
+                try:
+                    pixmap = card.grab()
+                    if not pixmap.isNull():
+                        png = os.path.join(tmp_dir, f"{attr}.png")
+                        if pixmap.save(png, "PNG"):
+                            images.append((title, png))
+                except Exception:
+                    continue
         return images
 
     def _export_pdf(self):

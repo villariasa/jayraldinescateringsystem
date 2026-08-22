@@ -3,6 +3,18 @@ import os
 import traceback
 import time
 
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+from utils.logger import setup_logging, get_logger
+log = setup_logging()
+
 _STARTUP_T0 = time.perf_counter()
 _PROFILE_STARTUP = os.environ.get("JAYRALDINES_PROFILE_STARTUP", "").lower() in {"1", "true", "yes", "on"}
 
@@ -10,7 +22,7 @@ _PROFILE_STARTUP = os.environ.get("JAYRALDINES_PROFILE_STARTUP", "").lower() in 
 def _profile(label: str):
     if _PROFILE_STARTUP:
         elapsed = time.perf_counter() - _STARTUP_T0
-        print(f"[startup] {label}: {elapsed:.2f}s", flush=True)
+        log.info(f"[startup] {label}: {elapsed:.2f}s")
 
 if getattr(sys, "frozen", False):
     _meipass = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
@@ -25,6 +37,11 @@ if getattr(sys, "frozen", False):
             os.environ.setdefault("QT_PLUGIN_PATH", _qt_plugin_root)
             os.environ.setdefault("QT_QPA_PLATFORM_PLUGIN_PATH", os.path.join(_qt_plugin_root, "platforms"))
             break
+
+# Configure Rendering & GPU Driver Fallbacks for older hardware (Intel HD Graphics, legacy Windows 10)
+os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
+os.environ.setdefault("QT_QUICK_BACKEND", "software")
+os.environ.setdefault("QSG_RHI_BACKEND", "d3d11")
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt, QCoreApplication
@@ -55,8 +72,18 @@ def _acquire_single_instance():
 
 
 def _exception_hook(exc_type, exc_value, exc_tb):
-    traceback.print_exception(exc_type, exc_value, exc_tb)
-    sys.exit(1)
+    import datetime
+    err_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    print(f"[Unhandled Exception]\n{err_msg}", file=sys.stderr)
+    try:
+        log_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "JayraldinesCatering")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, "error_log.txt")
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"\n--- {datetime.datetime.now()} ---\n{err_msg}\n")
+    except Exception:
+        pass
+
 
 
 def main():
@@ -80,6 +107,8 @@ def main():
     from utils.paths import resource_path
 
     app = QApplication(sys.argv)
+    # Performance flag for older Intel HD Graphics (i5-4670 / HD 4600) on Windows 10
+    app.setAttribute(Qt.AA_DontCreateNativeWidgetSiblings, True)
     app.setStyle("Fusion")
 
     ico_path = resource_path("assets", "logo.ico")

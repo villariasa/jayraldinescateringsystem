@@ -375,11 +375,7 @@ class GlobalAIChatDrawer(QFrame):
         self._shortcut_esc = QShortcut(QKeySequence("Esc"), self)
         self._shortcut_esc.activated.connect(self.hide)
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(24)
-        shadow.setYOffset(6)
-        shadow.setColor(QColor(0, 0, 0, 110))
-        self.setGraphicsEffect(shadow)
+        # Skip QGraphicsDropShadowEffect — triggers full software rasterization on Intel HD GPUs.
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -721,6 +717,9 @@ class DraggableMascotWidget(QWidget):
 
             if self.drawer and self.drawer.isVisible():
                 self._update_drawer_position()
+
+            if hasattr(self, "mascot") and hasattr(self.mascot, "_quote_bubble") and self.mascot._quote_bubble.isVisible():
+                self.mascot._quote_bubble.reposition()
 
             self.raise_()  # ALWAYS KEEP MASCOT ON TOP
             event.accept()

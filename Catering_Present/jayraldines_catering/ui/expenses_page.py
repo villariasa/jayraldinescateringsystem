@@ -17,6 +17,7 @@ from utils.theme import ThemeManager
 from utils.icons import btn_icon_secondary, btn_icon_red, get_icon
 import utils.repository as repo
 from components.dialogs import confirm, success
+from utils.data_loader import run_async
 
 EXPENSE_CATEGORIES = [
     "Food Cost", "Labor", "Salary", "Service",
@@ -207,10 +208,50 @@ class ExpensesPage(QWidget):
         self.lay.addWidget(table_card)
         self.lay.addStretch(1)
 
+        _is_l = not ThemeManager().is_dark()
+        combo_style = (
+            "QComboBox { padding: 6px 12px; border: 1px solid #D8DFEA; border-radius: 8px; background-color: #FFFFFF; color: #101828; font-size: 13px; }"
+            "QComboBox:focus { border: 1px solid #E11D48; }"
+            "QComboBox QAbstractItemView { background-color: #FFFFFF; color: #101828; border: 1px solid #E4E9F1; border-radius: 8px; selection-background-color: rgba(225,29,72,0.08); selection-color: #D31647; }"
+        ) if _is_l else (
+            "QComboBox { padding: 6px 12px; border: 1px solid #243244; border-radius: 8px; background-color: #1F2937; color: #F9FAFB; font-size: 13px; }"
+            "QComboBox:focus { border: 1px solid #E11D48; }"
+            "QComboBox QAbstractItemView { background-color: #1F2937; color: #F9FAFB; border: 1px solid #243244; border-radius: 8px; selection-background-color: rgba(225,29,72,0.15); selection-color: #E11D48; }"
+        )
+        date_style = (
+            "QDateEdit { padding: 4px 10px; border: 1px solid #D8DFEA; border-radius: 8px; background-color: #FFFFFF; color: #101828; font-size: 13px; }"
+        ) if _is_l else (
+            "QDateEdit { padding: 4px 10px; border: 1px solid #243244; border-radius: 8px; background-color: #1F2937; color: #F9FAFB; font-size: 13px; }"
+        )
+        self._filter_combo.setStyleSheet(combo_style)
+        self._dt_start.setStyleSheet(date_style)
+        self._dt_end.setStyleSheet(date_style)
+
         scroll.setWidget(content)
         root.addWidget(scroll)
 
+        self._dirty = True
         self.reload()
+
+        try:
+            from utils.signals import app_events
+            app_events().expense_saved.connect(self._mark_dirty_and_reload)
+            app_events().data_changed.connect(self._mark_dirty)
+        except Exception:
+            pass
+
+    def _mark_dirty(self):
+        self._dirty = True
+
+    def _mark_dirty_and_reload(self):
+        self._dirty = True
+        if self.isVisible():
+            self.reload()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, "_dirty", True):
+            self.reload()
 
     # ── Data loading ────────────────────────────────────────────────────────
 
@@ -266,7 +307,16 @@ class ExpensesPage(QWidget):
         return filtered
 
     def reload(self):
-        all_exp = repo.get_all_expenses() or []
+        run_async(self, repo.get_all_expenses, self._on_expenses_loaded)
+
+    def _on_expenses_loaded(self, data):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        all_exp = data or []
         self._expenses = all_exp
         self._filtered_expenses = self._filter_expenses_list(all_exp)
         self._load_table()
@@ -512,6 +562,12 @@ class ExpensesPage(QWidget):
             "date": date_str,
         })
         self.reload()
+        try:
+            from utils.signals import app_events
+            app_events().expense_saved.emit()
+            app_events().data_changed.emit()
+        except Exception:
+            pass
         success(self, message="Expense recorded.")
 
     def _delete_expense(self, exp: dict):
@@ -521,6 +577,12 @@ class ExpensesPage(QWidget):
             return
         repo.delete_expense(exp["id"])
         self.reload()
+        try:
+            from utils.signals import app_events
+            app_events().expense_saved.emit()
+            app_events().data_changed.emit()
+        except Exception:
+            pass
 
     def _open_import_expenses(self):
         from components.import_dialog import ImportWizardDialog

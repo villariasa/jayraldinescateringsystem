@@ -55,62 +55,71 @@ _CONTENT_W = _PAGE_W - 2 * _MARGIN
 def _styles():
     s = getSampleStyleSheet()
     s.add(ParagraphStyle("Brand",
-        fontName="Helvetica-Bold", fontSize=20, textColor=_C_RED,
-        spaceAfter=2, alignment=TA_LEFT, leading=24))
+        fontName="Helvetica-Bold", fontSize=22, textColor=_C_RED,
+        spaceAfter=2, alignment=TA_LEFT, leading=26))
     s.add(ParagraphStyle("BrandSub",
-        fontName="Helvetica", fontSize=8.5, textColor=_C_MUTED,
-        spaceAfter=0, alignment=TA_LEFT, leading=12))
+        fontName="Helvetica", fontSize=9.5, textColor=_C_MUTED,
+        spaceAfter=0, alignment=TA_LEFT, leading=13))
     s.add(ParagraphStyle("BrandSubRight",
-        fontName="Helvetica", fontSize=8.5, textColor=_C_MUTED,
-        spaceAfter=0, alignment=TA_RIGHT, leading=12))
+        fontName="Helvetica", fontSize=9.5, textColor=_C_MUTED,
+        spaceAfter=0, alignment=TA_RIGHT, leading=13))
     s.add(ParagraphStyle("SectionHead",
-        fontName="Helvetica-Bold", fontSize=10, textColor=_C_DARK,
-        spaceBefore=14, spaceAfter=6, alignment=TA_LEFT, leading=14))
+        fontName="Helvetica-Bold", fontSize=12, textColor=_C_DARK,
+        spaceBefore=16, spaceAfter=8, alignment=TA_LEFT, leading=16))
     s.add(ParagraphStyle("KpiLabel",
-        fontName="Helvetica", fontSize=7.5, textColor=_C_MUTED,
-        spaceAfter=1, alignment=TA_CENTER, leading=10))
+        fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_MUTED,
+        spaceAfter=2, alignment=TA_CENTER, leading=11))
     s.add(ParagraphStyle("KpiValue",
-        fontName="Helvetica-Bold", fontSize=15, textColor=_C_DARK,
-        spaceAfter=0, alignment=TA_CENTER, leading=18))
+        fontName="Helvetica-Bold", fontSize=16, textColor=_C_DARK,
+        spaceAfter=0, alignment=TA_CENTER, leading=19))
     s.add(ParagraphStyle("Footer",
-        fontName="Helvetica", fontSize=7, textColor=_C_MUTED,
-        alignment=TA_CENTER, leading=10))
+        fontName="Helvetica", fontSize=8, textColor=_C_MUTED,
+        alignment=TA_CENTER, leading=11))
     s.add(ParagraphStyle("ReceiptTitle",
         fontName="Helvetica-Bold", fontSize=18, textColor=_C_WHITE,
         alignment=TA_LEFT, leading=22, spaceAfter=4))
     s.add(ParagraphStyle("ReceiptSub",
-        fontName="Helvetica", fontSize=9, textColor=colors.HexColor("#CBD5E1"),
-        alignment=TA_LEFT, leading=12))
+        fontName="Helvetica", fontSize=9.5, textColor=colors.HexColor("#CBD5E1"),
+        alignment=TA_LEFT, leading=13))
     s.add(ParagraphStyle("DetailLabel",
-        fontName="Helvetica-Bold", fontSize=9, textColor=_C_GRAY,
-        leading=12, wordWrap="CJK"))
+        fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_GRAY,
+        leading=13, wordWrap="CJK"))
     s.add(ParagraphStyle("DetailValue",
-        fontName="Helvetica", fontSize=9, textColor=_C_DARK,
-        leading=12, wordWrap="CJK"))
+        fontName="Helvetica", fontSize=9.5, textColor=_C_DARK,
+        leading=13, wordWrap="CJK"))
     s.add(ParagraphStyle("DetailValueBold",
-        fontName="Helvetica-Bold", fontSize=9, textColor=_C_DARK,
-        leading=12, wordWrap="CJK"))
+        fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK,
+        leading=13, wordWrap="CJK"))
     s.add(ParagraphStyle("TableHead",
-        fontName="Helvetica-Bold", fontSize=8, textColor=_C_WHITE,
-        alignment=TA_CENTER, leading=10))
+        fontName="Helvetica-Bold", fontSize=9, textColor=_C_WHITE,
+        alignment=TA_CENTER, leading=12))
     s.add(ParagraphStyle("TableCell",
-        fontName="Helvetica", fontSize=8, textColor=_C_DARK,
-        leading=11, wordWrap="CJK"))
+        fontName="Helvetica", fontSize=8.5, textColor=_C_DARK,
+        leading=12, wordWrap="CJK"))
     s.add(ParagraphStyle("TableCellRight",
-        fontName="Helvetica", fontSize=8, textColor=_C_DARK,
-        alignment=TA_RIGHT, leading=11, wordWrap="CJK"))
+        fontName="Helvetica", fontSize=8.5, textColor=_C_DARK,
+        alignment=TA_RIGHT, leading=12, wordWrap="CJK"))
     s.add(ParagraphStyle("TableCellCenter",
-        fontName="Helvetica", fontSize=8, textColor=_C_DARK,
-        alignment=TA_CENTER, leading=11, wordWrap="CJK"))
+        fontName="Helvetica", fontSize=8.5, textColor=_C_DARK,
+        alignment=TA_CENTER, leading=12, wordWrap="CJK"))
     s.add(ParagraphStyle("StatusPaid",
-        fontName="Helvetica-Bold", fontSize=8, textColor=_C_GREEN,
-        alignment=TA_CENTER, leading=11))
+        fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_GREEN,
+        alignment=TA_CENTER, leading=12))
     s.add(ParagraphStyle("StatusPartial",
-        fontName="Helvetica-Bold", fontSize=8, textColor=_C_AMBER,
-        alignment=TA_CENTER, leading=11))
+        fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_AMBER,
+        alignment=TA_CENTER, leading=12))
     s.add(ParagraphStyle("StatusUnpaid",
-        fontName="Helvetica-Bold", fontSize=8, textColor=_C_RED,
+        fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_RED,
+        alignment=TA_CENTER, leading=12))
+    s.add(ParagraphStyle("CalDayHead",
+        fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_WHITE,
         alignment=TA_CENTER, leading=11))
+    s.add(ParagraphStyle("CalDateNum",
+        fontName="Helvetica-Bold", fontSize=9, textColor=_C_DARK,
+        alignment=TA_LEFT, leading=11))
+    s.add(ParagraphStyle("CalEventChip",
+        fontName="Helvetica", fontSize=7, textColor=_C_DARK,
+        alignment=TA_LEFT, leading=9))
     return s
 
 
@@ -876,4 +885,160 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
         return True
     except Exception as exc:
         print(f"[exporter] Excel export failed: {exc}")
+        return False
+
+
+def export_calendar_pdf(save_path: str, year: int, month: int, month_events: dict,
+                        biz_name: str = "Jayraldine's Catering") -> bool:
+    """Generate a high-quality A4 PDF of the catering schedule and calendar agenda for a given month."""
+    if not REPORTLAB_OK:
+        return False
+    try:
+        import calendar as _cal
+        doc = SimpleDocTemplate(
+            save_path, pagesize=A4,
+            leftMargin=_MARGIN, rightMargin=_MARGIN,
+            topMargin=_MARGIN, bottomMargin=_MARGIN,
+            title=f"{biz_name} — Catering Schedule {year}-{month:02d}",
+            author=biz_name,
+        )
+        styles = _styles()
+        story = []
+
+        month_name = _cal.month_name[month]
+        title = f"Catering Schedule — {month_name} {year}"
+        _header_block(story, styles, biz_name, title, period=f"{month_name} {year}")
+
+        # Compute calendar month stats
+        all_events = []
+        total_pax = 0
+        busiest_day_pax = 0
+        busiest_day = "None"
+        for day, ev_list in (month_events or {}).items():
+            day_pax = 0
+            for ev in (ev_list or []):
+                p = int(ev.get("pax", 0) or 0)
+                total_pax += p
+                day_pax += p
+                all_events.append((day, ev))
+            if day_pax > busiest_day_pax:
+                busiest_day_pax = day_pax
+                busiest_day = f"{month_name[:3]} {day} ({day_pax} pax)"
+
+        # KPI Summary Row
+        cal_kpis = [
+            ("Total Events", str(len(all_events))),
+            ("Total Guests (Pax)", f"{total_pax:,}"),
+            ("Peak Day Pax", f"{busiest_day_pax} pax" if busiest_day_pax else "—"),
+            ("Active Days", f"{len(month_events or {})} days"),
+        ]
+        ncols = len(cal_kpis)
+        col_w = [_CONTENT_W / ncols] * ncols
+        labels_row = [Paragraph(lbl, styles["KpiLabel"]) for lbl, _ in cal_kpis]
+        values_row = [Paragraph(val, styles["KpiValue"]) for _, val in cal_kpis]
+        t = Table([labels_row, values_row], colWidths=col_w)
+        t.setStyle(TableStyle([
+            ("BOX",           (0, 0), (-1, -1), 0.5, _C_BORDER),
+            ("INNERGRID",     (0, 0), (-1, -1), 0.5, _C_BORDER),
+            ("BACKGROUND",    (0, 0), (-1, 0),  _C_LIGHT),
+            ("BACKGROUND",    (0, 1), (-1, 1),  _C_WHITE),
+            ("TOPPADDING",    (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ("ROUNDEDCORNERS", [4]),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 12))
+
+        # Calendar Grid
+        story.append(Paragraph("Monthly Calendar Grid", styles["SectionHead"]))
+        days_head = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+        grid_data = [[Paragraph(d, styles["CalDayHead"]) for d in days_head]]
+
+        cal_matrix = _cal.monthcalendar(year, month)
+        cell_w = _CONTENT_W / 7.0
+        for week in cal_matrix:
+            week_row = []
+            for day in week:
+                if day == 0:
+                    week_row.append("")
+                else:
+                    day_evs = (month_events or {}).get(day, [])
+                    cell_content = [Paragraph(f"<b>{day}</b>", styles["CalDateNum"])]
+                    if day_evs:
+                        d_pax = sum(int(e.get("pax", 0) or 0) for e in day_evs)
+                        badge_color = "#E11D48" if d_pax >= 600 else ("#F59E0B" if d_pax >= 400 else "#22C55E")
+                        cell_content.append(Paragraph(
+                            f"<font color='{badge_color}'><b>{len(day_evs)} bkg ({d_pax}p)</b></font>",
+                            styles["CalEventChip"]
+                        ))
+                    week_row.append(cell_content)
+            grid_data.append(week_row)
+
+        grid_table = Table(grid_data, colWidths=[cell_w] * 7)
+        grid_style = [
+            ("BACKGROUND",    (0, 0), (-1, 0),  _C_RED),
+            ("GRID",          (0, 0), (-1, -1), 0.4, _C_BORDER),
+            ("TOPPADDING",    (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
+            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        ]
+        for r_idx in range(1, len(grid_data)):
+            bg = _C_LIGHT if r_idx % 2 == 0 else _C_WHITE
+            grid_style.append(("BACKGROUND", (0, r_idx), (-1, r_idx), bg))
+
+        grid_table.setStyle(TableStyle(grid_style))
+        story.append(grid_table)
+        story.append(Spacer(1, 14))
+
+        # Itemized Schedule Table
+        story.append(Paragraph("Itemized Event Agenda", styles["SectionHead"]))
+        agenda_hdrs = ["Date & Time", "Ref #", "Event / Customer", "Venue", "Pax", "Status"]
+        agenda_w = [3.2*cm, 2.4*cm, 5.0*cm, 3.8*cm, 1.6*cm, 2.0*cm]
+        agenda_rows = [[Paragraph(h, styles["TableHead"]) for h in agenda_hdrs]]
+
+        all_events_sorted = sorted(all_events, key=lambda x: x[0])
+        status_styles = {
+            "CONFIRMED": styles["StatusPaid"],
+            "COMPLETED": styles["StatusPaid"],
+            "PENDING":   styles["StatusPartial"],
+            "CANCELLED": styles["StatusUnpaid"],
+        }
+
+        if not all_events_sorted:
+            agenda_rows.append([Paragraph("No events scheduled for this month.", styles["TableCellCenter"]), "", "", "", "", ""])
+        else:
+            for day, ev in all_events_sorted:
+                time_str = ev.get("time") or "6:00 PM"
+                st_key = str(ev.get("status") or "CONFIRMED").upper()
+                st_style = status_styles.get(st_key, styles["TableCellCenter"])
+                agenda_rows.append([
+                    Paragraph(f"{month_name[:3]} {day}, {year}<br/><font color='#6B7280' size=7>{time_str}</font>", styles["TableCell"]),
+                    Paragraph(str(ev.get("ref") or "—"), styles["TableCell"]),
+                    Paragraph(f"<b>{ev.get('event_name', '')}</b>", styles["TableCell"]),
+                    Paragraph(str(ev.get("location") or "—"), styles["TableCell"]),
+                    Paragraph(f"{ev.get('pax', 0)}", styles["TableCellCenter"]),
+                    Paragraph(st_key.capitalize(), st_style),
+                ])
+
+        agenda_table = Table(agenda_rows, colWidths=agenda_w, repeatRows=1)
+        agenda_table.setStyle(TableStyle([
+            ("BACKGROUND",    (0, 0), (-1, 0),  _C_DARK),
+            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_C_WHITE, _C_LIGHT]),
+            ("BOX",           (0, 0), (-1, -1), 0.4, _C_BORDER),
+            ("INNERGRID",     (0, 0), (-1, -1), 0.3, _C_BORDER),
+            ("TOPPADDING",    (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        story.append(agenda_table)
+
+        _footer(story, styles, biz_name)
+        doc.build(story)
+        return True
+    except Exception as exc:
+        print(f"[exporter] export_calendar_pdf failed: {exc}")
         return False

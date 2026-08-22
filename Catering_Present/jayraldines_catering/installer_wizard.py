@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget,
+    QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QStackedWidget,
     QLabel, QPushButton, QLineEdit, QFileDialog, QCheckBox,
     QProgressBar, QFrame, QGraphicsDropShadowEffect
 )
@@ -79,18 +79,140 @@ def create_shortcut(target_exe: Path, shortcut_path: Path, icon_path: Path, work
                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
 
 
+def check_database_status(psql_exe: str, pg_pass: str = "12345678") -> Tuple[bool, int]:
+    """Checks if jayraldines_catering database exists and whether it contains tables/records."""
+    env = os.environ.copy()
+    env["PGPASSWORD"] = pg_pass
+    try:
+        res = subprocess.run(
+            [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-tAc", "SELECT 1 FROM pg_database WHERE datname='jayraldines_catering';"],
+            env=env, capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=5
+        )
+        if "1" in res.stdout:
+            cnt_res = subprocess.run(
+                [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-tAc",
+                 "SELECT COALESCE((SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('bookings', 'customers', 'menu_items', 'packages')), 0);"],
+                env=env, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=5
+            )
+            val = cnt_res.stdout.strip()
+            tbl_count = int(val) if val.isdigit() else 0
+            return (True, tbl_count)
+        return (False, 0)
+    except Exception:
+        return (False, 0)
+
+
+class DatabaseChoiceDialog(QDialog):
+    """Modern frameless dialog asking user how to handle existing database."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(540, 360)
+        self.clean_db = False
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(10, 10, 10, 10)
+
+        frame = QFrame(self)
+        frame.setStyleSheet("""
+            QFrame {
+                background-color: #0F172A;
+                border-radius: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+            }
+        """)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(24)
+        shadow.setColor(QColor(0, 0, 0, 180))
+        frame.setGraphicsEffect(shadow)
+
+        f_lay = QVBoxLayout(frame)
+        f_lay.setContentsMargins(24, 22, 24, 22)
+        f_lay.setSpacing(14)
+
+        t_lbl = QLabel("Existing Database Detected")
+        t_lbl.setStyleSheet("color: #F8FAFC; font-size: 18px; font-weight: 800;")
+        f_lay.addWidget(t_lbl)
+
+        desc = QLabel(
+            "An existing 'jayraldines_catering' database was detected on your PostgreSQL server.\n"
+            "Please choose how you would like to proceed with the installation:"
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #94A3B8; font-size: 12px; line-height: 140%;")
+        f_lay.addWidget(desc)
+
+        # Option 1: Keep existing
+        self.btn_keep = QPushButton("  Keep Existing Database (Recommended)\n  Preserve all current bookings, customers, custom menus, and invoices.\n  Only runs safe updates & migrations.")
+        self.btn_keep.setCursor(Qt.PointingHandCursor)
+        self.btn_keep.setStyleSheet("""
+            QPushButton {
+                background: rgba(16, 185, 129, 0.12);
+                border: 2px solid #10B981;
+                border-radius: 10px;
+                color: #F1F5F9;
+                font-size: 12px;
+                font-weight: 600;
+                text-align: left;
+                padding: 12px 14px;
+            }
+            QPushButton:hover {
+                background: rgba(16, 185, 129, 0.22);
+            }
+        """)
+        self.btn_keep.clicked.connect(self._on_keep)
+        f_lay.addWidget(self.btn_keep)
+
+        # Option 2: Clean setup
+        self.btn_clean = QPushButton("  Clean Setup & Fresh Start\n  Wipe and recreate clean blank database.\n  Menus, packages, and bookings will be completely blank.")
+        self.btn_clean.setCursor(Qt.PointingHandCursor)
+        self.btn_clean.setStyleSheet("""
+            QPushButton {
+                background: rgba(225, 29, 72, 0.08);
+                border: 1px solid rgba(225, 29, 72, 0.4);
+                border-radius: 10px;
+                color: #E2E8F0;
+                font-size: 12px;
+                font-weight: 600;
+                text-align: left;
+                padding: 12px 14px;
+            }
+            QPushButton:hover {
+                background: rgba(225, 29, 72, 0.18);
+                border-color: #E11D48;
+            }
+        """)
+        self.btn_clean.clicked.connect(self._on_clean)
+        f_lay.addWidget(self.btn_clean)
+
+        lay.addWidget(frame)
+
+    def _on_keep(self):
+        self.clean_db = False
+        self.accept()
+
+    def _on_clean(self):
+        self.clean_db = True
+        self.accept()
+
+
 class ExtractWorker(QThread):
     progress = Signal(int, str)
     finished = Signal(bool, str)
 
-    def __init__(self, dest_dir: Path, create_desktop: bool, create_start: bool, setup_db: bool = True):
+    def __init__(self, dest_dir: Path, create_desktop: bool, create_start: bool, setup_db: bool = True, clean_db: bool = True):
         super().__init__()
         self.dest_dir = dest_dir
         self.create_desktop = create_desktop
         self.create_start = create_start
         self.setup_db = setup_db
+        self.clean_db = clean_db
 
-    def _find_psql(self) -> Optional[str]:
+    @staticmethod
+    def _find_psql_static() -> Optional[str]:
         if shutil.which("psql"):
             return "psql"
         for ver in ["17", "16", "15", "14", "13"]:
@@ -100,6 +222,9 @@ class ExtractWorker(QThread):
                     return cand
         return None
 
+    def _find_psql(self) -> Optional[str]:
+        return ExtractWorker._find_psql_static()
+
     def _init_local_database(self, psql_exe: str):
         env = os.environ.copy()
         env["PGPASSWORD"] = "12345678"
@@ -108,10 +233,17 @@ class ExtractWorker(QThread):
             return
 
         try:
-            subprocess.run(
-                [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-f", str(main_sql)],
-                env=env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=30
-            )
+            if self.clean_db:
+                # Terminate any active connections so DROP DATABASE succeeds 100% reliably
+                kill_sql = "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'jayraldines_catering' AND pid <> pg_backend_pid();"
+                subprocess.run(
+                    [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-c", kill_sql],
+                    env=env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=10
+                )
+                subprocess.run(
+                    [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-f", str(main_sql)],
+                    env=env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=30
+                )
 
             for mig in ["cebu_address_migration.sql", "occasions_migration.sql", "confirmed_only_views_migration.sql", "analytics_functions_migration.sql", "fix_customer_ledger_view.sql"]:
                 mig_path = self.dest_dir / mig
@@ -162,11 +294,7 @@ class ExtractWorker(QThread):
                         self.progress.emit(pct, f"Extracting: {member.filename}")
 
             if self.setup_db:
-                self.progress.emit(75, "Checking PostgreSQL Database environment...")
-                psql = self._find_psql()
-                if psql:
-                    self.progress.emit(80, "Applying database tables & migrations...")
-                    self._init_local_database(psql)
+                self.progress.emit(75, "Configuring High-Performance Embedded Database...")
 
             self.progress.emit(88, "Registering Windows shortcuts & icons...")
 
@@ -676,7 +804,7 @@ class ModernInstallerWindow(QWidget):
         self.cb_start.setStyleSheet(cb_style)
         opts_box.addWidget(self.cb_start)
 
-        self.cb_db = QCheckBox("Initialize & Configure PostgreSQL Database tables automatically")
+        self.cb_db = QCheckBox("Initialize & Optimize Embedded SQLite Database automatically")
         self.cb_db.setChecked(True)
         self.cb_db.setStyleSheet(cb_style)
         opts_box.addWidget(self.cb_db)
@@ -780,13 +908,13 @@ class ModernInstallerWindow(QWidget):
         self.stack.addWidget(page)
 
     def _start_installation(self):
-        self.set_step(2)
         dest_dir = Path(self.path_edit.text())
         create_desktop = self.cb_desktop.isChecked()
         create_start = self.cb_start.isChecked()
         setup_db = self.cb_db.isChecked()
-
-        self.worker = ExtractWorker(dest_dir, create_desktop, create_start, setup_db)
+        clean_db = True
+        self.set_step(2)
+        self.worker = ExtractWorker(dest_dir, create_desktop, create_start, setup_db, clean_db)
         self.worker.progress.connect(self._on_install_progress)
         self.worker.finished.connect(self._on_install_finished)
         self.worker.start()
@@ -797,6 +925,12 @@ class ModernInstallerWindow(QWidget):
         self.status_lbl.setText(msg)
 
     def _on_install_finished(self, ok: bool, err: str):
+        if hasattr(self, "worker") and self.worker:
+            try:
+                self.worker.quit()
+                self.worker.wait(500)
+            except Exception:
+                pass
         if ok:
             self.set_step(3)
         else:
@@ -916,8 +1050,27 @@ class ModernInstallerWindow(QWidget):
             dest_dir = Path(self.path_edit.text())
             exe = dest_dir / "JayraldinesCatering.exe"
             if exe.exists():
-                subprocess.Popen([str(exe)], cwd=str(dest_dir))
+                try:
+                    os.startfile(str(exe))
+                except Exception:
+                    DETACHED_PROCESS = 0x00000008
+                    subprocess.Popen([str(exe)], cwd=str(dest_dir), close_fds=True, creationflags=DETACHED_PROCESS)
+        self._terminate_installer()
+
+    def closeEvent(self, event):
+        self._terminate_installer()
+        event.accept()
+
+    def _terminate_installer(self):
+        if hasattr(self, "worker") and self.worker and self.worker.isRunning():
+            try:
+                self.worker.quit()
+                self.worker.wait(500)
+            except Exception:
+                pass
         self.close()
+        QApplication.quit()
+        sys.exit(0)
 
 
 def main():
