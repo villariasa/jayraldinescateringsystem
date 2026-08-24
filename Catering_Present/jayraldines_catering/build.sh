@@ -419,6 +419,7 @@ a = Analysis(
         "utils.notif_scheduler",
         "utils.ai_client",
         "utils.reminder_manager",
+        "pypdf",
     ],
     hookspath=[],
     runtime_hooks=[],

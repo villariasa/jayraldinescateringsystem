@@ -938,160 +938,567 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
         return False
 
 
-def export_calendar_pdf(save_path: str, year: int, month: int, month_events: dict,
-                        biz_name: str = "Jayraldine's Catering") -> bool:
-    """Generate a high-quality A4 PDF of the catering schedule and calendar agenda for a given month."""
+# ─── shared helper: draw one landscape wall-calendar page onto a Canvas ──────
+def _draw_calendar_page(c, LS_W, LS_H, year, month, month_events,
+                        biz_name, MX, MY, colors_ns):
+    """Draw a single landscape wall-calendar month page onto canvas `c`.
+    `c` must already be in the correct page; caller is responsible for
+    calling c.showPage() afterwards.
+    `colors_ns` is the reportlab `colors` module (passed in to avoid
+    re-importing inside the helper).
+    """
+    import calendar as _cal
+    from datetime import datetime
+    from reportlab.lib.units import mm
+    colors = colors_ns
+
+    month_name = _cal.month_name[month]
+
+    # Colour palette
+    _C_GR_BG  = colors.HexColor("#DCFCE7")
+    _C_GR_TXT = colors.HexColor("#15803D")
+    _C_AM_BG  = colors.HexColor("#FEF3C7")
+    _C_AM_TXT = colors.HexColor("#B45309")
+    _C_RD_BG  = colors.HexColor("#FEE2E2")
+    _C_RD_TXT = colors.HexColor("#B91C1C")
+    _C_NAV    = colors.HexColor("#0F172A")
+    _C_DAY_H  = colors.HexColor("#1E293B")
+    _C_CELL_B = colors.HexColor("#CBD5E1")
+    _C_EMPTY  = colors.HexColor("#F8FAFC")
+    _C_TODAY  = colors.HexColor("#EFF6FF")
+    _C_MUTED  = colors.HexColor("#6B7280")
+
+    draw_w = LS_W - 2 * MX
+
+    # KPI pre-calc
+    all_evs   = [(d, ev) for d, evl in (month_events or {}).items() for ev in (evl or [])]
+    total_pax = sum(int(ev.get("pax", 0) or 0) for _, ev in all_evs)
+    total_evs = len(all_evs)
+    active_d  = len([d for d, evl in (month_events or {}).items() if evl])
+
+    # ── Title bar ──────────────────────────────────────────────────────────
+    TITLE_H = 50
+    title_y  = LS_H - MY - TITLE_H
+
+    c.setFillColor(_C_NAV)
+    c.roundRect(MX, title_y, draw_w, TITLE_H, 7, fill=1, stroke=0)
+
+    _lp = _logo_path()
+    LOGO_S = 34
+    if os.path.exists(_lp):
+        try:
+            c.drawImage(_lp, MX + 10, title_y + (TITLE_H - LOGO_S) / 2,
+                        width=LOGO_S, height=LOGO_S,
+                        preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 24)
+    c.drawCentredString(LS_W / 2, title_y + TITLE_H / 2 - 8,
+                        f"{month_name.upper()}  {year}")
+
+    kpi_items = [("EVENTS", str(total_evs)),
+                 ("PAX",    f"{total_pax:,}"),
+                 ("DAYS",   str(active_d))]
+    BW, BH, BG = 64, 30, 6
+    kx = MX + draw_w - len(kpi_items) * (BW + BG) - 4
+    for lbl, val in kpi_items:
+        c.setFillColor(colors.HexColor("#1E3A5F"))
+        c.roundRect(kx, title_y + (TITLE_H - BH) / 2, BW, BH, 4, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#93C5FD"))
+        c.setFont("Helvetica-Bold", 6.5)
+        c.drawCentredString(kx + BW / 2, title_y + (TITLE_H + BH) / 2 - 8, lbl)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawCentredString(kx + BW / 2, title_y + (TITLE_H - BH) / 2 + 5, val)
+        kx += BW + BG
+
+    # ── Weekday headers ────────────────────────────────────────────────────
+    WDAY_H   = 24
+    wday_y   = title_y - WDAY_H
+    col_w    = draw_w / 7
+    DAYS_FULL = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY",
+                 "THURSDAY", "FRIDAY", "SATURDAY"]
+    c.setFillColor(_C_DAY_H)
+    c.rect(MX, wday_y, draw_w, WDAY_H, fill=1, stroke=0)
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 8)
+    for i, dn in enumerate(DAYS_FULL):
+        c.drawCentredString(MX + col_w * i + col_w / 2, wday_y + WDAY_H / 2 - 3.5, dn)
+
+    # ── Day cells ──────────────────────────────────────────────────────────
+    _cal.setfirstweekday(_cal.SUNDAY)
+    month_matrix = _cal.monthcalendar(year, month)
+    n_rows  = len(month_matrix)
+    avail_h = wday_y - MY - 14
+    cell_h  = avail_h / n_rows
+    today_dt = datetime.now().date()
+
+    for r_idx, week in enumerate(month_matrix):
+        row_bot = wday_y - (r_idx + 1) * cell_h
+
+        for c_idx, day in enumerate(week):
+            cx = MX + c_idx * col_w
+            cy = row_bot
+
+            if day == 0:
+                c.setFillColor(_C_EMPTY)
+                c.setStrokeColor(_C_CELL_B)
+                c.setLineWidth(0.5)
+                c.rect(cx, cy, col_w, cell_h, fill=1, stroke=1)
+                continue
+
+            is_today = (today_dt.year == year and
+                        today_dt.month == month and
+                        today_dt.day == day)
+
+            c.setFillColor(_C_TODAY if is_today else colors.white)
+            c.setStrokeColor(_C_CELL_B)
+            c.setLineWidth(0.5)
+            c.rect(cx, cy, col_w, cell_h, fill=1, stroke=1)
+
+            day_fs = max(11, min(17, cell_h * 0.20))
+            c.setFillColor(colors.HexColor("#1D4ED8") if is_today else _C_NAV)
+            c.setFont("Helvetica-Bold", day_fs)
+            c.drawString(cx + 5, cy + cell_h - day_fs - 4, str(day))
+            if is_today:
+                c.setFillColor(colors.HexColor("#1D4ED8"))
+                c.setFont("Helvetica-Bold", 5.5)
+                c.drawString(cx + 5 + day_fs + 3, cy + cell_h - 9, "TODAY")
+
+            day_evs = (month_events or {}).get(day, [])
+            if day_evs:
+                d_count = len(day_evs)
+                d_pax   = sum(int(e.get("pax", 0) or 0) for e in day_evs)
+
+                if d_pax >= 600:
+                    bg_c, txt_c = _C_RD_BG, _C_RD_TXT
+                elif d_pax >= 400:
+                    bg_c, txt_c = _C_AM_BG, _C_AM_TXT
+                else:
+                    bg_c, txt_c = _C_GR_BG, _C_GR_TXT
+
+                BM = 5
+                bx, by = cx + BM, cy + BM
+                bw = col_w - 2 * BM
+                bh = min(cell_h * 0.50, 40)
+                stripe = 4
+
+                c.setFillColor(bg_c)
+                c.roundRect(bx, by, bw, bh, 4, fill=1, stroke=0)
+                c.setFillColor(txt_c)
+                c.roundRect(bx, by, stripe, bh, 2, fill=1, stroke=0)
+
+                cnt_fs = max(8, min(13, bh * 0.40))
+                bk_lbl = "BOOKING" if d_count == 1 else "BOOKINGS"
+                c.setFont("Helvetica-Bold", cnt_fs)
+                c.drawString(bx + stripe + 4, by + bh - cnt_fs - 3,
+                             f"{d_count} {bk_lbl}")
+                pax_fs = max(6, cnt_fs * 0.72)
+                c.setFont("Helvetica", pax_fs)
+                c.drawString(bx + stripe + 4, by + 3, f"{d_pax:,} Pax")
+
+    # ── Legend ─────────────────────────────────────────────────────────────
+    leg_y = MY + 1
+    leg_items = [
+        (_C_GR_BG, _C_GR_TXT, "Available (< 400 pax)"),
+        (_C_AM_BG, _C_AM_TXT, "Near Full (400–599 pax)"),
+        (_C_RD_BG, _C_RD_TXT, "Fully Booked (600+ pax)"),
+    ]
+    lx = MX
+    for bg_c, tc, lbl in leg_items:
+        BOX = 9
+        c.setFillColor(bg_c)
+        c.roundRect(lx, leg_y, BOX, BOX, 2, fill=1, stroke=0)
+        c.setFillColor(tc)
+        c.setFont("Helvetica-Bold", 6.5)
+        c.drawString(lx + BOX + 3, leg_y + 2, lbl)
+        lx += BOX + 3 + c.stringWidth(lbl, "Helvetica-Bold", 6.5) + 18
+
+    now_str = datetime.now().strftime("%b %d, %Y  %I:%M %p")
+    c.setFillColor(_C_MUTED)
+    c.setFont("Helvetica", 6)
+    c.drawRightString(MX + draw_w, leg_y + 2,
+                      f"Generated: {now_str}  •  {biz_name}")
+
+
+# ─── shared helper: build agenda story for one month ─────────────────────────
+def _build_agenda_story(year, month, month_events, styles, biz_name):
+    """Return a ReportLab Platypus story list for one month's agenda page(s)."""
+    import calendar as _cal
+    month_name = _cal.month_name[month]
+
+    story = []
+    _header_block(story, styles, biz_name,
+                  f"Booking Agenda — {month_name} {year}",
+                  period=f"{month_name} {year}")
+    story.append(Paragraph("Itemized Event Agenda", styles["SectionHead"]))
+
+    all_events = [(d, ev)
+                  for d, evl in sorted((month_events or {}).items())
+                  for ev in (evl or [])]
+
+    agenda_hdrs = ["Date & Time", "Ref #", "Event / Customer", "Venue", "Pax", "Status"]
+    agenda_w    = [3.2*cm, 2.4*cm, 5.2*cm, 3.8*cm, 1.6*cm, 2.0*cm]
+    agenda_rows = [[Paragraph(h, styles["TableHead"]) for h in agenda_hdrs]]
+
+    sstyles = {
+        "CONFIRMED": styles["StatusPaid"],
+        "COMPLETED": styles["StatusPaid"],
+        "PENDING":   styles["StatusPartial"],
+        "CANCELLED": styles["StatusUnpaid"],
+    }
+
+    if not all_events:
+        agenda_rows.append([
+            Paragraph("No events scheduled for this month.", styles["TableCellCenter"]),
+            "", "", "", "", ""
+        ])
+    else:
+        for day, ev in all_events:
+            time_str = ev.get("time") or "6:00 PM"
+            st_key   = str(ev.get("status") or "CONFIRMED").upper()
+            agenda_rows.append([
+                Paragraph(
+                    f"{month_name[:3]} {day}, {year}<br/>"
+                    f"<font color='#6B7280' size=7>{time_str}</font>",
+                    styles["TableCell"]),
+                Paragraph(str(ev.get("ref") or "—"), styles["TableCell"]),
+                Paragraph(f"<b>{ev.get('event_name', '')}</b>", styles["TableCell"]),
+                Paragraph(str(ev.get("location") or "—"), styles["TableCell"]),
+                Paragraph(str(ev.get("pax", 0)), styles["TableCellCenter"]),
+                Paragraph(str(st_key).capitalize(),
+                          sstyles.get(st_key, styles["TableCellCenter"])),
+            ])
+
+    tbl = Table(agenda_rows, colWidths=agenda_w, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, 0),  _C_DARK),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_C_WHITE, _C_LIGHT]),
+        ("BOX",           (0, 0), (-1, -1), 0.4, _C_BORDER),
+        ("INNERGRID",     (0, 0), (-1, -1), 0.3, _C_BORDER),
+        ("TOPPADDING",    (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    story.append(tbl)
+    _footer(story, styles, biz_name)
+    return story
+
+
+def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
+    """Draw one or more LANDSCAPE A4 agenda pages onto canvas `c`.
+
+    Uses only canvas primitives — no Platypus, no external PDF library.
+    Automatically adds new pages when content overflows.
+    """
+    import calendar as _cal
+    from datetime import datetime
+    from reportlab.lib.pagesizes import landscape, A4
+    from reportlab.lib.units import cm, mm
+
+    LS = landscape(A4)
+    PW, PH = LS          # 841.89 x 595.28
+    MX = 16 * mm         # matches calendar page margins
+    MY = 12 * mm
+    CW = PW - 2 * MX
+
+    # Colour aliases
+    C_DARK   = _C_DARK
+    C_MUTED  = _C_MUTED
+    C_BORDER = _C_BORDER
+    C_LIGHT  = _C_LIGHT
+    C_GREEN  = _C_GREEN
+    C_AMBER  = _C_AMBER
+    C_RED    = _C_RED
+    C_WHITE  = _C_WHITE
+
+    month_name = _cal.month_name[month]
+    now_str    = datetime.now().strftime("%b %d, %Y  %I:%M %p")
+
+    all_events = [
+        (d, ev)
+        for d, evl in sorted((month_events or {}).items())
+        for ev in (evl or [])
+    ]
+
+    # ── Column layout (landscape, 6 columns) ─────────────────────────────
+    # Positions relative to MX (left margin)
+    # DATE  | REF    | EVENT / CUSTOMER        | VENUE             | PAX  | STATUS
+    # 90pt  | 70pt   | ~260pt                  | ~200pt            | 50pt | 70pt
+    COL_X = [
+        MX + 2,          # Date
+        MX + 94,         # Ref
+        MX + 166,        # Event / Customer
+        MX + 430,        # Venue
+        MX + 634,        # Pax
+        MX + 686,        # Status
+    ]
+    COL_HDRS   = ["DATE & TIME", "REF #", "EVENT / CUSTOMER", "VENUE", "PAX", "STATUS"]
+    COL_MAXW   = [88, 68, 258, 198, 48, 100]   # max text width in pts per column
+
+    HEADER_H   = 50   # title bar height
+    COL_HDR_H  = 22   # column-header row height
+    ROW_H      = 30   # data row height
+    PAGE_BOT   = MY + 14
+
+    # ── Helper: start a new landscape page ───────────────────────────────
+    def start_page():
+        c.setPageSize(LS)
+
+        # Dark title bar (same style as calendar page)
+        c.setFillColor(C_DARK)
+        c.roundRect(MX, PH - MY - HEADER_H, CW, HEADER_H, 7, fill=1, stroke=0)
+
+        # Logo
+        _lp = _logo_path()
+        LOGO_S = 34
+        if os.path.exists(_lp):
+            try:
+                c.drawImage(_lp, MX + 10,
+                            PH - MY - HEADER_H + (HEADER_H - LOGO_S) / 2,
+                            width=LOGO_S, height=LOGO_S,
+                            preserveAspectRatio=True, mask="auto")
+            except Exception:
+                pass
+
+        # Title
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(PW / 2,
+                            PH - MY - HEADER_H / 2 - 6,
+                            f"Booking Agenda — {month_name.upper()}  {year}")
+
+        # Biz name right-aligned in header
+        c.setFont("Helvetica", 8)
+        c.setFillColor(colors.HexColor("#93C5FD"))
+        c.drawRightString(MX + CW - 6,
+                          PH - MY - HEADER_H + 8, biz_name)
+
+        # Column header row
+        hdr_y = PH - MY - HEADER_H - COL_HDR_H
+        c.setFillColor(colors.HexColor("#1E293B"))
+        c.rect(MX, hdr_y, CW, COL_HDR_H, fill=1, stroke=0)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 8)
+        for cx, hdr in zip(COL_X, COL_HDRS):
+            c.drawString(cx, hdr_y + 7, hdr)
+
+        # Footer line
+        c.setFillColor(C_MUTED)
+        c.setFont("Helvetica", 6)
+        c.drawCentredString(PW / 2, MY - 2,
+                            f"Generated: {now_str}  •  {biz_name}")
+
+        return hdr_y - 1   # y = top of first data row
+
+    # Status colour helper
+    def status_color(st):
+        st = str(st or "").upper()
+        if st in ("CONFIRMED", "COMPLETED"):
+            return C_GREEN
+        if st == "PENDING":
+            return C_AMBER
+        if st == "CANCELLED":
+            return C_RED
+        return C_MUTED
+
+    def trunc(text, font, size, max_w):
+        """Truncate text to fit within max_w points."""
+        t = str(text)
+        if c.stringWidth(t, font, size) <= max_w:
+            return t
+        while t and c.stringWidth(t + "…", font, size) > max_w:
+            t = t[:-1]
+        return t + "…"
+
+    # ── Render pages ─────────────────────────────────────────────────────
+    y       = start_page()
+    row_num = 0
+
+    if not all_events:
+        c.setFillColor(C_MUTED)
+        c.setFont("Helvetica-Oblique", 10)
+        c.drawCentredString(PW / 2, y - ROW_H,
+                            "No events scheduled for this month.")
+        c.showPage()
+        return
+
+    for day, ev in all_events:
+        # Overflow → new page
+        if y - ROW_H < PAGE_BOT:
+            c.showPage()
+            y = start_page()
+            row_num = 0
+
+        # Row background
+        c.setFillColor(C_WHITE if row_num % 2 == 0 else C_LIGHT)
+        c.rect(MX, y - ROW_H, CW, ROW_H, fill=1, stroke=0)
+
+        # Bottom border
+        c.setStrokeColor(C_BORDER)
+        c.setLineWidth(0.3)
+        c.line(MX, y - ROW_H, MX + CW, y - ROW_H)
+
+        # ── DATE ─────────────────────────────────────────────────────────
+        c.setFillColor(C_DARK)
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(COL_X[0], y - 12, f"{month_name[:3]} {day}, {year}")
+        c.setFont("Helvetica", 7.5)
+        c.setFillColor(C_MUTED)
+        c.drawString(COL_X[0], y - 23, str(ev.get("time") or "6:00 PM"))
+
+        # ── REF ──────────────────────────────────────────────────────────
+        c.setFillColor(C_DARK)
+        c.setFont("Helvetica", 8.5)
+        c.drawString(COL_X[1], y - 15, trunc(ev.get("ref") or "—", "Helvetica", 8.5, COL_MAXW[1]))
+
+        # ── EVENT / CUSTOMER ─────────────────────────────────────────────
+        c.setFont("Helvetica-Bold", 9)
+        c.setFillColor(C_DARK)
+        c.drawString(COL_X[2], y - 15,
+                     trunc(ev.get("event_name") or "", "Helvetica-Bold", 9, COL_MAXW[2]))
+
+        # ── VENUE ────────────────────────────────────────────────────────
+        c.setFont("Helvetica", 8.5)
+        c.setFillColor(C_DARK)
+        c.drawString(COL_X[3], y - 15,
+                     trunc(ev.get("location") or "—", "Helvetica", 8.5, COL_MAXW[3]))
+
+        # ── PAX ──────────────────────────────────────────────────────────
+        c.setFont("Helvetica-Bold", 10)
+        c.setFillColor(C_DARK)
+        c.drawCentredString(COL_X[4] + 22, y - 15, str(ev.get("pax") or 0))
+
+        # ── STATUS ───────────────────────────────────────────────────────
+        st_key = str(ev.get("status") or "CONFIRMED").upper()
+        st_col = status_color(st_key)
+
+        # Pill badge
+        badge_lbl = st_key.capitalize()
+        badge_w   = max(60, c.stringWidth(badge_lbl, "Helvetica-Bold", 8) + 16)
+        badge_x   = COL_X[5]
+        badge_y   = y - ROW_H + 6
+        badge_h   = 18
+
+        # Light background pill
+        if st_key in ("CONFIRMED", "COMPLETED"):
+            pill_bg = colors.HexColor("#DCFCE7")
+        elif st_key == "PENDING":
+            pill_bg = colors.HexColor("#FEF3C7")
+        elif st_key == "CANCELLED":
+            pill_bg = colors.HexColor("#FEE2E2")
+        else:
+            pill_bg = colors.HexColor("#F1F5F9")
+
+        c.setFillColor(pill_bg)
+        c.roundRect(badge_x, badge_y, badge_w, badge_h, 5, fill=1, stroke=0)
+        c.setFillColor(st_col)
+        c.setFont("Helvetica-Bold", 8)
+        c.drawCentredString(badge_x + badge_w / 2, badge_y + 5, badge_lbl)
+
+        y -= ROW_H
+        row_num += 1
+
+    c.showPage()
+
+
+
+
+def export_calendar_pdf_range(
+    save_path: str,
+    months: list,               # list of (year, month) tuples
+    events_by_month: dict,      # {(year, month): {day: [event_dicts]}}
+    biz_name: str = "Jayraldine's Catering",
+    include_agenda: bool = True,
+    include_empty: bool = False,
+) -> bool:
+    """Export a multi-month printable wall-calendar PDF.
+
+    Uses a SINGLE ReportLab Canvas with setPageSize() between pages — no
+    external PDF merge library (pypdf / PyPDF2) is required.
+
+    Each month gets one landscape A4 calendar page. When *include_agenda*
+    is True, landscape A4 agenda pages follow each calendar page.
+    When *include_empty* is False, months with zero bookings are skipped.
+    """
     if not REPORTLAB_OK:
         return False
     try:
         import calendar as _cal
-        doc = SimpleDocTemplate(
-            save_path, pagesize=A4,
-            leftMargin=_MARGIN, rightMargin=_MARGIN,
-            topMargin=_MARGIN, bottomMargin=_MARGIN,
-            title=f"{biz_name} — Catering Schedule {year}-{month:02d}",
-            author=biz_name,
-        )
+        from reportlab.lib.pagesizes import landscape
+        from reportlab.lib.units import mm
+        from reportlab.pdfgen import canvas as _canvas_mod
+
+        LS     = landscape(A4)
+        LS_W, LS_H = LS
+        MX, MY = 16 * mm, 12 * mm
         styles = _styles()
-        story = []
 
-        month_name = _cal.month_name[month]
-        title = f"Catering Schedule — {month_name} {year}"
-        _header_block(story, styles, biz_name, title, period=f"{month_name} {year}")
+        # One canvas, one file
+        c = _canvas_mod.Canvas(save_path)
+        c.setTitle(f"{biz_name} — Calendar Export")
+        c.setAuthor(biz_name)
 
-        # Compute calendar month stats
-        all_events = []
-        total_pax = 0
-        busiest_day_pax = 0
-        busiest_day = "None"
-        for day, ev_list in (month_events or {}).items():
-            day_pax = 0
-            for ev in (ev_list or []):
-                p = int(ev.get("pax", 0) or 0)
-                total_pax += p
-                day_pax += p
-                all_events.append((day, ev))
-            if day_pax > busiest_day_pax:
-                busiest_day_pax = day_pax
-                busiest_day = f"{month_name[:3]} {day} ({day_pax} pax)"
+        wrote_any = False
 
-        # KPI Summary Row
-        cal_kpis = [
-            ("Total Events", str(len(all_events))),
-            ("Total Guests (Pax)", f"{total_pax:,}"),
-            ("Peak Day Pax", f"{busiest_day_pax} pax" if busiest_day_pax else "—"),
-            ("Active Days", f"{len(month_events or {})} days"),
-        ]
-        ncols = len(cal_kpis)
-        col_w = [_CONTENT_W / ncols] * ncols
-        labels_row = [Paragraph(lbl, styles["KpiLabel"]) for lbl, _ in cal_kpis]
-        values_row = [Paragraph(val, styles["KpiValue"]) for _, val in cal_kpis]
-        t = Table([labels_row, values_row], colWidths=col_w)
-        t.setStyle(TableStyle([
-            ("BOX",           (0, 0), (-1, -1), 0.5, _C_BORDER),
-            ("INNERGRID",     (0, 0), (-1, -1), 0.5, _C_BORDER),
-            ("BACKGROUND",    (0, 0), (-1, 0),  _C_LIGHT),
-            ("BACKGROUND",    (0, 1), (-1, 1),  _C_WHITE),
-            ("TOPPADDING",    (0, 0), (-1, -1), 7),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-            ("ROUNDEDCORNERS", [4]),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 12))
+        for (year, month) in months:
+            month_events = events_by_month.get((year, month), {})
+            has_bookings = any(bool(v) for v in month_events.values())
 
-        # Calendar Grid
-        story.append(Paragraph("Monthly Calendar Grid", styles["SectionHead"]))
-        days_head = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
-        grid_data = [[Paragraph(d, styles["CalDayHead"]) for d in days_head]]
+            if not has_bookings and not include_empty:
+                continue
 
-        cal_matrix = _cal.monthcalendar(year, month)
-        cell_w = _CONTENT_W / 7.0
-        for week in cal_matrix:
-            week_row = []
-            for day in week:
-                if day == 0:
-                    week_row.append("")
-                else:
-                    day_evs = (month_events or {}).get(day, [])
-                    cell_content = [Paragraph(f"<b>{day}</b>", styles["CalDateNum"])]
-                    if day_evs:
-                        d_pax = sum(int(e.get("pax", 0) or 0) for e in day_evs)
-                        badge_color = "#E11D48" if d_pax >= 600 else ("#F59E0B" if d_pax >= 400 else "#22C55E")
-                        cell_content.append(Paragraph(
-                            f"<font color='{badge_color}'><b>{len(day_evs)} bkg ({d_pax}p)</b></font>",
-                            styles["CalEventChip"]
-                        ))
-                    week_row.append(cell_content)
-            grid_data.append(week_row)
+            # ── Landscape calendar page ───────────────────────────────────
+            c.setPageSize(LS)
+            _draw_calendar_page(c, LS_W, LS_H, year, month,
+                                month_events, biz_name, MX, MY, colors)
+            c.showPage()
+            wrote_any = True
 
-        grid_table = Table(grid_data, colWidths=[cell_w] * 7)
-        grid_style = [
-            ("BACKGROUND",    (0, 0), (-1, 0),  _C_RED),
-            ("GRID",          (0, 0), (-1, -1), 0.4, _C_BORDER),
-            ("TOPPADDING",    (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ("LEFTPADDING",   (0, 0), (-1, -1), 4),
-            ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
-            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
-        ]
-        for r_idx in range(1, len(grid_data)):
-            bg = _C_LIGHT if r_idx % 2 == 0 else _C_WHITE
-            grid_style.append(("BACKGROUND", (0, r_idx), (-1, r_idx), bg))
+            # ── Landscape agenda pages ───────────────────────────────────
+            if include_agenda:
+                _draw_agenda_canvas_pages(c, year, month, month_events,
+                                          biz_name, styles)
 
-        grid_table.setStyle(TableStyle(grid_style))
-        story.append(grid_table)
-        story.append(Spacer(1, 14))
+        if not wrote_any:
+            # Nothing to export — write a single placeholder page
+            c.setPageSize(LS)
+            c.setFont("Helvetica-Bold", 16)
+            c.setFillColorRGB(0.4, 0.4, 0.4)
+            c.drawCentredString(LS_W / 2, LS_H / 2,
+                                "No bookings found for the selected date range.")
+            c.showPage()
 
-        # Itemized Schedule Table
-        story.append(Paragraph("Itemized Event Agenda", styles["SectionHead"]))
-        agenda_hdrs = ["Date & Time", "Ref #", "Event / Customer", "Venue", "Pax", "Status"]
-        agenda_w = [3.2*cm, 2.4*cm, 5.0*cm, 3.8*cm, 1.6*cm, 2.0*cm]
-        agenda_rows = [[Paragraph(h, styles["TableHead"]) for h in agenda_hdrs]]
-
-        all_events_sorted = sorted(all_events, key=lambda x: x[0])
-        status_styles = {
-            "CONFIRMED": styles["StatusPaid"],
-            "COMPLETED": styles["StatusPaid"],
-            "PENDING":   styles["StatusPartial"],
-            "CANCELLED": styles["StatusUnpaid"],
-        }
-
-        if not all_events_sorted:
-            agenda_rows.append([Paragraph("No events scheduled for this month.", styles["TableCellCenter"]), "", "", "", "", ""])
-        else:
-            for day, ev in all_events_sorted:
-                time_str = ev.get("time") or "6:00 PM"
-                st_key = str(ev.get("status") or "CONFIRMED").upper()
-                st_style = status_styles.get(st_key, styles["TableCellCenter"])
-                agenda_rows.append([
-                    Paragraph(f"{month_name[:3]} {day}, {year}<br/><font color='#6B7280' size=7>{time_str}</font>", styles["TableCell"]),
-                    Paragraph(str(ev.get("ref") or "—"), styles["TableCell"]),
-                    Paragraph(f"<b>{ev.get('event_name', '')}</b>", styles["TableCell"]),
-                    Paragraph(str(ev.get("location") or "—"), styles["TableCell"]),
-                    Paragraph(f"{ev.get('pax', 0)}", styles["TableCellCenter"]),
-                    Paragraph(st_key.capitalize(), st_style),
-                ])
-
-        agenda_table = Table(agenda_rows, colWidths=agenda_w, repeatRows=1)
-        agenda_table.setStyle(TableStyle([
-            ("BACKGROUND",    (0, 0), (-1, 0),  _C_DARK),
-            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_C_WHITE, _C_LIGHT]),
-            ("BOX",           (0, 0), (-1, -1), 0.4, _C_BORDER),
-            ("INNERGRID",     (0, 0), (-1, -1), 0.3, _C_BORDER),
-            ("TOPPADDING",    (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("LEFTPADDING",   (0, 0), (-1, -1), 6),
-            ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
-            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ]))
-        story.append(agenda_table)
-
-        _footer(story, styles, biz_name)
-        doc.build(story)
+        c.save()
         return True
+
     except Exception as exc:
-        print(f"[exporter] export_calendar_pdf failed: {exc}")
+        print(f"[exporter] export_calendar_pdf_range failed: {exc}")
+        import traceback; traceback.print_exc()
         return False
+
+
+
+def export_calendar_pdf(save_path: str, year: int, month: int, month_events: dict,
+                        biz_name: str = "Jayraldine's Catering") -> bool:
+    """Generate a printable monthly wall-calendar PDF (single month).
+
+    Delegates to export_calendar_pdf_range for a single month so both paths
+    share the same single-canvas renderer and are always consistent.
+    """
+    return export_calendar_pdf_range(
+        save_path       = save_path,
+        months          = [(year, month)],
+        events_by_month = {(year, month): month_events or {}},
+        biz_name        = biz_name,
+        include_agenda  = True,
+        include_empty   = True,   # always export even if empty (single-month call)
+    )
+
 
 
 def export_cash_flow_pdf(save_path: str, transactions: Optional[list] = None,

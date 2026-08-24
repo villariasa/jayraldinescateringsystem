@@ -224,6 +224,7 @@ a = Analysis(
         'utils.signals',
         'utils.sms_sender',
         'utils.theme',
+        'pypdf',
     ],
     hookspath=[],
     runtime_hooks=[],

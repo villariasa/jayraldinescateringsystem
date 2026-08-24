@@ -696,32 +696,13 @@ class CalendarPage(QWidget):
             self.reload()
 
     def _export_pdf(self):
-        month_name = calendar.month_name[self.current_month]
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export Calendar PDF", f"jayraldines_calendar_{self.current_year}_{self.current_month:02d}.pdf", "PDF Files (*.pdf)"
-        )
-        if not path:
-            return
-
-        month_events = {}
-        for (y, m, d), ev_list in self._db_cache.items():
-            if y == self.current_year and m == self.current_month:
-                month_events[d] = [
-                    {
-                        "event_name": ev.get("name") or ev.get("event_name", ""),
-                        "pax": ev.get("pax", 0),
-                        "time": ev.get("time", "6:00 PM"),
-                        "location": ev.get("loc") or ev.get("venue", "—"),
-                        "ref": ev.get("ref", "—"),
-                        "status": ev.get("status", "CONFIRMED"),
-                    }
-                    for ev in ev_list
-                ]
-
+        from components.calendar_export_dialog import CalendarExportDialog
         biz = repo.get_business_info()
         biz_name = biz.get("name", "Jayraldine's Catering")
-        ok = _exporter.export_calendar_pdf(path, self.current_year, self.current_month, month_events, biz_name=biz_name)
-        if ok:
-            prompt_file_saved(self, path, title="Calendar PDF Exported", message="Calendar PDF exported successfully.")
-        else:
-            QMessageBox.warning(self, "Export Failed", "PDF export failed. Make sure reportlab is installed.")
+        dlg = CalendarExportDialog(
+            parent        = self,
+            default_year  = self.current_year,
+            default_month = self.current_month,
+            biz_name      = biz_name,
+        )
+        dlg.exec()
