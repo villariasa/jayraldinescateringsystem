@@ -1516,7 +1516,8 @@ class CustomersPage(QWidget):
 
     def _export_csv(self):
         import csv
-        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from PySide6.QtWidgets import QFileDialog
+        from components.dialogs import prompt_file_saved
         path, _ = QFileDialog.getSaveFileName(self, "Export Customers", "customers.csv", "CSV Files (*.csv)")
         if not path:
             return
@@ -1528,7 +1529,7 @@ class CustomersPage(QWidget):
                     c.get("name", ""), c.get("contact", ""),
                     c.get("email", ""), c.get("events", 0), c.get("status", ""),
                 ])
-        QMessageBox.information(self, "Export", f"Exported to:\n{path}")
+        prompt_file_saved(self, path, title="Customers Exported", message="Customer list exported successfully.")
 
     def _open_import_dialog(self):
         from components.import_dialog import ImportWizardDialog

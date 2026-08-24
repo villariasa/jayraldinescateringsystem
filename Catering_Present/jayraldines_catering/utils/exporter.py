@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from typing import Optional, List, Dict, Any
 
 try:
     from reportlab.lib.pagesizes import A4
@@ -807,6 +808,29 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
             ])
         sheets["Invoices"] = (headers, rows)
 
+    elif "Cash" in entity_name or "Flow" in entity_name:
+        headers = ["Date", "Check #", "Particulars (Account / Detail)", "Deposit (₱)", "Withdrawal (₱)", "Running Balance (₱)", "Actual Sales (₱)", "Variance / Difference (₱)", "Remarks / Notes"]
+        tx_list = repo.get_cash_flow_transactions() or []
+        for tx in tx_list:
+            dep = float(tx.get("deposit") or 0.0)
+            withd = float(tx.get("withdrawal") or 0.0)
+            bal = float(tx.get("balance") or 0.0)
+            act_sales = float(tx.get("actual_sales") or 0.0)
+            diff = bal - act_sales
+            diff_str = f"₱{diff:,.2f}" if diff >= 0 else f"(₱{abs(diff):,.2f})"
+            rows.append([
+                str(tx.get("date", "")),
+                str(tx.get("check_no", "")),
+                str(tx.get("particulars", "")),
+                f"₱{dep:,.2f}" if dep > 0 else "—",
+                f"₱{withd:,.2f}" if withd > 0 else "—",
+                f"₱{bal:,.2f}" if bal >= 0 else f"(₱{abs(bal):,.2f})",
+                f"₱{act_sales:,.2f}" if act_sales > 0 else "—",
+                diff_str if act_sales > 0 else "—",
+                str(tx.get("notes", ""))
+            ])
+        sheets["Cash Flow Ledger"] = (headers, rows)
+
     else: # Master Export
         b_hdrs = ["Booking Ref", "Customer Name", "Contact Number", "Event Date", "Event Time", "Venue", "Occasion", "Pax", "Total Amount (₱)", "Status"]
         b_rows = [[b.get("id", ""), b.get("name", ""), b.get("contact", ""), b.get("date", ""), b.get("time", ""), b.get("venue", ""), b.get("occasion", ""), b.get("pax", ""), f"₱{_parse_amount(b.get('total', 0)):,.2f}", b.get("status", "")] for b in (repo.get_all_bookings() or [])]
@@ -823,6 +847,20 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
         m_hdrs = ["Item ID", "Item / Package Name", "Category", "Price / Rate (₱)", "Description / Inclusions"]
         m_rows = [[m.get("id", ""), m.get("name", ""), m.get("category", ""), f"₱{_parse_amount(m.get('price', 0)):,.2f}", m.get("description", "")] for m in (repo.get_all_menu_items() or [])]
         sheets["Menu Items"] = (m_hdrs, m_rows)
+
+        cf_hdrs = ["Date", "Check #", "Particulars (Account / Detail)", "Deposit (₱)", "Withdrawal (₱)", "Running Balance (₱)", "Actual Sales (₱)", "Variance / Difference (₱)", "Remarks / Notes"]
+        cf_rows = [[
+            str(tx.get("date", "")),
+            str(tx.get("check_no", "")),
+            str(tx.get("particulars", "")),
+            f"₱{float(tx.get('deposit') or 0.0):,.2f}" if float(tx.get('deposit') or 0.0) > 0 else "—",
+            f"₱{float(tx.get('withdrawal') or 0.0):,.2f}" if float(tx.get('withdrawal') or 0.0) > 0 else "—",
+            f"₱{float(tx.get('balance') or 0.0):,.2f}" if float(tx.get('balance') or 0.0) >= 0 else f"(₱{abs(float(tx.get('balance') or 0.0)):,.2f})",
+            f"₱{float(tx.get('actual_sales') or 0.0):,.2f}" if float(tx.get('actual_sales') or 0.0) > 0 else "—",
+            f"₱{(float(tx.get('balance') or 0.0) - float(tx.get('actual_sales') or 0.0)):,.2f}" if float(tx.get('actual_sales') or 0.0) > 0 and (float(tx.get('balance') or 0.0) - float(tx.get('actual_sales') or 0.0)) >= 0 else (f"(₱{abs(float(tx.get('balance') or 0.0) - float(tx.get('actual_sales') or 0.0)):,.2f})" if float(tx.get('actual_sales') or 0.0) > 0 else "—"),
+            str(tx.get("notes", ""))
+        ] for tx in (repo.get_cash_flow_transactions() or [])]
+        sheets["Cash Flow Ledger"] = (cf_hdrs, cf_rows)
 
         i_hdrs = ["Invoice Ref", "Booking Ref", "Customer Name", "Event Date", "Total Amount (₱)", "Paid Amount (₱)", "Balance Due (₱)", "Payment Status"]
         i_rows = [[inv.get("invoice", ""), inv.get("booking_ref", ""), inv.get("customer", ""), inv.get("event_date", ""), f"₱{_parse_amount(inv.get('amount', 0)):,.2f}", f"₱{_parse_amount(inv.get('paid', 0)):,.2f}", f"₱{_parse_amount(inv.get('balance', 0)):,.2f}", inv.get("status", "")] for inv in (repo.get_all_invoices() or [])]
@@ -1041,4 +1079,117 @@ def export_calendar_pdf(save_path: str, year: int, month: int, month_events: dic
         return True
     except Exception as exc:
         print(f"[exporter] export_calendar_pdf failed: {exc}")
+        return False
+
+
+def export_cash_flow_pdf(save_path: str, transactions: Optional[list] = None,
+                         summary: Optional[dict] = None,
+                         biz_name: str = "Jayraldine's Catering") -> bool:
+    """Generate a clean, high-quality A4 PDF of the Cash Flow Ledger with KPI summary and itemized entries."""
+    if not REPORTLAB_OK:
+        return False
+    try:
+        import utils.repository as repo
+        tx_list = transactions if transactions is not None else (repo.get_cash_flow_transactions() or [])
+        smry = summary if summary is not None else repo.get_cash_flow_summary()
+
+        doc = SimpleDocTemplate(
+            save_path, pagesize=A4,
+            leftMargin=_MARGIN, rightMargin=_MARGIN,
+            topMargin=_MARGIN, bottomMargin=_MARGIN,
+            title=f"{biz_name} — Cash Flow Statement",
+            author=biz_name,
+        )
+        styles = _styles()
+        story = []
+
+        now_str = datetime.now().strftime("%B %d, %Y")
+        _header_block(story, styles, biz_name, "Cash Flow Statement & Ledger", period=now_str)
+
+        # Top KPI Summary Card
+        tot_dep = float(smry.get("total_deposits", 0.0))
+        tot_with = float(smry.get("total_withdrawals", 0.0))
+        cur_bal = float(smry.get("current_balance", 0.0))
+        tot_sales = float(smry.get("total_actual_sales", 0.0))
+        tot_diff = cur_bal - tot_sales
+
+        cf_kpis = [
+            ("Total Deposits (In)", f"₱{tot_dep:,.2f}"),
+            ("Total Withdrawals (Out)", f"₱{tot_with:,.2f}"),
+            ("Running Balance", f"₱{cur_bal:,.2f}"),
+            ("Total Actual Sales", f"₱{tot_sales:,.2f}"),
+        ]
+        ncols = len(cf_kpis)
+        col_w = [_CONTENT_W / ncols] * ncols
+        labels_row = [Paragraph(lbl, styles["KpiLabel"]) for lbl, _ in cf_kpis]
+        values_row = [Paragraph(val, styles["KpiValue"]) for _, val in cf_kpis]
+        t = Table([labels_row, values_row], colWidths=col_w)
+        t.setStyle(TableStyle([
+            ("BOX",           (0, 0), (-1, -1), 0.5, _C_BORDER),
+            ("INNERGRID",     (0, 0), (-1, -1), 0.5, _C_BORDER),
+            ("BACKGROUND",    (0, 0), (-1, 0),  _C_LIGHT),
+            ("BACKGROUND",    (0, 1), (-1, 1),  _C_WHITE),
+            ("TOPPADDING",    (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 14))
+
+        # Ledger Table
+        story.append(Paragraph("Transaction Journal & Running Balances", styles["SectionHead"]))
+        table_hdrs = ["Date", "Check #", "Particulars (Account / Detail)", "Deposit", "Withdrawal", "Balance", "Actual Sales", "Variance"]
+        table_w = [2.0*cm, 1.8*cm, 4.4*cm, 2.1*cm, 2.1*cm, 2.2*cm, 2.1*cm, 2.1*cm]
+        table_rows = [[Paragraph(h, styles["TableHead"]) for h in table_hdrs]]
+
+        if not tx_list:
+            table_rows.append([Paragraph("No cash flow transactions recorded.", styles["TableCellCenter"]), "", "", "", "", "", "", ""])
+        else:
+            for tx in tx_list:
+                d_str = str(tx.get("date") or "")
+                chk_str = str(tx.get("check_no") or "—")
+                part_str = str(tx.get("particulars") or "")
+                dep_val = float(tx.get("deposit") or 0.0)
+                with_val = float(tx.get("withdrawal") or 0.0)
+                bal_val = float(tx.get("balance") or 0.0)
+                sales_val = float(tx.get("actual_sales") or 0.0)
+                diff_val = bal_val - sales_val
+
+                dep_txt = f"<font color='#16A34A'>₱{dep_val:,.2f}</font>" if dep_val > 0 else "—"
+                with_txt = f"<font color='#DC2626'>₱{with_val:,.2f}</font>" if with_val > 0 else "—"
+                bal_txt = f"<b>₱{bal_val:,.2f}</b>" if bal_val >= 0 else f"<font color='#DC2626'><b>(₱{abs(bal_val):,.2f})</b></font>"
+                sales_txt = f"₱{sales_val:,.2f}" if sales_val > 0 else "—"
+                diff_txt = f"₱{diff_val:,.2f}" if diff_val >= 0 else f"<font color='#DC2626'>(₱{abs(diff_val):,.2f})</font>"
+                if sales_val <= 0:
+                    diff_txt = "—"
+
+                table_rows.append([
+                    Paragraph(d_str, styles["TableCellCenter"]),
+                    Paragraph(chk_str, styles["TableCellCenter"]),
+                    Paragraph(part_str, styles["TableCell"]),
+                    Paragraph(dep_txt, styles["TableCellRight"]),
+                    Paragraph(with_txt, styles["TableCellRight"]),
+                    Paragraph(bal_txt, styles["TableCellRight"]),
+                    Paragraph(sales_txt, styles["TableCellRight"]),
+                    Paragraph(diff_txt, styles["TableCellRight"]),
+                ])
+
+        tbl = Table(table_rows, colWidths=table_w, repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND",    (0, 0), (-1, 0),  _C_DARK),
+            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_C_WHITE, _C_LIGHT]),
+            ("BOX",           (0, 0), (-1, -1), 0.4, _C_BORDER),
+            ("INNERGRID",     (0, 0), (-1, -1), 0.3, _C_BORDER),
+            ("TOPPADDING",    (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 5),
+            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        story.append(tbl)
+
+        _footer(story, styles, biz_name)
+        doc.build(story)
+        return True
+    except Exception as exc:
+        print(f"[exporter] export_cash_flow_pdf failed: {exc}")
         return False

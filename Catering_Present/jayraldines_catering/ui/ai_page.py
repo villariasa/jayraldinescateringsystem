@@ -28,6 +28,7 @@ from components.global_ai_floating import build_user_bubble, build_ai_card
 _ANSWER_MAX_WIDTH = 760
 
 _SUGGESTIONS = [
+    "Target Sales Comparison (Target vs Actual)",
     "Compare revenue last year vs this year",
     "Which month earned the most this year?",
     "Who are our top customers?",

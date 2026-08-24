@@ -1636,7 +1636,8 @@ def _answer_business_info(q: str) -> dict:
     policy = _safe(repo.get_business_policy, {})
     parts = []
     if info:
-        parts.append(f"{info.get('name', "Jayraldine's Catering")} — "
+        biz_name = info.get('name') or "Jayraldine's Catering"
+        parts.append(f"{biz_name} — "
                      f"contact {info.get('contact', 'n/a')}, email {info.get('email', 'n/a')}, "
                      f"address: {info.get('address', 'n/a')}.")
     if policy:
@@ -2302,6 +2303,78 @@ def _answer_list_expenses(q: str) -> dict:
     total_val = sum(float(e.get("amount", 0)) for e in rows)
     scope = f" ({r_label})" if r_label else ""
     return _plain(f"{len(rows)} expense(s){scope}, total {_peso(total_val)}:\n{lines}{more}")
+
+
+def _answer_target_sales_comparison(q: str) -> dict:
+    """Compare monthly target sales against actual revenue performance with dual-bar chart."""
+    years = _extract_years(q)
+    year = years[0] if years else datetime.now().year
+
+    rep = _safe(lambda: repo.get_monthly_sales_evaluation_report(year), None)
+    if not rep:
+        return _plain(f"Could not load sales target evaluation data for {year}.")
+
+    tot_target = rep.get("total_target", 0.0)
+    tot_actual = rep.get("total_actual", 0.0)
+    tot_rem = rep.get("total_remaining", 0.0)
+    achieve_pct = (tot_actual / tot_target * 100) if tot_target > 0 else 0.0
+
+    months = rep.get("months", [])
+    achieved_months = [m for m in months if m["is_achieved"] and m["actual_sales"] > 0]
+    shortfall_months = [m for m in months if m["is_shortfall"] and m["actual_sales"] > 0]
+
+    best_m = max(months, key=lambda x: x["actual_sales"]) if months else None
+
+    lines = []
+    lines.append(f"🎯 **{year} Target Sales vs. Actual Sales Comparison**\n")
+    lines.append(f"• **Annual Target Goal:** {_peso(tot_target)}")
+    lines.append(f"• **Actual Revenue Achieved:** {_peso(tot_actual)}")
+
+    if tot_rem <= 0:
+        lines.append(f"• **Status:** 🎉 **Goal Exceeded** by {_peso(abs(tot_rem))} ({achieve_pct:.1f}% of annual target)")
+    else:
+        lines.append(f"• **Status:** ⏳ **Remaining to Hit Target:** {_peso(tot_rem)} ({achieve_pct:.1f}% achieved)")
+
+    lines.append(f"\n📊 **12-Month Performance Breakdown ({year}):**")
+    for m in months:
+        t = m["target_sales"]
+        a = m["actual_sales"]
+        name = m["month_name"].capitalize()
+        pct = (a / t * 100) if t > 0 else 0.0
+        if a >= t and t > 0:
+            lines.append(f"  ✅ **{name}:** {_peso(a)} / {_peso(t)} ({pct:.0f}% - Target Hit!)")
+        elif a > 0:
+            lines.append(f"  ⚠️ **{name}:** {_peso(a)} / {_peso(t)} ({pct:.0f}% - Shortfall: {_peso(t - a)})")
+        else:
+            lines.append(f"  ⏳ **{name}:** ₱0 / {_peso(t)} (Target: {_peso(t)})")
+
+    if best_m and best_m["actual_sales"] > 0:
+        lines.append(f"\n🏆 **Top Sales Month:** {best_m['month_name'].capitalize()} ({_peso(best_m['actual_sales'])})")
+
+    # Interactive dual-bar comparison chart spec
+    chart_spec = {
+        "title": f"{year} Monthly Target vs Actual Sales",
+        "labels": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+        "series": [
+            {"name": "Target Sales", "values": [float(m["target_sales"]) for m in months]},
+            {"name": "Actual Sales", "values": [float(m["actual_sales"]) for m in months]}
+        ]
+    }
+
+    options = [
+        {"label": "Adjust Sales Targets in Settings", "send": "how to change target sales"},
+        {"label": "Compare Revenue Last Year vs This Year", "send": "compare revenue last year vs this year"},
+        {"label": "Top Customers Breakdown", "send": "who are our top customers"}
+    ]
+
+    return {
+        "ok": True,
+        "answer": "\n".join(lines),
+        "chart": chart_spec,
+        "action": None,
+        "error": "",
+        "options": options
+    }
 
 
 def _audit(action_desc: str, table: str, record_id):
@@ -3282,6 +3355,7 @@ def _detect_action(q: str):
 
 # Primary router: (handler, regex). First match wins — ordered specific → general.
 _INTENTS = [
+    (_answer_target_sales_comparison, r"\b(target\s*sales?|sales?\s*targets?|sales?\s*quota|monthly\s*target|sales?\s*goal)\b|\bcompare\b.{0,30}\b(target|goal|quota)\b|\b(target|quota|goal)\b.{0,20}\bvs\b.{0,20}\b(actual|sales|revenue)\b|\b(actual|sales|revenue)\b.{0,20}\bvs\b.{0,20}\b(target|quota|goal)\b|\btarget\s*comparison\b|\bhow.{0,20}(sales\s*target|target\s*sales|hit.{0,10}target)"),
     (_answer_revenue_vs_expense_compare, r"\bcompare\b.{0,30}\b(expense|expenses|cost|costs|revenue|income|sales)\b|\b(revenue|income|sales)\b.{0,20}\bvs\b.{0,20}\b(expense|expenses|cost|costs)\b|\b(expense|expenses|cost|costs)\b.{0,20}\bvs\b.{0,20}\b(revenue|income|sales)\b|\bprofit margin\b|\bnet profit\b|\bnet income\b"),
     (_answer_monthly_revenue_vs_expenses, r"\bmonthly\b.{0,30}\b(revenue|income|sales).{0,20}(expense|expenses|cost)\b"),
     (_answer_average_booking_profitability, r"\baverage\b.{0,20}\b(profit|margin|profitability)\b|\bprofit per (booking|order|event)\b|\broi per (booking|order|event)\b"),
@@ -3330,6 +3404,7 @@ _INTENTS = [
 
 # Fuzzy fallback: keyword → handler scoring for loosely phrased questions
 _KEYWORD_HANDLERS = {
+    _answer_target_sales_comparison: {"target", "targets", "quota", "goal", "goals", "evaluation"},
     _answer_compare:           {"compare", "vs", "versus", "difference", "growth", "better", "worse"},
     _answer_weekly:            {"week", "weekly"},
     _answer_trend:             {"trend", "trends", "monthly", "graph", "chart", "show"},

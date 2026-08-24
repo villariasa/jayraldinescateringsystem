@@ -10,6 +10,7 @@ class _AppEvents(QObject):
     customer_saved    = Signal()
     menu_saved        = Signal()
     expense_saved     = Signal()
+    cash_flow_saved   = Signal()
     data_changed      = Signal()
     notification_push = Signal()
     alarm_fired       = Signal(dict)

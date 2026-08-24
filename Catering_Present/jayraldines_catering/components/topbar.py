@@ -17,7 +17,7 @@ _PAGE_TITLES = {
     2: "Customers",
     3: "Menu",
     4: "Calendar",
-    5: "Kitchen",
+    5: "Cash Flow",
     6: "Billing",
     7: "Reports",
     8: "Expenses",

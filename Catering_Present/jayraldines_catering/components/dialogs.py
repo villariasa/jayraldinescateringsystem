@@ -190,3 +190,183 @@ def confirm(parent, title="Confirm", message="Are you sure?",
 def success(parent, message="Action completed successfully.", title="Success"):
     """Convenience one-liner — shows auto-closing success modal."""
     SuccessDialog(parent, title=title, message=message).exec()
+
+
+class ExportSuccessDialog(QDialog):
+    """
+    Sleek, modern prompt modal shown whenever any file (PDF, Excel, CSV, Backup, Report)
+    is exported or downloaded. Allows user to Open File, Open Containing Folder, or Copy Path.
+    """
+    def __init__(self, parent=None, file_path: str = "", title: str = "Export Successful",
+                 message: str = "File has been exported successfully."):
+        super().__init__(parent)
+        import os
+        self.file_path = os.path.normpath(file_path) if file_path else ""
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(460)
+        self.setModal(True)
+        self._build(title, message)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        animate_dialog_open(self, duration=240)
+
+    def _build(self, title: str, message: str):
+        import os
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(20, 20, 20, 20)
+
+        container = QFrame()
+        container.setObjectName("modalCard")
+        create_soft_shadow(container, radius=32, y_offset=8, opacity=45)
+        inner = QVBoxLayout(container)
+        inner.setContentsMargins(26, 24, 26, 22)
+        inner.setSpacing(14)
+
+        # Header row: Icon chip + Title + Close button
+        header = QHBoxLayout()
+        header.setSpacing(14)
+
+        ext = os.path.splitext(self.file_path)[1].lower() if self.file_path else ""
+        if ext == ".pdf":
+            chip = _icon_chip("PDF", "#DC2626", "rgba(220,38,38,0.12)", size=44)
+        elif ext in (".xlsx", ".xls"):
+            chip = _icon_chip("XLS", "#16A34A", "rgba(22,163,74,0.12)", size=44)
+        elif ext == ".csv":
+            chip = _icon_chip("CSV", "#2563EB", "rgba(37,99,235,0.12)", size=44)
+        elif ext in (".db", ".bak", ".sqlite"):
+            chip = _icon_chip("DB", "#9333EA", "rgba(147,51,234,0.12)", size=44)
+        else:
+            chip = _icon_chip("DOC", "#0D9488", "rgba(13,148,136,0.12)", size=44)
+
+        header.addWidget(chip, alignment=Qt.AlignTop)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(4)
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("h3")
+        text_col.addWidget(title_lbl)
+
+        msg_lbl = QLabel(message or "Your file is ready to view.")
+        msg_lbl.setObjectName("subtitle")
+        msg_lbl.setWordWrap(True)
+        text_col.addWidget(msg_lbl)
+        header.addLayout(text_col, 1)
+
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#98A2B3", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setObjectName("modalCloseBtn")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn, alignment=Qt.AlignTop)
+        inner.addLayout(header)
+
+        # File Card Info Box
+        if self.file_path:
+            file_box = QFrame()
+            file_box.setObjectName("cardElevated")
+            file_box.setStyleSheet(
+                "border-radius: 8px; padding: 6px 10px;"
+            )
+            box_lay = QVBoxLayout(file_box)
+            box_lay.setContentsMargins(10, 8, 10, 8)
+            box_lay.setSpacing(4)
+
+            fname = os.path.basename(self.file_path)
+            f_label = QLabel(f"📄 <b>{fname}</b>")
+            f_label.setTextFormat(Qt.RichText)
+            box_lay.addWidget(f_label)
+
+            path_row = QHBoxLayout()
+            path_row.setSpacing(6)
+            p_lbl = QLabel(self.file_path)
+            p_lbl.setObjectName("subtitle")
+            p_lbl.setStyleSheet("font-size: 11px;")
+            p_lbl.setWordWrap(True)
+            path_row.addWidget(p_lbl, 1)
+
+            from PySide6.QtWidgets import QApplication
+            copy_btn = QPushButton("Copy Path")
+            copy_btn.setObjectName("secondaryButton")
+            copy_btn.setCursor(Qt.PointingHandCursor)
+            copy_btn.setFixedHeight(24)
+            copy_btn.setStyleSheet("font-size: 11px; padding: 2px 8px;")
+            def _copy_path():
+                clipboard = QApplication.clipboard()
+                if clipboard:
+                    clipboard.setText(self.file_path)
+                copy_btn.setText("✓ Copied")
+                QTimer.singleShot(1500, lambda: copy_btn.setText("Copy Path"))
+            copy_btn.clicked.connect(_copy_path)
+            path_row.addWidget(copy_btn, 0, Qt.AlignRight)
+            box_lay.addLayout(path_row)
+
+            inner.addWidget(file_box)
+
+        inner.addSpacing(6)
+
+        # Action Buttons Row
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        open_folder_btn = QPushButton("📁 Open Folder")
+        open_folder_btn.setObjectName("secondaryButton")
+        open_folder_btn.setCursor(Qt.PointingHandCursor)
+        open_folder_btn.clicked.connect(self._open_folder)
+        btn_row.addWidget(open_folder_btn)
+
+        open_file_btn = QPushButton("📂 Open File")
+        open_file_btn.setObjectName("primaryButton")
+        open_file_btn.setCursor(Qt.PointingHandCursor)
+        open_file_btn.setDefault(True)
+        open_file_btn.clicked.connect(self._open_file)
+        btn_row.addWidget(open_file_btn)
+
+        inner.addLayout(btn_row)
+        outer.addWidget(container)
+
+    def _open_file(self):
+        import os
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        try:
+            if self.file_path and os.path.exists(self.file_path):
+                if os.name == "nt":
+                    os.startfile(self.file_path)
+                else:
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(self.file_path))
+        except Exception:
+            pass
+        self.accept()
+
+    def _open_folder(self):
+        import os
+        import subprocess
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        try:
+            if self.file_path and os.path.exists(self.file_path):
+                if os.name == "nt":
+                    subprocess.Popen(f'explorer /select,"{self.file_path}"')
+                else:
+                    folder = os.path.dirname(self.file_path)
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+        except Exception:
+            try:
+                folder = os.path.dirname(self.file_path)
+                QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+            except Exception:
+                pass
+        self.accept()
+
+
+def prompt_file_saved(parent, file_path: str, title: str = "Export Successful", message: str = ""):
+    """Convenience helper to show the Open File / Open Folder prompt modal."""
+    if not file_path:
+        return
+    dlg = ExportSuccessDialog(parent=parent, file_path=file_path, title=title, message=message)
+    dlg.exec()
+

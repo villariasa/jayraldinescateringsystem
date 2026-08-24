@@ -12,7 +12,7 @@ from datetime import date as _date_type
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
-from components.dialogs import confirm, success
+from components.dialogs import confirm, success, prompt_file_saved
 import utils.repository as repo
 import utils.exporter as exporter
 from utils.session import get_actor
@@ -365,10 +365,47 @@ class BillingPage(QWidget):
 
         root.addLayout(header)
 
-        card = QFrame()
-        card.setObjectName("card")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(20, 20, 20, 20)
+        # Down Payment Tracking Summary Cards
+        self._dp_summary_box = QFrame()
+        self._dp_summary_box.setObjectName("card")
+        dp_lay = QHBoxLayout(self._dp_summary_box)
+        dp_lay.setContentsMargins(20, 16, 20, 16)
+        dp_lay.setSpacing(24)
+
+        # Total DP Received
+        dp1 = QVBoxLayout()
+        dp1.setSpacing(4)
+        dp1_lbl = QLabel("TOTAL DOWN PAYMENTS RECEIVED")
+        dp1_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
+        self._dp1_val = QLabel("₱ 0.00")
+        self._dp1_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #22C55E;")
+        dp1.addWidget(dp1_lbl)
+        dp1.addWidget(self._dp1_val)
+        dp_lay.addLayout(dp1)
+
+        # Pending DP
+        dp2 = QVBoxLayout()
+        dp2.setSpacing(4)
+        dp2_lbl = QLabel("PENDING DOWN PAYMENTS")
+        dp2_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
+        self._dp2_val = QLabel("₱ 0.00")
+        self._dp2_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #F59E0B;")
+        dp2.addWidget(dp2_lbl)
+        dp2.addWidget(self._dp2_val)
+        dp_lay.addLayout(dp2)
+
+        # Upcoming Events with DP
+        dp3 = QVBoxLayout()
+        dp3.setSpacing(4)
+        dp3_lbl = QLabel("UPCOMING EVENTS WITH DOWN PAYMENT")
+        dp3_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
+        self._dp3_val = QLabel("0 Events")
+        self._dp3_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #38BDF8;")
+        dp3.addWidget(dp3_lbl)
+        dp3.addWidget(self._dp3_val)
+        dp_lay.addLayout(dp3)
+
+        root.addWidget(self._dp_summary_box)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -383,10 +420,21 @@ class BillingPage(QWidget):
         self.cards_layout.setSpacing(12)
 
         self.scroll_area.setWidget(self.cards_container)
-        card_layout.addWidget(self.scroll_area)
-        root.addWidget(card)
+        root.addWidget(self.scroll_area)
 
     def _populate_table(self):
+        # Refresh DP metrics
+        try:
+            dp_summary = repo.get_down_payments_summary()
+            if hasattr(self, "_dp1_val"):
+                self._dp1_val.setText(f"₱ {dp_summary.get('total_down_payments_received', 0.0):,.2f}")
+            if hasattr(self, "_dp2_val"):
+                self._dp2_val.setText(f"₱ {dp_summary.get('pending_down_payments', 0.0):,.2f}")
+            if hasattr(self, "_dp3_val"):
+                self._dp3_val.setText(f"{dp_summary.get('upcoming_events_count', 0)} Events")
+        except Exception:
+            pass
+
         while self.cards_layout.count():
             item = self.cards_layout.takeAt(0)
             if item.widget():
@@ -425,13 +473,16 @@ class BillingPage(QWidget):
         c1.addWidget(date_lbl)
         lay.addLayout(c1, 3)
 
-        # Col 2: Total, Paid, Balance
+        # Col 2: Total, Down Payment, Paid, Balance
         total = float(inv.get("amount", 0))
         paid  = float(inv.get("paid", 0))
-        bal   = total - paid
+        down  = float(inv.get("down_payment") or 0.0)
+        bal   = max(0.0, total - paid)
+        is_verified = bool(inv.get("is_verified", True))
 
         c2 = QHBoxLayout()
         c2.setSpacing(14)
+
         t_box = QVBoxLayout()
         t_box.setSpacing(2)
         t_title = QLabel("TOTAL")
@@ -441,6 +492,17 @@ class BillingPage(QWidget):
         t_box.addWidget(t_title)
         t_box.addWidget(t_val)
         c2.addLayout(t_box)
+
+        if down > 0:
+            dp_box = QVBoxLayout()
+            dp_box.setSpacing(2)
+            dp_title = QLabel("DOWN PAYMENT")
+            dp_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #38BDF8;")
+            dp_val = QLabel(f"₱{down:,.2f}")
+            dp_val.setStyleSheet("font-weight: 700; font-size: 13px; color: #38BDF8;")
+            dp_box.addWidget(dp_title)
+            dp_box.addWidget(dp_val)
+            c2.addLayout(dp_box)
 
         p_box = QVBoxLayout()
         p_box.setSpacing(2)
@@ -465,12 +527,21 @@ class BillingPage(QWidget):
 
         lay.addLayout(c2, 4)
 
-        # Col 3: Status
+        # Col 3: Status & Verification badge
+        col_status = QVBoxLayout()
+        col_status.setSpacing(4)
         status = inv.get("status", "")
         s_color = _STATUS_COLORS.get(status, "#9CA3AF")
         status_lbl = QLabel(status)
-        status_lbl.setStyleSheet(f"font-weight: 700; font-size: 11px; color: {s_color}; padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 8px;")
-        lay.addWidget(status_lbl, alignment=Qt.AlignVCenter)
+        status_lbl.setStyleSheet(f"font-weight: 700; font-size: 11px; color: {s_color}; padding: 3px 8px; background: rgba(255,255,255,0.05); border-radius: 6px;")
+        col_status.addWidget(status_lbl)
+
+        if not is_verified and paid > 0:
+            unver_lbl = QLabel("Unverified")
+            unver_lbl.setStyleSheet("font-weight: 700; font-size: 10px; color: #F59E0B; padding: 2px 6px; background: rgba(245,158,11,0.15); border-radius: 4px;")
+            col_status.addWidget(unver_lbl)
+
+        lay.addLayout(col_status)
 
         # Col 4: Action Buttons
         actions_w = QFrame()
@@ -478,6 +549,18 @@ class BillingPage(QWidget):
         actions_l = QHBoxLayout(actions_w)
         actions_l.setContentsMargins(0, 0, 0, 0)
         actions_l.setSpacing(6)
+
+        # Manual Verify Payment Action Button
+        if not is_verified and paid > 0:
+            verify_btn = QPushButton("  Accept Payment")
+            verify_btn.setObjectName("primaryButton")
+            verify_btn.setIcon(btn_icon_primary("check"))
+            verify_btn.setIconSize(QSize(12, 12))
+            verify_btn.setFixedHeight(30)
+            verify_btn.setCursor(Qt.PointingHandCursor)
+            verify_btn.setToolTip("Manually verify and accept this payment")
+            verify_btn.clicked.connect(lambda _, invoice=inv: self._verify_payment_dict(invoice))
+            actions_l.addWidget(verify_btn)
 
         pay_btn = QPushButton()
         pay_btn.setIcon(get_icon("check", color="#22C55E", size=QSize(14, 14)))
@@ -534,6 +617,16 @@ class BillingPage(QWidget):
         lay.addWidget(actions_w)
 
         return card
+
+    def _verify_payment_dict(self, inv: dict):
+        if not inv.get("db_id"):
+            return
+        try:
+            repo.verify_invoice_payment(inv["db_id"])
+            success(self, message=f"Payment for invoice {inv.get('invoice')} has been verified and accepted!")
+            self.reload()
+        except Exception as e:
+            QMessageBox.warning(self, "Verification Failed", str(e))
 
     def _record_payment_dict(self, inv: dict):
         if not inv.get("booking_id"):
@@ -596,7 +689,7 @@ class BillingPage(QWidget):
         if ok:
             if inv.get("db_id"):
                 repo.log_receipt_sent(inv["db_id"], "print")
-            success(self, message=f"Receipt saved to:\n{path}")
+            prompt_file_saved(self, path, title="Receipt PDF Saved", message="Receipt PDF generated successfully.")
         else:
             QMessageBox.warning(self, "Export Failed",
                 "Could not generate PDF. Make sure reportlab is installed.")
@@ -673,4 +766,4 @@ class BillingPage(QWidget):
                     f"{total:,.2f}", f"{paid:,.2f}", f"{total-paid:,.2f}",
                     inv.get("status", ""),
                 ])
-        QMessageBox.information(self, "Export", f"Exported to:\n{path}")
+        prompt_file_saved(self, path, title="Invoices Exported", message="Invoices list exported successfully.")

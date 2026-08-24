@@ -15,6 +15,7 @@ from utils.theme import ThemeManager
 from utils.accent import AccentManager
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
 from utils.animations import animate_dialog_open, create_soft_shadow
+from components.dialogs import prompt_file_saved
 import utils.exporter as exporter
 
 
@@ -160,22 +161,7 @@ class ExportWizardDialog(QDialog):
         try:
             success_ok = exporter.export_custom_entity_data(sel_entity, is_excel, file_path)
             if success_ok:
-                ans = QMessageBox.information(
-                    self,
-                    "Export Successful",
-                    f"Data successfully exported to:\n{file_path}\n\nWould you like to open the file location?",
-                    QMessageBox.Open | QMessageBox.Ok,
-                    QMessageBox.Open
-                )
-                if ans == QMessageBox.Open:
-                    try:
-                        folder = os.path.dirname(file_path)
-                        if os.name == "nt":
-                            os.startfile(folder)
-                        else:
-                            subprocess.Popen(["xdg-open", folder])
-                    except Exception:
-                        pass
+                prompt_file_saved(self, file_path, title="Export Successful", message=f"{sel_entity} data exported successfully.")
                 self.accept()
             else:
                 QMessageBox.warning(self, "Export Failed", "Failed to export data. Please check openpyxl installation.")

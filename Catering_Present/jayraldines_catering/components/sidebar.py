@@ -11,8 +11,8 @@ from utils.paths import resource_path
 _NAV_ITEMS = [
     ("Customers", "customers", 2),
     ("Menu",      "menu",      3),
+    ("Cash Flow", "trending-up", 5),
     ("Expenses",  "billing",   8),
-    ("Kitchen",   "kitchen",   5),
     ("Reports",   "reports",   7),
     ("Settings",  "settings",  10),
 ]

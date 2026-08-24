@@ -30,7 +30,7 @@ except ImportError:
 
 LOGGER_NAME = "jayraldines"
 _logger: Optional[logging.Logger] = None
-_log_file_path: Optional[Path] = None
+_daily_handler: Optional["DailyFileHandler"] = None
 
 
 def get_log_dir() -> Path:
@@ -49,37 +49,100 @@ def get_log_dir() -> Path:
         return fallback
 
 
+def get_daily_log_filename(dt: Optional[datetime] = None) -> str:
+    """Return date-stamped log file name, e.g. 'app_2026-08-22.log'."""
+    d = dt or datetime.now()
+    return f"app_{d.strftime('%Y-%m-%d')}.log"
+
+
+def get_log_file_path(dt: Optional[datetime] = None) -> Path:
+    """Return the absolute path of the date-stamped daily log file."""
+    return get_log_dir() / get_daily_log_filename(dt)
+
+
+class DailyFileHandler(logging.Handler):
+    """
+    Custom logging handler that dynamically creates and writes to daily log files
+    based on the current date (e.g. app_2026-08-22.log). Seamlessly rolls over
+    to a new date-stamped file when midnight passes.
+    """
+    def __init__(self, log_dir: Path, encoding="utf-8"):
+        super().__init__()
+        self.log_dir = log_dir
+        self.encoding = encoding
+        self._current_date_str: Optional[str] = None
+        self._file_handler: Optional[RotatingFileHandler] = None
+
+    def _get_active_handler(self) -> RotatingFileHandler:
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        if self._current_date_str != today_str or self._file_handler is None:
+            if self._file_handler is not None:
+                try:
+                    self._file_handler.close()
+                except Exception:
+                    pass
+            self._current_date_str = today_str
+            file_path = self.log_dir / f"app_{today_str}.log"
+            self._file_handler = RotatingFileHandler(
+                file_path,
+                maxBytes=10 * 1024 * 1024,
+                backupCount=5,
+                encoding=self.encoding
+            )
+            if self.formatter:
+                self._file_handler.setFormatter(self.formatter)
+            self._file_handler.setLevel(self.level)
+        return self._file_handler
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            h = self._get_active_handler()
+            h.emit(record)
+        except Exception:
+            self.handleError(record)
+
+    def flush(self):
+        if self._file_handler is not None:
+            try:
+                self._file_handler.flush()
+            except Exception:
+                pass
+        super().flush()
+
+    def close(self):
+        if self._file_handler is not None:
+            try:
+                self._file_handler.close()
+            except Exception:
+                pass
+            self._file_handler = None
+        super().close()
+
+
 def setup_logging() -> logging.Logger:
-    """Initialize application rotating logger."""
-    global _logger, _log_file_path
+    """Initialize application daily logger."""
+    global _logger, _daily_handler
     if _logger is not None:
         return _logger
 
     log_dir = get_log_dir()
-    _log_file_path = log_dir / "app.log"
-
     logger = logging.getLogger(LOGGER_NAME)
     logger.setLevel(logging.INFO)
 
     # Avoid duplicate handlers
     if not logger.handlers:
-        # Rotating File Handler: Max 5MB, keep 3 backup logs
+        # Daily Date-Separated File Handler
         try:
-            file_handler = RotatingFileHandler(
-                _log_file_path,
-                maxBytes=5 * 1024 * 1024,
-                backupCount=3,
-                encoding="utf-8"
-            )
+            _daily_handler = DailyFileHandler(log_dir, encoding="utf-8")
             file_fmt = logging.Formatter(
                 "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
                 datefmt="%Y-%m-%d %H:%M:%S"
             )
-            file_handler.setFormatter(file_fmt)
-            file_handler.setLevel(logging.INFO)
-            logger.addHandler(file_handler)
+            _daily_handler.setFormatter(file_fmt)
+            _daily_handler.setLevel(logging.INFO)
+            logger.addHandler(_daily_handler)
         except Exception as exc:
-            print(f"[Logger] Failed to initialize file handler: {exc}")
+            print(f"[Logger] Failed to initialize daily file handler: {exc}")
 
         # Console Stream Handler
         console_handler = logging.StreamHandler(sys.stdout)
@@ -91,11 +154,12 @@ def setup_logging() -> logging.Logger:
         logger.addHandler(console_handler)
 
     _logger = logger
+    current_log_path = get_log_file_path()
     logger.info("=" * 60)
     logger.info(f"{APP_NAME} v{__version__} Session Started")
     logger.info(f"OS: {platform.system()} {platform.release()} ({platform.version()}) | Architecture: {platform.machine()}")
     logger.info(f"Python: {platform.python_version()} | Executable: {sys.executable}")
-    logger.info(f"Log File: {_log_file_path}")
+    logger.info(f"Daily Log File: {current_log_path}")
     logger.info("=" * 60)
 
     install_exception_hook()
@@ -111,7 +175,7 @@ def get_logger() -> logging.Logger:
 
 
 def install_exception_hook():
-    """Install global exception hook to capture any unexpected crash/traceback into app.log."""
+    """Install global exception hook to capture any unexpected crash/traceback into daily log file."""
     def _uncaught_exception_handler(exc_type, exc_value, exc_traceback):
         if issubclass(exc_type, KeyboardInterrupt):
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
@@ -123,12 +187,9 @@ def install_exception_hook():
     sys.excepthook = _uncaught_exception_handler
 
 
-def get_log_file_path() -> Path:
-    """Return the absolute path of the current log file."""
-    global _log_file_path
-    if _log_file_path is None:
-        _log_file_path = get_log_dir() / "app.log"
-    return _log_file_path
+def get_log_file_path(dt: Optional[datetime] = None) -> Path:
+    """Return the absolute path of the date-stamped daily log file."""
+    return get_log_dir() / get_daily_log_filename(dt)
 
 
 def export_diagnostic_report(target_dir: Optional[Path] = None) -> Path:

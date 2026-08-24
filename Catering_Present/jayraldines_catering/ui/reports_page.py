@@ -6,14 +6,15 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QTableWidgetItem, QHeaderView, QScrollArea,
                                QMessageBox, QToolTip, QFileDialog, QMenu, QSizePolicy)
 from PySide6.QtCore import Qt, QMargins, QPointF, QSize
-from PySide6.QtGui import QAction
-from PySide6.QtGui import QColor, QPainter, QLinearGradient, QPen, QCursor
+from datetime import datetime, date
+from PySide6.QtGui import QAction, QFont, QColor, QPainter, QLinearGradient, QPen, QCursor
 
 from utils import exporter as _exporter
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red
 from utils.theme import ThemeManager
 from utils.accent import AccentManager
+from components.dialogs import prompt_file_saved
 import utils.repository as repo
 
 from PySide6.QtCharts import (QChart, QChartView, QLineSeries, QAreaSeries,
@@ -828,6 +829,10 @@ class ReportsPage(QWidget):
         self.occasion_card.layout().setContentsMargins(28, 24, 28, 20)
         self.main_layout.addWidget(self.occasion_card)
 
+        # ── SALES TARGET EVALUATION (REF IMAGE 1) ─────────────────────────
+        self._sales_eval_card = self._build_sales_evaluation_card()
+        self.main_layout.addWidget(self._sales_eval_card)
+
         # ── RECENT BOOKINGS TABLE ────────────────────────────────────────────
         # ── RECENT BOOKINGS CARDS ────────────────────────────────────────────
         self.table_card = HoverCard(self.scroll_content)
@@ -934,6 +939,194 @@ class ReportsPage(QWidget):
         self._reload_table()
         self._load_expenses()
         self._locations_chart_layout.reload()
+        if hasattr(self, "_reload_sales_evaluation"):
+            self._reload_sales_evaluation()
+
+    def _build_sales_evaluation_card(self):
+        card = HoverCard(self.scroll_content)
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        head = QHBoxLayout()
+        v_title = QVBoxLayout()
+        v_title.setSpacing(3)
+        t_lbl = QLabel("Sales Evaluation Report (Monthly Target vs Actual)")
+        t_lbl.setObjectName("h2")
+        sub = QLabel("Compare real system revenue performance against configured monthly targets (Formula: Target - Actual = Remaining).")
+        sub.setObjectName("subtitle")
+        v_title.addWidget(t_lbl)
+        v_title.addWidget(sub)
+        head.addLayout(v_title)
+        head.addStretch()
+
+        yr_lbl = QLabel("Select Year:")
+        yr_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
+        head.addWidget(yr_lbl)
+
+        from PySide6.QtWidgets import QComboBox
+        self._eval_year_combo = QComboBox()
+        cur_year = datetime.now().year
+        for yr in [cur_year - 2, cur_year - 1, cur_year, cur_year + 1, cur_year + 2]:
+            self._eval_year_combo.addItem(str(yr), yr)
+        self._eval_year_combo.setCurrentText(str(cur_year))
+        self._eval_year_combo.setFixedHeight(34)
+        self._eval_year_combo.setMinimumWidth(100)
+        self._eval_year_combo.currentIndexChanged.connect(self._reload_sales_evaluation)
+        head.addWidget(self._eval_year_combo)
+
+        btn_export_eval = QPushButton("  Export CSV")
+        btn_export_eval.setObjectName("secondaryButton")
+        btn_export_eval.setIcon(btn_icon_secondary("export"))
+        btn_export_eval.setIconSize(QSize(14, 14))
+        btn_export_eval.setFixedHeight(34)
+        btn_export_eval.clicked.connect(self._export_sales_eval_csv)
+        head.addWidget(btn_export_eval)
+
+        lay.addLayout(head)
+
+        # 12-Month Table
+        self._eval_table = QTableWidget(13, 4)
+        self._eval_table.setHorizontalHeaderLabels([
+            "Month", "Target Sales (₱)", "Actual Sales (₱)", "Evaluation / Remaining (₱)"
+        ])
+        self._eval_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self._eval_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self._eval_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self._eval_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self._eval_table.verticalHeader().setVisible(False)
+        self._eval_table.setFixedHeight(480)
+        self._eval_table.setStyleSheet("""
+            QTableWidget {
+                background: #0F172A;
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 8px;
+                gridline-color: rgba(255,255,255,0.06);
+                font-size: 13px;
+                color: #F9FAFB;
+            }
+            QTableWidget::item {
+                padding: 6px 12px;
+                border-bottom: 1px solid rgba(255,255,255,0.05);
+            }
+            QHeaderView::section {
+                background-color: #111827;
+                color: #9CA3AF;
+                font-weight: 700;
+                font-size: 11px;
+                padding: 10px 12px;
+                border: none;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+            }
+        """)
+        lay.addWidget(self._eval_table)
+
+        self._reload_sales_evaluation()
+        return card
+
+    def _reload_sales_evaluation(self):
+        if not hasattr(self, "_eval_table"):
+            return
+        try:
+            yr = int(self._eval_year_combo.currentText())
+        except Exception:
+            yr = datetime.now().year
+
+        data = repo.get_monthly_sales_evaluation_report(yr)
+        months = data.get("months", [])
+
+        self._eval_table.setRowCount(len(months) + 1)
+        for r_idx, m_info in enumerate(months):
+            m_name = m_info["month_name"]
+            t_amt = m_info["target_sales"]
+            a_amt = m_info["actual_sales"]
+            rem = m_info["remaining"]
+
+            item_m = QTableWidgetItem(m_name)
+            item_m.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            item_m.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+            item_t = QTableWidgetItem(f"₱ {t_amt:,.2f}")
+            item_t.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            item_a = QTableWidgetItem(f"₱ {a_amt:,.2f}")
+            item_a.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            if a_amt > 0:
+                item_a.setForeground(QColor("#22C55E"))
+
+            # Ref Image 1: Shortfall displayed in red parenthesis e.g. (85,000.00)
+            if a_amt < t_amt:
+                eval_str = f"(₱ {rem:,.2f})"
+                item_e = QTableWidgetItem(eval_str)
+                item_e.setForeground(QColor("#EF4444"))
+                item_e.setToolTip(f"₱{rem:,.2f} remaining to hit the target")
+            else:
+                surplus = a_amt - t_amt
+                eval_str = f"+₱ {surplus:,.2f} (Target Achieved)"
+                item_e = QTableWidgetItem(eval_str)
+                item_e.setForeground(QColor("#22C55E"))
+
+            item_e.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            self._eval_table.setItem(r_idx, 0, item_m)
+            self._eval_table.setItem(r_idx, 1, item_t)
+            self._eval_table.setItem(r_idx, 2, item_a)
+            self._eval_table.setItem(r_idx, 3, item_e)
+
+        # Summary Row (13th row)
+        tot_target = data.get("total_target", 0.0)
+        tot_actual = data.get("total_actual", 0.0)
+        tot_rem = data.get("total_remaining", 0.0)
+
+        tot_m = QTableWidgetItem("TOTAL ANNUAL:")
+        tot_m.setFont(QFont("Segoe UI", 11, QFont.ExtraBold))
+        tot_m.setForeground(QColor("#E11D48"))
+
+        tot_t = QTableWidgetItem(f"₱ {tot_target:,.2f}")
+        tot_t.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        tot_t.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        tot_a = QTableWidgetItem(f"₱ {tot_actual:,.2f}")
+        tot_a.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        tot_a.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        tot_a.setForeground(QColor("#22C55E"))
+
+        if tot_actual < tot_target:
+            tot_e_str = f"(₱ {tot_rem:,.2f})"
+            tot_e = QTableWidgetItem(tot_e_str)
+            tot_e.setForeground(QColor("#EF4444"))
+        else:
+            tot_e = QTableWidgetItem(f"+₱ {(tot_actual - tot_target):,.2f} (Target Exceeded)")
+            tot_e.setForeground(QColor("#22C55E"))
+
+        tot_e.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        tot_e.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        last_r = len(months)
+        self._eval_table.setItem(last_r, 0, tot_m)
+        self._eval_table.setItem(last_r, 1, tot_t)
+        self._eval_table.setItem(last_r, 2, tot_a)
+        self._eval_table.setItem(last_r, 3, tot_e)
+
+    def _export_sales_eval_csv(self):
+        yr = int(self._eval_year_combo.currentText())
+        path, _ = QFileDialog.getSaveFileName(self, f"Export Sales Evaluation {yr}", f"Jayraldines_Sales_Evaluation_{yr}.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+        data = repo.get_monthly_sales_evaluation_report(yr)
+        try:
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow([f"Jayraldine's Catering - Sales Evaluation Report ({yr})"])
+                writer.writerow(["Month", "Target Sales", "Actual Sales", "Evaluation / Remaining"])
+                for m in data.get("months", []):
+                    rem_str = f"({m['remaining']:,.2f})" if m['is_shortfall'] else f"{m['actual_sales'] - m['target_sales']:,.2f}"
+                    writer.writerow([m["month_name"], f"{m['target_sales']:,.2f}", f"{m['actual_sales']:,.2f}", rem_str])
+                writer.writerow([])
+                writer.writerow(["TOTAL ANNUAL", f"{data['total_target']:,.2f}", f"{data['total_actual']:,.2f}", f"({data['total_remaining']:,.2f})" if data['overall_shortfall'] else "Achieved"])
+            prompt_file_saved(self, path, title="Sales Evaluation Exported", message="Sales evaluation report exported successfully.")
+        except Exception as e:
+            QMessageBox.warning(self, "Export Error", str(e))
 
     def _reload_kpis(self):
         p = getattr(self, "_period", "All Time")
@@ -1406,7 +1599,7 @@ class ReportsPage(QWidget):
         ok = _exporter.export_pdf(path, kpis, bookings, "Business Report", period,
                                   sections=sections, chart_images=chart_images)
         if ok:
-            QMessageBox.information(self, "Export", f"PDF exported to:\n{path}")
+            prompt_file_saved(self, path, title="Report PDF Generated", message="Business report PDF generated successfully.")
         else:
             QMessageBox.warning(self, "Export Failed",
                 "PDF export failed. Make sure reportlab is installed:\npip install reportlab")
@@ -1422,7 +1615,7 @@ class ReportsPage(QWidget):
         ok = _exporter.export_excel(path, kpis, bookings, "Business Report", period,
                                     sections=sections)
         if ok:
-            QMessageBox.information(self, "Export", f"Excel exported to:\n{path}")
+            prompt_file_saved(self, path, title="Report Excel Exported", message="Business report Excel spreadsheet exported successfully.")
         else:
             QMessageBox.warning(self, "Export Failed",
                 "Excel export failed. Make sure openpyxl is installed:\npip install openpyxl")
@@ -1443,4 +1636,4 @@ class ReportsPage(QWidget):
                     b.get("id"), b.get("date"), b.get("name"),
                     b.get("pax"), b.get("total"), b.get("status"),
                 ])
-        QMessageBox.information(self, "Export", f"CSV exported to:\n{path}")
+        prompt_file_saved(self, path, title="Report CSV Exported", message="Report bookings CSV exported successfully.")

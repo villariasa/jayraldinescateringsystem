@@ -588,36 +588,43 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         cnt = cur.fetchone()[0] + 1
         booking_ref = f"BK-{cnt:04d}"
 
+        pkg_id = p[11]
+        if pkg_id:
+            cur.execute("SELECT pkg_id FROM packages WHERE pkg_id = ? LIMIT 1", (pkg_id,))
+            if not cur.fetchone():
+                pkg_id = None
+
+        # Status is ALWAYS PENDING for new bookings until manually confirmed by staff/admin
         cur.execute("""
             INSERT INTO bookings (
                 bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time,
                 bk_venue, bk_occasion, bk_pax, bk_notes, bk_menu_type, bk_package_id, bk_total_amount,
-                bk_payment_mode, bk_amount_paid, bk_status
+                bk_payment_mode, bk_amount_paid, bk_down_payment, bk_down_payment_status, bk_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CONFIRMED')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')
         """, (
             booking_ref, cust_id, cust_name, p[3], event_d, p[7],
-            p[5], p[4], p[8], p[9], p[10], p[11], total_amt,
-            pay_mode, amt_paid
+            p[5], p[4], p[8], p[9], p[10], pkg_id, total_amt,
+            pay_mode, amt_paid, amt_paid
         ))
         booking_id = cur.lastrowid
 
-        # Auto create invoice (Paid)
+        # Auto create invoice (Unpaid or Partial if down payment recorded)
         bal = max(0.0, total_amt - amt_paid)
-        inv_status = "Paid" if bal <= 0.0 else ("Partial" if amt_paid > 0 else "Unpaid")
+        inv_status = "Paid" if (bal <= 0.0 and total_amt > 0) else ("Partial" if amt_paid > 0 else "Unpaid")
         inv_num = f"INV-{booking_id:04d}"
         cur.execute("""
-            INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (booking_id, inv_num, inv_num, cust_name, event_d, total_amt, amt_paid, bal, inv_status))
+            INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_down_payment, inv_payment_verified, inv_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+        """, (booking_id, inv_num, inv_num, cust_name, event_d, total_amt, amt_paid, bal, amt_paid, inv_status))
         inv_id = cur.lastrowid
 
-        # Auto record payment in payment_records
+        # Record downpayment in payment_records (unverified until staff accepts)
         if amt_paid > 0:
             cur.execute("""
-                INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_payment_method, pr_method, pr_notes, pr_note)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (inv_id, amt_paid, event_d, pay_mode, pay_mode, "Auto-approved payment on booking creation", "Auto-approved payment on booking creation"))
+                INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_payment_method, pr_method, pr_is_downpayment, pr_is_verified, pr_notes, pr_note)
+                VALUES (?, ?, ?, ?, ?, 1, 0, 'Initial down payment on booking request', 'Initial down payment on booking request')
+            """, (inv_id, amt_paid, event_d, pay_mode, pay_mode))
 
         # Auto create kitchen order
         cur.execute("""
@@ -797,6 +804,81 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
 
     elif proc == "sp_delete_expense":
         cur.execute("DELETE FROM expenses WHERE exp_id = ?", (p[0],))
+
+    elif proc == "sp_update_booking":
+        # (db_id, name, contact, email, address, occasion, venue, event_date, event_time, pax, notes, menu_type, package_id, menu_value, total, payment_mode, amount_paid)
+        bk_id = p[0]
+        c_name = str(p[1] or '').strip()
+        c_contact = str(p[2] or '').strip()
+        c_email = str(p[3] or '').strip()
+        c_address = str(p[4] or '').strip()
+        occasion = str(p[5] or '').strip()
+        venue = str(p[6] or '').strip()
+        event_d = _sanitize_param(p[7])
+        event_t = str(p[8] or '18:00').strip()
+        pax = int(p[9] or 100)
+        notes = str(p[10] or '').strip()
+        m_type = str(p[11] or 'package').strip()
+        pkg_id = p[12]
+        m_val = str(p[13] or '').strip()
+        tot = float(p[14] or 0.0)
+        pay_mode = str(p[15] or 'Cash').strip()
+        amt_paid = float(p[16] or 0.0)
+
+        # Update bookings row
+        cur.execute("""
+            UPDATE bookings
+            SET bk_customer_name = ?, bk_address = ?, bk_occasion = ?, bk_venue = ?,
+                bk_event_date = ?, bk_event_time = ?, bk_pax = ?, bk_notes = ?,
+                bk_menu_type = ?, bk_package_id = ?, bk_total_amount = ?,
+                bk_payment_mode = ?, bk_amount_paid = ?, bk_down_payment = ?
+            WHERE bk_id = ?
+        """, (c_name, c_address, occasion, venue, event_d, event_t, pax, notes, m_type, pkg_id, tot, pay_mode, amt_paid, amt_paid, bk_id))
+
+        # Update invoices row
+        cur.execute("SELECT inv_id, inv_amount_paid FROM invoices WHERE inv_booking_id = ? LIMIT 1", (bk_id,))
+        inv_row = cur.fetchone()
+        if inv_row:
+            cur_paid = float(inv_row[1] or amt_paid)
+            new_paid = max(cur_paid, amt_paid)
+            rem = max(0.0, tot - new_paid)
+            inv_stat = "Paid" if (rem <= 0.0 and tot > 0) else ("Partial" if new_paid > 0 else "Unpaid")
+            cur.execute("""
+                UPDATE invoices
+                SET inv_customer_name = ?, inv_event_date = ?, inv_total_amount = ?,
+                    inv_amount_paid = ?, inv_balance = ?, inv_status = ?
+                WHERE inv_id = ?
+            """, (c_name, event_d, tot, new_paid, rem, inv_stat, inv_row[0]))
+        else:
+            inv_num = f"INV-{bk_id:04d}"
+            rem = max(0.0, tot - amt_paid)
+            inv_stat = "Paid" if (rem <= 0.0 and tot > 0) else ("Partial" if amt_paid > 0 else "Unpaid")
+            cur.execute("""
+                INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (bk_id, inv_num, inv_num, c_name, event_d, tot, amt_paid, rem, inv_stat))
+
+        # Update customer table
+        cur.execute("SELECT bk_customer_id FROM bookings WHERE bk_id = ?", (bk_id,))
+        c_id_row = cur.fetchone()
+        if c_id_row and c_id_row[0]:
+            cur.execute("""
+                UPDATE customers
+                SET cus_name = ?,
+                    cus_contact = COALESCE(NULLIF(?, ''), cus_contact),
+                    cus_email = COALESCE(NULLIF(?, ''), cus_email),
+                    cus_address = COALESCE(NULLIF(?, ''), cus_address)
+                WHERE cus_id = ?
+            """, (c_name, c_contact, c_email, c_address, c_id_row[0]))
+
+    elif proc == "sp_confirm_booking":
+        cur.execute("UPDATE bookings SET bk_status = 'CONFIRMED' WHERE bk_id = ?", (p[0],))
+
+    elif proc == "sp_verify_payment":
+        if len(p) >= 1 and p[0]:
+            cur.execute("UPDATE invoices SET inv_payment_verified = 1 WHERE inv_id = ?", (p[0],))
+        if len(p) >= 2 and p[1]:
+            cur.execute("UPDATE payment_records SET pr_is_verified = 1 WHERE pr_id = ?", (p[1],))
 
     elif proc == "sp_update_booking_status":
         # (booking_id, new_status)

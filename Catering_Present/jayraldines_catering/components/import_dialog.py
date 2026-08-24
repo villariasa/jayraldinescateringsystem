@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor
 
 from utils.accent import AccentManager
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
+from components.dialogs import prompt_file_saved
 import utils.importer as importer
 
 
@@ -370,9 +371,10 @@ class ImportWizardDialog(QDialog):
             if err:
                 QMessageBox.warning(self, "Download Error", err)
             else:
-                QMessageBox.information(
-                    self, "Template Downloaded",
-                    f"Sample template for {entity_title} downloaded successfully!\n\nLocation:\n{file_path}"
+                prompt_file_saved(
+                    self, file_path,
+                    title="Template Downloaded",
+                    message=f"Sample template for {entity_title} downloaded successfully!"
                 )
 
     def _on_browse_file(self):

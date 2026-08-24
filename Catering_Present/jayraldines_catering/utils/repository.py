@@ -209,6 +209,17 @@ def get_customer_names() -> list[str]:
     return [r["name"] for r in rows] if rows else []
 
 
+def get_customer_by_name(name: str) -> Optional[dict]:
+    """Fetch customer details by name."""
+    if not name:
+        return None
+    row = db.fetchone(
+        "SELECT cus_id AS id, cus_name AS name, cus_contact AS contact, cus_email AS email, cus_address AS address, cus_status AS status FROM customers WHERE cus_name = %s LIMIT 1",
+        (name,)
+    )
+    return dict(row) if row else None
+
+
 def get_customer_email_by_name(name: str) -> str:
     row = db.fetchone(
         "SELECT cus_email AS email FROM customers WHERE cus_name = %s LIMIT 1", (name,)
@@ -605,14 +616,60 @@ def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> l
     ]
 
 
+def get_booking_detail(db_id: int) -> Optional[dict]:
+    """Fetch complete details for a booking order for modal editing/viewing."""
+    row = db.fetchone("""
+        SELECT b.bk_id AS db_id,
+               b.bk_booking_ref AS id,
+               b.bk_booking_ref AS booking_ref,
+               b.bk_customer_name AS name,
+               b.bk_customer_name AS customer_name,
+               b.bk_address AS address,
+               b.bk_event_date AS event_date,
+               b.bk_event_time AS event_time,
+               b.bk_occasion AS occasion,
+               b.bk_venue AS venue,
+               b.bk_pax AS pax,
+               b.bk_total_amount AS total,
+               b.bk_payment_mode AS payment_mode,
+               b.bk_amount_paid AS amount_paid,
+               b.bk_down_payment AS down_payment,
+               b.bk_menu_type AS menu_type,
+               b.bk_package_id AS package_id,
+               b.bk_notes AS notes,
+               b.bk_status AS status,
+               c.cus_contact AS contact,
+               c.cus_email AS email
+        FROM bookings b
+        LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
+        WHERE b.bk_id = %s
+    """, (db_id,))
+    if not row:
+        return None
+    d = dict(row)
+    if isinstance(d.get("event_date"), (datetime, date)):
+        d["date"] = d["event_date"].strftime("%Y-%m-%d")
+        d["event_date"] = d["event_date"].strftime("%b %d, %Y")
+    else:
+        d["date"] = str(d.get("event_date", ""))
+    d["time"] = str(d.get("event_time", "18:00"))
+    return d
+
+
 def create_booking(data: dict) -> Optional[dict]:
     try:
-        event_date  = _parse_date(data["date"])
-        event_time  = _parse_time(data.get("time", "6:00 PM"))
-        amount_paid = _parse_amount(data.get("amount_paid", "0"))
+        raw_date    = data.get("date") or data.get("event_date")
+        raw_time    = data.get("time") or data.get("event_time", "6:00 PM")
+        raw_total   = data.get("total") if "total" in data else data.get("total_amount", 0.0)
+        raw_down    = data.get("down_payment") or data.get("amount_paid", "0")
 
-        package_id = None
-        if data.get("menu_type") == "package":
+        event_date  = _parse_date(raw_date)
+        event_time  = _parse_time(raw_time)
+        amount_paid = _parse_amount(raw_down)
+        total_amt   = _parse_amount(raw_total)
+
+        package_id = data.get("package_id")
+        if not package_id and data.get("menu_type") == "package":
             pkg_row = db.fetchone(
                 "SELECT pkg_id AS id FROM packages WHERE pkg_name = %s",
                 (data.get("menu_value"),),
@@ -636,7 +693,7 @@ def create_booking(data: dict) -> Optional[dict]:
                 data.get("menu_type", "package"),
                 package_id,
                 data.get("menu_value", "") if data.get("menu_type") == "custom" else None,
-                data["total"],
+                total_amt,
                 data.get("payment_mode", "Cash"),
                 amount_paid,
             ),
@@ -649,14 +706,23 @@ def create_booking(data: dict) -> Optional[dict]:
     return None
 
 
+add_booking = create_booking
+
+
 def update_booking(db_id: int, data: dict) -> None:
     try:
-        event_date  = _parse_date(data["date"])
-        event_time  = _parse_time(data.get("time", "6:00 PM"))
-        amount_paid = _parse_amount(data.get("amount_paid", "0"))
+        raw_date    = data.get("date") or data.get("event_date")
+        raw_time    = data.get("time") or data.get("event_time", "6:00 PM")
+        raw_total   = data.get("total") if "total" in data else data.get("total_amount", 0.0)
+        raw_down    = data.get("down_payment") or data.get("amount_paid", "0")
 
-        package_id = None
-        if data.get("menu_type") == "package":
+        event_date  = _parse_date(raw_date)
+        event_time  = _parse_time(raw_time)
+        amount_paid = _parse_amount(raw_down)
+        total_amt   = _parse_amount(raw_total)
+
+        package_id = data.get("package_id")
+        if not package_id and data.get("menu_type") == "package":
             pkg_row = db.fetchone(
                 "SELECT pkg_id AS id FROM packages WHERE pkg_name = %s",
                 (data.get("menu_value"),),
@@ -1142,6 +1208,69 @@ def get_dashboard_kpis() -> dict:
         "weekly_revenue":   float(row["weekly_revenue"]),
         "unpaid_invoices":  float(row["unpaid_invoices"]),
         "todays_pax":       int(row["todays_pax"]),
+    }
+
+
+def get_dashboard_kpis_filtered(target_date: str = None) -> dict:
+    """Return dashboard metrics for a specific date (e.g. today or custom date), or default view."""
+    if not target_date:
+        return get_dashboard_kpis()
+    
+    d_str = _parse_date(target_date)
+    
+    # 1. Events on this date
+    e_row = db.fetchone("""
+        SELECT COUNT(*) AS todays_events, COALESCE(SUM(bk_pax), 0) AS todays_pax,
+               COALESCE(SUM(bk_total_amount), 0.0) AS daily_sales
+        FROM bookings
+        WHERE bk_event_date = %s AND bk_status != 'CANCELLED'
+    """, (d_str,))
+    todays_events = int(e_row["todays_events"] if e_row and e_row.get("todays_events") is not None else 0)
+    todays_pax = int(e_row["todays_pax"] if e_row and e_row.get("todays_pax") is not None else 0)
+    daily_sales = float(e_row["daily_sales"] if e_row and e_row.get("daily_sales") is not None else 0.0)
+    
+    # 2. Pending bookings for this date
+    p_row = db.fetchone("""
+        SELECT COUNT(*) AS pending_bookings
+        FROM bookings
+        WHERE bk_status = 'PENDING' AND bk_event_date = %s
+    """, (d_str,))
+    pending = int(p_row["pending_bookings"] if p_row and p_row.get("pending_bookings") is not None else 0)
+    
+    # 3. Payments collected on this specific date
+    pay_row = db.fetchone("""
+        SELECT COALESCE(SUM(pr_amount), 0.0) AS total_paid
+        FROM payment_records
+        WHERE pr_payment_date = %s
+    """, (d_str,))
+    paid_amt = float(pay_row["total_paid"] if pay_row and pay_row.get("total_paid") is not None else 0.0)
+
+    # 4. Expenses on this date
+    exp_row = db.fetchone("""
+        SELECT COALESCE(SUM(exp_amount), 0.0) AS total_exp
+        FROM expenses
+        WHERE (exp_expense_date = %s OR exp_date = %s)
+    """, (d_str, d_str))
+    exp_amt = float(exp_row["total_exp"] if exp_row and exp_row.get("total_exp") is not None else 0.0)
+
+    # 5. Unpaid balance for events on this date
+    inv_row = db.fetchone("""
+        SELECT COALESCE(SUM(inv_balance), 0.0) AS unpaid
+        FROM invoices
+        WHERE inv_event_date = %s AND inv_status != 'Paid'
+    """, (d_str,))
+    unpaid = float(inv_row["unpaid"] if inv_row and inv_row.get("unpaid") is not None else 0.0)
+
+    return {
+        "todays_events": todays_events,
+        "pending_bookings": pending,
+        "weekly_revenue": paid_amt if paid_amt > 0 else daily_sales,
+        "daily_sales": daily_sales,
+        "daily_payments": paid_amt,
+        "daily_expenses": exp_amt,
+        "unpaid_invoices": unpaid,
+        "todays_pax": todays_pax,
+        "net_income": (paid_amt if paid_amt > 0 else daily_sales) - exp_amt,
     }
 
 
@@ -1906,9 +2035,13 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
     row = db.fetchone(
         """
         SELECT b.bk_id            AS id,
+               b.bk_id            AS db_id,
                b.bk_customer_id   AS customer_id,
+               b.bk_booking_ref   AS id_ref,
                b.bk_booking_ref   AS booking_ref,
+               b.bk_customer_name AS name,
                b.bk_customer_name AS customer_name,
+               b.bk_address       AS address,
                c.cus_contact      AS contact,
                c.cus_email        AS email,
                b.bk_occasion      AS occasion,
@@ -1918,7 +2051,10 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
                b.bk_pax           AS pax,
                b.bk_total_amount  AS total_amount,
                b.bk_amount_paid   AS amount_paid,
+               b.bk_down_payment  AS down_payment,
                b.bk_menu_type     AS menu_type,
+               b.bk_package_id    AS package_id,
+               b.bk_notes         AS notes,
                b.bk_status        AS status
         FROM bookings b
         LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
@@ -1938,9 +2074,9 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
         """,
         (db_id,),
     )
-    paid_val = float(paid_row["total_paid"]) if (paid_row and float(paid_row["total_paid"]) > 0) else float(row["amount_paid"] or 0)
+    paid_val = float(paid_row["total_paid"]) if (paid_row and float(paid_row["total_paid"]) > 0) else float(row.get("amount_paid") or 0)
 
-    time_str = "—"
+    time_str = "18:00"
     if row.get("event_time"):
         if isinstance(row["event_time"], (time, datetime)):
             time_str = row["event_time"].strftime("%I:%M %p")
@@ -1948,24 +2084,37 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
             time_str = str(row["event_time"])
 
     total_val = float(row["total_amount"] or 0)
+    down_val = float(row.get("down_payment") or (paid_val if paid_val > 0 else 0.0))
+
+    d_val = row["event_date"]
+    date_formatted = d_val.strftime("%b %d, %Y") if isinstance(d_val, (date, datetime)) else str(d_val)
+    date_raw = d_val.strftime("%Y-%m-%d") if isinstance(d_val, (date, datetime)) else str(d_val)
 
     return {
+        "id":            row.get("booking_ref") or f"BK-{db_id:04d}",
         "db_id":         row["id"],
         "customer_id":   row["customer_id"],
         "booking_ref":   row["booking_ref"],
+        "name":          row["customer_name"],
         "customer_name": row["customer_name"],
+        "address":       row.get("address") or "",
         "contact":       row["contact"] or "",
         "email":         row["email"] or "",
         "occasion":      row["occasion"],
         "venue":         row["venue"],
-        "event_date":    row["event_date"].strftime("%b %d, %Y") if isinstance(row["event_date"], date) else str(row["event_date"]),
+        "date":          date_raw,
+        "event_date":    date_formatted,
+        "time":          time_str,
         "event_time":    time_str,
         "pax":           row["pax"],
         "total_amount":  total_val,
         "total":         total_val,
         "amount_paid":   paid_val,
         "paid":          paid_val,
+        "down_payment":  down_val,
         "menu_type":     row["menu_type"] or "package",
+        "package_id":    row.get("package_id"),
+        "notes":         row.get("notes") or "",
         "status":        row["status"],
     }
 
@@ -2776,3 +2925,293 @@ def purge_all_data() -> dict:
     """Completely wipe all operational data and reset system to clean state."""
     all_cats = ["bookings", "customers", "expenses", "menu_items", "packages", "calendar_events", "logs"]
     return purge_selected_data(all_cats)
+
+
+# ---------------------------------------------------------------------------
+# Cash Flow Management (Ref Image 2)
+# ---------------------------------------------------------------------------
+
+def recalculate_cash_flow_balances():
+    """Recalculate running balances for all cash flow transactions chronologically."""
+    rows = db.fetchall("SELECT cft_id, cft_deposit, cft_withdrawal FROM cash_flow_transactions ORDER BY cft_date ASC, cft_id ASC") or []
+    running = 0.0
+    for r in rows:
+        dep = float(r.get("cft_deposit") or 0.0)
+        withd = float(r.get("cft_withdrawal") or 0.0)
+        running = running + dep - withd
+        db.execute("UPDATE cash_flow_transactions SET cft_balance = %s WHERE cft_id = %s", (running, r["cft_id"]))
+
+
+def get_cash_flow_transactions(filter_date=None, search=None) -> list[dict]:
+    """Fetch cash flow transactions with running balance and formatting."""
+    query = """
+        SELECT cft_id AS id, cft_date AS date, cft_check_no AS check_no,
+               cft_particulars AS particulars, cft_deposit AS deposit,
+               cft_withdrawal AS withdrawal, cft_balance AS balance,
+               COALESCE(cft_actual_sales, 0.0) AS actual_sales,
+               cft_notes AS notes
+        FROM cash_flow_transactions
+    """
+    params = []
+    conds = []
+    if filter_date:
+        conds.append("cft_date = %s")
+        params.append(str(filter_date))
+    if search:
+        s = f"%{search.strip().lower()}%"
+        conds.append("(LOWER(cft_particulars) LIKE %s OR LOWER(cft_check_no) LIKE %s OR LOWER(cft_notes) LIKE %s)")
+        params.extend([s, s, s])
+    if conds:
+        query += " WHERE " + " AND ".join(conds)
+    query += " ORDER BY cft_date ASC, cft_id ASC"
+    
+    rows = db.fetchall(query, tuple(params) if params else None) or []
+    return rows
+
+
+def add_cash_flow_transaction(data: dict) -> bool:
+    """Insert a new cash flow transaction and recompute running balance."""
+    t_date = _parse_date(data.get("date", datetime.today().strftime("%Y-%m-%d")))
+    check_no = str(data.get("check_no", "")).strip()
+    particulars = str(data.get("particulars", "Cash on Hand")).strip()
+    deposit = float(data.get("deposit") or 0.0)
+    withdrawal = float(data.get("withdrawal") or 0.0)
+    actual_sales = float(data.get("actual_sales") or 0.0)
+    notes = str(data.get("notes", "")).strip()
+
+    db.execute("""
+        INSERT INTO cash_flow_transactions (cft_date, cft_check_no, cft_particulars, cft_deposit, cft_withdrawal, cft_balance, cft_actual_sales, cft_notes)
+        VALUES (%s, %s, %s, %s, %s, 0.0, %s, %s)
+    """, (t_date, check_no, particulars, deposit, withdrawal, actual_sales, notes))
+    recalculate_cash_flow_balances()
+    return True
+
+
+def update_cash_flow_transaction(cft_id: int, data: dict) -> bool:
+    """Update an existing cash flow transaction."""
+    t_date = _parse_date(data.get("date", datetime.today().strftime("%Y-%m-%d")))
+    check_no = str(data.get("check_no", "")).strip()
+    particulars = str(data.get("particulars", "")).strip()
+    deposit = float(data.get("deposit") or 0.0)
+    withdrawal = float(data.get("withdrawal") or 0.0)
+    actual_sales = float(data.get("actual_sales") or 0.0)
+    notes = str(data.get("notes", "")).strip()
+
+    db.execute("""
+        UPDATE cash_flow_transactions
+        SET cft_date = %s, cft_check_no = %s, cft_particulars = %s,
+            cft_deposit = %s, cft_withdrawal = %s, cft_actual_sales = %s, cft_notes = %s
+        WHERE cft_id = %s
+    """, (t_date, check_no, particulars, deposit, withdrawal, actual_sales, notes, cft_id))
+    recalculate_cash_flow_balances()
+    return True
+
+
+def delete_cash_flow_transaction(cft_id: int) -> bool:
+    """Delete a cash flow transaction."""
+    db.execute("DELETE FROM cash_flow_transactions WHERE cft_id = %s", (cft_id,))
+    recalculate_cash_flow_balances()
+    return True
+
+
+def get_cash_flow_summary() -> dict:
+    """Return total deposits, total withdrawals, current ending balance, and total actual sales."""
+    row = db.fetchone("""
+        SELECT COALESCE(SUM(cft_deposit), 0.0) AS total_deposits,
+               COALESCE(SUM(cft_withdrawal), 0.0) AS total_withdrawals,
+               COALESCE(SUM(cft_actual_sales), 0.0) AS total_actual_sales
+        FROM cash_flow_transactions
+    """)
+    dep = float(row["total_deposits"] if row and row.get("total_deposits") is not None else 0.0)
+    withd = float(row["total_withdrawals"] if row and row.get("total_withdrawals") is not None else 0.0)
+    act_sales = float(row["total_actual_sales"] if row and row.get("total_actual_sales") is not None else 0.0)
+    bal = dep - withd
+    diff = bal - act_sales
+    return {
+        "total_deposits": dep,
+        "total_withdrawals": withd,
+        "current_balance": bal,
+        "total_actual_sales": act_sales,
+        "total_difference": diff,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Monthly Sales Targets & Sales Report Analytics (Ref Image 1)
+# ---------------------------------------------------------------------------
+
+def get_monthly_sales_targets(year: int) -> dict:
+    """Return dictionary of {month_int: target_amount} for the given year."""
+    rows = db.fetchall("SELECT mst_month, mst_target_amount FROM monthly_sales_targets WHERE mst_year = %s", (year,)) or []
+    targets = {m: 85000.0 for m in range(1, 13)}
+    for r in rows:
+        m = int(r["mst_month"])
+        targets[m] = float(r["mst_target_amount"] or 85000.0)
+    return targets
+
+
+def set_monthly_sales_target(year: int, month: int, amount: float):
+    """Set or update target sales for a specific month/year."""
+    db.execute("""
+        INSERT INTO monthly_sales_targets (mst_year, mst_month, mst_target_amount, mst_updated_at)
+        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+        ON CONFLICT(mst_year, mst_month) DO UPDATE SET
+            mst_target_amount = EXCLUDED.mst_target_amount,
+            mst_updated_at = CURRENT_TIMESTAMP
+    """, (year, month, amount))
+
+
+def set_yearly_default_target(year: int, default_amount: float):
+    """Set default monthly target for all 12 months in a year."""
+    for m in range(1, 13):
+        set_monthly_sales_target(year, m, default_amount)
+
+
+def get_monthly_sales_evaluation_report(year: int) -> dict:
+    """
+    Generate the 12-month Sales Evaluation Report based on real system sales (Ref Image 1).
+    Formula: Target Sales - Actual Sales = Remaining Amount
+    """
+    targets = get_monthly_sales_targets(year)
+    actual_sales_by_month = {m: 0.0 for m in range(1, 13)}
+    
+    sales_rows = db.fetchall("""
+        SELECT CAST(strftime('%%m', bk_event_date) AS INTEGER) AS m,
+               COALESCE(SUM(bk_total_amount), 0.0) AS total
+        FROM bookings
+        WHERE bk_status != 'CANCELLED'
+          AND CAST(strftime('%%Y', bk_event_date) AS INTEGER) = %s
+        GROUP BY m
+    """, (year,)) or []
+
+    for r in sales_rows:
+        m = int(r["m"])
+        if 1 <= m <= 12:
+            actual_sales_by_month[m] = float(r["total"] or 0.0)
+
+    month_names = [
+        "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+        "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"
+    ]
+
+    months_data = []
+    tot_target = 0.0
+    tot_actual = 0.0
+
+    for m in range(1, 13):
+        t_amt = targets.get(m, 85000.0)
+        a_amt = actual_sales_by_month.get(m, 0.0)
+        rem = t_amt - a_amt
+        tot_target += t_amt
+        tot_actual += a_amt
+
+        months_data.append({
+            "month_num": m,
+            "month_name": month_names[m - 1],
+            "target_sales": t_amt,
+            "actual_sales": a_amt,
+            "remaining": rem,
+            "is_shortfall": (a_amt < t_amt),
+            "is_achieved": (a_amt >= t_amt),
+        })
+
+    tot_remaining = tot_target - tot_actual
+
+    return {
+        "year": year,
+        "months": months_data,
+        "total_target": tot_target,
+        "total_actual": tot_actual,
+        "total_remaining": tot_remaining,
+        "overall_shortfall": (tot_actual < tot_target),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Down Payment Tracking & Manual Actions
+# ---------------------------------------------------------------------------
+
+def get_down_payments_summary() -> dict:
+    """Summary of all down payments: received, pending, and for upcoming future events."""
+    today_str = datetime.today().strftime("%Y-%m-%d")
+    
+    r1 = db.fetchone("""
+        SELECT COALESCE(SUM(pr_amount), 0.0) AS total
+        FROM payment_records
+        WHERE pr_is_downpayment = 1 OR LOWER(COALESCE(pr_notes, '')) LIKE '%%down%%'
+    """)
+    total_received = float(r1["total"] if r1 and r1.get("total") is not None else 0.0)
+
+    r2 = db.fetchone("""
+        SELECT COALESCE(SUM(bk_down_payment), 0.0) AS total
+        FROM bookings
+        WHERE bk_status = 'PENDING' AND bk_down_payment > 0
+    """)
+    pending_down = float(r2["total"] if r2 and r2.get("total") is not None else 0.0)
+
+    r3 = db.fetchone("""
+        SELECT COALESCE(SUM(bk_down_payment), 0.0) AS total
+        FROM bookings
+        WHERE bk_event_date >= %s AND bk_status != 'CANCELLED' AND bk_down_payment > 0
+    """, (today_str,))
+    upcoming_down = float(r3["total"] if r3 and r3.get("total") is not None else 0.0)
+
+    r4 = db.fetchone("""
+        SELECT COUNT(*) AS cnt
+        FROM bookings
+        WHERE bk_event_date >= %s AND bk_status != 'CANCELLED' AND bk_down_payment > 0
+    """, (today_str,))
+    upcoming_cnt = int(r4["cnt"] if r4 and r4.get("cnt") is not None else 0)
+
+    return {
+        "total_received": total_received,
+        "total_down_payments_received": total_received,
+        "pending_down": pending_down,
+        "pending_down_payments": pending_down,
+        "upcoming_down": upcoming_down,
+        "upcoming_events_count": upcoming_cnt,
+    }
+
+
+def get_upcoming_down_payments(future_only=True) -> list[dict]:
+    """List of all bookings with down payments for upcoming events, grouped chronologically."""
+    today_str = datetime.today().strftime("%Y-%m-%d")
+    query = """
+        SELECT bk_id AS id, bk_booking_ref AS ref, bk_customer_name AS customer,
+               bk_event_date AS event_date, bk_occasion AS occasion,
+               bk_total_amount AS total, bk_down_payment AS down_payment,
+               (bk_total_amount - bk_down_payment) AS balance,
+               bk_status AS status, bk_down_payment_status AS down_status
+        FROM bookings
+        WHERE bk_down_payment > 0 AND bk_status != 'CANCELLED'
+    """
+    params = []
+    if future_only:
+        query += " AND bk_event_date >= %s"
+        params.append(today_str)
+    query += " ORDER BY bk_event_date ASC, bk_id ASC"
+    
+    return db.fetchall(query, tuple(params) if params else None) or []
+
+
+def confirm_booking_order(bk_id: int) -> bool:
+    """Manually accept/confirm a pending order."""
+    db.callproc_void("sp_confirm_booking", (bk_id,))
+    try:
+        from utils.signals import app_events
+        app_events().booking_updated.emit()
+    except Exception:
+        pass
+    return True
+
+
+def verify_invoice_payment(inv_id: int, pr_id: int = None) -> bool:
+    """Manually verify and accept a payment record/invoice."""
+    db.callproc_void("sp_verify_payment", (inv_id, pr_id))
+    try:
+        from utils.signals import app_events
+        app_events().payment_recorded.emit()
+    except Exception:
+        pass
+    return True
+

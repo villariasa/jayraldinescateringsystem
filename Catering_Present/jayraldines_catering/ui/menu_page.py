@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor, QFont
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
-from components.dialogs import confirm, success
+from components.dialogs import confirm, success, prompt_file_saved
 from utils.theme import ThemeManager
 import utils.menu_store as menu_store
 import utils.repository as repo
@@ -1425,7 +1425,7 @@ class MenuPage(QWidget):
             writer.writerow(["Item Name", "Category", "Package", "Price", "Status", "Description"])
             for it in items:
                 writer.writerow([it.get("item", ""), it.get("category", ""), it.get("package", ""), it.get("price", 0), it.get("status", ""), it.get("description", "")])
-        success(self, message=f"Exported menu items to:\n{path}")
+        prompt_file_saved(self, path, title="Menu Items Exported", message="Menu items list exported successfully.")
 
     def _populate_packages_table(self):
         if hasattr(self, "pkg_container"):
@@ -1595,7 +1595,7 @@ class MenuPage(QWidget):
             writer.writerow(["Package Name", "Price per Pax", "Min Pax", "Description"])
             for p in pkgs:
                 writer.writerow([p.get("name", ""), p.get("price_per_pax", 0), p.get("min_pax", 1), p.get("description", "")])
-        success(self, message=f"Exported packages to:\n{path}")
+        prompt_file_saved(self, path, title="Packages Exported", message="Packages list exported successfully.")
 
     def _edit_package_dict(self, pkg: dict):
         dlg = PackageDialog(self, pkg_data=pkg)

@@ -113,11 +113,13 @@ class TestAllUIQueries(unittest.TestCase):
         bk_id = b_res["booking_id"]
         self.assertGreater(bk_id, 0)
 
-        # 2. Check booking detail status is CONFIRMED
+        # 2. Check booking detail status defaults to PENDING, then manual confirmation
         detail = repo.get_booking_detail(bk_id)
         self.assertIsNotNone(detail)
-        self.assertEqual(detail.get("status"), "CONFIRMED")
-        self.assertEqual(float(detail.get("amount_paid", 0)), 28000.0)
+        self.assertEqual(detail.get("status"), "PENDING")
+        repo.confirm_booking_order(bk_id)
+        detail_confirmed = repo.get_booking_detail(bk_id)
+        self.assertEqual(detail_confirmed.get("status"), "CONFIRMED")
 
         # 3. Check customer ledger reflection
         cust_id = detail.get("customer_id")

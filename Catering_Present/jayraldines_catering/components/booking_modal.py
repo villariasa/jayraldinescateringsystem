@@ -1054,6 +1054,10 @@ class BookingModal(QDialog):
             notes_text = f"{notes_text}\n[{addons_str}]".strip() if notes_text else addons_str
 
         selected_customer = self.f_customer_search.get_selection() or {}
+        orig_status = self._booking_data.get("status") if self._booking_data else "PENDING"
+        orig_paid = float(self._booking_data.get("amount_paid") or 0.0) if self._booking_data else 0.0
+        recorded_down = orig_paid if orig_paid > 0 else (getattr(self, "_last_deposit", 0.0) if hasattr(self, "_last_deposit") else 0.0)
+
         data = {
             "name":         selected_customer.get("name", ""),
             "contact":      self.f_contact.text().strip(),
@@ -1068,8 +1072,9 @@ class BookingModal(QDialog):
             "menu_type":    menu_type,
             "menu_value":   menu_value,
             "total":        total,
-            "amount_paid":  total,
-            "status":       "CONFIRMED",
+            "amount_paid":  recorded_down,
+            "down_payment": recorded_down,
+            "status":       orig_status or "PENDING",
         }
         self.booking_saved.emit(data)
         self.accept()

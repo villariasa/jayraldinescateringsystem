@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, Signal, QSize, QTime
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, get_icon
 from components.booking_modal import BookingModal
-from components.dialogs import confirm, success
+from components.dialogs import confirm, success, prompt_file_saved
 import utils.repository as repo
 import utils.exporter as _exporter
 import utils.importer as _importer
@@ -685,10 +685,7 @@ class CalendarPage(QWidget):
             return
         err = _importer.generate_sample_csv("bookings", path)
         if not err:
-            QMessageBox.information(
-                self, "Template Saved",
-                f"Booking CSV template saved successfully to:\n{path}\n\nYou can fill in your bookings and import them anytime."
-            )
+            prompt_file_saved(self, path, title="Template Saved", message="Booking CSV template saved successfully. Fill in your bookings and import them anytime.")
         else:
             QMessageBox.warning(self, "Save Failed", f"Could not generate booking template: {err}")
 
@@ -725,6 +722,6 @@ class CalendarPage(QWidget):
         biz_name = biz.get("name", "Jayraldine's Catering")
         ok = _exporter.export_calendar_pdf(path, self.current_year, self.current_month, month_events, biz_name=biz_name)
         if ok:
-            QMessageBox.information(self, "Export Successful", f"Calendar PDF exported successfully to:\n{path}")
+            prompt_file_saved(self, path, title="Calendar PDF Exported", message="Calendar PDF exported successfully.")
         else:
             QMessageBox.warning(self, "Export Failed", "PDF export failed. Make sure reportlab is installed.")

@@ -8,18 +8,44 @@ from components.notifications_panel import NotificationPopover, reload_notificat
 from components.toast import ToastManager
 
 
+from ui.dashboard_page import DashboardPage
+from ui.booking_page import BookingPage
+from ui.customers_page import CustomersPage
+from ui.menu_page import MenuPage
+from ui.calendar_page import CalendarPage
+from ui.cash_flow_page import CashFlowPage
+from ui.billing_page import BillingPage
+from ui.reports_page import ReportsPage
+from ui.expenses_page import ExpensesPage
+from ui.ai_page import AIPage
+from ui.settings_page import SettingsPage
+
 _PAGE_MODULES = [
     ("ui.dashboard_page",  "DashboardPage"),
     ("ui.booking_page",    "BookingPage"),
     ("ui.customers_page",  "CustomersPage"),
     ("ui.menu_page",       "MenuPage"),
     ("ui.calendar_page",   "CalendarPage"),
-    ("ui.kitchen_page",    "KitchenPage"),
+    ("ui.cash_flow_page",  "CashFlowPage"),
     ("ui.billing_page",    "BillingPage"),
     ("ui.reports_page",    "ReportsPage"),
     ("ui.expenses_page",   "ExpensesPage"),
     ("ui.ai_page",         "AIPage"),
     ("ui.settings_page",   "SettingsPage"),
+]
+
+_PAGE_FACTORY = [
+    DashboardPage,
+    BookingPage,
+    CustomersPage,
+    MenuPage,
+    CalendarPage,
+    CashFlowPage,
+    BillingPage,
+    ReportsPage,
+    ExpensesPage,
+    AIPage,
+    SettingsPage,
 ]
 
 
@@ -134,15 +160,19 @@ class MainWindow(QMainWindow):
         if self._pages[index] is not None:
             return self._pages[index]
 
-        mod_name, cls_name = _PAGE_MODULES[index]
         try:
-            import importlib
-            mod = importlib.import_module(mod_name)
-            cls = getattr(mod, cls_name)
-            page = cls()
+            if index < len(_PAGE_FACTORY):
+                page = _PAGE_FACTORY[index]()
+            else:
+                mod_name, cls_name = _PAGE_MODULES[index]
+                import importlib
+                mod = importlib.import_module(mod_name)
+                cls = getattr(mod, cls_name)
+                page = cls()
         except Exception as exc:
             import traceback
             traceback.print_exc()
+            mod_name, cls_name = _PAGE_MODULES[index] if index < len(_PAGE_MODULES) else ("unknown", "Page")
             print(f"[MainWindow] Error loading page {mod_name}.{cls_name}: {exc}")
             from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
             page = QWidget()

@@ -106,6 +106,24 @@ ENTITY_SCHEMAS = {
             ["Special Pork Humba", "Main Course", "450.00", "Serves 8-10 pax"],
             ["Biko with Latik", "Dessert", "250.00", "1 Large Tray"],
         ]
+    },
+    "cash_flow": {
+        "title": "Cash Flow Transactions",
+        "fields": {
+            "date": {"label": "Transaction Date", "required": True},
+            "check_no": {"label": "Check # / Ref", "required": False},
+            "particulars": {"label": "Particulars (Account / Detail)", "required": True},
+            "deposit": {"label": "Deposit (₱)", "required": False},
+            "withdrawal": {"label": "Withdrawal (₱)", "required": False},
+            "actual_sales": {"label": "Actual Sales (₱)", "required": False},
+            "notes": {"label": "Remarks / Notes", "required": False},
+        },
+        "sample": [
+            ["Transaction Date", "Check # / Ref", "Particulars (Account / Detail)", "Deposit (₱)", "Withdrawal (₱)", "Actual Sales (₱)", "Remarks / Notes"],
+            [datetime.now().strftime("%Y-%m-%d"), "CHK-101", "BDO Jayraldine's Catering", "50000.00", "0.00", "132000.00", "Initial account deposit"],
+            [datetime.now().strftime("%Y-%m-%d"), "", "Cash on Hand", "0.00", "15000.00", "70000.00", "Ingredients market withdrawal"],
+            [datetime.now().strftime("%Y-%m-%d"), "GCASH-99", "GCash", "12000.00", "0.00", "287965.40", "Customer down payment"],
+        ]
     }
 }
 
@@ -157,6 +175,15 @@ ENTITY_HEADER_ALIASES = {
         "category": ["category", "item category", "menu category", "type", "group"],
         "price": ["price rate", "price", "rate", "cost", "unit price", "amount", "price php"],
         "description": ["description inclusions", "description", "inclusions", "details", "notes", "summary"],
+    },
+    "cash_flow": {
+        "date": ["transaction date", "date", "tx date", "entry date", "fecha"],
+        "check_no": ["check ref", "check", "check no", "check number", "ref", "reference", "ref no", "reference number", "voucher no", "or no"],
+        "particulars": ["particulars account detail", "particulars", "account", "bank", "account name", "description", "details", "memo", "source"],
+        "deposit": ["deposit", "deposit php", "credit", "amount in", "cash in", "inflow", "in", "received"],
+        "withdrawal": ["withdrawal", "withdrawal php", "debit", "amount out", "cash out", "outflow", "out", "expense", "disbursement", "spent"],
+        "actual_sales": ["actual sales", "actual sales php", "actual sale", "sales", "actual_sales", "actual amount", "gross sales", "sales amount", "daily sales", "sales php", "total sales"],
+        "notes": ["remarks notes", "remarks", "notes", "memo", "comments", "description"],
     }
 }
 
@@ -433,7 +460,9 @@ def parse_master_file(file_path: str) -> Tuple[Dict[str, Tuple[List[str], List[D
 
                     sn_lower = sheetname.lower().strip()
                     entity = "customers"
-                    if "expense" in sn_lower:
+                    if "cash" in sn_lower or "flow" in sn_lower or "deposit" in sn_lower:
+                        entity = "cash_flow"
+                    elif "expense" in sn_lower:
                         entity = "expenses"
                     elif "booking" in sn_lower or "order" in sn_lower or "event" in sn_lower:
                         entity = "bookings"
@@ -454,6 +483,18 @@ def parse_master_file(file_path: str) -> Tuple[Dict[str, Tuple[List[str], List[D
 
     result = {}
     headers_lower = [h.lower() for h in headers]
+
+    # Check for cash flow data
+    has_cf = any("deposit" in h or "withdrawal" in h or "particulars" in h or "check" in h for h in headers_lower)
+    if has_cf:
+        cf_rows = []
+        for r in rows:
+            has_part = any(r.get(h, "").strip() for h in headers if "particular" in h.lower() or "account" in h.lower())
+            has_dep_with = any(normalize_amount(r.get(h, "")) > 0 for h in headers if "deposit" in h.lower() or "withdrawal" in h.lower())
+            if has_part or has_dep_with:
+                cf_rows.append(r)
+        if cf_rows:
+            result["cash_flow"] = (headers, cf_rows)
 
     # Check for bookings data
     has_bkg = any("booking" in h or "event" in h or "pax" in h or "occasion" in h or "venue" in h for h in headers_lower)
@@ -754,6 +795,34 @@ def execute_batch_import(
                     fail_count += 1
                     errors.append(f"Row {row_info['_row_index']} [Item: '{item_name}']: Menu item database insert failed.")
 
+            elif entity_type == "cash_flow":
+                t_date = normalize_date(data.get("date") or datetime.now().strftime("%Y-%m-%d"))
+                t_particulars = str(data.get("particulars") or "Cash on Hand").strip()
+                t_check = str(data.get("check_no") or data.get("check") or "").strip()
+                t_deposit = normalize_amount(data.get("deposit") or 0.0)
+                t_withdrawal = normalize_amount(data.get("withdrawal") or 0.0)
+                t_actual_sales = normalize_amount(data.get("actual_sales") or data.get("sales") or 0.0)
+                t_notes = str(data.get("notes") or "").strip()
+
+                if t_deposit > 0 or t_withdrawal > 0 or t_actual_sales > 0 or t_particulars:
+                    tx_id = repo.add_cash_flow_transaction({
+                        "date": t_date,
+                        "check_no": t_check,
+                        "particulars": t_particulars,
+                        "deposit": t_deposit,
+                        "withdrawal": t_withdrawal,
+                        "actual_sales": t_actual_sales,
+                        "notes": t_notes,
+                    })
+                    if tx_id:
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                        errors.append(f"Row {row_info['_row_index']}: Cash flow transaction insert failed.")
+                else:
+                    fail_count += 1
+                    errors.append(f"Row {row_info['_row_index']}: Empty cash flow entry.")
+
             elif entity_type == "all_in_one":
                 # Create customer & booking if present
                 cust_name = (data.get("customer_name") or data.get("name", "")).strip()
@@ -827,10 +896,13 @@ def execute_batch_import(
                 ev.customer_saved.emit()
             elif entity_type == "bookings":
                 ev.booking_saved.emit()
+            elif entity_type == "cash_flow":
+                ev.cash_flow_saved.emit()
             elif entity_type == "all_in_one":
                 ev.customer_saved.emit()
                 ev.booking_saved.emit()
                 ev.expense_saved.emit()
+                ev.cash_flow_saved.emit()
         except Exception:
             pass
 
@@ -851,7 +923,7 @@ def generate_sample_csv(entity_type: str, save_path: str) -> Optional[str]:
             wb = openpyxl.Workbook()
             if entity_type == "all_in_one":
                 wb.remove(wb.active)  # remove default sheet
-                sections = ["bookings", "customers", "expenses", "menu_items"]
+                sections = ["bookings", "customers", "expenses", "cash_flow", "menu_items"]
                 for sec in sections:
                     s_info = ENTITY_SCHEMAS.get(sec, {})
                     ws = wb.create_sheet(title=s_info.get("title", sec.title()))

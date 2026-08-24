@@ -1,10 +1,11 @@
 import subprocess
+from datetime import datetime, date
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QFormLayout, QMessageBox, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QDoubleSpinBox,
     QSpinBox, QCheckBox, QFileDialog, QListWidget, QListWidgetItem,
-    QInputDialog, QColorDialog,
+    QInputDialog, QColorDialog, QComboBox
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QColor
@@ -13,7 +14,7 @@ from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
 from utils.theme import ThemeManager
 from utils.accent import AccentManager, PRESET_THEMES
 from utils.palette import THEME_CATEGORIES, THEME_PALETTES, get_palettes_by_category
-from components.dialogs import success
+from components.dialogs import success, prompt_file_saved
 import utils.repository as repo
 
 
@@ -53,6 +54,7 @@ class SettingsPage(QWidget):
         lay.addWidget(title)
 
         lay.addWidget(self._build_business_card())
+        lay.addWidget(self._build_sales_targets_card())
         lay.addWidget(self._build_import_card())
         lay.addWidget(self._build_occasions_card())
         lay.addWidget(self._build_policy_card())
@@ -112,6 +114,117 @@ class SettingsPage(QWidget):
         lay.addWidget(save_btn, alignment=Qt.AlignRight)
 
         return card
+
+    def _build_sales_targets_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        sec_title = QLabel("Monthly Sales Target Configuration")
+        sec_title.setObjectName("h3")
+        lay.addWidget(sec_title)
+
+        desc = QLabel(
+            "Configure monthly revenue targets used in the Sales Report evaluation (e.g. ₱85,000.00/month). "
+            "You can apply a default target to all 12 months or configure custom targets for each month."
+        )
+        desc.setObjectName("subtitle")
+        desc.setWordWrap(True)
+        lay.addWidget(desc)
+
+        top_ctrl = QHBoxLayout()
+        top_ctrl.setSpacing(12)
+
+        top_ctrl.addWidget(QLabel("Target Year:"))
+        self._target_year_combo = QComboBox()
+        cur_year = datetime.now().year
+        for yr in [cur_year - 2, cur_year - 1, cur_year, cur_year + 1, cur_year + 2]:
+            self._target_year_combo.addItem(str(yr), yr)
+        self._target_year_combo.setCurrentText(str(cur_year))
+        self._target_year_combo.setFixedHeight(34)
+        top_ctrl.addWidget(self._target_year_combo)
+
+        top_ctrl.addSpacing(16)
+        top_ctrl.addWidget(QLabel("Quick Target:"))
+        self._universal_target_spin = QDoubleSpinBox()
+        self._universal_target_spin.setRange(0, 99999999)
+        self._universal_target_spin.setPrefix("₱ ")
+        self._universal_target_spin.setValue(85000.0)
+        self._universal_target_spin.setSingleStep(5000)
+        self._universal_target_spin.setFixedHeight(34)
+        top_ctrl.addWidget(self._universal_target_spin)
+
+        apply_btn = QPushButton("  Apply to All 12 Months")
+        apply_btn.setObjectName("secondaryButton")
+        apply_btn.setFixedHeight(34)
+        apply_btn.clicked.connect(self._apply_universal_target)
+        top_ctrl.addWidget(apply_btn)
+        top_ctrl.addStretch()
+
+        lay.addLayout(top_ctrl)
+
+        from PySide6.QtWidgets import QGridLayout
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        month_names = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ]
+        self._month_target_spins = {}
+        for m in range(1, 13):
+            m_lbl = QLabel(f"<b>{month_names[m-1]}:</b>")
+            m_spin = QDoubleSpinBox()
+            m_spin.setRange(0, 99999999)
+            m_spin.setPrefix("₱ ")
+            m_spin.setValue(85000.0)
+            m_spin.setSingleStep(5000)
+            m_spin.setFixedHeight(32)
+            self._month_target_spins[m] = m_spin
+            row = (m - 1) // 3
+            col = (m - 1) % 3
+            grid.addWidget(m_lbl, row * 2, col)
+            grid.addWidget(m_spin, row * 2 + 1, col)
+
+        lay.addLayout(grid)
+
+        save_btn = QPushButton("  Save Sales Targets")
+        save_btn.setObjectName("primaryButton")
+        save_btn.setIcon(btn_icon_primary("check"))
+        save_btn.setIconSize(QSize(15, 15))
+        save_btn.setFixedWidth(180)
+        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.clicked.connect(self._save_sales_targets)
+        lay.addWidget(save_btn, alignment=Qt.AlignRight)
+
+        self._target_year_combo.currentIndexChanged.connect(self._load_sales_targets)
+        self._load_sales_targets()
+
+        return card
+
+    def _load_sales_targets(self):
+        try:
+            yr = int(self._target_year_combo.currentText())
+            targets = repo.get_monthly_sales_targets(yr)
+            for m, spin in self._month_target_spins.items():
+                spin.setValue(targets.get(m, 85000.0))
+        except Exception as e:
+            print(f"[SettingsPage] Error loading sales targets: {e}")
+
+    def _apply_universal_target(self):
+        val = self._universal_target_spin.value()
+        for spin in self._month_target_spins.values():
+            spin.setValue(val)
+
+    def _save_sales_targets(self):
+        try:
+            yr = int(self._target_year_combo.currentText())
+            for m, spin in self._month_target_spins.items():
+                repo.set_monthly_sales_target(yr, m, spin.value())
+            success(self, message=f"Monthly sales targets for {yr} saved successfully.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to save targets: {e}")
 
     def _build_policy_card(self):
         card = QFrame()
@@ -947,7 +1060,7 @@ class SettingsPage(QWidget):
                 return
             try:
                 shutil.copy2(src, path)
-                success(self, message=f"Database backed up successfully to:\n{path}")
+                prompt_file_saved(self, path, title="Database Backup Created", message="SQLite database backup created successfully.")
             except Exception as exc:
                 QMessageBox.warning(self, "Backup Error", str(exc))
         else:
@@ -962,7 +1075,7 @@ class SettingsPage(QWidget):
                     capture_output=True, text=True, timeout=60
                 )
                 if result.returncode == 0:
-                    success(self, message=f"Database backed up successfully to:\n{path}")
+                    prompt_file_saved(self, path, title="Database Backup Created", message="PostgreSQL database backup created successfully.")
                 else:
                     QMessageBox.warning(self, "Backup Failed", result.stderr or "pg_dump returned an error.")
             except FileNotFoundError:

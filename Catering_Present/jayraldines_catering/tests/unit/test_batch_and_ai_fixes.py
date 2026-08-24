@@ -132,6 +132,24 @@ class TestBatchAndAiFixes(unittest.TestCase):
         dlg2 = CustomerLedgerDialog(None, {})
         self.assertIsNotNone(dlg2)
 
+    def test_ai_target_sales_comparison(self):
+        """Test AI target sales comparison query and chart generation."""
+        res = ask("Target Sales Comparison")
+        self.assertTrue(res.get("ok"))
+        self.assertIn("Target Sales vs. Actual Sales", res.get("answer", ""))
+        self.assertIsNotNone(res.get("chart"))
+        chart = res.get("chart")
+        self.assertEqual(len(chart.get("series", [])), 2)
+        self.assertEqual(chart["series"][0]["name"], "Target Sales")
+        self.assertEqual(chart["series"][1]["name"], "Actual Sales")
+        self.assertEqual(len(chart.get("labels", [])), 12)
+
+        # Test natural language variation
+        res2 = ask("compare target vs actual sales for 2026")
+        self.assertTrue(res2.get("ok"))
+        self.assertIn("2026", res2.get("answer", ""))
+        self.assertIsNotNone(res2.get("chart"))
+
 
 if __name__ == "__main__":
     unittest.main()

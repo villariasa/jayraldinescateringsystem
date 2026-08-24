@@ -13,6 +13,7 @@ from utils.theme import ThemeManager
 from utils.accent import AccentManager
 import utils.repository as repo
 from utils import exporter as _exporter
+from components.dialogs import prompt_file_saved
 from utils.data_loader import DataLoader
 
 
@@ -733,6 +734,63 @@ class DashboardPage(QWidget):
         header_row.addLayout(btn_layout)
         self.lay.addLayout(header_row)
 
+        # Date Filtering Toolbar
+        self._filter_date = None
+        filter_bar = QFrame()
+        filter_bar.setObjectName("card")
+        f_lay = QHBoxLayout(filter_bar)
+        f_lay.setContentsMargins(16, 10, 16, 10)
+        f_lay.setSpacing(12)
+
+        f_icon = QLabel()
+        f_icon.setPixmap(get_icon("calendar", color="#E11D48", size=QSize(16, 16)).pixmap(QSize(16, 16)))
+        f_lbl = QLabel("Date Filter:")
+        f_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
+        f_lay.addWidget(f_icon)
+        f_lay.addWidget(f_lbl)
+
+        self._btn_all_time = QPushButton("All Time")
+        self._btn_all_time.setObjectName("primaryButton")
+        self._btn_all_time.setFixedHeight(32)
+        self._btn_all_time.clicked.connect(lambda: self._set_date_filter(None))
+
+        self._btn_today = QPushButton("Today")
+        self._btn_today.setObjectName("secondaryButton")
+        self._btn_today.setFixedHeight(32)
+        self._btn_today.clicked.connect(lambda: self._set_date_filter(datetime.now().strftime("%Y-%m-%d")))
+
+        self._btn_yesterday = QPushButton("Yesterday")
+        self._btn_yesterday.setObjectName("secondaryButton")
+        self._btn_yesterday.setFixedHeight(32)
+        from datetime import timedelta
+        self._btn_yesterday.clicked.connect(lambda: self._set_date_filter((datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")))
+
+        f_lay.addWidget(self._btn_all_time)
+        f_lay.addWidget(self._btn_today)
+        f_lay.addWidget(self._btn_yesterday)
+
+        f_lay.addSpacing(8)
+        spec_lbl = QLabel("Specific Date:")
+        spec_lbl.setObjectName("subtitle")
+        f_lay.addWidget(spec_lbl)
+
+        from PySide6.QtWidgets import QDateEdit
+        from PySide6.QtCore import QDate
+        self._date_picker = QDateEdit(QDate.currentDate())
+        self._date_picker.setCalendarPopup(True)
+        self._date_picker.setDisplayFormat("MMM dd, yyyy")
+        self._date_picker.setFixedHeight(32)
+        self._date_picker.setStyleSheet("QDateEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 2px 8px; font-size: 12px; } QDateEdit:focus { border-color: #E11D48; }")
+        self._date_picker.dateChanged.connect(lambda qd: self._set_date_filter(qd.toString("yyyy-MM-dd")))
+        f_lay.addWidget(self._date_picker)
+
+        f_lay.addStretch()
+        self._filter_status_lbl = QLabel("Showing: All Time Overview")
+        self._filter_status_lbl.setStyleSheet("color: #E11D48; font-weight: 700; font-size: 12px;")
+        f_lay.addWidget(self._filter_status_lbl)
+
+        self.lay.addWidget(filter_bar)
+
         self.slideshow = WelcomeHeroSlideshow(self.content)
         self.slideshow.new_booking_requested.connect(self.new_booking_requested.emit)
         self.slideshow.manage_bookings_requested.connect(self.new_booking_requested.emit)
@@ -935,7 +993,7 @@ class DashboardPage(QWidget):
         ok = _exporter.export_pdf(path, kpis, bookings, "Dashboard Report", "All Time",
                                   sections=sections, chart_images=chart_images)
         if ok:
-            QMessageBox.information(self, "Export", f"PDF exported to:\n{path}")
+            prompt_file_saved(self, path, title="Dashboard PDF Generated", message="Dashboard summary PDF generated successfully.")
         else:
             QMessageBox.warning(self, "Export Failed",
                 "PDF export failed. Make sure reportlab is installed:\npip install reportlab")
@@ -952,10 +1010,35 @@ class DashboardPage(QWidget):
         ok = _exporter.export_excel(path, kpis, bookings, "Dashboard Report", "All Time",
                                     sections=sections)
         if ok:
-            QMessageBox.information(self, "Export", f"Excel exported to:\n{path}")
+            prompt_file_saved(self, path, title="Dashboard Excel Exported", message="Dashboard summary Excel exported successfully.")
         else:
             QMessageBox.warning(self, "Export Failed",
                 "Excel export failed. Make sure openpyxl is installed:\npip install openpyxl")
+
+    def _set_date_filter(self, date_str: str = None):
+        self._filter_date = date_str
+        if not date_str:
+            self._filter_status_lbl.setText("Showing: All Time Overview")
+            self._btn_all_time.setObjectName("primaryButton")
+            self._btn_today.setObjectName("secondaryButton")
+            self._btn_yesterday.setObjectName("secondaryButton")
+        elif date_str == datetime.now().strftime("%Y-%m-%d"):
+            self._filter_status_lbl.setText("Showing: Today's Metrics")
+            self._btn_all_time.setObjectName("secondaryButton")
+            self._btn_today.setObjectName("primaryButton")
+            self._btn_yesterday.setObjectName("secondaryButton")
+        else:
+            self._filter_status_lbl.setText(f"Showing: Date ({date_str})")
+            self._btn_all_time.setObjectName("secondaryButton")
+            self._btn_today.setObjectName("secondaryButton")
+            self._btn_yesterday.setObjectName("secondaryButton")
+
+        # Re-apply styles
+        for btn in [self._btn_all_time, self._btn_today, self._btn_yesterday]:
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+        self._load_data()
 
     def reload(self):
         self._load_data()
@@ -969,8 +1052,11 @@ class DashboardPage(QWidget):
         except Exception:
             chart_data = []
 
+        target_d = getattr(self, "_filter_date", None)
+        kpis = repo.get_dashboard_kpis_filtered(target_d) if target_d else repo.get_dashboard_kpis()
+
         return {
-            "kpis":       repo.get_dashboard_kpis(),
+            "kpis":       kpis,
             "profit":     repo.get_profit_summary(),
             "events":     repo.get_upcoming_events(limit=20),
             "activity":   repo.get_recent_activity(limit=10),

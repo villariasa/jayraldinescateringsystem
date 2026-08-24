@@ -216,6 +216,29 @@ CREATE TABLE IF NOT EXISTS payment_records (
     pr_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Cash Flow Transactions (for Cash Flow module)
+CREATE TABLE IF NOT EXISTS cash_flow_transactions (
+    cft_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cft_date DATE NOT NULL,
+    cft_check_no TEXT DEFAULT '',
+    cft_particulars TEXT NOT NULL,
+    cft_deposit REAL DEFAULT 0.0,
+    cft_withdrawal REAL DEFAULT 0.0,
+    cft_balance REAL DEFAULT 0.0,
+    cft_actual_sales REAL DEFAULT 0.0,
+    cft_notes TEXT DEFAULT '',
+    cft_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Monthly Sales Targets (for Sales Report vs Settings)
+CREATE TABLE IF NOT EXISTS monthly_sales_targets (
+    mst_year INTEGER NOT NULL,
+    mst_month INTEGER NOT NULL,
+    mst_target_amount REAL DEFAULT 85000.0,
+    mst_updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (mst_year, mst_month)
+);
+
 -- Kitchen Orders & Tasks
 CREATE TABLE IF NOT EXISTS kitchen_orders (
     ko_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -551,6 +574,13 @@ def _ensure_columns(conn: sqlite3.Connection):
         ("payment_records", "pr_payment_method", "TEXT DEFAULT 'Cash'"),
         ("payment_records", "pr_note", "TEXT"),
         ("payment_records", "pr_notes", "TEXT"),
+        ("payment_records", "pr_is_verified", "INTEGER DEFAULT 0"),
+        ("payment_records", "pr_is_downpayment", "INTEGER DEFAULT 0"),
+        ("bookings", "bk_down_payment", "REAL DEFAULT 0.0"),
+        ("bookings", "bk_down_payment_status", "TEXT DEFAULT 'PENDING'"),
+        ("invoices", "inv_down_payment", "REAL DEFAULT 0.0"),
+        ("invoices", "inv_payment_verified", "INTEGER DEFAULT 0"),
+        ("cash_flow_transactions", "cft_actual_sales", "REAL DEFAULT 0.0"),
     ]
     for table, col, col_def in cols_to_add:
         try:
@@ -644,6 +674,57 @@ def init_sqlite_db(conn: sqlite3.Connection):
             cursor.execute(
                 "INSERT INTO menu_items (mi_name, name, mi_category, category, mi_package_tier, mi_package, package_tier, package, mi_price, price, mi_status, status, mi_description, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (name, name, cat, cat, pkg, pkg, pkg, pkg, price, price, status, status, desc, desc)
+            )
+
+    # Seed Default Monthly Sales Targets for 2026 (Ref Image 1: 85,000 / mo)
+    cursor.execute("SELECT COUNT(*) FROM monthly_sales_targets WHERE mst_year = 2026")
+    if cursor.fetchone()[0] == 0:
+        log.info("Seeding default 2026 monthly sales targets (₱85,000/mo)...")
+        for m in range(1, 13):
+            cursor.execute(
+                "INSERT INTO monthly_sales_targets (mst_year, mst_month, mst_target_amount) VALUES (2026, ?, 85000.0)",
+                (m,)
+            )
+
+    # Seed Starter Cash Flow Transactions if empty (Ref Image 2)
+    cursor.execute("SELECT COUNT(*) FROM cash_flow_transactions")
+    if cursor.fetchone()[0] == 0:
+        log.info("Seeding starter cash flow transactions...")
+        cf_data = [
+            ("2026-05-01", "CHK-001", "BDO Jayraldine's Catering (Initial capital deposit)", 100000.0, 0.0, "Initial working capital"),
+            ("2026-05-03", "CHK-002", "Cash on Hand (Ingredients market withdrawal)", 0.0, 25000.0, "Fresh pork and market ingredients"),
+            ("2026-05-05", "GCASH-101", "GCash (Customer down payment)", 15000.0, 0.0, "Booking DP received"),
+            ("2026-05-08", "MAYA-202", "Maya (Customer down payment)", 20000.0, 0.0, "Debut party DP received"),
+            ("2026-05-10", "CHK-003", "Cash on Hand (Service staff payroll)", 0.0, 12000.0, "Assistant cook & server pay"),
+            ("2026-05-12", "UB-303", "UnionBank (Equipment rental deposit)", 0.0, 8500.0, "Chafing dish and table rentals"),
+            ("2026-05-15", "BPI-404", "BPI Personal Savings (Client booking settlement)", 35000.0, 0.0, "Full payment wedding banquet"),
+            ("2026-05-18", "CHK-004", "Cash on Hand (Gasul & van diesel transport)", 0.0, 4500.0, "Delivery van diesel"),
+            ("2026-05-20", "BDO-505", "BDO Jayraldine's Catering (Corporate banquet settlement)", 55000.0, 0.0, "Corporate seminar catering"),
+        ]
+        running_bal = 0.0
+        for dt, chk, part, dep, withd, notes in cf_data:
+            running_bal = running_bal + dep - withd
+            cursor.execute("""
+                INSERT INTO cash_flow_transactions (cft_date, cft_check_no, cft_particulars, cft_deposit, cft_withdrawal, cft_balance, cft_notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (dt, chk, part, dep, withd, running_bal, notes))
+
+    # Seed Starter Expenses if empty
+    cursor.execute("SELECT COUNT(*) FROM expenses")
+    if cursor.fetchone()[0] == 0:
+        log.info("Seeding starter expenses...")
+        exps = [
+            ("Food Cost", "Fresh Pork Lechon & Pork Belly", 18500.0, "2026-05-02"),
+            ("Transport", "Gas and Diesel for Delivery Van", 2400.0, "2026-05-04"),
+            ("Labor", "Part-time Service Crew & Waiters", 6000.0, "2026-05-08"),
+            ("Equipment", "Chafing Dish & Glassware Rental", 3500.0, "2026-05-10"),
+            ("Utilities", "LPG Gasul & Kitchen Water Utility", 2800.0, "2026-05-14"),
+            ("Food Cost", "Fresh Seafood & Vegetable Ingredients", 12500.0, "2026-05-16"),
+        ]
+        for cat, desc, amt, dt in exps:
+            cursor.execute(
+                "INSERT INTO expenses (exp_category, exp_description, exp_amount, exp_date, exp_expense_date) VALUES (?, ?, ?, ?, ?)",
+                (cat, desc, amt, dt, dt)
             )
 
     # Automatically and silently merge any duplicate customers and remove duplicate bookings
