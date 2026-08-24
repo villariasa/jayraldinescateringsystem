@@ -420,6 +420,87 @@ def callproc_void(proc: str, in_params: tuple = ()) -> bool:
             return False
 
 
+def _gen_unique_booking_ref(cur) -> str:
+    """Generate a collision-proof unique booking reference (BK-XXXX)."""
+    cur.execute("SELECT bk_booking_ref, bk_id FROM bookings")
+    rows = cur.fetchall()
+    max_n = 0
+    for r in rows:
+        ref_str = str(r[0] or "")
+        digits = "".join(c for c in ref_str if c.isdigit())
+        if digits:
+            try:
+                val = int(digits)
+                if val > max_n:
+                    max_n = val
+            except ValueError:
+                pass
+        b_id = r[1]
+        if isinstance(b_id, int) and b_id > max_n:
+            max_n = b_id
+    next_n = max(max_n + 1, len(rows) + 1, 1)
+    while True:
+        cand = f"BK-{next_n:04d}"
+        cur.execute("SELECT 1 FROM bookings WHERE bk_booking_ref = ? LIMIT 1", (cand,))
+        if not cur.fetchone():
+            return cand
+        next_n += 1
+
+
+def _gen_unique_kitchen_order_ref(cur) -> str:
+    """Generate a collision-proof unique kitchen order reference (ORD-XXXX)."""
+    cur.execute("SELECT ko_order_ref, ko_id FROM kitchen_orders")
+    rows = cur.fetchall()
+    max_n = 0
+    for r in rows:
+        ref_str = str(r[0] or "")
+        digits = "".join(c for c in ref_str if c.isdigit())
+        if digits:
+            try:
+                val = int(digits)
+                if val > max_n:
+                    max_n = val
+            except ValueError:
+                pass
+        k_id = r[1]
+        if isinstance(k_id, int) and k_id > max_n:
+            max_n = k_id
+    next_n = max(max_n + 1, len(rows) + 1, 1)
+    while True:
+        cand = f"ORD-{next_n:04d}"
+        cur.execute("SELECT 1 FROM kitchen_orders WHERE ko_order_ref = ? LIMIT 1", (cand,))
+        if not cur.fetchone():
+            return cand
+        next_n += 1
+
+
+def _gen_unique_invoice_ref(cur, booking_id=None) -> str:
+    """Generate a collision-proof unique invoice reference (INV-XXXX)."""
+    cur.execute("SELECT inv_invoice_ref, inv_invoice_number, inv_id FROM invoices")
+    rows = cur.fetchall()
+    max_n = 0
+    for r in rows:
+        for val in (r[0], r[1]):
+            digits = "".join(c for c in str(val or "") if c.isdigit())
+            if digits:
+                try:
+                    num = int(digits)
+                    if num > max_n:
+                        max_n = num
+                except ValueError:
+                    pass
+        i_id = r[2]
+        if isinstance(i_id, int) and i_id > max_n:
+            max_n = i_id
+    start_n = max(max_n + 1, (booking_id or 0), len(rows) + 1, 1)
+    while True:
+        cand = f"INV-{start_n:04d}"
+        cur.execute("SELECT 1 FROM invoices WHERE inv_invoice_ref = ? OR inv_invoice_number = ? LIMIT 1", (cand, cand))
+        if not cur.fetchone():
+            return cand
+        start_n += 1
+
+
 def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) -> Optional[Dict[str, Any]]:
     """Native SQLite execution mapping for legacy stored procedure names."""
     cur = _sqlite_conn.cursor()
@@ -522,9 +603,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
 
     elif proc == "sp_create_kitchen_order":
         # in_params: (booking_id, client_name, event_name, pax, items_desc)
-        cur.execute("SELECT COUNT(*) FROM kitchen_orders")
-        cnt = cur.fetchone()[0] + 1
-        order_ref = f"ORD-{cnt:04d}"
+        order_ref = _gen_unique_kitchen_order_ref(cur)
         cur.execute("""
             INSERT INTO kitchen_orders (ko_booking_id, ko_order_ref, ko_customer_name, ko_event_date, ko_event_time, ko_pax, ko_status, ko_notes)
             VALUES (?, ?, ?, DATE('now'), '18:00', ?, 'PREPARING', ?)
@@ -553,20 +632,12 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         c_row = cur.fetchone()
         if c_row:
             cust_id = c_row[0]
-            new_events = int(c_row[1] or 0) + 1
-            new_spent = float(c_row[2] or 0.0) + total_amt
-            tier = "Gold" if (new_events >= 5 or new_spent >= 100000) else ("Silver" if (new_events >= 3 or new_spent >= 50000) else "Bronze")
-            cur.execute("""
-                UPDATE customers
-                SET cus_total_events = ?, cus_total_spent = ?, cus_loyalty_tier = ?
-                WHERE cus_id = ?
-            """, (new_events, new_spent, tier, cust_id))
         else:
             tier = "Gold" if total_amt >= 100000 else ("Silver" if total_amt >= 50000 else "Bronze")
             cur.execute("""
                 INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status, cus_total_events, cus_total_spent, cus_loyalty_tier)
-                VALUES (?, ?, ?, ?, 'Active', 1, ?, ?)
-            """, (cust_name, p[1], p[2], p[3], total_amt, tier))
+                VALUES (?, ?, ?, ?, 'Active', 0, 0.0, ?)
+            """, (cust_name, p[1], p[2], p[3], tier))
             cust_id = cur.lastrowid
 
         # Deduplicate: Prevent double booking of same event on same day for same customer
@@ -584,9 +655,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
             out_dict["p_booking_ref"] = dup_bk[1]
             return out_dict
 
-        cur.execute("SELECT COUNT(*) FROM bookings")
-        cnt = cur.fetchone()[0] + 1
-        booking_ref = f"BK-{cnt:04d}"
+        booking_ref = _gen_unique_booking_ref(cur)
 
         pkg_id = p[11]
         if pkg_id:
@@ -609,10 +678,27 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         ))
         booking_id = cur.lastrowid
 
+        # Recalculate customer total events and total spent directly from bookings table
+        cur.execute("""
+            SELECT COUNT(*), COALESCE(SUM(bk_total_amount), 0.0)
+            FROM bookings
+            WHERE (bk_customer_id = ? OR LOWER(bk_customer_name) = LOWER(?))
+              AND bk_status != 'CANCELLED'
+        """, (cust_id, cust_name))
+        c_stats = cur.fetchone()
+        real_events = int(c_stats[0] if c_stats else 1)
+        real_spent = float(c_stats[1] if c_stats else total_amt)
+        tier = "Gold" if (real_events >= 5 or real_spent >= 100000) else ("Silver" if (real_events >= 3 or real_spent >= 50000) else "Bronze")
+        cur.execute("""
+            UPDATE customers
+            SET cus_total_events = ?, cus_total_spent = ?, cus_loyalty_tier = ?
+            WHERE cus_id = ?
+        """, (real_events, real_spent, tier, cust_id))
+
         # Auto create invoice (Unpaid or Partial if down payment recorded)
         bal = max(0.0, total_amt - amt_paid)
         inv_status = "Paid" if (bal <= 0.0 and total_amt > 0) else ("Partial" if amt_paid > 0 else "Unpaid")
-        inv_num = f"INV-{booking_id:04d}"
+        inv_num = _gen_unique_invoice_ref(cur, booking_id)
         cur.execute("""
             INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_down_payment, inv_payment_verified, inv_status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
@@ -653,11 +739,11 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
             bk_row = cur.fetchone()
             if not bk_row:
                 raise Exception(f"No booking found with ID {b_id}")
-            inv_ref = f"INV-{b_id:04d}"
+            inv_ref = _gen_unique_invoice_ref(cur, b_id)
             cur.execute("""
-                INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_status)
-                VALUES (?, ?, ?, ?, ?, 0.0, 'Unpaid')
-            """, (b_id, inv_ref, bk_row[0], bk_row[1], float(bk_row[2])))
+                INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_status)
+                VALUES (?, ?, ?, ?, ?, ?, 0.0, ?, 'Unpaid')
+            """, (b_id, inv_ref, inv_ref, bk_row[0], bk_row[1], float(bk_row[2]), float(bk_row[2])))
             inv_id = cur.lastrowid
             v_total = float(bk_row[2])
             v_paid = 0.0
@@ -677,13 +763,14 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         remaining = max(0.0, v_total - new_paid)
         new_inv_status = "Paid" if remaining <= 0 else ("Partial" if new_paid > 0 else "Unpaid")
 
-        # Get downpayment policy
-        cur.execute("SELECT bi_min_downpayment_pct, bi_allow_zero_downpayment FROM business_info WHERE bi_id = 1")
-        b_info = cur.fetchone()
-        min_pct = float(b_info[0] if b_info else 30.0)
-        allow_zero = bool(b_info[1] if b_info else False)
-        req_down = round(v_total * min_pct / 100, 2)
-        new_bk_status = "CONFIRMED" if (new_paid >= req_down or allow_zero or new_paid >= v_total) else "PENDING"
+        # Booking status: any payment/downpayment confirms the booking unless completed or cancelled
+        cur.execute("SELECT bk_status FROM bookings WHERE bk_id = ? LIMIT 1", (b_id,))
+        cur_bk = cur.fetchone()
+        cur_bk_stat = cur_bk[0] if cur_bk else "PENDING"
+        if cur_bk_stat in ("COMPLETED", "CANCELLED"):
+            new_bk_status = cur_bk_stat
+        else:
+            new_bk_status = "CONFIRMED"
 
         cur.execute("UPDATE invoices SET inv_amount_paid = ?, inv_status = ?, inv_balance = ? WHERE inv_id = ?", (new_paid, new_inv_status, remaining, inv_id))
         cur.execute("UPDATE bookings SET bk_amount_paid = ?, bk_status = ? WHERE bk_id = ?", (new_paid, new_bk_status, b_id))
@@ -708,7 +795,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
             bk = cur.fetchone()
             if not bk:
                 raise Exception(f"No booking found with ID {b_id}")
-            inv_ref = f"INV-{b_id:04d}"
+            inv_ref = _gen_unique_invoice_ref(cur, b_id)
             cur.execute("""
                 INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_status)
                 VALUES (?, ?, ?, ?, ?, ?, 0.0, ?, 'Unpaid')

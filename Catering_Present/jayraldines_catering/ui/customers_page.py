@@ -745,35 +745,6 @@ class AddMultipleCustomersDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.table.verticalHeader().setDefaultSectionSize(46)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background: #0F172A;
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 8px;
-                gridline-color: rgba(255,255,255,0.06);
-                font-size: 13px;
-                color: #F9FAFB;
-            }
-            QTableWidget::item {
-                padding: 4px 6px;
-                color: #F9FAFB;
-                border-bottom: 1px solid rgba(255,255,255,0.05);
-            }
-            QTableWidget::item:selected {
-                background-color: rgba(225,29,72,0.25);
-                color: #FFFFFF;
-            }
-            QHeaderView::section {
-                background-color: #111827;
-                color: #9CA3AF;
-                font-weight: 700;
-                font-size: 11px;
-                padding: 10px 8px;
-                border: none;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-            }
-        """)
-
         # Add 5 initial rows
         for _ in range(5):
             self._add_row()
@@ -822,19 +793,16 @@ class AddMultipleCustomersDialog(QDialog):
         name_edit = QLineEdit()
         name_edit.setPlaceholderText("Customer / Company Name *")
         name_edit.setFixedHeight(34)
-        name_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 0, name_edit)
 
         contact_edit = QLineEdit()
         contact_edit.setPlaceholderText("09171234567")
         contact_edit.setFixedHeight(34)
-        contact_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 1, contact_edit)
 
         email_edit = QLineEdit()
         email_edit.setPlaceholderText("client@example.com")
         email_edit.setFixedHeight(34)
-        email_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 2, email_edit)
 
         addr_combo = QComboBox()
@@ -844,24 +812,6 @@ class AddMultipleCustomersDialog(QDialog):
         completer = QCompleter(_CEBU_ADDRESS_OPTIONS[1:], addr_combo)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
         addr_combo.setCompleter(completer)
-        addr_combo.setStyleSheet("""
-            QComboBox {
-                background: #1E293B;
-                color: #FFFFFF;
-                border: 1px solid #334155;
-                border-radius: 6px;
-                padding: 4px 8px;
-                font-size: 13px;
-            }
-            QComboBox:focus { border-color: #E11D48; }
-            QComboBox QAbstractItemView {
-                background: #1E293B;
-                color: #FFFFFF;
-                selection-background-color: #E11D48;
-                selection-color: #FFFFFF;
-                border: 1px solid #334155;
-            }
-        """)
         self.table.setCellWidget(r, 3, addr_combo)
 
     def _delete_selected_row(self):

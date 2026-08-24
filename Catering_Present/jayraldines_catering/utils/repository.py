@@ -23,26 +23,30 @@ def get_available_menu_items() -> list[dict]:
 
 def get_all_customers() -> list[dict]:
     rows = db.fetchall("""
-        SELECT cus_id       AS id,
-               cus_name     AS name,
-               cus_contact  AS contact,
-               cus_email    AS email,
-               cus_address  AS address,
-               cus_total_events AS total_events,
-               cus_status   AS status
-        FROM customers ORDER BY cus_name
+        SELECT c.cus_id       AS id,
+               c.cus_name     AS name,
+               c.cus_contact  AS contact,
+               c.cus_email    AS email,
+               c.cus_address  AS address,
+               (SELECT COUNT(*) FROM bookings WHERE (bk_customer_id = c.cus_id OR LOWER(bk_customer_name) = LOWER(c.cus_name)) AND bk_status != 'CANCELLED') AS total_events,
+               (SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE (bk_customer_id = c.cus_id OR LOWER(bk_customer_name) = LOWER(c.cus_name)) AND bk_status != 'CANCELLED') AS total_spent,
+               c.cus_status   AS status,
+               c.cus_loyalty_tier AS loyalty_tier
+        FROM customers c ORDER BY c.cus_name
     """)
     if not rows:
         return []
     return [
         {
-            "id":      r["id"],
-            "name":    r["name"],
-            "contact": r["contact"],
-            "email":   r["email"] or "",
-            "address": r["address"] or "",
-            "events":  r["total_events"],
-            "status":  r["status"],
+            "id":           r["id"],
+            "name":         r["name"],
+            "contact":      r["contact"],
+            "email":        r["email"] or "",
+            "address":      r["address"] or "",
+            "events":       int(r["total_events"] or 0),
+            "total_spent":  float(r["total_spent"] or 0.0),
+            "loyalty_tier": r.get("loyalty_tier") or ("Gold" if int(r["total_events"] or 0) >= 5 or float(r["total_spent"] or 0.0) >= 100000 else ("Silver" if int(r["total_events"] or 0) >= 3 or float(r["total_spent"] or 0.0) >= 50000 else "Bronze")),
+            "status":       r["status"],
         }
         for r in rows
     ]
@@ -1588,21 +1592,29 @@ def get_all_expenses() -> list[dict]:
                exp_category::TEXT AS category,
                exp_description    AS description,
                exp_amount         AS amount,
-               exp_expense_date   AS expense_date
-        FROM expenses ORDER BY exp_expense_date DESC
+               COALESCE(exp_expense_date, exp_date) AS expense_date
+        FROM expenses ORDER BY COALESCE(exp_expense_date, exp_date) DESC
     """)
     if not rows:
         return []
-    return [
-        {
+    res = []
+    for r in rows:
+        d_val = r.get("expense_date")
+        if d_val and hasattr(d_val, "strftime"):
+            d_str = d_val.strftime("%b %d, %Y")
+        elif d_val:
+            parsed_d = _parse_date(str(d_val))
+            d_str = parsed_d.strftime("%b %d, %Y") if parsed_d else str(d_val)
+        else:
+            d_str = date.today().strftime("%b %d, %Y")
+        res.append({
             "id":          r["id"],
             "category":    r["category"],
             "description": r["description"],
             "amount":      float(r["amount"]),
-            "date":        r["expense_date"].strftime("%b %d, %Y") if hasattr(r["expense_date"], "strftime") else str(r["expense_date"]),
-        }
-        for r in rows
-    ]
+            "date":        d_str,
+        })
+    return res
 
 
 def add_expense(data: dict) -> Optional[int]:
@@ -1700,15 +1712,16 @@ def get_profit_summary() -> list[dict]:
 
 def get_all_customers_with_loyalty() -> list[dict]:
     rows = db.fetchall("""
-        SELECT cus_id              AS id,
-               cus_name           AS name,
-               cus_contact        AS contact,
-               cus_email          AS email,
-               cus_address        AS address,
-               cus_total_events   AS total_events,
-               cus_status::TEXT   AS status,
-               cus_loyalty_tier::TEXT AS loyalty_tier
-        FROM customers ORDER BY cus_name
+        SELECT c.cus_id              AS id,
+               c.cus_name           AS name,
+               c.cus_contact        AS contact,
+               c.cus_email          AS email,
+               c.cus_address        AS address,
+               (SELECT COUNT(*) FROM bookings WHERE (bk_customer_id = c.cus_id OR LOWER(bk_customer_name) = LOWER(c.cus_name)) AND bk_status != 'CANCELLED') AS total_events,
+               (SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE (bk_customer_id = c.cus_id OR LOWER(bk_customer_name) = LOWER(c.cus_name)) AND bk_status != 'CANCELLED') AS total_spent,
+               c.cus_status::TEXT   AS status,
+               c.cus_loyalty_tier::TEXT AS loyalty_tier
+        FROM customers c ORDER BY c.cus_name
     """)
     if not rows:
         return []
@@ -1719,12 +1732,39 @@ def get_all_customers_with_loyalty() -> list[dict]:
             "contact":      r["contact"],
             "email":        r["email"] or "",
             "address":      r["address"] or "",
-            "events":       r["total_events"],
+            "events":       int(r["total_events"] or 0),
+            "total_spent":  float(r["total_spent"] or 0.0),
             "status":       r["status"],
-            "loyalty_tier": r["loyalty_tier"],
+            "loyalty_tier": r["loyalty_tier"] or ("Gold" if int(r["total_events"] or 0) >= 5 or float(r["total_spent"] or 0.0) >= 100000 else ("Silver" if int(r["total_events"] or 0) >= 3 or float(r["total_spent"] or 0.0) >= 50000 else "Bronze")),
         }
         for r in rows
     ]
+
+
+def recalculate_all_customer_stats() -> None:
+    """Synchronize customer total events, total spent, and loyalty tier directly from booking records."""
+    try:
+        custs = db.fetchall("SELECT cus_id, cus_name FROM customers") or []
+        for c in custs:
+            cid = c.get("cus_id")
+            cname = c.get("cus_name", "")
+            stats = db.fetchone("""
+                SELECT COUNT(*) AS cnt, COALESCE(SUM(bk_total_amount), 0.0) AS spent
+                FROM bookings
+                WHERE (bk_customer_id = %s OR LOWER(bk_customer_name) = LOWER(%s))
+                  AND bk_status != 'CANCELLED'
+            """, (cid, cname))
+            if stats:
+                cnt = int(stats.get("cnt") or 0)
+                spent = float(stats.get("spent") or 0.0)
+                tier = "Gold" if (cnt >= 5 or spent >= 100000) else ("Silver" if (cnt >= 3 or spent >= 50000) else "Bronze")
+                db.execute("""
+                    UPDATE customers
+                    SET cus_total_events = %s, cus_total_spent = %s, cus_loyalty_tier = %s
+                    WHERE cus_id = %s
+                """, (cnt, spent, tier, cid))
+    except Exception as exc:
+        print(f"[repository] Error recalculating all customer stats: {exc}")
 
 
 def recalculate_loyalty(customer_id: int) -> None:
@@ -3064,10 +3104,23 @@ def update_cash_flow_transaction(cft_id: int, data: dict) -> bool:
 
 
 def delete_cash_flow_transaction(cft_id: int) -> bool:
-    """Delete a cash flow transaction."""
+    """Delete a single cash flow transaction."""
     db.execute("DELETE FROM cash_flow_transactions WHERE cft_id = %s", (cft_id,))
     recalculate_cash_flow_balances()
     return True
+
+
+def delete_cash_flow_transactions(cft_ids: list[int]) -> int:
+    """Delete multiple cash flow transactions in a single atomic batch."""
+    if not cft_ids:
+        return 0
+    clean_ids = [int(i) for i in cft_ids if i]
+    if not clean_ids:
+        return 0
+    placeholders = ",".join(["%s"] * len(clean_ids))
+    db.execute(f"DELETE FROM cash_flow_transactions WHERE cft_id IN ({placeholders})", tuple(clean_ids))
+    recalculate_cash_flow_balances()
+    return len(clean_ids)
 
 
 def get_cash_flow_summary() -> dict:
@@ -3131,19 +3184,35 @@ def get_monthly_sales_evaluation_report(year: int) -> dict:
     targets = get_monthly_sales_targets(year)
     actual_sales_by_month = {m: 0.0 for m in range(1, 13)}
     
-    sales_rows = db.fetchall("""
-        SELECT CAST(strftime('%%m', bk_event_date) AS INTEGER) AS m,
-               COALESCE(SUM(bk_total_amount), 0.0) AS total
+    # Fetch all non-cancelled bookings
+    all_bks = db.fetchall("""
+        SELECT bk_event_date, bk_total_amount, bk_status
         FROM bookings
         WHERE bk_status != 'CANCELLED'
-          AND CAST(strftime('%%Y', bk_event_date) AS INTEGER) = %s
-        GROUP BY m
-    """, (year,)) or []
+    """) or []
 
-    for r in sales_rows:
-        m = int(r["m"])
-        if 1 <= m <= 12:
-            actual_sales_by_month[m] = float(r["total"] or 0.0)
+    for b in all_bks:
+        d_val = b.get("bk_event_date")
+        if not d_val:
+            continue
+        try:
+            if isinstance(d_val, (datetime, date)):
+                b_year = d_val.year
+                b_month = d_val.month
+            else:
+                qd = _parse_date(str(d_val))
+                if qd:
+                    b_year = qd.year
+                    b_month = qd.month
+                else:
+                    parts = str(d_val).split("-")
+                    b_year = int(parts[0])
+                    b_month = int(parts[1])
+
+            if b_year == int(year) and 1 <= b_month <= 12:
+                actual_sales_by_month[b_month] += float(b.get("bk_total_amount") or 0.0)
+        except Exception as err:
+            print(f"[reports] Error parsing booking event date '{d_val}': {err}")
 
     month_names = [
         "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
@@ -3188,36 +3257,81 @@ def get_monthly_sales_evaluation_report(year: int) -> dict:
 # ---------------------------------------------------------------------------
 
 def get_down_payments_summary() -> dict:
-    """Summary of all down payments: received, pending, and for upcoming future events."""
+    """Summary of all payments, down payments: received, pending, and upcoming events."""
     today_str = datetime.today().strftime("%Y-%m-%d")
     
+    # 1. Total payments & down payments received across invoices, payment_records, and bookings
     r1 = db.fetchone("""
-        SELECT COALESCE(SUM(pr_amount), 0.0) AS total
+        SELECT COALESCE(SUM(inv_amount_paid), 0.0) AS total_inv_paid
+        FROM invoices
+    """)
+    r1_alt = db.fetchone("""
+        SELECT COALESCE(SUM(pr_amount), 0.0) AS total_pr_paid
         FROM payment_records
-        WHERE pr_is_downpayment = 1 OR LOWER(COALESCE(pr_notes, '')) LIKE '%%down%%'
     """)
-    total_received = float(r1["total"] if r1 and r1.get("total") is not None else 0.0)
+    r1_bk = db.fetchone("""
+        SELECT COALESCE(SUM(bk_down_payment), 0.0) AS total_bk_dp
+        FROM bookings
+        WHERE bk_status != 'CANCELLED'
+    """)
+    inv_paid = float(r1["total_inv_paid"] if r1 and r1.get("total_inv_paid") is not None else 0.0)
+    pr_paid = float(r1_alt["total_pr_paid"] if r1_alt and r1_alt.get("total_pr_paid") is not None else 0.0)
+    bk_dp = float(r1_bk["total_bk_dp"] if r1_bk and r1_bk.get("total_bk_dp") is not None else 0.0)
+    total_received = max(inv_paid, pr_paid, bk_dp)
 
+    # 2. Pending balances & pending down payments
     r2 = db.fetchone("""
-        SELECT COALESCE(SUM(bk_down_payment), 0.0) AS total
-        FROM bookings
-        WHERE bk_status = 'PENDING' AND bk_down_payment > 0
+        SELECT COALESCE(SUM(
+            CASE 
+                WHEN inv_balance IS NOT NULL AND inv_balance > 0 THEN inv_balance
+                WHEN (inv_total_amount - inv_amount_paid) > 0 THEN (inv_total_amount - inv_amount_paid)
+                ELSE 0.0 
+            END
+        ), 0.0) AS pending_inv
+        FROM invoices
+        WHERE inv_status != 'Paid' AND inv_status != 'CANCELLED'
     """)
-    pending_down = float(r2["total"] if r2 and r2.get("total") is not None else 0.0)
-
-    r3 = db.fetchone("""
-        SELECT COALESCE(SUM(bk_down_payment), 0.0) AS total
+    r2_bk = db.fetchone("""
+        SELECT COALESCE(SUM(
+            CASE 
+                WHEN (bk_total_amount - bk_down_payment) > 0 THEN (bk_total_amount - bk_down_payment)
+                ELSE 0.0 
+            END
+        ), 0.0) AS pending_bk
         FROM bookings
-        WHERE bk_event_date >= %s AND bk_status != 'CANCELLED' AND bk_down_payment > 0
+        WHERE bk_status != 'CANCELLED' AND (bk_status = 'PENDING' OR bk_down_payment < bk_total_amount)
+    """)
+    inv_pending = float(r2["pending_inv"] if r2 and r2.get("pending_inv") is not None else 0.0)
+    bk_pending = float(r2_bk["pending_bk"] if r2_bk and r2_bk.get("pending_bk") is not None else 0.0)
+    pending_down = max(inv_pending, bk_pending)
+
+    # 3. Upcoming events count & amount
+    r3 = db.fetchone("""
+        SELECT COALESCE(SUM(
+            CASE 
+                WHEN inv_balance IS NOT NULL AND inv_balance > 0 THEN inv_balance
+                WHEN (inv_total_amount - inv_amount_paid) > 0 THEN (inv_total_amount - inv_amount_paid)
+                ELSE 0.0 
+            END
+        ), 0.0) AS upcoming_amt
+        FROM invoices
+        WHERE inv_event_date >= %s AND inv_status != 'CANCELLED'
     """, (today_str,))
-    upcoming_down = float(r3["total"] if r3 and r3.get("total") is not None else 0.0)
+    upcoming_down = float(r3["upcoming_amt"] if r3 and r3.get("upcoming_amt") is not None else 0.0)
 
     r4 = db.fetchone("""
         SELECT COUNT(*) AS cnt
+        FROM invoices
+        WHERE inv_status != 'CANCELLED'
+    """)
+    r4_bk = db.fetchone("""
+        SELECT COUNT(*) AS cnt
         FROM bookings
-        WHERE bk_event_date >= %s AND bk_status != 'CANCELLED' AND bk_down_payment > 0
-    """, (today_str,))
-    upcoming_cnt = int(r4["cnt"] if r4 and r4.get("cnt") is not None else 0)
+        WHERE bk_status != 'CANCELLED'
+    """)
+    cnt_inv = int(r4["cnt"] if r4 and r4.get("cnt") is not None else 0)
+    cnt_bk = int(r4_bk["cnt"] if r4_bk and r4_bk.get("cnt") is not None else 0)
+    upcoming_cnt = max(cnt_inv, cnt_bk)
 
     return {
         "total_received": total_received,

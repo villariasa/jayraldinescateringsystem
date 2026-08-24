@@ -679,13 +679,13 @@ class CalendarPage(QWidget):
 
     def _download_template(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save Booking CSV Template", "jayraldines_booking_template.csv", "CSV Files (*.csv)"
+            self, "Save Booking Template", "jayraldines_booking_template.xlsx", "Excel Spreadsheet (*.xlsx);;CSV Files (*.csv)"
         )
         if not path:
             return
         err = _importer.generate_sample_csv("bookings", path)
         if not err:
-            prompt_file_saved(self, path, title="Template Saved", message="Booking CSV template saved successfully. Fill in your bookings and import them anytime.")
+            prompt_file_saved(self, path, title="Template Saved", message="Booking template saved successfully. Fill in your bookings and import them anytime.")
         else:
             QMessageBox.warning(self, "Save Failed", f"Could not generate booking template: {err}")
 

@@ -438,15 +438,15 @@ class ChefMascot(QWidget):
             self._start_idle()
 
     def _start_idle(self):
-        anim = QPropertyAnimation(self, b"bob_offset", self)
-        anim.setDuration(2400)  # slowed from 1600ms to reduce GPU load
-        anim.setStartValue(0.0)
-        anim.setKeyValueAt(0.5, -5.0)
-        anim.setEndValue(0.0)
-        anim.setEasingCurve(QEasingCurve.InOutSine)
-        anim.setLoopCount(-1)
-        self._idle_anim = anim
-        anim.start()
+        # Stop continuous 60fps repaints that cause UI stutter and high CPU/GPU on laptops.
+        if self._idle_anim is not None:
+            try:
+                self._idle_anim.stop()
+            except Exception:
+                pass
+        self._idle_anim = None
+        self._bob_offset = 0.0
+        self.update()
 
     def _start_thinking(self):
         anim = QPropertyAnimation(self, b"tilt_angle", self)

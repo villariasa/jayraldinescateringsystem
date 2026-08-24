@@ -372,10 +372,10 @@ class BillingPage(QWidget):
         dp_lay.setContentsMargins(20, 16, 20, 16)
         dp_lay.setSpacing(24)
 
-        # Total DP Received
+        # Total Payments / DP Received
         dp1 = QVBoxLayout()
         dp1.setSpacing(4)
-        dp1_lbl = QLabel("TOTAL DOWN PAYMENTS RECEIVED")
+        dp1_lbl = QLabel("TOTAL PAYMENTS RECEIVED")
         dp1_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp1_val = QLabel("₱ 0.00")
         self._dp1_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #22C55E;")
@@ -383,10 +383,10 @@ class BillingPage(QWidget):
         dp1.addWidget(self._dp1_val)
         dp_lay.addLayout(dp1)
 
-        # Pending DP
+        # Pending Balance
         dp2 = QVBoxLayout()
         dp2.setSpacing(4)
-        dp2_lbl = QLabel("PENDING DOWN PAYMENTS")
+        dp2_lbl = QLabel("PENDING BALANCE / UNPAID")
         dp2_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp2_val = QLabel("₱ 0.00")
         self._dp2_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #F59E0B;")
@@ -394,10 +394,10 @@ class BillingPage(QWidget):
         dp2.addWidget(self._dp2_val)
         dp_lay.addLayout(dp2)
 
-        # Upcoming Events with DP
+        # Active Billing Events
         dp3 = QVBoxLayout()
         dp3.setSpacing(4)
-        dp3_lbl = QLabel("UPCOMING EVENTS WITH DOWN PAYMENT")
+        dp3_lbl = QLabel("ACTIVE / UPCOMING EVENTS")
         dp3_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp3_val = QLabel("0 Events")
         self._dp3_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #38BDF8;")
@@ -423,15 +423,23 @@ class BillingPage(QWidget):
         root.addWidget(self.scroll_area)
 
     def _populate_table(self):
-        # Refresh DP metrics
+        # Refresh Billing summary metrics directly from active invoice records
         try:
-            dp_summary = repo.get_down_payments_summary()
+            if self._invoices:
+                total_rcv = sum(float(i.get("paid", 0.0) or 0.0) for i in self._invoices)
+                total_pending = sum(max(0.0, float(i.get("amount", 0.0) or 0.0) - float(i.get("paid", 0.0) or 0.0)) for i in self._invoices if i.get("status") != "Paid")
+                events_cnt = len(self._invoices)
+            else:
+                total_rcv = 0.0
+                total_pending = 0.0
+                events_cnt = 0
+
             if hasattr(self, "_dp1_val"):
-                self._dp1_val.setText(f"₱ {dp_summary.get('total_down_payments_received', 0.0):,.2f}")
+                self._dp1_val.setText(f"₱ {total_rcv:,.2f}")
             if hasattr(self, "_dp2_val"):
-                self._dp2_val.setText(f"₱ {dp_summary.get('pending_down_payments', 0.0):,.2f}")
+                self._dp2_val.setText(f"₱ {total_pending:,.2f}")
             if hasattr(self, "_dp3_val"):
-                self._dp3_val.setText(f"{dp_summary.get('upcoming_events_count', 0)} Events")
+                self._dp3_val.setText(f"{events_cnt} Event{'s' if events_cnt != 1 else ''}")
         except Exception:
             pass
 

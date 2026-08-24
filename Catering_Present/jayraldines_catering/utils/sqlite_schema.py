@@ -686,46 +686,63 @@ def init_sqlite_db(conn: sqlite3.Connection):
                 (m,)
             )
 
-    # Seed Starter Cash Flow Transactions if empty (Ref Image 2)
-    cursor.execute("SELECT COUNT(*) FROM cash_flow_transactions")
-    if cursor.fetchone()[0] == 0:
-        log.info("Seeding starter cash flow transactions...")
-        cf_data = [
-            ("2026-05-01", "CHK-001", "BDO Jayraldine's Catering (Initial capital deposit)", 100000.0, 0.0, "Initial working capital"),
-            ("2026-05-03", "CHK-002", "Cash on Hand (Ingredients market withdrawal)", 0.0, 25000.0, "Fresh pork and market ingredients"),
-            ("2026-05-05", "GCASH-101", "GCash (Customer down payment)", 15000.0, 0.0, "Booking DP received"),
-            ("2026-05-08", "MAYA-202", "Maya (Customer down payment)", 20000.0, 0.0, "Debut party DP received"),
-            ("2026-05-10", "CHK-003", "Cash on Hand (Service staff payroll)", 0.0, 12000.0, "Assistant cook & server pay"),
-            ("2026-05-12", "UB-303", "UnionBank (Equipment rental deposit)", 0.0, 8500.0, "Chafing dish and table rentals"),
-            ("2026-05-15", "BPI-404", "BPI Personal Savings (Client booking settlement)", 35000.0, 0.0, "Full payment wedding banquet"),
-            ("2026-05-18", "CHK-004", "Cash on Hand (Gasul & van diesel transport)", 0.0, 4500.0, "Delivery van diesel"),
-            ("2026-05-20", "BDO-505", "BDO Jayraldine's Catering (Corporate banquet settlement)", 55000.0, 0.0, "Corporate seminar catering"),
-        ]
-        running_bal = 0.0
-        for dt, chk, part, dep, withd, notes in cf_data:
-            running_bal = running_bal + dep - withd
-            cursor.execute("""
-                INSERT INTO cash_flow_transactions (cft_date, cft_check_no, cft_particulars, cft_deposit, cft_withdrawal, cft_balance, cft_notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (dt, chk, part, dep, withd, running_bal, notes))
+    # Ensure app_settings table exists for tracking initialization states
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS app_settings (
+            setting_key TEXT PRIMARY KEY,
+            setting_value TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-    # Seed Starter Expenses if empty
-    cursor.execute("SELECT COUNT(*) FROM expenses")
-    if cursor.fetchone()[0] == 0:
-        log.info("Seeding starter expenses...")
-        exps = [
-            ("Food Cost", "Fresh Pork Lechon & Pork Belly", 18500.0, "2026-05-02"),
-            ("Transport", "Gas and Diesel for Delivery Van", 2400.0, "2026-05-04"),
-            ("Labor", "Part-time Service Crew & Waiters", 6000.0, "2026-05-08"),
-            ("Equipment", "Chafing Dish & Glassware Rental", 3500.0, "2026-05-10"),
-            ("Utilities", "LPG Gasul & Kitchen Water Utility", 2800.0, "2026-05-14"),
-            ("Food Cost", "Fresh Seafood & Vegetable Ingredients", 12500.0, "2026-05-16"),
-        ]
-        for cat, desc, amt, dt in exps:
-            cursor.execute(
-                "INSERT INTO expenses (exp_category, exp_description, exp_amount, exp_date, exp_expense_date) VALUES (?, ?, ?, ?, ?)",
-                (cat, desc, amt, dt, dt)
-            )
+    # Seed Starter Cash Flow Transactions ONLY on initial setup (never re-seed if user deleted records)
+    cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key = 'cash_flow_initial_seed_done'")
+    cf_seeded_row = cursor.fetchone()
+    if not cf_seeded_row:
+        cursor.execute("SELECT COUNT(*) FROM cash_flow_transactions")
+        if cursor.fetchone()[0] == 0:
+            log.info("Seeding starter cash flow transactions (first-time setup)...")
+            cf_data = [
+                ("2026-05-01", "CHK-001", "BDO Jayraldine's Catering (Initial capital deposit)", 100000.0, 0.0, "Initial working capital"),
+                ("2026-05-03", "CHK-002", "Cash on Hand (Ingredients market withdrawal)", 0.0, 25000.0, "Fresh pork and market ingredients"),
+                ("2026-05-05", "GCASH-101", "GCash (Customer down payment)", 15000.0, 0.0, "Booking DP received"),
+                ("2026-05-08", "MAYA-202", "Maya (Customer down payment)", 20000.0, 0.0, "Debut party DP received"),
+                ("2026-05-10", "CHK-003", "Cash on Hand (Service staff payroll)", 0.0, 12000.0, "Assistant cook & server pay"),
+                ("2026-05-12", "UB-303", "UnionBank (Equipment rental deposit)", 0.0, 8500.0, "Chafing dish and table rentals"),
+                ("2026-05-15", "BPI-404", "BPI Personal Savings (Client booking settlement)", 35000.0, 0.0, "Full payment wedding banquet"),
+                ("2026-05-18", "CHK-004", "Cash on Hand (Gasul & van diesel transport)", 0.0, 4500.0, "Delivery van diesel"),
+                ("2026-05-20", "BDO-505", "BDO Jayraldine's Catering (Corporate banquet settlement)", 55000.0, 0.0, "Corporate seminar catering"),
+            ]
+            running_bal = 0.0
+            for dt, chk, part, dep, withd, notes in cf_data:
+                running_bal = running_bal + dep - withd
+                cursor.execute("""
+                    INSERT INTO cash_flow_transactions (cft_date, cft_check_no, cft_particulars, cft_deposit, cft_withdrawal, cft_balance, cft_notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (dt, chk, part, dep, withd, running_bal, notes))
+        cursor.execute("INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES ('cash_flow_initial_seed_done', '1')")
+
+    # Seed Starter Expenses ONLY on initial setup (never re-seed if user deleted records)
+    cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key = 'expenses_initial_seed_done'")
+    exp_seeded_row = cursor.fetchone()
+    if not exp_seeded_row:
+        cursor.execute("SELECT COUNT(*) FROM expenses")
+        if cursor.fetchone()[0] == 0:
+            log.info("Seeding starter expenses (first-time setup)...")
+            exps = [
+                ("Food Cost", "Fresh Pork Lechon & Pork Belly", 18500.0, "2026-05-02"),
+                ("Transport", "Gas and Diesel for Delivery Van", 2400.0, "2026-05-04"),
+                ("Labor", "Part-time Service Crew & Waiters", 6000.0, "2026-05-08"),
+                ("Equipment", "Chafing Dish & Glassware Rental", 3500.0, "2026-05-10"),
+                ("Utilities", "LPG Gasul & Kitchen Water Utility", 2800.0, "2026-05-14"),
+                ("Food Cost", "Fresh Seafood & Vegetable Ingredients", 12500.0, "2026-05-16"),
+            ]
+            for cat, desc, amt, dt in exps:
+                cursor.execute(
+                    "INSERT INTO expenses (exp_category, exp_description, exp_amount, exp_date, exp_expense_date) VALUES (?, ?, ?, ?, ?)",
+                    (cat, desc, amt, dt, dt)
+                )
+        cursor.execute("INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES ('expenses_initial_seed_done', '1')")
 
     # Automatically and silently merge any duplicate customers and remove duplicate bookings
     try:

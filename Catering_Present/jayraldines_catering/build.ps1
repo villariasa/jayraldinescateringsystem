@@ -341,12 +341,12 @@ Print-Step "Step 7 - Writing Inno Setup Installer Script"
 
 $iss  = "[Setup]`r`n"
 $iss += "AppName=Jayraldines Catering`r`n"
-$iss += "AppVersion=4.0.5`r`n"
+$iss += "AppVersion=4.0.6`r`n"
 $iss += "AppPublisher=Jayraldines Catering`r`n"
 $iss += "DefaultDirName={autopf}\JayraldinesCatering`r`n"
 $iss += "DefaultGroupName=Jayraldines Catering`r`n"
 $iss += "OutputDir=installer_output`r`n"
-$iss += "OutputBaseFilename=JayraldinesSetup_v4.0.5`r`n"
+$iss += "OutputBaseFilename=JayraldinesSetup_v4.0.6`r`n"
 if (Test-Path "assets\logo.ico") {
     $iss += "SetupIconFile=assets\logo.ico`r`n"
 }

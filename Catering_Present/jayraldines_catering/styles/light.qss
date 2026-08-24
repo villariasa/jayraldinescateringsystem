@@ -417,7 +417,7 @@ QScrollArea {
 QScrollBar:vertical {
     border: none;
     background: transparent;
-    width: 5px;
+    width: 6px;
     margin: 0px;
 }
 QScrollBar::handle:vertical {
@@ -431,6 +431,24 @@ QScrollBar::handle:vertical:hover {
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     border: none; background: none; height: 0px;
+}
+QScrollBar:horizontal {
+    border: none;
+    background: transparent;
+    height: 6px;
+    margin: 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #CBD5E1;
+    min-width: 30px;
+    border-radius: 3px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #94A3B8;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    border: none; background: none; width: 0px;
 }
 
 /* --- FORM CONTROLS --- */

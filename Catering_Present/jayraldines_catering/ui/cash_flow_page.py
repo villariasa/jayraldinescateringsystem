@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog, QFormLayout,
     QComboBox, QLineEdit, QDoubleSpinBox, QDateEdit, QMessageBox,
-    QFileDialog, QScrollArea, QSizePolicy, QMenu
+    QFileDialog, QScrollArea, QSizePolicy, QMenu, QCheckBox
 )
 from PySide6.QtCore import Qt, QSize, QDate
 from PySide6.QtGui import QColor, QFont
@@ -98,103 +98,89 @@ class TransactionModal(QDialog):
                 self._date_f.setDate(QDate.currentDate())
         else:
             self._date_f.setDate(QDate.currentDate())
-        self._date_f.setFixedHeight(36)
-        form.addRow(QLabel("Date *"), self._date_f)
 
         # Check #
-        self._check_f = QLineEdit(str(self._tx.get("check_no", "")))
-        self._check_f.setPlaceholderText("Check # / Ref (optional)")
-        self._check_f.setFixedHeight(36)
-        form.addRow(QLabel("Check #"), self._check_f)
+        self._check_f = QLineEdit(self._tx.get("check_no", "") or "")
+        self._check_f.setPlaceholderText("e.g. CHK-001, GCASH-101, or —")
 
-        # Particulars (Account)
-        self._particulars_f = QComboBox()
-        self._particulars_f.setEditable(True)
-        self._particulars_f.addItems(_DEFAULT_PARTICULARS)
-        cur_part = str(self._tx.get("particulars", "Cash on Hand"))
-        idx = self._particulars_f.findText(cur_part)
-        if idx >= 0:
-            self._particulars_f.setCurrentIndex(idx)
-        else:
-            self._particulars_f.setEditText(cur_part)
-        self._particulars_f.setFixedHeight(36)
-        form.addRow(QLabel("Particulars *"), self._particulars_f)
+        # Particulars
+        self._part_f = QComboBox()
+        self._part_f.setEditable(True)
+        self._part_f.addItems(_DEFAULT_PARTICULARS)
+        if self._tx.get("particulars"):
+            idx = self._part_f.findText(self._tx["particulars"])
+            if idx >= 0:
+                self._part_f.setCurrentIndex(idx)
+            else:
+                self._part_f.setEditText(self._tx["particulars"])
 
         # Deposit
-        self._deposit_f = QDoubleSpinBox()
-        self._deposit_f.setRange(0, 99999999)
-        self._deposit_f.setPrefix("₱ ")
-        self._deposit_f.setDecimals(2)
-        self._deposit_f.setSingleStep(1000)
-        self._deposit_f.setValue(float(self._tx.get("deposit") or 0.0))
-        self._deposit_f.setFixedHeight(36)
-        form.addRow(QLabel("Deposit (In)"), self._deposit_f)
+        self._dep_f = QDoubleSpinBox()
+        self._dep_f.setRange(0, 99999999)
+        self._dep_f.setDecimals(2)
+        self._dep_f.setPrefix("₱ ")
+        self._dep_f.setValue(float(self._tx.get("deposit") or 0.0))
 
         # Withdrawal
-        self._withdrawal_f = QDoubleSpinBox()
-        self._withdrawal_f.setRange(0, 99999999)
-        self._withdrawal_f.setPrefix("₱ ")
-        self._withdrawal_f.setDecimals(2)
-        self._withdrawal_f.setSingleStep(1000)
-        self._withdrawal_f.setValue(float(self._tx.get("withdrawal") or 0.0))
-        self._withdrawal_f.setFixedHeight(36)
-        form.addRow(QLabel("Withdrawal (Out)"), self._withdrawal_f)
+        self._withd_f = QDoubleSpinBox()
+        self._withd_f.setRange(0, 99999999)
+        self._withd_f.setDecimals(2)
+        self._withd_f.setPrefix("₱ ")
+        self._withd_f.setValue(float(self._tx.get("withdrawal") or 0.0))
 
-        # Actual Sales
+        # Actual Sales (Optional)
         self._actual_sales_f = QDoubleSpinBox()
         self._actual_sales_f.setRange(0, 99999999)
-        self._actual_sales_f.setPrefix("₱ ")
         self._actual_sales_f.setDecimals(2)
-        self._actual_sales_f.setSingleStep(1000)
+        self._actual_sales_f.setPrefix("₱ ")
         self._actual_sales_f.setValue(float(self._tx.get("actual_sales") or 0.0))
-        self._actual_sales_f.setFixedHeight(36)
-        form.addRow(QLabel("Actual Sales (₱)"), self._actual_sales_f)
 
-        # Notes
-        self._notes_f = QLineEdit(str(self._tx.get("notes", "")))
-        self._notes_f.setPlaceholderText("Optional transaction notes / remarks...")
-        self._notes_f.setFixedHeight(36)
-        form.addRow(QLabel("Remarks"), self._notes_f)
+        # Notes / Remarks
+        self._notes_f = QLineEdit(self._tx.get("notes", "") or "")
+        self._notes_f.setPlaceholderText("Optional description or reference...")
+
+        form.addRow(QLabel("Transaction Date:"), self._date_f)
+        form.addRow(QLabel("Check / Ref #:"), self._check_f)
+        form.addRow(QLabel("Particulars / Account:"), self._part_f)
+        form.addRow(QLabel("Deposit (Money In):"), self._dep_f)
+        form.addRow(QLabel("Withdrawal (Money Out):"), self._withd_f)
+        form.addRow(QLabel("Actual Sales (Optional):"), self._actual_sales_f)
+        form.addRow(QLabel("Notes / Purpose:"), self._notes_f)
 
         lay.addLayout(form)
 
-        self._err_lbl = QLabel("")
-        self._err_lbl.setStyleSheet("color: #EF4444; font-size: 12px;")
-        self._err_lbl.hide()
-        lay.addWidget(self._err_lbl)
-
+        # Buttons
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        cancel = QPushButton("Cancel")
-        cancel.setObjectName("secondaryButton")
-        cancel.setCursor(Qt.PointingHandCursor)
-        cancel.clicked.connect(self.reject)
-        save = QPushButton("  Save Transaction")
-        save.setObjectName("primaryButton")
-        save.setIcon(btn_icon_primary("check"))
-        save.setIconSize(QSize(15, 15))
-        save.setCursor(Qt.PointingHandCursor)
-        save.clicked.connect(self._save)
-        btn_row.addWidget(cancel)
-        btn_row.addWidget(save)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("secondaryButton")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.clicked.connect(self.reject)
+
+        save_btn = QPushButton("Save Transaction")
+        save_btn.setObjectName("primaryButton")
+        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.clicked.connect(self._save)
+
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(save_btn)
         lay.addLayout(btn_row)
 
         outer.addWidget(container)
 
     def _save(self):
-        part = self._particulars_f.currentText().strip()
-        dep = self._deposit_f.value()
-        withd = self._withdrawal_f.value()
-        actual_sales = self._actual_sales_f.value()
-
+        part = self._part_f.currentText().strip()
         if not part:
-            self._err_lbl.setText("Please specify particulars / account.")
-            self._err_lbl.show()
+            QMessageBox.warning(self, "Validation Error", "Please provide a valid account or particulars description.")
             return
 
-        if dep <= 0 and withd <= 0 and actual_sales <= 0:
-            self._err_lbl.setText("Please enter a deposit, withdrawal, or actual sales amount.")
-            self._err_lbl.show()
+        dep = self._dep_f.value()
+        withd = self._withd_f.value()
+        actual_sales = self._actual_sales_f.value()
+
+        if dep == 0 and withd == 0 and actual_sales == 0:
+            QMessageBox.warning(self, "Validation Error", "Please enter at least a Deposit, Withdrawal, or Actual Sales amount.")
             return
 
         payload = {
@@ -221,6 +207,8 @@ class CashFlowPage(QWidget):
         self._filter_date = None
         self._search_text = ""
         self._transactions = []
+        self._selected_ids = set()
+        self._row_checkboxes = {}
         self._build_ui()
         self._load_data()
 
@@ -272,23 +260,6 @@ class CashFlowPage(QWidget):
         btn_export.setCursor(Qt.PointingHandCursor)
 
         export_menu = QMenu(self)
-        export_menu.setStyleSheet("""
-            QMenu {
-                background-color: #1E293B;
-                color: #F8FAFC;
-                border: 1px solid rgba(255,255,255,0.12);
-                border-radius: 6px;
-                padding: 4px 0;
-            }
-            QMenu::item {
-                padding: 8px 24px 8px 16px;
-                font-size: 13px;
-            }
-            QMenu::item:selected {
-                background-color: #E11D48;
-                color: #FFFFFF;
-            }
-        """)
         act_csv = export_menu.addAction("Export as CSV (.csv)")
         act_csv.triggered.connect(self._export_csv)
         act_excel = export_menu.addAction("Export as Excel (.xlsx)")
@@ -357,97 +328,71 @@ class CashFlowPage(QWidget):
         f_lay.addStretch()
         root.addWidget(filter_card)
 
-        # Cash Flow Ledger Table
+        # Cash Flow Ledger Table Card
         table_card = QFrame()
         table_card.setObjectName("card")
         t_lay = QVBoxLayout(table_card)
         t_lay.setContentsMargins(16, 16, 16, 16)
         t_lay.setSpacing(12)
 
-        self.table = QTableWidget(0, 9)
+        # Multi-Select Batch Action Toolbar
+        batch_toolbar = QHBoxLayout()
+        batch_toolbar.setContentsMargins(4, 0, 4, 4)
+        batch_toolbar.setSpacing(12)
+
+        self._cb_select_all = QCheckBox("Select All")
+        self._cb_select_all.setStyleSheet("QCheckBox { font-weight: 600; font-size: 13px; color: #9CA3AF; }")
+        self._cb_select_all.stateChanged.connect(self._toggle_select_all)
+        batch_toolbar.addWidget(self._cb_select_all)
+
+        self._lbl_selected_count = QLabel("0 selected")
+        self._lbl_selected_count.setStyleSheet("font-size: 12px; color: #6B7280; font-weight: 600;")
+        batch_toolbar.addWidget(self._lbl_selected_count)
+
+        batch_toolbar.addStretch()
+
+        self._btn_delete_selected = QPushButton("  Delete Selected")
+        self._btn_delete_selected.setIcon(btn_icon_red("trash"))
+        self._btn_delete_selected.setIconSize(QSize(13, 13))
+        self._btn_delete_selected.setCursor(Qt.PointingHandCursor)
+        self._btn_delete_selected.setEnabled(False)
+        self._btn_delete_selected.setStyleSheet(
+            "QPushButton { background: rgba(225,29,72,0.15); border: 1px solid rgba(225,29,72,0.3); color: #E11D48; border-radius: 8px; padding: 6px 14px; font-weight: 600; font-size: 12px; }"
+            "QPushButton:hover { background: rgba(225,29,72,0.25); border-color: #E11D48; }"
+            "QPushButton:disabled { opacity: 0.35; background: rgba(255,255,255,0.04); border-color: transparent; color: #6B7280; }"
+        )
+        self._btn_delete_selected.clicked.connect(self._delete_selected_transactions)
+        batch_toolbar.addWidget(self._btn_delete_selected)
+
+        t_lay.addLayout(batch_toolbar)
+
+        self.table = QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels([
-            "Date", "Check #", "Particulars (Account / Detail)",
+            "", "Date", "Check #", "Particulars (Account / Detail)",
             "Deposit (₱)", "Withdrawal (₱)", "Running Balance (₱)",
             "Actual Sales (₱)", "Variance / Diff (₱)", "Actions"
         ])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(9, QHeaderView.ResizeToContents)
+        self.table.setColumnWidth(0, 44)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
         self.table.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
-        self.table.horizontalHeader().setMinimumSectionSize(80)
+        self.table.horizontalHeader().setMinimumSectionSize(40)
 
         self.table.verticalHeader().setDefaultSectionSize(44)
         self.table.verticalHeader().setVisible(False)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.table.setMinimumHeight(450)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background: #0F172A;
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 8px;
-                gridline-color: rgba(255,255,255,0.06);
-                font-size: 13px;
-                color: #F9FAFB;
-            }
-            QTableWidget::item {
-                padding: 6px 10px;
-                border-bottom: 1px solid rgba(255,255,255,0.05);
-            }
-            QHeaderView::section {
-                background-color: #111827;
-                color: #9CA3AF;
-                font-weight: 700;
-                font-size: 11px;
-                padding: 10px 10px;
-                border: none;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-            }
-            QScrollBar:horizontal {
-                height: 10px;
-                background: #0F172A;
-                border-radius: 5px;
-                margin: 0px;
-            }
-            QScrollBar::handle:horizontal {
-                background: #334155;
-                min-width: 30px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:horizontal:hover {
-                background: #E11D48;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                width: 0px;
-                background: none;
-            }
-            QScrollBar:vertical {
-                width: 10px;
-                background: #0F172A;
-                border-radius: 5px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #334155;
-                min-height: 30px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #E11D48;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-                background: none;
-            }
-        """)
         t_lay.addWidget(self.table, 1)
         root.addWidget(table_card, 1)
 
@@ -520,119 +465,211 @@ class CashFlowPage(QWidget):
         self._populate_table()
 
     def _populate_table(self):
-        self.table.setRowCount(len(self._transactions))
-        for r_idx, tx in enumerate(self._transactions):
-            # Date
-            d_val = str(tx.get("date", ""))
-            try:
-                qd = QDate.fromString(d_val, "yyyy-MM-dd")
-                date_str = qd.toString("MMM dd, yyyy") if qd.isValid() else d_val
-            except Exception:
-                date_str = d_val
-            item_d = QTableWidgetItem(date_str)
-            item_d.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.table.setUpdatesEnabled(False)
+        self._row_checkboxes.clear()
+        # Keep only selected IDs that still exist in current transactions
+        visible_ids = {int(tx["id"]) for tx in self._transactions if tx.get("id")}
+        self._selected_ids.intersection_update(visible_ids)
 
-            # Check #
-            item_c = QTableWidgetItem(str(tx.get("check_no", "") or "—"))
-            item_c.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        try:
+            self.table.setRowCount(len(self._transactions))
+            for r_idx, tx in enumerate(self._transactions):
+                tx_id = int(tx.get("id") or 0)
 
-            # Particulars
-            part_text = str(tx.get("particulars", ""))
-            if tx.get("notes"):
-                part_text += f" ({tx['notes']})"
-            item_p = QTableWidgetItem(part_text)
-            item_p.setFont(QFont("Segoe UI", 10, QFont.Bold))
-            item_p.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                # Column 0: Checkbox
+                cb_widget = QWidget()
+                cb_lay = QHBoxLayout(cb_widget)
+                cb_lay.setContentsMargins(0, 0, 0, 0)
+                cb_lay.setAlignment(Qt.AlignCenter)
+                cb = QCheckBox()
+                cb.setCursor(Qt.PointingHandCursor)
+                cb.setChecked(tx_id in self._selected_ids)
+                cb.toggled.connect(lambda checked, tid=tx_id: self._on_row_checked(tid, checked))
+                cb_lay.addWidget(cb)
+                self._row_checkboxes[tx_id] = cb
+                self.table.setCellWidget(r_idx, 0, cb_widget)
 
-            # Deposit
-            dep_val = float(tx.get("deposit") or 0.0)
-            item_dep = QTableWidgetItem(f"₱ {dep_val:,.2f}" if dep_val > 0 else "—")
-            item_dep.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            if dep_val > 0:
-                item_dep.setForeground(QColor("#22C55E"))
+                # Column 1: Date
+                d_val = str(tx.get("date", ""))
+                try:
+                    qd = QDate.fromString(d_val, "yyyy-MM-dd")
+                    date_str = qd.toString("MMM dd, yyyy") if qd.isValid() else d_val
+                except Exception:
+                    date_str = d_val
+                item_d = QTableWidgetItem(date_str)
+                item_d.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-            # Withdrawal
-            withd_val = float(tx.get("withdrawal") or 0.0)
-            item_w = QTableWidgetItem(f"₱ {withd_val:,.2f}" if withd_val > 0 else "—")
-            item_w.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            if withd_val > 0:
-                item_w.setForeground(QColor("#EF4444"))
+                # Column 2: Check #
+                item_c = QTableWidgetItem(str(tx.get("check_no", "") or "—"))
+                item_c.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-            # Balance
-            bal_val = float(tx.get("balance") or 0.0)
-            bal_str = f"₱ {bal_val:,.2f}" if bal_val >= 0 else f"(₱ {abs(bal_val):,.2f})"
-            item_bal = QTableWidgetItem(bal_str)
-            item_bal.setFont(QFont("Segoe UI", 10, QFont.Bold))
-            item_bal.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            item_bal.setForeground(QColor("#22C55E" if bal_val >= 0 else "#EF4444"))
+                # Column 3: Particulars
+                part_text = str(tx.get("particulars", ""))
+                if tx.get("notes"):
+                    part_text += f" ({tx['notes']})"
+                item_p = QTableWidgetItem(part_text)
+                item_p.setFont(QFont("Segoe UI", 10, QFont.Bold))
+                item_p.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-            # Actual Sales
-            sales_val = float(tx.get("actual_sales") or 0.0)
-            sales_str = f"₱ {sales_val:,.2f}" if sales_val > 0 else "—"
-            item_sales = QTableWidgetItem(sales_str)
-            item_sales.setFont(QFont("Segoe UI", 10, QFont.Bold))
-            item_sales.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            if sales_val > 0:
-                item_sales.setForeground(QColor("#C084FC"))
+                # Column 4: Deposit
+                dep_val = float(tx.get("deposit") or 0.0)
+                item_dep = QTableWidgetItem(f"₱ {dep_val:,.2f}" if dep_val > 0 else "—")
+                item_dep.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                if dep_val > 0:
+                    item_dep.setForeground(QColor("#22C55E"))
 
-            # Variance / Difference (Balance - Actual Sales)
-            if sales_val > 0:
-                diff_val = bal_val - sales_val
-                diff_str = f"₱ {diff_val:,.2f}" if diff_val >= 0 else f"(₱ {abs(diff_val):,.2f})"
-                diff_color = QColor("#22C55E" if diff_val >= 0 else "#EF4444")
-            else:
-                diff_str = "—"
-                diff_color = QColor("#9CA3AF")
-            item_diff = QTableWidgetItem(diff_str)
-            item_diff.setFont(QFont("Segoe UI", 10, QFont.Bold))
-            item_diff.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            item_diff.setForeground(diff_color)
+                # Column 5: Withdrawal
+                withd_val = float(tx.get("withdrawal") or 0.0)
+                item_w = QTableWidgetItem(f"₱ {withd_val:,.2f}" if withd_val > 0 else "—")
+                item_w.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                if withd_val > 0:
+                    item_w.setForeground(QColor("#EF4444"))
 
-            self.table.setItem(r_idx, 0, item_d)
-            self.table.setItem(r_idx, 1, item_c)
-            self.table.setItem(r_idx, 2, item_p)
-            self.table.setItem(r_idx, 3, item_dep)
-            self.table.setItem(r_idx, 4, item_w)
-            self.table.setItem(r_idx, 5, item_bal)
-            self.table.setItem(r_idx, 6, item_sales)
-            self.table.setItem(r_idx, 7, item_diff)
+                # Column 6: Balance
+                bal_val = float(tx.get("balance") or 0.0)
+                bal_str = f"₱ {bal_val:,.2f}" if bal_val >= 0 else f"(₱ {abs(bal_val):,.2f})"
+                item_bal = QTableWidgetItem(bal_str)
+                item_bal.setFont(QFont("Segoe UI", 10, QFont.Bold))
+                item_bal.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                item_bal.setForeground(QColor("#22C55E" if bal_val >= 0 else "#EF4444"))
 
-            # Actions (Edit / Delete)
-            act_widget = QWidget()
-            act_lay = QHBoxLayout(act_widget)
-            act_lay.setContentsMargins(4, 2, 4, 2)
-            act_lay.setSpacing(6)
+                # Column 7: Actual Sales
+                sales_val = float(tx.get("actual_sales") or 0.0)
+                sales_str = f"₱ {sales_val:,.2f}" if sales_val > 0 else "—"
+                item_sales = QTableWidgetItem(sales_str)
+                item_sales.setFont(QFont("Segoe UI", 10, QFont.Bold))
+                item_sales.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                if sales_val > 0:
+                    item_sales.setForeground(QColor("#C084FC"))
 
-            edit_btn = QPushButton()
-            edit_btn.setIcon(get_icon("edit", color="#38BDF8", size=QSize(13, 13)))
-            edit_btn.setFixedSize(28, 28)
-            edit_btn.setStyleSheet("background: transparent; border: none;")
-            edit_btn.setCursor(Qt.PointingHandCursor)
-            edit_btn.setToolTip("Edit Transaction")
-            edit_btn.clicked.connect(lambda _, item_tx=tx: self._edit_transaction(item_tx))
+                # Column 8: Variance / Difference (Balance - Actual Sales)
+                if sales_val > 0:
+                    diff_val = bal_val - sales_val
+                    diff_str = f"₱ {diff_val:,.2f}" if diff_val >= 0 else f"(₱ {abs(diff_val):,.2f})"
+                    diff_color = QColor("#22C55E" if diff_val >= 0 else "#EF4444")
+                else:
+                    diff_str = "—"
+                    diff_color = QColor("#9CA3AF")
+                item_diff = QTableWidgetItem(diff_str)
+                item_diff.setFont(QFont("Segoe UI", 10, QFont.Bold))
+                item_diff.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                item_diff.setForeground(diff_color)
 
-            del_btn = QPushButton()
-            del_btn.setIcon(get_icon("trash", color="#EF4444", size=QSize(13, 13)))
-            del_btn.setFixedSize(28, 28)
-            del_btn.setStyleSheet("background: transparent; border: none;")
-            del_btn.setCursor(Qt.PointingHandCursor)
-            del_btn.setToolTip("Delete Transaction")
-            del_btn.clicked.connect(lambda _, item_tx=tx: self._delete_transaction(item_tx))
+                self.table.setItem(r_idx, 1, item_d)
+                self.table.setItem(r_idx, 2, item_c)
+                self.table.setItem(r_idx, 3, item_p)
+                self.table.setItem(r_idx, 4, item_dep)
+                self.table.setItem(r_idx, 5, item_w)
+                self.table.setItem(r_idx, 6, item_bal)
+                self.table.setItem(r_idx, 7, item_sales)
+                self.table.setItem(r_idx, 8, item_diff)
 
-            act_lay.addWidget(edit_btn)
-            act_lay.addWidget(del_btn)
-            self.table.setCellWidget(r_idx, 8, act_widget)
+                # Column 9: Actions (Edit / Delete)
+                act_widget = QWidget()
+                act_lay = QHBoxLayout(act_widget)
+                act_lay.setContentsMargins(4, 2, 4, 2)
+                act_lay.setSpacing(6)
+
+                edit_btn = QPushButton()
+                edit_btn.setIcon(get_icon("edit", color="#38BDF8", size=QSize(13, 13)))
+                edit_btn.setFixedSize(28, 28)
+                edit_btn.setStyleSheet("background: transparent; border: none;")
+                edit_btn.setCursor(Qt.PointingHandCursor)
+                edit_btn.setToolTip("Edit Transaction")
+                edit_btn.clicked.connect(lambda _, item_tx=tx: self._edit_transaction(item_tx))
+
+                del_btn = QPushButton()
+                del_btn.setIcon(get_icon("trash", color="#EF4444", size=QSize(13, 13)))
+                del_btn.setFixedSize(28, 28)
+                del_btn.setStyleSheet("background: transparent; border: none;")
+                del_btn.setCursor(Qt.PointingHandCursor)
+                del_btn.setToolTip("Delete Transaction")
+                del_btn.clicked.connect(lambda _, item_tx=tx: self._delete_transaction(item_tx))
+
+                act_lay.addWidget(edit_btn)
+                act_lay.addWidget(del_btn)
+                self.table.setCellWidget(r_idx, 9, act_widget)
+        finally:
+            self.table.setUpdatesEnabled(True)
+
+        self._update_selection_ui()
+
+    def _on_row_checked(self, tx_id: int, checked: bool):
+        if checked:
+            self._selected_ids.add(tx_id)
+        else:
+            self._selected_ids.discard(tx_id)
+        self._update_selection_ui()
+
+    def _toggle_select_all(self, state):
+        visible_tx_ids = [int(tx["id"]) for tx in self._transactions if tx.get("id")]
+        if state:
+            self._selected_ids.update(visible_tx_ids)
+        else:
+            self._selected_ids.difference_update(visible_tx_ids)
+
+        for tx_id, cb in self._row_checkboxes.items():
+            if tx_id in visible_tx_ids:
+                cb.blockSignals(True)
+                cb.setChecked(bool(state))
+                cb.blockSignals(False)
+
+        self._update_selection_ui()
+
+    def _update_selection_ui(self):
+        count = len(self._selected_ids)
+        self._lbl_selected_count.setText(f"{count} selected")
+        self._btn_delete_selected.setEnabled(count > 0)
+        self._btn_delete_selected.setText(f"  Delete Selected ({count})" if count > 0 else "  Delete Selected")
+
+        visible_tx_ids = [int(tx["id"]) for tx in self._transactions if tx.get("id")]
+        all_checked = len(visible_tx_ids) > 0 and all(tid in self._selected_ids for tid in visible_tx_ids)
+        self._cb_select_all.blockSignals(True)
+        self._cb_select_all.setChecked(all_checked)
+        self._cb_select_all.blockSignals(False)
+
+    def _delete_selected_transactions(self):
+        if not self._selected_ids:
+            return
+        count = len(self._selected_ids)
+        if not confirm(self, title="Delete Multiple Transactions",
+                       message=f"Are you sure you want to permanently delete {count} selected cash flow transaction(s)?\nRunning balances will be recalculated automatically.",
+                       confirm_label=f"Delete {count} Transactions", danger=True):
+            return
+
+        deleted = repo.delete_cash_flow_transactions(list(self._selected_ids))
+        self._selected_ids.clear()
+        self._load_data()
+        try:
+            from utils.signals import app_events
+            app_events().cash_flow_saved.emit()
+            app_events().data_changed.emit()
+        except Exception:
+            pass
+        success(self, message=f"Successfully deleted {deleted} transaction(s).")
 
     def _open_add_dialog(self):
         dlg = TransactionModal(self)
         if dlg.exec():
             self._load_data()
+            try:
+                from utils.signals import app_events
+                app_events().cash_flow_saved.emit()
+                app_events().data_changed.emit()
+            except Exception:
+                pass
             success(self, message="Cash flow transaction recorded.")
 
     def _edit_transaction(self, tx: dict):
         dlg = TransactionModal(self, tx_data=tx)
         if dlg.exec():
             self._load_data()
+            try:
+                from utils.signals import app_events
+                app_events().cash_flow_saved.emit()
+                app_events().data_changed.emit()
+            except Exception:
+                pass
             success(self, message="Transaction updated.")
 
     def _delete_transaction(self, tx: dict):
@@ -640,8 +677,16 @@ class CashFlowPage(QWidget):
                        message=f"Are you sure you want to delete transaction for '{tx.get('particulars')}'?",
                        confirm_label="Delete", danger=True):
             return
-        repo.delete_cash_flow_transaction(tx["id"])
+        tx_id = int(tx.get("id") or 0)
+        repo.delete_cash_flow_transaction(tx_id)
+        self._selected_ids.discard(tx_id)
         self._load_data()
+        try:
+            from utils.signals import app_events
+            app_events().cash_flow_saved.emit()
+            app_events().data_changed.emit()
+        except Exception:
+            pass
         success(self, message="Transaction deleted.")
 
     def _open_import_dialog(self):

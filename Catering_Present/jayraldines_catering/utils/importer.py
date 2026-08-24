@@ -883,6 +883,7 @@ def execute_batch_import(
         try:
             if entity_type in ("customers", "bookings", "all_in_one"):
                 repo.merge_duplicate_customers()
+                repo.recalculate_all_customer_stats()
         except Exception:
             pass
 
@@ -913,37 +914,105 @@ def execute_batch_import(
 # SAMPLE TEMPLATE GENERATOR
 # ─────────────────────────────────────────────────────────────────────────────
 
+def normalize_entity_type(key: str) -> str:
+    """Normalize any entity key alias to its canonical schema key."""
+    k = (key or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if k in ("booking", "bookings", "order", "orders", "booking_order", "bookings_orders"):
+        return "bookings"
+    if k in ("customer", "customers", "client", "clients"):
+        return "customers"
+    if k in ("expense", "expenses", "cost", "costs"):
+        return "expenses"
+    if k in ("menu", "menus", "menu_item", "menu_items", "package", "packages", "dish", "dishes"):
+        return "menu_items"
+    if k in ("cash_flow", "cashflow", "cash", "ledger", "transactions", "cash_flow_transactions"):
+        return "cash_flow"
+    if k in ("all_in_one", "all", "master", "allinone", "all_in_one_master"):
+        return "all_in_one"
+    return k
+
+
 def generate_sample_csv(entity_type: str, save_path: str) -> Optional[str]:
-    """Generate sample CSV or Excel file with clean headers and example data."""
+    """Generate sample CSV or Excel file with clean headers, formatting, and example data."""
+    canon_entity = normalize_entity_type(entity_type)
     ext = os.path.splitext(save_path)[1].lower()
+
+    if not ext:
+        save_path = f"{save_path}.xlsx"
+        ext = ".xlsx"
 
     if ext in (".xlsx", ".xls"):
         try:
             import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+
             wb = openpyxl.Workbook()
-            if entity_type == "all_in_one":
+            header_fill = PatternFill(start_color="E11D48", end_color="E11D48", fill_type="solid")
+            header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+            data_font = Font(name="Arial", size=10)
+            thin_border = Border(
+                left=Side(style='thin', color='CBD5E1'),
+                right=Side(style='thin', color='CBD5E1'),
+                top=Side(style='thin', color='CBD5E1'),
+                bottom=Side(style='thin', color='CBD5E1')
+            )
+
+            def style_sheet(ws, rows):
+                for row_idx, r in enumerate(rows, start=1):
+                    ws.append(r)
+                    for col_idx in range(1, len(r) + 1):
+                        cell = ws.cell(row=row_idx, column=col_idx)
+                        cell.border = thin_border
+                        if row_idx == 1:
+                            cell.fill = header_fill
+                            cell.font = header_font
+                            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                        else:
+                            cell.font = data_font
+                            cell.alignment = Alignment(vertical="center")
+
+                ws.row_dimensions[1].height = 28
+                for r_idx in range(2, len(rows) + 1):
+                    ws.row_dimensions[r_idx].height = 22
+
+                for col in ws.columns:
+                    max_len = 0
+                    col_letter = get_column_letter(col[0].column)
+                    for cell in col:
+                        val_str = str(cell.value or "")
+                        if len(val_str) > max_len:
+                            max_len = len(val_str)
+                    ws.column_dimensions[col_letter].width = max(max_len + 5, 14)
+
+            if canon_entity == "all_in_one":
                 wb.remove(wb.active)  # remove default sheet
                 sections = ["bookings", "customers", "expenses", "cash_flow", "menu_items"]
                 for sec in sections:
                     s_info = ENTITY_SCHEMAS.get(sec, {})
-                    ws = wb.create_sheet(title=s_info.get("title", sec.title()))
-                    for r in s_info.get("sample", []):
-                        ws.append(r)
+                    title_name = s_info.get("title", sec.title())
+                    if len(title_name) > 31:
+                        title_name = sec.replace("_", " ").title()
+                    ws = wb.create_sheet(title=title_name)
+                    style_sheet(ws, s_info.get("sample", []))
             else:
                 ws = wb.active
-                schema = ENTITY_SCHEMAS.get(entity_type, {})
-                ws.title = schema.get("title", "Template")
-                for r in schema.get("sample", []):
-                    ws.append(r)
+                schema = ENTITY_SCHEMAS.get(canon_entity, {})
+                title_name = schema.get("title", "Template")
+                if len(title_name) > 31:
+                    title_name = canon_entity.replace("_", " ").title()
+                ws.title = title_name
+                style_sheet(ws, schema.get("sample", []))
+
             wb.save(save_path)
             return None
         except Exception as e:
             return f"Failed to save Excel template: {e}"
 
     # CSV fallback
-    schema = ENTITY_SCHEMAS.get(entity_type)
+    schema = ENTITY_SCHEMAS.get(canon_entity)
     if not schema:
-        return "Unknown entity type."
+        return f"Unknown entity type: {entity_type}"
 
     sample_rows = schema.get("sample", [])
     try:

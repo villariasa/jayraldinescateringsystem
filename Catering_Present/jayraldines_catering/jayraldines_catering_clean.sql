@@ -773,9 +773,8 @@ BEGIN
     SET bk_amount_paid = p_new_paid,
         bk_status = CASE
             WHEN bk_status = 'CANCELLED' THEN bk_status
-            WHEN p_new_paid >= v_total THEN 'CONFIRMED'::booking_status
-            WHEN p_new_paid >= v_required_down OR v_allow_zero THEN 'CONFIRMED'::booking_status
-            ELSE 'PENDING'::booking_status
+            WHEN bk_status = 'COMPLETED' THEN bk_status
+            ELSE 'CONFIRMED'::booking_status
         END,
         bk_updated_at = NOW()
     WHERE bk_id = p_booking_id

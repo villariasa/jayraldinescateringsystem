@@ -292,10 +292,57 @@ class TestNewFeatures(unittest.TestCase):
         dlg_xlsx = ExportSuccessDialog(file_path=xlsx_path, title="Excel Exported")
         self.assertIsNotNone(dlg_xlsx)
 
-        # CSV Dialog
-        dlg_csv = ExportSuccessDialog(file_path=csv_path, title="CSV Exported")
-        self.assertIsNotNone(dlg_csv)
+    def test_confirm_booking_with_downpayment_persists_confirmed_status(self):
+        """Verify that confirming a booking with any downpayment persists CONFIRMED status in DB."""
+        # 1. Create a booking (initially PENDING)
+        bkg = repo.create_booking({
+            "name": "Test Downpayment Confirmation Client",
+            "contact": "09189998877",
+            "email": "downpayment_test@example.com",
+            "address": "Cebu City",
+            "occasion": "Anniversary",
+            "venue": "Radisson Blu",
+            "date": "2026-09-10",
+            "time": "7:00 PM",
+            "pax": 100,
+            "total": 45000.0,
+            "payment_mode": "Cash",
+            "down_payment": 0.0,
+        })
+        self.assertIsNotNone(bkg)
+        db_id = bkg["booking_id"]
+
+        # Check initial status in DB is PENDING
+        detail = repo.get_booking_detail(db_id)
+        self.assertIsNotNone(detail)
+        self.assertEqual(detail.get("status"), "PENDING")
+
+        # 2. Confirm booking with a partial downpayment (e.g. ₱5,000 on ₱45,000 order)
+        pay_res = repo.pay_invoice(
+            db_id,
+            payment_amount=5000.0,
+            payment_date="2026-09-01",
+            method="GCash",
+            note="Down payment upon booking confirmation"
+        )
+        self.assertEqual(pay_res["new_booking_status"], "CONFIRMED")
+        self.assertEqual(pay_res["new_paid"], 5000.0)
+
+        # 3. Explicitly update booking status as done in UI
+        repo.update_booking_status(db_id, "CONFIRMED")
+
+        # 4. Query fresh detail from DB — MUST be CONFIRMED and NOT revert to PENDING
+        fresh_detail = repo.get_booking_detail(db_id)
+        self.assertEqual(fresh_detail.get("status"), "CONFIRMED")
+        self.assertEqual(float(fresh_detail.get("amount_paid", 0.0)), 5000.0)
+
+        # 5. Check in get_all_bookings list
+        all_b = repo.get_all_bookings()
+        matched = next((x for x in all_b if x["db_id"] == db_id), None)
+        self.assertIsNotNone(matched)
+        self.assertEqual(matched["status"], "CONFIRMED")
 
 
 if __name__ == "__main__":
     unittest.main()
+

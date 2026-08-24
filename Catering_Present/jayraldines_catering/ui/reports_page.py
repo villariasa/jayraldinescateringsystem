@@ -17,12 +17,21 @@ from utils.accent import AccentManager
 from components.dialogs import prompt_file_saved
 import utils.repository as repo
 
-from PySide6.QtCharts import (QChart, QChartView, QLineSeries, QAreaSeries,
-                              QPieSeries, QBarCategoryAxis, QBarSeries, QBarSet,
-                              QValueAxis, QLegend)
+try:
+    from PySide6.QtCharts import (QChart, QChartView, QLineSeries, QAreaSeries,
+                                  QPieSeries, QBarCategoryAxis, QBarSeries, QBarSet,
+                                  QValueAxis, QLegend)
+    _CHARTS_AVAILABLE = True
+except Exception:
+    _CHARTS_AVAILABLE = False
+    QChart = QChartView = QLineSeries = QAreaSeries = QPieSeries = QBarCategoryAxis = QBarSeries = QBarSet = QValueAxis = QLegend = None
 
 
-def _chart_view(chart: QChart) -> QChartView:
+def _chart_view(chart) -> QWidget:
+    if not _CHARTS_AVAILABLE or chart is None:
+        w = QWidget()
+        w.setFixedHeight(40)
+        return w
     chart.setBackgroundBrush(Qt.transparent)
     chart.setMargins(QMargins(0, 0, 0, 0))
     chart.legend().setLabelColor(QColor("#9CA3AF"))
@@ -90,6 +99,12 @@ class IncomeAreaChart(QVBoxLayout):
         self._title_lbl = QLabel("Income Trend (Year-to-Date)")
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
+
+        if not _CHARTS_AVAILABLE:
+            no_c = QLabel("Income charts visualizer unavailable on this device.")
+            no_c.setObjectName("subtitle")
+            self.addWidget(no_c)
+            return
 
         db_data = repo.get_monthly_income()
         if db_data:
@@ -179,6 +194,12 @@ class PaymentDonutChart(QVBoxLayout):
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
+        if not _CHARTS_AVAILABLE:
+            no_c = QLabel("Payment methods chart unavailable.")
+            no_c.setObjectName("subtitle")
+            self.addWidget(no_c)
+            return
+
         _COLORS = [AccentManager().current, "#F59E0B", "#3B82F6", "#22C55E", "#8B5CF6", "#6B7280"]
         db_data = repo.get_payment_methods()
         if db_data:
@@ -232,6 +253,12 @@ class MonthlyRevenueChart(QVBoxLayout):
         self._title_lbl = QLabel("Monthly Revenue Breakdown")
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
+
+        if not _CHARTS_AVAILABLE:
+            no_c = QLabel("Monthly breakdown chart unavailable.")
+            no_c.setObjectName("subtitle")
+            self.addWidget(no_c)
+            return
 
         db_data = repo.get_monthly_income()
         if db_data:
@@ -342,6 +369,12 @@ class TopMenuItemsChart(QVBoxLayout):
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
+        if not _CHARTS_AVAILABLE:
+            no_c = QLabel("Top menu items chart unavailable.")
+            no_c.setObjectName("subtitle")
+            self.addWidget(no_c)
+            return
+
         db_data = repo.get_top_menu_items()
         if db_data:
             self._full_items = [r["item"] for r in db_data]
@@ -408,6 +441,12 @@ class TopLocationsChart(QVBoxLayout):
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
+        if not _CHARTS_AVAILABLE:
+            no_c = QLabel("Top locations chart unavailable.")
+            no_c.setObjectName("subtitle")
+            self.addWidget(no_c)
+            return
+
         db_data = repo.get_top_locations(limit=10)
         _MAX = 30
         if db_data:
@@ -454,6 +493,8 @@ class TopLocationsChart(QVBoxLayout):
         self.addWidget(self._view)
 
     def reload(self):
+        if not _CHARTS_AVAILABLE or not hasattr(self, "_bar_set"):
+            return
         db_data = repo.get_top_locations(limit=10)
         _MAX = 30
         if db_data:
@@ -495,6 +536,12 @@ class CustomerFrequencyChart(QVBoxLayout):
         self._title_lbl = QLabel("Customer Order Frequency")
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
+
+        if not _CHARTS_AVAILABLE:
+            no_c = QLabel("Customer frequency chart unavailable.")
+            no_c.setObjectName("subtitle")
+            self.addWidget(no_c)
+            return
 
         _COLORS = [AccentManager().current, "#F59E0B", "#3B82F6", "#22C55E", "#6B7280", "#8B5CF6"]
         db_data = repo.get_customer_order_frequency()
@@ -560,6 +607,12 @@ class OccasionBreakdownChart(QVBoxLayout):
         self._title_lbl = QLabel("Most Popular Event Types")
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
+
+        if not _CHARTS_AVAILABLE:
+            no_c = QLabel("Occasion breakdown chart unavailable.")
+            no_c.setObjectName("subtitle")
+            self.addWidget(no_c)
+            return
 
         db_data = repo.get_top_occasions(limit=10)
         if db_data:
@@ -893,6 +946,17 @@ class ReportsPage(QWidget):
         self._load_expenses()
         self.main_layout.addStretch(1)
 
+        # ── Data Change Listeners ─────────────────────────────────────────────
+        try:
+            from utils.signals import app_events
+            ev = app_events()
+            ev.expense_saved.connect(self.reload)
+            ev.booking_saved.connect(self.reload)
+            ev.payment_saved.connect(self.reload)
+            ev.data_changed.connect(self.reload)
+        except Exception:
+            pass
+
         # ── Final assembly ────────────────────────────────────────────────────
         self.scroll_area.setWidget(self.scroll_content)
         self.root_layout.addWidget(self.scroll_area)
@@ -996,29 +1060,6 @@ class ReportsPage(QWidget):
         self._eval_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self._eval_table.verticalHeader().setVisible(False)
         self._eval_table.setFixedHeight(480)
-        self._eval_table.setStyleSheet("""
-            QTableWidget {
-                background: #0F172A;
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 8px;
-                gridline-color: rgba(255,255,255,0.06);
-                font-size: 13px;
-                color: #F9FAFB;
-            }
-            QTableWidget::item {
-                padding: 6px 12px;
-                border-bottom: 1px solid rgba(255,255,255,0.05);
-            }
-            QHeaderView::section {
-                background-color: #111827;
-                color: #9CA3AF;
-                font-weight: 700;
-                font-size: 11px;
-                padding: 10px 12px;
-                border: none;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-            }
-        """)
         lay.addWidget(self._eval_table)
 
         self._reload_sales_evaluation()
@@ -1368,20 +1409,20 @@ class ReportsPage(QWidget):
 
         all_exp = repo.get_all_expenses() or []
 
-        p = getattr(self, "_period", "All")
+        p = getattr(self, "_period", "All Time")
         from datetime import datetime, date, timedelta
         today = date.today()
 
         expenses = []
-        if p == "All" or not p:
+        if p in ("All Time", "All", ""):
             expenses = all_exp
         else:
             for exp in all_exp:
                 d_str = exp.get("date", "")
                 exp_d = None
-                for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y"):
+                for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%Y/%m/%d", "%b-%d-%Y", "%d-%b-%Y"):
                     try:
-                        exp_d = datetime.strptime(d_str, fmt).date()
+                        exp_d = datetime.strptime(str(d_str).strip(), fmt).date()
                         break
                     except ValueError:
                         continue

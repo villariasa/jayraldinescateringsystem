@@ -102,12 +102,12 @@ class MainWindow(QMainWindow):
 
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._poll_notifications)
-        self._poll_timer.start(30_000)
+        self._poll_timer.start(60_000)
         QTimer.singleShot(2_000, self._poll_notifications)
 
         self._dash_timer = QTimer(self)
         self._dash_timer.timeout.connect(self._reload_dashboard)
-        self._dash_timer.start(120_000)  # every 2 min instead of 1 min
+        self._dash_timer.start(180_000)  # every 3 min
 
         from utils.signals import app_events
         _ev = app_events()
@@ -132,15 +132,6 @@ class MainWindow(QMainWindow):
         self._floating_ai.raise_()
 
         self._navigate(0)
-
-        # Pre-construct remaining pages in the background during idle time (0ms tab switches)
-        QTimer.singleShot(250, self._warmup_pages)
-
-    def _warmup_pages(self):
-        """Pre-construct pages sequentially so clicks on any module never wait for cold-start UI building."""
-        for idx in range(len(_PAGE_MODULES)):
-            if self._pages[idx] is None:
-                self._get_page(idx)
 
     def _get_page(self, index: int):
         if self._pages[index] is not None:

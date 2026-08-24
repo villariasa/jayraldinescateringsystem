@@ -572,20 +572,6 @@ class AddMultipleMenuItemsDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
         self.table.verticalHeader().setDefaultSectionSize(46)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background: #0F172A;
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 8px;
-                gridline-color: rgba(255,255,255,0.06);
-                font-size: 13px;
-                color: #F9FAFB;
-            }
-            QTableWidget::item { padding: 4px 6px; color: #F9FAFB; border-bottom: 1px solid rgba(255,255,255,0.05); }
-            QTableWidget::item:selected { background-color: rgba(225,29,72,0.25); color: #FFFFFF; }
-            QHeaderView::section { background-color: #111827; color: #9CA3AF; font-weight: 700; font-size: 11px; padding: 10px 8px; border: none; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        """)
-
         for _ in range(5):
             self._add_row()
 
@@ -633,20 +619,17 @@ class AddMultipleMenuItemsDialog(QDialog):
         name_edit = QLineEdit()
         name_edit.setPlaceholderText("e.g. Special Pork Humba")
         name_edit.setFixedHeight(34)
-        name_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 0, name_edit)
 
         cat_combo = QComboBox()
         cat_combo.addItems(_CATEGORIES)
         cat_combo.setFixedHeight(34)
-        cat_combo.setStyleSheet("QComboBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QComboBox:focus { border-color: #E11D48; } QComboBox QAbstractItemView { background: #1E293B; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; border: 1px solid #334155; }")
         self.table.setCellWidget(r, 1, cat_combo)
 
         pkg_combo = QComboBox()
         pkg_combo.addItems(_PACKAGES)
         pkg_combo.setCurrentText("Standard")
         pkg_combo.setFixedHeight(34)
-        pkg_combo.setStyleSheet("QComboBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QComboBox:focus { border-color: #E11D48; } QComboBox QAbstractItemView { background: #1E293B; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; border: 1px solid #334155; }")
         self.table.setCellWidget(r, 2, pkg_combo)
 
         price_spin = QDoubleSpinBox()
@@ -656,20 +639,17 @@ class AddMultipleMenuItemsDialog(QDialog):
         price_spin.setSingleStep(50)
         price_spin.setValue(350.0)
         price_spin.setFixedHeight(34)
-        price_spin.setStyleSheet("QDoubleSpinBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QDoubleSpinBox:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 3, price_spin)
 
         status_combo = QComboBox()
         status_combo.addItems(_STATUSES)
         status_combo.setCurrentText("Available")
         status_combo.setFixedHeight(34)
-        status_combo.setStyleSheet("QComboBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QComboBox:focus { border-color: #E11D48; } QComboBox QAbstractItemView { background: #1E293B; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; border: 1px solid #334155; }")
         self.table.setCellWidget(r, 4, status_combo)
 
         desc_edit = QLineEdit()
         desc_edit.setPlaceholderText("Short description / serving size")
         desc_edit.setFixedHeight(34)
-        desc_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 5, desc_edit)
 
     def _delete_selected_row(self):
@@ -769,20 +749,6 @@ class AddMultiplePackagesDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.table.verticalHeader().setDefaultSectionSize(46)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background: #0F172A;
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 8px;
-                gridline-color: rgba(255,255,255,0.06);
-                font-size: 13px;
-                color: #F9FAFB;
-            }
-            QTableWidget::item { padding: 4px 6px; color: #F9FAFB; border-bottom: 1px solid rgba(255,255,255,0.05); }
-            QTableWidget::item:selected { background-color: rgba(225,29,72,0.25); color: #FFFFFF; }
-            QHeaderView::section { background-color: #111827; color: #9CA3AF; font-weight: 700; font-size: 11px; padding: 10px 8px; border: none; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        """)
-
         for _ in range(5):
             self._add_row()
 
@@ -830,7 +796,6 @@ class AddMultiplePackagesDialog(QDialog):
         name_edit = QLineEdit()
         name_edit.setPlaceholderText("e.g. Platinum Buffet Feast")
         name_edit.setFixedHeight(34)
-        name_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 0, name_edit)
 
         price_spin = QDoubleSpinBox()
@@ -840,20 +805,17 @@ class AddMultiplePackagesDialog(QDialog):
         price_spin.setSingleStep(50)
         price_spin.setValue(450.0)
         price_spin.setFixedHeight(34)
-        price_spin.setStyleSheet("QDoubleSpinBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QDoubleSpinBox:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 1, price_spin)
 
         pax_spin = QSpinBox()
         pax_spin.setRange(1, 5000)
         pax_spin.setValue(50)
         pax_spin.setFixedHeight(34)
-        pax_spin.setStyleSheet("QSpinBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QSpinBox:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 2, pax_spin)
 
         desc_edit = QLineEdit()
         desc_edit.setPlaceholderText("Package inclusions and description")
         desc_edit.setFixedHeight(34)
-        desc_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 3, desc_edit)
 
     def _delete_selected_row(self):

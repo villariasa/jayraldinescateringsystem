@@ -436,9 +436,14 @@ class PeriodSummaryCard(AnimatedCard):
             return
         self._empty_lbl.hide()
 
-        from PySide6.QtCharts import (
-            QChart, QChartView, QBarSeries, QBarSet, QBarCategoryAxis, QValueAxis
-        )
+        try:
+            from PySide6.QtCharts import (
+                QChart, QChartView, QBarSeries, QBarSet, QBarCategoryAxis, QValueAxis
+            )
+        except Exception as exc:
+            self._empty_lbl.setText("Charts temporarily unavailable on this device.")
+            self._empty_lbl.show()
+            return
         from PySide6.QtGui import QPainter, QColor
         from PySide6.QtCore import QMargins
 
@@ -780,7 +785,6 @@ class DashboardPage(QWidget):
         self._date_picker.setCalendarPopup(True)
         self._date_picker.setDisplayFormat("MMM dd, yyyy")
         self._date_picker.setFixedHeight(32)
-        self._date_picker.setStyleSheet("QDateEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 2px 8px; font-size: 12px; } QDateEdit:focus { border-color: #E11D48; }")
         self._date_picker.dateChanged.connect(lambda qd: self._set_date_filter(qd.toString("yyyy-MM-dd")))
         f_lay.addWidget(self._date_picker)
 

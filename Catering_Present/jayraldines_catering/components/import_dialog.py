@@ -163,13 +163,16 @@ class ImportWizardDialog(QDialog):
         step_row.setSpacing(8)
         self._step_labels = []
         steps_text = ["1. Select File", "2. Map Columns", "3. Preview & Validate", "4. Import"]
+        from utils.theme import ThemeManager
+        inactive_bg = "#F1F5F9" if not ThemeManager().is_dark() else "#1E293B"
+        inactive_color = "#64748B" if not ThemeManager().is_dark() else "#94A3B8"
         for idx, t in enumerate(steps_text):
             lbl = QLabel(t)
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setFixedHeight(30)
             lbl.setStyleSheet(
-                "border-radius: 15px; font-weight: 700; font-size: 12px; padding: 0 14px; "
-                "background: #1E293B; color: #94A3B8;"
+                f"border-radius: 15px; font-weight: 700; font-size: 12px; padding: 0 14px; "
+                f"background: {inactive_bg}; color: {inactive_color};"
             )
             step_row.addWidget(lbl)
             self._step_labels.append(lbl)
@@ -358,8 +361,9 @@ class ImportWizardDialog(QDialog):
             self._parse_selected_file()
 
     def _on_download_template(self):
-        entity_title = importer.ENTITY_SCHEMAS.get(self._entity_type, {}).get("title", "data")
-        default_name = f"{self._entity_type}_import_template.xlsx" if self._entity_type == "all_in_one" else f"{self._entity_type}_import_template.csv"
+        canon = importer.normalize_entity_type(self._entity_type)
+        entity_title = importer.ENTITY_SCHEMAS.get(canon, {}).get("title", "data")
+        default_name = f"{canon}_import_template.xlsx"
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             f"Save Sample {entity_title} Template",
@@ -367,7 +371,7 @@ class ImportWizardDialog(QDialog):
             "Excel Spreadsheet (*.xlsx);;CSV Spreadsheet (*.csv)"
         )
         if file_path:
-            err = importer.generate_sample_csv(self._entity_type, file_path)
+            err = importer.generate_sample_csv(canon, file_path)
             if err:
                 QMessageBox.warning(self, "Download Error", err)
             else:
@@ -654,9 +658,12 @@ class ImportWizardDialog(QDialog):
                     "background: #10B981; color: #FFFFFF;"
                 )
             else:
+                from utils.theme import ThemeManager
+                inactive_bg = "#F1F5F9" if not ThemeManager().is_dark() else "#1E293B"
+                inactive_color = "#64748B" if not ThemeManager().is_dark() else "#94A3B8"
                 lbl.setStyleSheet(
-                    "border-radius: 15px; font-weight: 700; font-size: 12px; padding: 0 14px; "
-                    "background: #1E293B; color: #94A3B8;"
+                    f"border-radius: 15px; font-weight: 700; font-size: 12px; padding: 0 14px; "
+                    f"background: {inactive_bg}; color: {inactive_color};"
                 )
 
         self._btn_back.setVisible(step_idx > 0 and step_idx < 3)

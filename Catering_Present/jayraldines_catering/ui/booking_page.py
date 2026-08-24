@@ -139,7 +139,6 @@ class MultiMenuSelectionDialog(QDialog):
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search dishes (e.g. Pork, Chicken, Seafood, Dessert)...")
         self._search.setFixedHeight(36)
-        self._search.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 10px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
         self._search.textChanged.connect(self._filter_items)
         ctrl_row.addWidget(self._search, 2)
 
@@ -184,7 +183,7 @@ class MultiMenuSelectionDialog(QDialog):
         else:
             for cat, items in grouped.items():
                 cat_group = QFrame()
-                cat_group.setStyleSheet("background: #0F172A; border: 1px solid #1E293B; border-radius: 8px;")
+                cat_group.setObjectName("entryCard")
                 cg_lay = QVBoxLayout(cat_group)
                 cg_lay.setContentsMargins(14, 12, 14, 12)
                 cg_lay.setSpacing(6)
@@ -359,70 +358,7 @@ class AddMultipleBookingsDialog(QDialog):
         self.table.setColumnWidth(8, 70)   # Action
 
         self.table.verticalHeader().setDefaultSectionSize(48)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background: #0F172A;
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 8px;
-                gridline-color: rgba(255,255,255,0.06);
-                font-size: 13px;
-                color: #F9FAFB;
-            }
-            QTableWidget::item {
-                padding: 4px 6px;
-                color: #F9FAFB;
-                border-bottom: 1px solid rgba(255,255,255,0.05);
-            }
-            QTableWidget::item:selected {
-                background-color: rgba(225,29,72,0.25);
-                color: #FFFFFF;
-            }
-            QHeaderView::section {
-                background-color: #111827;
-                color: #9CA3AF;
-                font-weight: 700;
-                font-size: 11px;
-                padding: 10px 8px;
-                border: none;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-            }
-            QScrollBar:horizontal {
-                height: 10px;
-                background: #0F172A;
-                border-radius: 5px;
-                margin: 0px;
-            }
-            QScrollBar::handle:horizontal {
-                background: #334155;
-                min-width: 30px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:horizontal:hover {
-                background: #E11D48;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                width: 0px;
-                background: none;
-            }
-            QScrollBar:vertical {
-                width: 10px;
-                background: #0F172A;
-                border-radius: 5px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #334155;
-                min-height: 30px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #E11D48;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-                background: none;
-            }
-        """)
+        lay.addWidget(self.table)
 
         # Add 5 initial rows
         for _ in range(5):
@@ -490,18 +426,12 @@ class AddMultipleBookingsDialog(QDialog):
             c_phone = c.get("contact") or "No phone"
             cust_combo.addItem(f"{c_name} ({c_phone})", c)
         cust_combo.setCurrentIndex(0)
-        cust_combo.setStyleSheet("""
-            QComboBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; }
-            QComboBox:focus { border-color: #E11D48; }
-            QComboBox QAbstractItemView { background: #1E293B; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; border: 1px solid #334155; }
-        """)
         self.table.setCellWidget(r, 0, cust_combo)
 
         # 1. Contact / Phone
         contact_edit = QLineEdit()
         contact_edit.setPlaceholderText("09171234567")
         contact_edit.setFixedHeight(34)
-        contact_edit.setStyleSheet("QLineEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QLineEdit:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 1, contact_edit)
 
         # Auto-fill contact on customer selection
@@ -518,11 +448,6 @@ class AddMultipleBookingsDialog(QDialog):
         occ_combo.addItems(_OCCASIONS_LIST)
         occ_combo.setCurrentText("Party")
         occ_combo.setFixedHeight(34)
-        occ_combo.setStyleSheet("""
-            QComboBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; }
-            QComboBox:focus { border-color: #E11D48; }
-            QComboBox QAbstractItemView { background: #1E293B; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; border: 1px solid #334155; }
-        """)
         self.table.setCellWidget(r, 2, occ_combo)
 
         # 3. Package / Custom Menu Smart Cell (Dropdown + 'Dishes' multi-select button)
@@ -533,11 +458,6 @@ class AddMultipleBookingsDialog(QDialog):
 
         menu_combo = QComboBox()
         menu_combo.setFixedHeight(34)
-        menu_combo.setStyleSheet("""
-            QComboBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 12px; }
-            QComboBox:focus { border-color: #E11D48; }
-            QComboBox QAbstractItemView { background: #1E293B; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; border: 1px solid #334155; }
-        """)
 
         # Add Packages
         if self._packages:
@@ -568,7 +488,6 @@ class AddMultipleBookingsDialog(QDialog):
         btn_dishes = QPushButton("🍽️ Dishes")
         btn_dishes.setObjectName("secondaryButton")
         btn_dishes.setFixedHeight(34)
-        btn_dishes.setStyleSheet("QPushButton { font-size: 11px; font-weight: 700; padding: 4px 8px; }")
         btn_dishes.setToolTip("Open multi-dish selector to pick custom menu dishes")
 
         m_lay.addWidget(menu_combo, 1)
@@ -580,12 +499,6 @@ class AddMultipleBookingsDialog(QDialog):
         date_edit.setCalendarPopup(True)
         date_edit.setDisplayFormat("yyyy-MM-dd")
         date_edit.setFixedHeight(34)
-        date_edit.setStyleSheet("""
-            QDateEdit { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; }
-            QDateEdit:focus { border-color: #E11D48; }
-            QCalendarWidget QWidget { background-color: #1E293B; color: #FFFFFF; }
-            QCalendarWidget QAbstractItemView:enabled { background-color: #0F172A; color: #FFFFFF; selection-background-color: #E11D48; selection-color: #FFFFFF; }
-        """)
         self.table.setCellWidget(r, 4, date_edit)
 
         # 5. Pax
@@ -593,7 +506,6 @@ class AddMultipleBookingsDialog(QDialog):
         pax_spin.setRange(1, 10000)
         pax_spin.setValue(50)
         pax_spin.setFixedHeight(34)
-        pax_spin.setStyleSheet("QSpinBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QSpinBox:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 5, pax_spin)
 
         # 6. Total Amount
@@ -603,7 +515,6 @@ class AddMultipleBookingsDialog(QDialog):
         total_spin.setDecimals(2)
         total_spin.setSingleStep(500)
         total_spin.setFixedHeight(34)
-        total_spin.setStyleSheet("QDoubleSpinBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QDoubleSpinBox:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 6, total_spin)
 
         # 7. Down Payment
@@ -613,7 +524,6 @@ class AddMultipleBookingsDialog(QDialog):
         down_spin.setDecimals(2)
         down_spin.setSingleStep(500)
         down_spin.setFixedHeight(34)
-        down_spin.setStyleSheet("QDoubleSpinBox { background: #1E293B; color: #FFFFFF; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 13px; } QDoubleSpinBox:focus { border-color: #E11D48; }")
         self.table.setCellWidget(r, 7, down_spin)
 
         # 8. Action: Delete Row
@@ -911,10 +821,6 @@ class BookingPage(QWidget):
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Search bookings by client name, reference ID, date, or pax...")
         self._search_input.setFixedHeight(38)
-        self._search_input.setStyleSheet("""
-            QLineEdit { background: #111827; color: #FFFFFF; border: 1px solid #1F2937; border-radius: 8px; padding: 6px 14px; font-size: 13px; }
-            QLineEdit:focus { border-color: #E11D48; }
-        """)
         self._search_input.textChanged.connect(self.filter_search)
         search_filter_row.addWidget(self._search_input, 1)
 
@@ -938,12 +844,6 @@ class BookingPage(QWidget):
 
         # Two Main Tabs: Pending Bookings & Confirmed Bookings (plus All Bookings)
         self._tabs = QTabWidget()
-        self._tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; background: #0F172A; }
-            QTabBar::tab { background: #1E293B; color: #94A3B8; font-weight: 700; font-size: 13px; padding: 10px 24px; border-top-left-radius: 8px; border-top-right-radius: 8px; margin-right: 4px; }
-            QTabBar::tab:selected { background: #0F172A; color: #F8FAFC; border-bottom: 2px solid #E11D48; }
-            QTabBar::tab:hover:!selected { background: #334155; color: #F8FAFC; }
-        """)
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
         # Tab 0: Pending Bookings Tab
@@ -1085,30 +985,34 @@ class BookingPage(QWidget):
         return rows
 
     def _populate_table(self, data=None):
-        raw_rows = data if data is not None else self._visible_bookings()
-        self._card_checkboxes.clear()
+        self.setUpdatesEnabled(False)
+        try:
+            raw_rows = data if data is not None else self._visible_bookings()
+            self._card_checkboxes.clear()
 
-        # Partition rows into Pending, Confirmed/Completed, and All
-        pending_rows = [b for b in raw_rows if b.get("status") == "PENDING"]
-        confirmed_rows = [b for b in raw_rows if b.get("status") in ("CONFIRMED", "COMPLETED")]
-        all_rows = raw_rows
+            # Partition rows into Pending, Confirmed/Completed, and All
+            pending_rows = [b for b in raw_rows if b.get("status") == "PENDING"]
+            confirmed_rows = [b for b in raw_rows if b.get("status") in ("CONFIRMED", "COMPLETED")]
+            all_rows = raw_rows
 
-        # Populate Pending Tab
-        self._populate_card_layout(self._pending_cards_layout, pending_rows, "No pending bookings found.")
+            # Populate Pending Tab
+            self._populate_card_layout(self._pending_cards_layout, pending_rows, "No pending bookings found.")
 
-        # Populate Confirmed Tab
-        self._populate_card_layout(self._confirmed_cards_layout, confirmed_rows, "No confirmed bookings found.")
+            # Populate Confirmed Tab
+            self._populate_card_layout(self._confirmed_cards_layout, confirmed_rows, "No confirmed bookings found.")
 
-        # Populate All Tab
-        self._populate_card_layout(self._all_cards_layout, all_rows, "No bookings found.")
+            # Populate All Tab
+            self._populate_card_layout(self._all_cards_layout, all_rows, "No bookings found.")
 
-        # Update Tab Title Counts
-        if hasattr(self, "_tabs"):
-            self._tabs.setTabText(0, f"⏳ Pending Bookings ({len(pending_rows)})")
-            self._tabs.setTabText(1, f"✅ Confirmed Bookings ({len(confirmed_rows)})")
-            self._tabs.setTabText(2, f"📋 All Bookings ({len(all_rows)})")
+            # Update Tab Title Counts
+            if hasattr(self, "_tabs"):
+                self._tabs.setTabText(0, f"⏳ Pending Bookings ({len(pending_rows)})")
+                self._tabs.setTabText(1, f"✅ Confirmed Bookings ({len(confirmed_rows)})")
+                self._tabs.setTabText(2, f"📋 All Bookings ({len(all_rows)})")
 
-        self._update_selection_ui()
+            self._update_selection_ui()
+        finally:
+            self.setUpdatesEnabled(True)
 
     def _populate_card_layout(self, layout: QVBoxLayout, rows: list[dict], empty_msg: str):
         if not layout:
@@ -1282,10 +1186,10 @@ class BookingPage(QWidget):
                     try:
                         repo.pay_invoice(db_id, payment_amount=pay_amt, payment_date=_d.today(), method=pay_method, note=remarks)
                     except Exception as p_err:
-                        print(f"[booking] pay_invoice failed, falling back to status update: {p_err}")
-                        repo.update_booking_status(db_id, "CONFIRMED")
-                else:
-                    repo.update_booking_status(db_id, "CONFIRMED")
+                        print(f"[booking] pay_invoice error: {p_err}")
+                
+                # Explicitly guarantee booking status is persisted as CONFIRMED in database
+                repo.update_booking_status(db_id, "CONFIRMED")
 
                 try:
                     if detail.get("customer_id"):
@@ -1434,8 +1338,11 @@ class BookingPage(QWidget):
 
     def _add_booking(self, data):
         result = repo.create_booking(data)
-        bkg_id = result["booking_ref"] if result else f"BKG-{len(self._bookings) + 1:03d}"
-        db_id  = result["booking_id"]  if result else None
+        if not result:
+            QMessageBox.warning(self, "Booking Failed", "Failed to save booking to database. Please check application logs.")
+            return
+        bkg_id = result["booking_ref"]
+        db_id  = result["booking_id"]
 
         self._bookings.append({
             "db_id":  db_id,
@@ -1674,12 +1581,9 @@ class BookingPage(QWidget):
                     if rem > 0:
                         try:
                             repo.pay_invoice(db_id, payment_amount=rem, payment_date=_d.today(), method="Cash", note="Batch confirmed & auto fully paid")
-                        except Exception:
-                            repo.update_booking_status(db_id, "CONFIRMED")
-                            _db.execute("UPDATE bookings SET bk_amount_paid = bk_total_amount, bk_status = 'CONFIRMED' WHERE bk_id = %s", (db_id,))
-                            _db.execute("UPDATE invoices SET inv_amount_paid = inv_total_amount, inv_status = 'Paid', inv_balance = 0.0 WHERE inv_booking_id = %s", (db_id,))
-                    else:
-                        repo.update_booking_status(db_id, "CONFIRMED")
+                        except Exception as p_err:
+                            print(f"[booking] batch pay error: {p_err}")
+                    repo.update_booking_status(db_id, "CONFIRMED")
                     approved_cnt += 1
             except Exception as exc:
                 print(f"[booking] batch confirm error for {ref}: {exc}")
@@ -1733,4 +1637,110 @@ class BookingPage(QWidget):
             app_events().booking_saved.emit()
             app_events().data_changed.emit()
             success(self, message=f"Added {dlg._added_count} booking(s) successfully.")
+
+    def _export_csv(self):
+        bookings = self._visible_bookings()
+        if not bookings:
+            bookings = self._all_bookings or []
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Bookings", "jayraldines_bookings_export.xlsx", "Excel Spreadsheet (*.xlsx);;CSV Files (*.csv)"
+        )
+        if not path:
+            return
+
+        ext = os.path.splitext(path)[1].lower()
+        if not ext:
+            path = f"{path}.xlsx"
+            ext = ".xlsx"
+
+        headers = [
+            "Reference ID", "Customer Name", "Contact Number", "Email Address",
+            "Event Date", "Event Time", "Occasion", "Venue", "Pax",
+            "Total Amount (₱)", "Down Payment (₱)", "Balance (₱)", "Status", "Notes"
+        ]
+
+        rows = []
+        for b in bookings:
+            total_amt = float(b.get("total_amount") or 0.0)
+            down_amt = float(b.get("down_payment") or 0.0)
+            balance = max(0.0, total_amt - down_amt)
+            rows.append([
+                b.get("ref_id") or b.get("id") or "—",
+                b.get("client_name") or b.get("customer_name") or "—",
+                b.get("contact") or b.get("phone") or "—",
+                b.get("email") or "—",
+                str(b.get("event_date") or ""),
+                str(b.get("event_time") or ""),
+                b.get("occasion") or "—",
+                b.get("venue") or "—",
+                int(b.get("pax") or 0),
+                f"{total_amt:,.2f}",
+                f"{down_amt:,.2f}",
+                f"{balance:,.2f}",
+                str(b.get("status") or "PENDING").upper(),
+                b.get("notes") or ""
+            ])
+
+        if ext in (".xlsx", ".xls"):
+            try:
+                import openpyxl
+                from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+                from openpyxl.utils import get_column_letter
+
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.title = "Bookings & Orders"
+
+                header_fill = PatternFill(start_color="E11D48", end_color="E11D48", fill_type="solid")
+                header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+                data_font = Font(name="Arial", size=10)
+                thin_border = Border(
+                    left=Side(style='thin', color='CBD5E1'),
+                    right=Side(style='thin', color='CBD5E1'),
+                    top=Side(style='thin', color='CBD5E1'),
+                    bottom=Side(style='thin', color='CBD5E1')
+                )
+
+                all_rows = [headers] + rows
+                for row_idx, r in enumerate(all_rows, start=1):
+                    ws.append(r)
+                    for col_idx in range(1, len(r) + 1):
+                        cell = ws.cell(row=row_idx, column=col_idx)
+                        cell.border = thin_border
+                        if row_idx == 1:
+                            cell.fill = header_fill
+                            cell.font = header_font
+                            cell.alignment = Alignment(horizontal="center", vertical="center")
+                        else:
+                            cell.font = data_font
+                            cell.alignment = Alignment(vertical="center")
+
+                ws.row_dimensions[1].height = 28
+                for r_idx in range(2, len(all_rows) + 1):
+                    ws.row_dimensions[r_idx].height = 22
+
+                for col in ws.columns:
+                    max_len = 0
+                    col_letter = get_column_letter(col[0].column)
+                    for cell in col:
+                        val_str = str(cell.value or "")
+                        if len(val_str) > max_len:
+                            max_len = len(val_str)
+                    ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
+
+                wb.save(path)
+                prompt_file_saved(self, path, title="Export Complete", message=f"Exported {len(rows)} booking(s) to Excel successfully.")
+            except Exception as e:
+                QMessageBox.warning(self, "Export Failed", f"Could not export bookings: {e}")
+        else:
+            try:
+                import csv
+                with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(headers)
+                    writer.writerows(rows)
+                prompt_file_saved(self, path, title="Export Complete", message=f"Exported {len(rows)} booking(s) to CSV successfully.")
+            except Exception as e:
+                QMessageBox.warning(self, "Export Failed", f"Could not export bookings: {e}")
 

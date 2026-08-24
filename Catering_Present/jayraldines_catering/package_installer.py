@@ -19,7 +19,38 @@ def create_installer():
         
     output_dir = root / "installer_output"
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    # Ensure all critical PySide6 and OpenGL runtime DLLs are present in package
+    pyside_src = root / "venv" / "Lib" / "site-packages" / "PySide6"
+    pyside_dst = dist_app / "_internal" / "PySide6"
+    if pyside_src.exists() and pyside_dst.exists():
+        CRITICAL_DLLS = [
+            "Qt6OpenGL.dll", "Qt6OpenGLWidgets.dll", "opengl32sw.dll",
+            "QtOpenGL.pyd", "QtOpenGLWidgets.pyd", "Qt6Charts.dll",
+            "Qt6ChartsQml.dll", "QtCharts.pyd", "pyside6.abi3.dll",
+            "Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll",
+            "Qt6Network.dll", "Qt6PrintSupport.dll", "Qt6Svg.dll"
+        ]
+        for f in CRITICAL_DLLS:
+            s_file = pyside_src / f
+            d_file = pyside_dst / f
+            if s_file.exists() and not d_file.exists():
+                shutil.copy2(s_file, d_file)
+
+        # Remove heavy unused modules (WebEngine, 3D, multimedia codecs) to keep installer lightweight
+        EXCLUDE_PREFIXES = [
+            "Qt6WebEngine", "Qt6Quick3D", "Qt6Designer", "Qt6Pdf",
+            "Qt6SpatialAudio", "Qt6VirtualKeyboard", "Qt6Sensors",
+            "Qt6SerialPort", "Qt6Positioning", "Qt6Bluetooth", "Qt63D",
+            "avcodec", "avformat", "avutil", "swscale", "swresample"
+        ]
+        for item in os.listdir(pyside_dst):
+            if any(item.startswith(p) for p in EXCLUDE_PREFIXES):
+                try:
+                    os.remove(pyside_dst / item)
+                except Exception:
+                    pass
+
     zip_target = root / "app_package.zip"
     print(f"[1/3] Compressing application files into {zip_target.name}...")
     
