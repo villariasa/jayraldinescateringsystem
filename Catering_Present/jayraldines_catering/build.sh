@@ -332,7 +332,7 @@ fi
 step "Step 4 - Writing PyInstaller Spec"
 
 cat > "$SPEC_FILE" << EOF
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 block_cipher = None
 qt_data = collect_data_files("PySide6", includes=[
@@ -343,10 +343,18 @@ qt_data = collect_data_files("PySide6", includes=[
     "Qt/translations/qtbase_*.qm",
 ])
 
+qt_binaries = []
+try:
+    import os
+    libs = collect_dynamic_libs("PySide6")
+    qt_binaries = [b for b in libs if "python" not in os.path.basename(b[0]).lower()]
+except Exception as e:
+    print(f"[spec] Warning: collect_dynamic_libs(PySide6) failed: {e}")
+
 a = Analysis(
     ["main.py"],
     pathex=["."],
-    binaries=[],
+    binaries=qt_binaries,
     datas=[
         ("assets", "assets"),
         ("styles", "styles"),
@@ -399,9 +407,7 @@ a = Analysis(
         "components.global_ai_floating",
         "components.mascot",
         "components.splash",
-        "components.metric_card",
-        "components.data_table",
-        # Utilities
+        "components.sidebar",
         "utils.db",
         "utils.repository",
         "utils.theme",

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize, QDate, QTimer
 from PySide6.QtGui import QColor
+import csv
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red, get_icon
 from utils.theme import ThemeManager
@@ -14,6 +15,7 @@ from components.booking_modal import BookingModal
 from components.dialogs import confirm, success, prompt_file_saved
 from components.filter_popover import FilterPopover
 import utils.repository as repo
+import utils.db as _db
 from utils.session import get_actor
 from utils.signals import app_events
 from utils.data_loader import run_async
@@ -1266,6 +1268,7 @@ class BookingPage(QWidget):
             return
 
         try:
+            pay_amt = dlg.get_payment_amount()
             is_auto_pay = dlg.is_auto_pay_checked()
             pay_method = dlg.get_payment_method()
             remarks = dlg.get_payment_remarks()
@@ -1275,14 +1278,12 @@ class BookingPage(QWidget):
             rem = max(0.0, tot_val - paid_val)
 
             if db_id:
-                if is_auto_pay and rem > 0:
+                if pay_amt > 0:
                     try:
-                        repo.pay_invoice(db_id, payment_amount=rem, payment_date=_d.today(), method=pay_method, note=remarks)
+                        repo.pay_invoice(db_id, payment_amount=pay_amt, payment_date=_d.today(), method=pay_method, note=remarks)
                     except Exception as p_err:
-                        print(f"[booking] pay_invoice failed, falling back to direct update: {p_err}")
+                        print(f"[booking] pay_invoice failed, falling back to status update: {p_err}")
                         repo.update_booking_status(db_id, "CONFIRMED")
-                        repo.db.execute("UPDATE bookings SET bk_amount_paid = bk_total_amount, bk_status = 'CONFIRMED' WHERE bk_id = %s", (db_id,))
-                        repo.db.execute("UPDATE invoices SET inv_amount_paid = inv_total_amount, inv_status = 'Paid', inv_balance = 0.0 WHERE inv_booking_id = %s", (db_id,))
                 else:
                     repo.update_booking_status(db_id, "CONFIRMED")
 
@@ -1294,9 +1295,14 @@ class BookingPage(QWidget):
 
             b["status"] = "CONFIRMED"
             self._populate_table()
-            msg = f"Order {b['id']} confirmed & marked as FULLY PAID (₱{tot_val:,.2f})!" if is_auto_pay else f"Order {b['id']} confirmed successfully!"
+            if pay_amt >= rem and rem > 0:
+                msg = f"Order {b['id']} confirmed & marked as FULLY PAID (₱{tot_val:,.2f})!"
+            elif pay_amt > 0:
+                msg = f"Order {b['id']} confirmed & payment of ₱{pay_amt:,.2f} recorded!"
+            else:
+                msg = f"Order {b['id']} confirmed successfully!"
             success(self, message=msg)
-            repo.write_audit_log(get_actor(), "APPROVE", "bookings", db_id, None, {"status": "CONFIRMED", "auto_paid": is_auto_pay})
+            repo.write_audit_log(get_actor(), "APPROVE", "bookings", db_id, None, {"status": "CONFIRMED", "payment_amount": pay_amt})
 
             try:
                 repo.push_notification(
@@ -1510,15 +1516,9 @@ class BookingPage(QWidget):
         self._populate_table()
 
     def _export_csv(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Export Bookings", "bookings.csv", "CSV Files (*.csv)")
-        if not path:
-            return
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["ID", "Date", "Client", "Pax", "Total", "Status"])
-            for b in self._bookings:
-                writer.writerow([b["id"], b["date"], b["name"], b["pax"], b["total"], b["status"]])
-        prompt_file_saved(self, path, title="Bookings Exported", message="Bookings list exported successfully.")
+        from components.export_dialog import ExportWizardDialog
+        dlg = ExportWizardDialog(parent=self)
+        dlg.exec()
 
     def filter_search(self, text):
         self._search_query = str(text or "")
@@ -1676,8 +1676,8 @@ class BookingPage(QWidget):
                             repo.pay_invoice(db_id, payment_amount=rem, payment_date=_d.today(), method="Cash", note="Batch confirmed & auto fully paid")
                         except Exception:
                             repo.update_booking_status(db_id, "CONFIRMED")
-                            repo.db.execute("UPDATE bookings SET bk_amount_paid = bk_total_amount, bk_status = 'CONFIRMED' WHERE bk_id = %s", (db_id,))
-                            repo.db.execute("UPDATE invoices SET inv_amount_paid = inv_total_amount, inv_status = 'Paid', inv_balance = 0.0 WHERE inv_booking_id = %s", (db_id,))
+                            _db.execute("UPDATE bookings SET bk_amount_paid = bk_total_amount, bk_status = 'CONFIRMED' WHERE bk_id = %s", (db_id,))
+                            _db.execute("UPDATE invoices SET inv_amount_paid = inv_total_amount, inv_status = 'Paid', inv_balance = 0.0 WHERE inv_booking_id = %s", (db_id,))
                     else:
                         repo.update_booking_status(db_id, "CONFIRMED")
                     approved_cnt += 1

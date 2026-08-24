@@ -1515,21 +1515,9 @@ class CustomersPage(QWidget):
         self._search.setText(text)
 
     def _export_csv(self):
-        import csv
-        from PySide6.QtWidgets import QFileDialog
-        from components.dialogs import prompt_file_saved
-        path, _ = QFileDialog.getSaveFileName(self, "Export Customers", "customers.csv", "CSV Files (*.csv)")
-        if not path:
-            return
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Name", "Contact", "Email", "Total Events", "Status"])
-            for c in self._customers:
-                writer.writerow([
-                    c.get("name", ""), c.get("contact", ""),
-                    c.get("email", ""), c.get("events", 0), c.get("status", ""),
-                ])
-        prompt_file_saved(self, path, title="Customers Exported", message="Customer list exported successfully.")
+        from components.export_dialog import ExportWizardDialog
+        dlg = ExportWizardDialog(parent=self)
+        dlg.exec()
 
     def _open_import_dialog(self):
         from components.import_dialog import ImportWizardDialog

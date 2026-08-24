@@ -194,9 +194,11 @@ def get_log_file_path(dt: Optional[datetime] = None) -> Path:
 
 def export_diagnostic_report(target_dir: Optional[Path] = None) -> Path:
     """
-    Generate a self-contained diagnostic text file summarizing system info,
-    database status, table counts, and recent error logs for client support.
+    Generate a comprehensive diagnostic text file for remote support.
+    Includes PySide6/Qt versions, architecture, QtCharts DLL presence,
+    environment variables, Qt paths, DB status, and full error log tail.
     """
+    import sys
     log = get_logger()
     log.info("Generating diagnostic report...")
 
@@ -207,7 +209,101 @@ def export_diagnostic_report(target_dir: Optional[Path] = None) -> Path:
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_file = target_dir / f"Jayraldines_Diagnostic_Report_{timestamp_str}.txt"
 
-    # Gather DB stats
+    # ── PySide6 / Qt version info ───────────────────────────────────────────
+    ps6_version = "unknown"
+    qt_version = "unknown"
+    qt_lib_path = "unknown"
+    try:
+        import PySide6
+        ps6_version = PySide6.__version__
+        ps6_dir = str(Path(PySide6.__file__).parent)
+    except Exception as e:
+        ps6_dir = f"(import failed: {e})"
+    try:
+        from PySide6.QtCore import qVersion
+        qt_version = qVersion()
+    except Exception as e:
+        qt_version = f"(unavailable: {e})"
+    try:
+        from PySide6.QtCore import QLibraryInfo, QLibraryInfo as QLib
+        try:
+            qt_lib_path = QLibraryInfo.path(QLib.LibrariesPath)
+        except Exception:
+            qt_lib_path = str(QLib.location(QLib.LibrariesPath))
+    except Exception as e:
+        qt_lib_path = f"(unavailable: {e})"
+
+    # ── QtCharts DLL / binary presence check ────────────────────────────────
+    dll_checks = []
+    critical_dlls = [
+        "Qt6Charts.dll", "Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll",
+        "Qt6OpenGL.dll", "Qt6Network.dll", "Qt6PrintSupport.dll",
+        "Qt6Svg.dll", "QtCharts.pyd", "PySide6.dll",
+    ]
+    # Search in PySide6 dir and sibling dirs
+    search_roots = [
+        Path(sys.executable).parent,
+        Path(sys.executable).parent / "_internal" / "PySide6",
+        Path(sys.executable).parent / "PySide6",
+    ]
+    try:
+        import PySide6 as _ps6_mod
+        search_roots.insert(0, Path(_ps6_mod.__file__).parent)
+    except Exception:
+        pass
+    if getattr(sys, "frozen", False):
+        _meipass = getattr(sys, "_MEIPASS", str(Path(sys.executable).parent))
+        search_roots += [
+            Path(_meipass),
+            Path(_meipass) / "PySide6",
+            Path(_meipass) / "_internal" / "PySide6",
+        ]
+
+    for dll_name in critical_dlls:
+        found_at = None
+        for root in search_roots:
+            candidate = root / dll_name
+            if candidate.exists():
+                found_at = str(candidate)
+                break
+            # Also search one level deep
+            for sub in root.glob("*"):
+                if sub.is_dir():
+                    c2 = sub / dll_name
+                    if c2.exists():
+                        found_at = str(c2)
+                        break
+            if found_at:
+                break
+        if found_at:
+            dll_checks.append(f"  [FOUND ]  {dll_name}  →  {found_at}")
+        else:
+            dll_checks.append(f"  [MISSING]  {dll_name}  (NOT found in search paths)")
+
+    # ── Environment variables ────────────────────────────────────────────────
+    env_keys = [
+        "QSG_RHI_BACKEND", "QT_QPA_PLATFORM", "QT_PLUGIN_PATH",
+        "QT_QPA_PLATFORM_PLUGIN_PATH", "QT_ENABLE_HIGHDPI_SCALING",
+        "PATH", "LOCALAPPDATA", "APPDATA", "PROGRAMFILES",
+        "QT_OPENGL", "PYTHONPATH",
+    ]
+    env_lines = []
+    for k in env_keys:
+        val = os.environ.get(k, "(not set)")
+        # Truncate very long values
+        if len(val) > 300:
+            val = val[:300] + "..."
+        env_lines.append(f"  {k} = {val}")
+
+    # ── Qt plugin paths ──────────────────────────────────────────────────────
+    qt_plugin_paths = []
+    try:
+        from PySide6.QtCore import QCoreApplication
+        qt_plugin_paths = [str(p) for p in QCoreApplication.libraryPaths()]
+    except Exception as e:
+        qt_plugin_paths = [f"(unavailable: {e})"]
+
+    # ── DB stats ─────────────────────────────────────────────────────────────
     db_stats = []
     try:
         import utils.db as db
@@ -227,37 +323,112 @@ def export_diagnostic_report(target_dir: Optional[Path] = None) -> Path:
     except Exception as exc:
         db_stats.append(f"Database Inspection Failed: {exc}")
 
-    # Read last 150 lines from log file
+    # ── VC++ Runtime check (Windows only) ────────────────────────────────────
+    vcrt_lines = []
+    if sys.platform == "win32":
+        import ctypes
+        vcrt_dlls = [
+            ("MSVCP140.dll",    "Visual C++ 2015-2022 Redistributable (x64)"),
+            ("VCRUNTIME140.dll","Visual C++ 2015-2022 Runtime (x64)"),
+            ("VCRUNTIME140_1.dll","Visual C++ 2015-2022 Runtime v2 (x64)"),
+            ("MSVCP140_1.dll",  "Visual C++ 2015-2022 CRT (x64) v2"),
+        ]
+        for dll_name, label in vcrt_dlls:
+            try:
+                h = ctypes.windll.kernel32.LoadLibraryW(dll_name)
+                if h:
+                    vcrt_lines.append(f"  [FOUND ]  {dll_name}  ({label})")
+                    ctypes.windll.kernel32.FreeLibrary(h)
+                else:
+                    vcrt_lines.append(f"  [MISSING]  {dll_name}  ({label}) — NOT FOUND")
+            except Exception as e:
+                vcrt_lines.append(f"  [ERROR ]  {dll_name}  ({label}): {e}")
+    else:
+        vcrt_lines = ["  (VC++ Runtime check only applies on Windows)"]
+
+    # ── Read recent log (tail 200 lines) ─────────────────────────────────────
     log_tail = []
     log_path = get_log_file_path()
     if log_path.exists():
         try:
             with open(log_path, "r", encoding="utf-8", errors="replace") as f:
                 lines = f.readlines()
-                log_tail = lines[-150:] if len(lines) > 150 else lines
+                log_tail = lines[-200:] if len(lines) > 200 else lines
         except Exception as e:
             log_tail = [f"Failed to read log file: {e}"]
     else:
         log_tail = ["Log file does not exist yet."]
 
-    report_content = [
+    # ── Startup crash log (if present) ───────────────────────────────────────
+    startup_crash_lines = []
+    crash_log_path = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "JayraldinesCatering" / "startup_crash.txt"
+    if crash_log_path.exists():
+        try:
+            with open(crash_log_path, "r", encoding="utf-8", errors="replace") as f:
+                crash_lines = f.readlines()
+                startup_crash_lines = crash_lines[-100:] if len(crash_lines) > 100 else crash_lines
+        except Exception as e:
+            startup_crash_lines = [f"Failed to read startup_crash.txt: {e}"]
+    else:
+        startup_crash_lines = ["startup_crash.txt not found (no startup crash recorded)."]
+
+    # ── Assemble report ───────────────────────────────────────────────────────
+    report_sections = [
         "==================================================================",
-        f"       JAYRALDINE'S CATERING SYSTEM - DIAGNOSTIC REPORT",
+        "       JAYRALDINE'S CATERING SYSTEM — DIAGNOSTIC REPORT",
         "==================================================================",
-        f"Generated At      : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"Application Ver   : {APP_NAME} v{__version__}",
+        f"Generated At         : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Application Version  : {APP_NAME} v{__version__}",
+        f"",
+        "------------------------------------------------------------------",
+        "  SYSTEM INFORMATION",
+        "------------------------------------------------------------------",
         f"Operating System  : {platform.system()} {platform.release()} ({platform.version()})",
-        f"Processor/Arch    : {platform.processor()} ({platform.machine()})",
-        f"Python Version    : {platform.python_version()}",
+        f"Processor         : {platform.processor()}",
+        f"Architecture      : {platform.machine()} (OS: {platform.architecture()[0]})",
+        f"Python Version    : {platform.python_version()} ({sys.version})",
+        f"Python Executable : {sys.executable}",
+        f"App Executable    : {sys.executable if not getattr(sys, 'frozen', False) else str(Path(sys.executable))}",
+        f"PySide6 Version   : {ps6_version}",
+        f"PySide6 Directory : {ps6_dir}",
+        f"Qt Version        : {qt_version}",
+        f"Qt Libraries Path : {qt_lib_path}",
         f"Log File Location : {log_path}",
+        "",
+        "------------------------------------------------------------------",
+        "  CRITICAL QT DLL / BINARY PRESENCE CHECK",
+        "------------------------------------------------------------------",
+        "Search paths checked: " + " | ".join(str(r) for r in search_roots[:3]),
+        "",
+        *dll_checks,
+        "",
+        "------------------------------------------------------------------",
+        "  MICROSOFT VISUAL C++ RUNTIME CHECK (Windows only)",
+        "------------------------------------------------------------------",
+        *vcrt_lines,
+        "",
+        "------------------------------------------------------------------",
+        "  QT PLUGIN PATHS",
+        "------------------------------------------------------------------",
+        *[f"  {p}" for p in qt_plugin_paths],
+        "",
+        "------------------------------------------------------------------",
+        "  ENVIRONMENT VARIABLES",
+        "------------------------------------------------------------------",
+        *env_lines,
         "",
         "------------------------------------------------------------------",
         "  DATABASE STATUS & RECORD COUNTS",
         "------------------------------------------------------------------",
-        "\n".join(db_stats),
+        *db_stats,
         "",
         "------------------------------------------------------------------",
-        "  RECENT APPLICATION LOGS (TAIL)",
+        "  STARTUP CRASH LOG (startup_crash.txt)",
+        "------------------------------------------------------------------",
+        "".join(startup_crash_lines),
+        "",
+        "------------------------------------------------------------------",
+        "  RECENT APPLICATION LOGS (TAIL — last 200 lines)",
         "------------------------------------------------------------------",
         "".join(log_tail),
         "==================================================================",
@@ -266,7 +437,7 @@ def export_diagnostic_report(target_dir: Optional[Path] = None) -> Path:
     ]
 
     with open(report_file, "w", encoding="utf-8") as f:
-        f.write("\n".join(report_content))
+        f.write("\n".join(report_sections))
 
     log.info(f"Diagnostic report exported successfully to: {report_file}")
     return report_file

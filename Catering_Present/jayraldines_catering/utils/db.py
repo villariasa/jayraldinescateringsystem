@@ -537,9 +537,9 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         # in_params: (name, contact, email, address, occasion, venue, event_date, event_time, pax, notes, menu_type, package_id, menu_value, total, payment_mode, amount_paid)
         cust_name = str(p[0]).strip()
         total_amt = float(p[13] or 0.0)
-        amt_paid = float(p[15] or 0.0)
-        if amt_paid <= 0.0:
-            amt_paid = total_amt  # Default to full payment on auto-approval
+        # BUGFIX: Never auto-default amt_paid to total. Zero down payment = Unpaid.
+        # Only trust what was actually entered by the user/system.
+        amt_paid = max(0.0, float(p[15] or 0.0))
 
         pay_mode = str(p[14] or "Cash").strip()
         event_d = _sanitize_param(p[6])
@@ -835,12 +835,18 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
             WHERE bk_id = ?
         """, (c_name, c_address, occasion, venue, event_d, event_t, pax, notes, m_type, pkg_id, tot, pay_mode, amt_paid, amt_paid, bk_id))
 
-        # Update invoices row
-        cur.execute("SELECT inv_id, inv_amount_paid FROM invoices WHERE inv_booking_id = ? LIMIT 1", (bk_id,))
+        # Update invoices row — recalculate amount_paid from actual payment_records (source of truth)
+        cur.execute("SELECT inv_id FROM invoices WHERE inv_booking_id = ? LIMIT 1", (bk_id,))
         inv_row = cur.fetchone()
         if inv_row:
-            cur_paid = float(inv_row[1] or amt_paid)
-            new_paid = max(cur_paid, amt_paid)
+            inv_id_upd = inv_row[0]
+            # Sum all real payment records to get the accurate paid amount
+            cur.execute("SELECT COALESCE(SUM(pr_amount), 0.0) FROM payment_records WHERE pr_invoice_id = ?", (inv_id_upd,))
+            sum_row = cur.fetchone()
+            new_paid = float(sum_row[0] if sum_row else 0.0)
+            # If the booking was created with a down payment but payment_records is empty, use bk_amount_paid as fallback
+            if new_paid <= 0.0 and amt_paid > 0.0:
+                new_paid = amt_paid
             rem = max(0.0, tot - new_paid)
             inv_stat = "Paid" if (rem <= 0.0 and tot > 0) else ("Partial" if new_paid > 0 else "Unpaid")
             cur.execute("""
@@ -848,7 +854,7 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
                 SET inv_customer_name = ?, inv_event_date = ?, inv_total_amount = ?,
                     inv_amount_paid = ?, inv_balance = ?, inv_status = ?
                 WHERE inv_id = ?
-            """, (c_name, event_d, tot, new_paid, rem, inv_stat, inv_row[0]))
+            """, (c_name, event_d, tot, new_paid, rem, inv_stat, inv_id_upd))
         else:
             inv_num = f"INV-{bk_id:04d}"
             rem = max(0.0, tot - amt_paid)

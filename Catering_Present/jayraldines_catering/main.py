@@ -41,7 +41,9 @@ if getattr(sys, "frozen", False):
 # Configure Rendering & GPU Driver Fallbacks for older hardware (Intel HD Graphics, legacy Windows 10)
 os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
 os.environ.setdefault("QT_QUICK_BACKEND", "software")
-os.environ.setdefault("QSG_RHI_BACKEND", "d3d11")
+# Try d3d11 (Windows), fall back to opengl for older Intel HD / AMD hardware
+# This env var controls the RHI rendering backend — opengl works on far more machines
+os.environ.setdefault("QSG_RHI_BACKEND", "opengl")
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt, QCoreApplication
@@ -76,6 +78,10 @@ def _exception_hook(exc_type, exc_value, exc_tb):
     err_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
     print(f"[Unhandled Exception]\n{err_msg}", file=sys.stderr)
     try:
+        log.critical(f"UNHANDLED EXCEPTION: {err_msg}")
+    except Exception:
+        pass
+    try:
         log_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "JayraldinesCatering")
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, "error_log.txt")
@@ -83,7 +89,17 @@ def _exception_hook(exc_type, exc_value, exc_tb):
             f.write(f"\n--- {datetime.datetime.now()} ---\n{err_msg}\n")
     except Exception:
         pass
-
+    # Show visible error dialog so crashes are not silent
+    try:
+        _app = QApplication.instance()
+        if _app:
+            QMessageBox.critical(
+                None,
+                "Unexpected Error — Jayraldine's Catering",
+                f"An unexpected error occurred:\n\n{str(exc_value)}\n\nPlease check the error_log.txt file or contact support."
+            )
+    except Exception:
+        pass
 
 
 def main():
@@ -184,7 +200,29 @@ def main():
         _profile("ready")
 
     except Exception:
-        traceback.print_exc()
+        err_txt = traceback.format_exc()
+        print(err_txt, file=sys.stderr)
+        try:
+            log.critical(f"STARTUP FAILED:\n{err_txt}")
+            # Also write to crash log for diagnostics
+            log_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "JayraldinesCatering")
+            os.makedirs(log_dir, exist_ok=True)
+            crash_log = os.path.join(log_dir, "startup_crash.txt")
+            import datetime
+            with open(crash_log, "a", encoding="utf-8") as f:
+                f.write(f"\n--- {datetime.datetime.now()} STARTUP CRASH ---\n{err_txt}\n")
+        except Exception:
+            pass
+        try:
+            _app = QApplication.instance()
+            if _app:
+                QMessageBox.critical(
+                    None,
+                    "Startup Error — Jayraldine's Catering",
+                    f"The application failed to start:\n\n{str(err_txt)[:400]}\n\nPlease contact support."
+                )
+        except Exception:
+            pass
         sys.exit(1)
 
     app.aboutToQuit.connect(db.close)

@@ -113,9 +113,12 @@ if (-not (Test-Path "assets\logo.png")) {
 Print-Step "Step 5 - Writing PyInstaller Spec File"
 
 $spec = @"
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+import os, sys
 
 block_cipher = None
+
+# --- Collect Qt plugin data files (icons, platforms, etc.) ---
 qt_data = collect_data_files('PySide6', includes=[
     'Qt/plugins/platforms/*',
     'Qt/plugins/imageformats/*',
@@ -124,10 +127,18 @@ qt_data = collect_data_files('PySide6', includes=[
     'Qt/translations/qtbase_*.qm',
 ])
 
+# --- Collect all Qt native DLL binaries (Qt6Charts, Qt6Core, etc.) ---
+qt_binaries = []
+try:
+    libs = collect_dynamic_libs('PySide6')
+    qt_binaries = [b for b in libs if 'python' not in os.path.basename(b[0]).lower()]
+except Exception as e:
+    print(f'[spec] Warning: collect_dynamic_libs(PySide6) failed: {e}')
+
 a = Analysis(
     ['main.py'],
     pathex=['.'],
-    binaries=[],
+    binaries=qt_binaries,
     datas=[
         ('assets', 'assets'),
         ('styles', 'styles'),
@@ -161,7 +172,7 @@ a = Analysis(
         'PySide6.QtOpenGL',
         'PySide6.QtOpenGLWidgets',
         'PySide6.QtNetwork',
-        # UI Pages
+        # UI Pages (all lazily imported but listed for PyInstaller analysis)
         'ui.dashboard_page',
         'ui.booking_page',
         'ui.customers_page',
@@ -185,8 +196,6 @@ a = Analysis(
         'components.export_dialog',
         'components.filter_popover',
         'components.global_ai_floating',
-        'components.import_dialog',
-        'components.loading_overlay',
         'components.mascot',
         'components.notifications_panel',
         'components.search_dropdown',
@@ -198,11 +207,13 @@ a = Analysis(
         'utils.accent',
         'utils.ai_client',
         'utils.animations',
+        'utils.data_loader',
         'utils.db',
         'utils.exporter',
         'utils.icon_manager',
         'utils.icons',
         'utils.importer',
+        'utils.logger',
         'utils.mailer',
         'utils.menu_store',
         'utils.notif_scheduler',
@@ -330,12 +341,12 @@ Print-Step "Step 7 - Writing Inno Setup Installer Script"
 
 $iss  = "[Setup]`r`n"
 $iss += "AppName=Jayraldines Catering`r`n"
-$iss += "AppVersion=1.0`r`n"
+$iss += "AppVersion=4.0.5`r`n"
 $iss += "AppPublisher=Jayraldines Catering`r`n"
 $iss += "DefaultDirName={autopf}\JayraldinesCatering`r`n"
 $iss += "DefaultGroupName=Jayraldines Catering`r`n"
 $iss += "OutputDir=installer_output`r`n"
-$iss += "OutputBaseFilename=JayraldinesSetup`r`n"
+$iss += "OutputBaseFilename=JayraldinesSetup_v4.0.5`r`n"
 if (Test-Path "assets\logo.ico") {
     $iss += "SetupIconFile=assets\logo.ico`r`n"
 }

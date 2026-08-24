@@ -754,15 +754,22 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
     sheets = {}
 
     if "Bookings" in entity_name:
-        headers = ["Booking Ref", "Customer Name", "Contact Number", "Event Date", "Event Time", "Venue / Location", "Occasion", "Guest Count (Pax)", "Total Amount (₱)", "Status"]
-        b_list = repo.get_all_bookings() or []
+        headers = ["Booking Ref", "Customer Name", "Contact Number", "Event Date", "Event Time", "Venue / Location", "Occasion", "Guest Count (Pax)", "Total Amount (\u20b1)", "Down Paid (\u20b1)", "Balance (\u20b1)", "Payment Mode", "Status"]
+        b_list = repo.get_all_bookings_for_export() or []
         for b in b_list:
-            rows.append([
-                b.get("id", ""), b.get("name", ""), b.get("contact", ""),
-                b.get("date", ""), b.get("time", ""), b.get("venue", ""),
-                b.get("occasion", ""), b.get("pax", ""), f"₱{_parse_amount(b.get('total', 0)):,.2f}",
-                b.get("status", "")
-            ])
+            try:
+                rows.append([
+                    b.get("id", ""), b.get("name", ""), b.get("contact", ""),
+                    b.get("date", ""), b.get("time", ""), b.get("venue", ""),
+                    b.get("occasion", ""), b.get("pax", ""),
+                    f"\u20b1{_parse_amount(b.get('total', 0)):,.2f}",
+                    f"\u20b1{_parse_amount(b.get('amount_paid', 0)):,.2f}",
+                    f"\u20b1{_parse_amount(b.get('balance', 0)):,.2f}",
+                    b.get("payment_mode", ""),
+                    b.get("status", "")
+                ])
+            except Exception as row_exc:
+                print(f"[exporter] Bookings row error (skipping): {row_exc}")
         sheets["Bookings"] = (headers, rows)
 
     elif "Customers" in entity_name:
@@ -832,8 +839,13 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
         sheets["Cash Flow Ledger"] = (headers, rows)
 
     else: # Master Export
-        b_hdrs = ["Booking Ref", "Customer Name", "Contact Number", "Event Date", "Event Time", "Venue", "Occasion", "Pax", "Total Amount (₱)", "Status"]
-        b_rows = [[b.get("id", ""), b.get("name", ""), b.get("contact", ""), b.get("date", ""), b.get("time", ""), b.get("venue", ""), b.get("occasion", ""), b.get("pax", ""), f"₱{_parse_amount(b.get('total', 0)):,.2f}", b.get("status", "")] for b in (repo.get_all_bookings() or [])]
+        b_hdrs = ["Booking Ref", "Customer Name", "Contact Number", "Event Date", "Event Time", "Venue", "Occasion", "Pax", "Total Amount (\u20b1)", "Down Paid (\u20b1)", "Balance (\u20b1)", "Payment Mode", "Status"]
+        b_rows = []
+        for b in (repo.get_all_bookings_for_export() or []):
+            try:
+                b_rows.append([b.get("id", ""), b.get("name", ""), b.get("contact", ""), b.get("date", ""), b.get("time", ""), b.get("venue", ""), b.get("occasion", ""), b.get("pax", ""), f"\u20b1{_parse_amount(b.get('total', 0)):,.2f}", f"\u20b1{_parse_amount(b.get('amount_paid', 0)):,.2f}", f"\u20b1{_parse_amount(b.get('balance', 0)):,.2f}", b.get("payment_mode", ""), b.get("status", "")])
+            except Exception as row_exc:
+                print(f"[exporter] Master Bookings row error (skipping): {row_exc}")
         sheets["Bookings"] = (b_hdrs, b_rows)
 
         c_hdrs = ["Customer ID", "Customer Name", "Contact Number", "Email Address", "System Address ID", "Imported Address Text", "Notes / History"]

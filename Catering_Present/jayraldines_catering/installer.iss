@@ -1,11 +1,11 @@
 [Setup]
 AppName=Jayraldines Catering
-AppVersion=4.0.4
+AppVersion=4.0.5
 AppPublisher=Jayraldines Catering
 DefaultDirName={autopf}\JayraldinesCatering
 DefaultGroupName=Jayraldines Catering
 OutputDir=installer_output
-OutputBaseFilename=JayraldinesSetup_v4.0.4
+OutputBaseFilename=JayraldinesSetup_v4.0.5
 SetupIconFile=assets\logo.ico
 Compression=lzma
 SolidCompression=yes

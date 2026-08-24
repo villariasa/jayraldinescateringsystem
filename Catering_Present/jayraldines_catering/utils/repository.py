@@ -29,7 +29,7 @@ def get_all_customers() -> list[dict]:
                cus_email    AS email,
                cus_address  AS address,
                cus_total_events AS total_events,
-               cus_status::TEXT AS status
+               cus_status   AS status
         FROM customers ORDER BY cus_name
     """)
     if not rows:
@@ -592,7 +592,7 @@ def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> l
                bk_event_date         AS event_date,
                bk_pax                AS pax,
                bk_total_amount       AS total_amount,
-               bk_status::TEXT       AS status,
+               bk_status             AS status,
                bk_cancellation_reason AS cancellation_reason
         FROM bookings
         WHERE 1=1 {status_clause} {period_filter}
@@ -608,12 +608,65 @@ def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> l
             "date":                r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], date) else str(r["event_date"]),
             "name":                r["customer_name"],
             "pax":                 str(r["pax"]),
-            "total":               f"₱ {int(r['total_amount']):,}",
+            "total":               f"\u20b1 {int(r['total_amount']):,}",
             "status":              r["status"],
             "cancellation_reason": r["cancellation_reason"] or "",
         }
         for r in rows
     ]
+
+
+def get_all_bookings_for_export() -> list[dict]:
+    """Fetch full booking details including contact, venue, occasion, time — for exports only."""
+    rows = db.fetchall("""
+        SELECT b.bk_id              AS id,
+               b.bk_booking_ref    AS booking_ref,
+               b.bk_customer_name  AS customer_name,
+               COALESCE(c.cus_contact, b.bk_customer_name) AS contact,
+               b.bk_event_date     AS event_date,
+               b.bk_event_time     AS event_time,
+               b.bk_venue          AS venue,
+               b.bk_occasion       AS occasion,
+               b.bk_pax            AS pax,
+               b.bk_total_amount   AS total_amount,
+               b.bk_amount_paid    AS amount_paid,
+               b.bk_status         AS status,
+               b.bk_notes          AS notes,
+               b.bk_payment_mode   AS payment_mode
+        FROM bookings b
+        LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
+        ORDER BY b.bk_event_date DESC
+    """)
+    if not rows:
+        return []
+    result = []
+    for r in rows:
+        try:
+            event_date_raw = r["event_date"]
+            date_str = event_date_raw.strftime("%b %d, %Y") if isinstance(event_date_raw, date) else str(event_date_raw or "")
+            time_val = r.get("event_time") or ""
+            total_amt = float(r["total_amount"] or 0.0)
+            paid_amt = float(r["amount_paid"] or 0.0)
+            balance = max(0.0, total_amt - paid_amt)
+            result.append({
+                "id":           r["booking_ref"] or "",
+                "name":         r["customer_name"] or "",
+                "contact":      r["contact"] or "",
+                "date":         date_str,
+                "time":         str(time_val),
+                "venue":        r["venue"] or "",
+                "occasion":     r["occasion"] or "",
+                "pax":          r["pax"] or 0,
+                "total":        total_amt,
+                "amount_paid":  paid_amt,
+                "balance":      balance,
+                "status":       r["status"] or "",
+                "notes":        r["notes"] or "",
+                "payment_mode": r["payment_mode"] or "",
+            })
+        except Exception as exc:
+            print(f"[repository] get_all_bookings_for_export row error: {exc}")
+    return result
 
 
 def get_booking_detail(db_id: int) -> Optional[dict]:
@@ -801,7 +854,8 @@ def get_all_invoices() -> list[dict]:
                i.inv_event_date     AS event_date,
                i.inv_total_amount   AS total_amount,
                i.inv_amount_paid    AS amount_paid,
-               i.inv_status::TEXT   AS status,
+               CASE WHEN i.inv_balance IS NOT NULL THEN i.inv_balance WHEN (i.inv_total_amount - i.inv_amount_paid) > 0 THEN (i.inv_total_amount - i.inv_amount_paid) ELSE 0.0 END AS balance_due,
+               i.inv_status         AS status,
                COALESCE(c.cus_email, '') AS customer_email
         FROM invoices i
         LEFT JOIN customers c ON c.cus_name = i.inv_customer_name
@@ -814,11 +868,13 @@ def get_all_invoices() -> list[dict]:
             "db_id":          r["id"],
             "invoice":        r["invoice_ref"],
             "booking_id":     r["booking_id"],
+            "booking_ref":    r["invoice_ref"],  # re-alias for exporter compatibility
             "customer":       r["customer_name"],
             "customer_email": r["customer_email"],
             "event_date":     r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], date) else str(r["event_date"]),
             "amount":         float(r["total_amount"]),
             "paid":           float(r["amount_paid"]),
+            "balance":        float(r["balance_due"]),
             "status":         r["status"],
         }
         for r in rows

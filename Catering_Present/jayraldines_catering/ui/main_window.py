@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtCore import Signal, QTimer
+from PySide6.QtCore import Signal, QTimer, Qt
 
 from components.sidebar import Sidebar
 from components.topbar import TopBar
@@ -8,18 +8,15 @@ from components.notifications_panel import NotificationPopover, reload_notificat
 from components.toast import ToastManager
 
 
-from ui.dashboard_page import DashboardPage
-from ui.booking_page import BookingPage
-from ui.customers_page import CustomersPage
-from ui.menu_page import MenuPage
-from ui.calendar_page import CalendarPage
-from ui.cash_flow_page import CashFlowPage
-from ui.billing_page import BillingPage
-from ui.reports_page import ReportsPage
-from ui.expenses_page import ExpensesPage
-from ui.ai_page import AIPage
-from ui.settings_page import SettingsPage
 
+
+
+# ---------------------------------------------------------------------------
+# Lazy page-class registry: (module_name, class_name)
+# Pages are NOT imported at module level so a DLL failure in one page
+# (e.g., QtCharts missing on a target machine) does NOT prevent the rest
+# of the application from launching.
+# ---------------------------------------------------------------------------
 _PAGE_MODULES = [
     ("ui.dashboard_page",  "DashboardPage"),
     ("ui.booking_page",    "BookingPage"),
@@ -34,19 +31,8 @@ _PAGE_MODULES = [
     ("ui.settings_page",   "SettingsPage"),
 ]
 
-_PAGE_FACTORY = [
-    DashboardPage,
-    BookingPage,
-    CustomersPage,
-    MenuPage,
-    CalendarPage,
-    CashFlowPage,
-    BillingPage,
-    ReportsPage,
-    ExpensesPage,
-    AIPage,
-    SettingsPage,
-]
+# NOTE: _PAGE_FACTORY removed — all pages are now loaded lazily via _PAGE_MODULES
+# to prevent a single DLL failure from crashing the whole application.
 
 
 class _PlaceholderPage(QWidget):
@@ -160,26 +146,90 @@ class MainWindow(QMainWindow):
         if self._pages[index] is not None:
             return self._pages[index]
 
+        mod_name, cls_name = _PAGE_MODULES[index] if index < len(_PAGE_MODULES) else ("unknown", "Page")
         try:
-            if index < len(_PAGE_FACTORY):
-                page = _PAGE_FACTORY[index]()
-            else:
-                mod_name, cls_name = _PAGE_MODULES[index]
-                import importlib
-                mod = importlib.import_module(mod_name)
-                cls = getattr(mod, cls_name)
-                page = cls()
+            import importlib
+            mod = importlib.import_module(mod_name)
+            cls = getattr(mod, cls_name)
+            page = cls()
         except Exception as exc:
             import traceback
-            traceback.print_exc()
-            mod_name, cls_name = _PAGE_MODULES[index] if index < len(_PAGE_MODULES) else ("unknown", "Page")
-            print(f"[MainWindow] Error loading page {mod_name}.{cls_name}: {exc}")
-            from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
+            import sys
+            tb_str = traceback.format_exc()
+
+            # Log full details to file — essential for diagnosing DLL failures on other machines
+            try:
+                from utils.logger import get_logger
+                _log = get_logger()
+                try:
+                    from PySide6 import __version__ as _ps6_ver
+                except Exception:
+                    _ps6_ver = "unknown"
+                try:
+                    from PySide6.QtCore import qVersion
+                    _qt_ver = qVersion()
+                except Exception:
+                    _qt_ver = "unknown"
+                import platform
+                _log.error(
+                    f"PAGE LOAD FAILURE — {mod_name}.{cls_name}\n"
+                    f"Error Type   : {type(exc).__name__}\n"
+                    f"Error Message: {exc}\n"
+                    f"Python       : {sys.version}\n"
+                    f"PySide6      : {_ps6_ver}\n"
+                    f"Qt           : {_qt_ver}\n"
+                    f"Platform     : {platform.system()} {platform.release()} {platform.version()}\n"
+                    f"Architecture : {platform.machine()}\n"
+                    f"Executable   : {sys.executable}\n"
+                    f"Full Traceback:\n{tb_str}"
+                )
+            except Exception as log_err:
+                print(f"[MainWindow] Could not write to logger: {log_err}")
+
+            print(f"[MainWindow] PAGE LOAD FAILURE — {mod_name}.{cls_name}: {exc}")
+            print(tb_str)
+
+            from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea
             page = QWidget()
             err_lay = QVBoxLayout(page)
-            err_lbl = QLabel(f"Unable to load page '{cls_name}':\n{exc}")
-            err_lbl.setStyleSheet("color: #EF4444; font-size: 14px; padding: 24px;")
+            err_lay.setContentsMargins(24, 24, 24, 24)
+            err_lay.setSpacing(12)
+
+            # Friendly error title
+            title_lbl = QLabel(f"⚠️ Unable to load '{cls_name}'")
+            title_lbl.setStyleSheet("color: #EF4444; font-size: 15px; font-weight: 700; padding: 0;")
+            err_lay.addWidget(title_lbl)
+
+            # Error message
+            err_lbl = QLabel(f"{type(exc).__name__}: {exc}")
+            err_lbl.setStyleSheet("color: #F87171; font-size: 13px; padding: 0;")
+            err_lbl.setWordWrap(True)
             err_lay.addWidget(err_lbl)
+
+            # Full traceback in scrollable area
+            tb_lbl = QLabel(tb_str)
+            tb_lbl.setStyleSheet(
+                "color: #94A3B8; font-family: monospace; font-size: 11px; "
+                "background: #0F172A; padding: 12px; border-radius: 6px;"
+            )
+            tb_lbl.setWordWrap(True)
+            tb_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+            scroll = QScrollArea()
+            scroll.setWidget(tb_lbl)
+            scroll.setWidgetResizable(True)
+            scroll.setMaximumHeight(300)
+            scroll.setStyleSheet("background: #0F172A; border: 1px solid #334155; border-radius: 6px;")
+            err_lay.addWidget(scroll)
+
+            hint_lbl = QLabel(
+                "💡 If you see 'DLL load failed': A required Qt library is missing on this computer.\n"
+                "   Please run the Diagnostic Report (Settings → Diagnostic Report) and send it to support."
+            )
+            hint_lbl.setStyleSheet("color: #94A3B8; font-size: 12px; padding: 4px 0;")
+            hint_lbl.setWordWrap(True)
+            err_lay.addWidget(hint_lbl)
+            err_lay.addStretch()
 
         self._pages[index] = page
 
