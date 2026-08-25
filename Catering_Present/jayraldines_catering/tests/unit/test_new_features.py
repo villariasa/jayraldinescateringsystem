@@ -12,6 +12,7 @@ Unit tests for the new features:
 """
 
 import unittest
+import os
 from datetime import date, datetime
 import utils.repository as repo
 from utils.signals import app_events
@@ -258,7 +259,7 @@ class TestNewFeatures(unittest.TestCase):
         # Test AddMultipleBookingsDialog
         multi_dlg = AddMultipleBookingsDialog()
         self.assertIsNotNone(multi_dlg)
-        self.assertEqual(multi_dlg.table.columnCount(), 9)
+        self.assertEqual(multi_dlg.table.columnCount(), 11)
         self.assertGreaterEqual(multi_dlg.table.rowCount(), 5)
 
         # Populate first row and test save_all
@@ -294,6 +295,10 @@ class TestNewFeatures(unittest.TestCase):
 
     def test_confirm_booking_with_downpayment_persists_confirmed_status(self):
         """Verify that confirming a booking with any downpayment persists CONFIRMED status in DB."""
+        # Pre-cleanup in case of earlier interrupted run
+        import utils.db as _d
+        _d.execute("DELETE FROM bookings WHERE LOWER(bk_customer_name) = 'test downpayment confirmation client'")
+
         # 1. Create a booking (initially PENDING)
         bkg = repo.create_booking({
             "name": "Test Downpayment Confirmation Client",
@@ -312,37 +317,276 @@ class TestNewFeatures(unittest.TestCase):
         self.assertIsNotNone(bkg)
         db_id = bkg["booking_id"]
 
-        # Check initial status in DB is PENDING
-        detail = repo.get_booking_detail(db_id)
-        self.assertIsNotNone(detail)
-        self.assertEqual(detail.get("status"), "PENDING")
+        try:
+            # Check initial status in DB is PENDING
+            detail = repo.get_booking_detail(db_id)
+            self.assertIsNotNone(detail)
+            self.assertEqual(detail.get("status"), "PENDING")
 
-        # 2. Confirm booking with a partial downpayment (e.g. ₱5,000 on ₱45,000 order)
-        pay_res = repo.pay_invoice(
-            db_id,
-            payment_amount=5000.0,
-            payment_date="2026-09-01",
-            method="GCash",
-            note="Down payment upon booking confirmation"
-        )
-        self.assertEqual(pay_res["new_booking_status"], "CONFIRMED")
-        self.assertEqual(pay_res["new_paid"], 5000.0)
+            # 2. Confirm booking with a partial downpayment (e.g. ₱5,000 on ₱45,000 order)
+            pay_res = repo.pay_invoice(
+                db_id,
+                payment_amount=5000.0,
+                payment_date="2026-09-01",
+                method="GCash",
+                note="Down payment upon booking confirmation"
+            )
+            self.assertEqual(pay_res["new_booking_status"], "CONFIRMED")
+            self.assertEqual(pay_res["new_paid"], 5000.0)
 
-        # 3. Explicitly update booking status as done in UI
-        repo.update_booking_status(db_id, "CONFIRMED")
+            # 3. Explicitly update booking status as done in UI
+            repo.update_booking_status(db_id, "CONFIRMED")
 
-        # 4. Query fresh detail from DB — MUST be CONFIRMED and NOT revert to PENDING
-        fresh_detail = repo.get_booking_detail(db_id)
-        self.assertEqual(fresh_detail.get("status"), "CONFIRMED")
-        self.assertEqual(float(fresh_detail.get("amount_paid", 0.0)), 5000.0)
+            # 4. Query fresh detail from DB — MUST be CONFIRMED and NOT revert to PENDING
+            fresh_detail = repo.get_booking_detail(db_id)
+            self.assertEqual(fresh_detail.get("status"), "CONFIRMED")
+            self.assertEqual(float(fresh_detail.get("amount_paid", 0.0)), 5000.0)
 
-        # 5. Check in get_all_bookings list
-        all_b = repo.get_all_bookings()
-        matched = next((x for x in all_b if x["db_id"] == db_id), None)
-        self.assertIsNotNone(matched)
-        self.assertEqual(matched["status"], "CONFIRMED")
+            # 5. Check in get_all_bookings list
+            all_b = repo.get_all_bookings()
+            matched = next((x for x in all_b if x["db_id"] == db_id), None)
+            self.assertIsNotNone(matched)
+            self.assertEqual(matched["status"], "CONFIRMED")
+        finally:
+            repo.delete_booking(db_id)
+
+    def test_ai_typewriter_and_card_animation(self):
+        """Test TypewriterLabel, format_ai_text, and build_ai_card animation behavior."""
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication([])
+
+        from components.global_ai_floating import format_ai_text, TypewriterLabel, build_ai_card
+
+        # 1. Test markdown formatting helper
+        raw_text = "Hello **Chef**! *Here* is `₱ 45,000`\nNext line."
+        formatted = format_ai_text(raw_text, is_dark=True)
+        self.assertIn("<b>Chef</b>", formatted)
+        self.assertIn("<i>Here</i>", formatted)
+        self.assertIn("<br/>", formatted)
+
+        # 2. Test TypewriterLabel instant rendering
+        lbl_static = TypewriterLabel("Instant Text", animate=False)
+        self.assertIn("Instant Text", lbl_static.text())
+
+        # 3. Test TypewriterLabel animated execution
+        lbl_anim = TypewriterLabel("Animated Answer for testing typewriter", animate=True)
+        # Advance tick
+        lbl_anim._on_tick()
+        self.assertTrue(len(lbl_anim.text()) > 0)
+        # Skip to end
+        lbl_anim._current_len = lbl_anim._total_len
+        lbl_anim._on_tick()
+        self.assertIn("Animated Answer", lbl_anim.text())
+
+        # 4. Test build_ai_card creation with animation and options
+        options = [{"label": "Action 1", "send": "send_action_1"}]
+        card = build_ai_card("Hello from Chef Jay!", options=options, animate_typing=True)
+        self.assertIsNotNone(card)
+
+    def test_dynamic_occasions_in_booking_and_multi_order(self):
+        """Verify that occasions added in Settings dynamically appear in BookingModal and MultiOrder."""
+        import utils.repository as repo
+        from components.booking_modal import BookingModal
+        from ui.booking_page import AddMultipleBookingsDialog
+
+        test_occ = "Grand Thanksgiving Gala"
+        repo.add_occasion(test_occ)
+        try:
+            occasions = repo.get_all_occasions()
+            self.assertIn(test_occ, occasions)
+
+            # Check AddMultipleBookingsDialog
+            multi_dlg = AddMultipleBookingsDialog()
+            self.assertIn(test_occ, multi_dlg._occasions)
+            occ_combo = multi_dlg.table.cellWidget(0, 2)
+            self.assertTrue(occ_combo.isEditable())
+            items = [occ_combo.itemText(i) for i in range(occ_combo.count())]
+            self.assertIn(test_occ, items)
+
+            # Check BookingModal
+            modal = BookingModal()
+            self.assertIn(test_occ, modal._occasions)
+            modal_items = [modal.f_occasion.itemText(i) for i in range(modal.f_occasion.count())]
+            self.assertIn(test_occ, modal_items)
+            self.assertTrue(modal.f_occasion.isEditable())
+        finally:
+            repo.delete_occasion(test_occ)
+
+    def test_calendar_displays_unpaid_and_confirmed_bookings(self):
+        """Verify that confirmed bookings (even unpaid / 0 down payment) and various date formats display in calendar."""
+        import utils.repository as repo
+        from datetime import date
+        from ui.calendar_page import CalendarPage
+
+        b_data = {
+            "name": "Calendar Display Test Client",
+            "contact": "09170001111",
+            "email": "caltest@test.com",
+            "address": "Cebu City",
+            "occasion": "Company Gala",
+            "venue": "Waterfront Cebu",
+            "date": "2026-11-15",
+            "time": "7:00 PM",
+            "pax": 120,
+            "notes": "Motif: Royal Blue and Silver",
+            "menu_type": "package",
+            "total": 60000.0,
+            "amount_paid": 0.0,  # ₱0 down payment - completely unpaid
+            "down_payment": 0.0,
+            "status": "CONFIRMED",
+        }
+        res = repo.create_booking(b_data)
+        self.assertIsNotNone(res)
+        b_id = res.get("booking_id")
+        self.assertIsNotNone(b_id)
+
+        try:
+            # Explicitly ensure status is CONFIRMED
+            repo.update_booking_status(b_id, "CONFIRMED")
+
+            # Check get_calendar_events_for_month
+            month_events = repo.get_calendar_events_for_month(2026, 11)
+            self.assertIn((2026, 11, 15), month_events)
+            events_on_day = month_events[(2026, 11, 15)]
+            matched = next((e for e in events_on_day if e.get("customer_name") == "Calendar Display Test Client"), None)
+            self.assertIsNotNone(matched)
+            self.assertEqual(matched.get("status"), "CONFIRMED")
+            self.assertEqual(matched.get("balance"), 60000.0)
+            self.assertEqual(matched.get("amount_paid"), 0.0)
+
+            # Check get_calendar_events_for_date
+            day_events = repo.get_calendar_events_for_date(date(2026, 11, 15))
+            self.assertTrue(any("Calendar Display Test Client" in e.get("name", "") for e in day_events))
+
+            # Check CalendarPage render
+            page = CalendarPage()
+            page.current_year = 2026
+            page.current_month = 11
+            page.reload()
+            self.assertIn((2026, 11, 15), page._db_cache)
+        finally:
+            repo.delete_booking(b_id)
+
+    def test_batch_confirm_dialog_flexible_payment_options(self):
+        """Test BatchConfirmBookingDialog allows Unpaid, Down Payment, and Fully Paid options."""
+        from components.confirm_booking_dialog import BatchConfirmBookingDialog
+        
+        sample_pending = [
+            {"id": "BK-202608-01", "name": "Batch Client 1", "total": 50000.0, "amount_paid": 0.0, "status": "PENDING"},
+            {"id": "BK-202608-02", "name": "Batch Client 2", "total": 30000.0, "amount_paid": 5000.0, "status": "PENDING"},
+        ]
+
+        dlg = BatchConfirmBookingDialog(sample_pending)
+        self.assertEqual(dlg._count, 2)
+        self.assertEqual(dlg._tot_val, 80000.0)
+        self.assertEqual(dlg._paid_val, 5000.0)
+        self.assertEqual(dlg._rem_val, 75000.0)
+
+        # Default is "none" (No payment today, confirm only)
+        self.assertEqual(dlg.get_action_mode(), "none")
+        self.assertEqual(dlg.get_payment_amount_per_booking(), 0.0)
+
+        # Switch to downpayment
+        dlg.rb_custom.setChecked(True)
+        self.assertEqual(dlg.get_action_mode(), "downpayment")
+        dlg.num_amount.setValue(10000.0)
+        self.assertEqual(dlg.get_payment_amount_per_booking(), 10000.0)
+
+        # Switch to fully paid
+        dlg.rb_full.setChecked(True)
+        self.assertEqual(dlg.get_action_mode(), "full")
+
+        # Color Theme Selector check
+        self.assertTrue(hasattr(dlg, "get_color_theme"))
+        self.assertEqual(dlg.get_color_theme(), "#2563EB")
+        dlg._color_picker.set_color("#E11D48")
+        self.assertEqual(dlg.get_color_theme(), "#E11D48")
+
+    def test_cash_flow_page_loading_and_packaging_spec(self):
+        """Test Cash Flow page import, instantiation, and inclusion in spec hiddenimports."""
+        # 1. Direct import & instantiation
+        from ui.cash_flow_page import CashFlowPage
+        page = CashFlowPage()
+        self.assertIsNotNone(page)
+
+        # 2. Main window dynamic resolution
+        import importlib
+        mod = importlib.import_module("ui.cash_flow_page")
+        cls = getattr(mod, "CashFlowPage")
+        self.assertEqual(cls, CashFlowPage)
+
+        # 3. Spec file hiddenimports check
+        from pathlib import Path
+        spec_path = Path(__file__).resolve().parents[2] / "jayraldines.spec"
+        if spec_path.exists():
+            spec_content = spec_path.read_text(encoding="utf-8")
+            self.assertIn("ui.cash_flow_page", spec_content)
+
+    def test_booking_color_theme_persistence_and_calendar_integration(self):
+        """Test booking color theme storage, modification, calendar event integration, and PDF export."""
+        b_data = {
+            "name": "Color Theme Test Client",
+            "contact": "09170009999",
+            "email": "colortest@example.com",
+            "address": "Cebu City",
+            "venue": "Marco Polo Plaza Cebu",
+            "occasion": "Golden Wedding Anniversary",
+            "date": "2026-12-20",
+            "time": "6:30 PM",
+            "pax": 150,
+            "notes": "Motif: Emerald Green and Champagne Gold",
+            "menu_type": "package",
+            "total": 75000.0,
+            "amount_paid": 20000.0,
+            "down_payment": 20000.0,
+            "color_theme": "#059669",  # Emerald Green
+            "status": "CONFIRMED",
+        }
+        res = repo.create_booking(b_data)
+        self.assertIsNotNone(res)
+        b_id = res.get("booking_id")
+        self.assertIsNotNone(b_id)
+
+        try:
+            # 1. Verify get_booking_detail retrieves color_theme
+            detail = repo.get_booking_detail(b_id)
+            self.assertIsNotNone(detail)
+            self.assertEqual(detail.get("color_theme"), "#059669")
+
+            # 2. Verify update_booking_color_theme modifies it
+            success = repo.update_booking_color_theme(b_id, "#7C3AED")  # Royal Purple
+            self.assertTrue(success)
+            detail2 = repo.get_booking_detail(b_id)
+            self.assertEqual(detail2.get("color_theme"), "#7C3AED")
+
+            # 3. Verify get_calendar_events_for_month includes color_theme
+            month_events = repo.get_calendar_events_for_month(2026, 12)
+            self.assertIn((2026, 12, 20), month_events)
+            ev_list = month_events[(2026, 12, 20)]
+            ev = next((e for e in ev_list if e.get("customer_name") == "Color Theme Test Client"), None)
+            self.assertIsNotNone(ev)
+            self.assertEqual(ev.get("color_theme"), "#7C3AED")
+            self.assertEqual(ev.get("color"), "#7C3AED")
+
+            # 4. Verify Calendar PDF Export generation with Color Theme & Agenda replacement
+            from utils.exporter import export_calendar_pdf
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+                out_path = tmp_pdf.name
+            
+            gen_res = export_calendar_pdf(2026, 12, out_path, month_events, biz_name="Jayraldine's Catering Services")
+            self.assertTrue(gen_res)
+            self.assertTrue(os.path.exists(out_path))
+            self.assertGreater(os.path.getsize(out_path), 1000)
+            try:
+                os.remove(out_path)
+            except Exception:
+                pass
+        finally:
+            repo.delete_booking(b_id)
 
 
 if __name__ == "__main__":
     unittest.main()
+
 

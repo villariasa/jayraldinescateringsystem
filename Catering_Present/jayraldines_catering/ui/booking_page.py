@@ -7,9 +7,11 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize, QDate, QTimer
 from PySide6.QtGui import QColor
+import os
 import csv
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red, get_icon
+from utils.animations import animate_dialog_open
 from utils.theme import ThemeManager
 from components.booking_modal import BookingModal
 from components.dialogs import confirm, success, prompt_file_saved
@@ -102,6 +104,10 @@ class MultiMenuSelectionDialog(QDialog):
         self._checkboxes = []
         self._all_items = repo.get_available_menu_items() or []
         self._build_ui()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        animate_dialog_open(self, duration=240, auto_center=True)
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -296,15 +302,20 @@ class AddMultipleBookingsDialog(QDialog):
         self.setWindowTitle("Add Multiple Orders & Bookings")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(1360, 680)
-        self.setMinimumSize(980, 560)
+        self.resize(1420, 720)
+        self.setMinimumSize(1020, 580)
         self.setModal(True)
         self._added_count = 0
         self._customers = repo.get_all_customers() or []
         self._packages = repo.get_all_packages() or []
         self._menu_items = repo.get_available_menu_items() or []
+        self._occasions = repo.get_all_occasions() or []
         self._kpi_summary_lbl = QLabel("")
         self._build_ui()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        animate_dialog_open(self, duration=240, auto_center=True)
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -334,28 +345,31 @@ class AddMultipleBookingsDialog(QDialog):
         sub.setObjectName("subtitle")
         lay.addWidget(sub)
 
-        self.table = QTableWidget(0, 9)
+        self.table = QTableWidget(0, 11)
         self.table.setHorizontalHeaderLabels([
             "Customer (Select or Type) *", "Contact / Phone", "Occasion", "Package / Custom Menu *",
-            "Event Date *", "Pax *", "Total Amount (₱) *", "Down Payment (₱)", "Action"
+            "Event Date *", "Event Time", "Pax *", "Theme / Motif / Notes", "Total Amount (₱) *", "Down Payment (₱)", "Action"
         ])
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
         self.table.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
         self.table.horizontalHeader().setStretchLastSection(False)
-        self.table.horizontalHeader().setMinimumSectionSize(60)
+        self.table.horizontalHeader().setMinimumSectionSize(50)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
 
-        self.table.setColumnWidth(0, 260)  # Customer
-        self.table.setColumnWidth(1, 150)  # Contact / Phone
-        self.table.setColumnWidth(2, 140)  # Occasion
-        self.table.setColumnWidth(3, 340)  # Package / Custom Menu
-        self.table.setColumnWidth(4, 150)  # Event Date
-        self.table.setColumnWidth(5, 90)   # Pax
-        self.table.setColumnWidth(6, 160)  # Total Amount
-        self.table.setColumnWidth(7, 160)  # Down Payment
-        self.table.setColumnWidth(8, 70)   # Action
+        # Generous column widths for maximum visibility of all values and dropdowns
+        self.table.setColumnWidth(0, 280)  # Customer
+        self.table.setColumnWidth(1, 130)  # Contact / Phone
+        self.table.setColumnWidth(2, 160)  # Occasion
+        self.table.setColumnWidth(3, 320)  # Package / Custom Menu
+        self.table.setColumnWidth(4, 130)  # Event Date
+        self.table.setColumnWidth(5, 135)  # Event Time
+        self.table.setColumnWidth(6, 100)  # Pax
+        self.table.setColumnWidth(7, 200)  # Theme / Motif / Notes
+        self.table.setColumnWidth(8, 145)  # Total Amount
+        self.table.setColumnWidth(9, 145)  # Down Payment
+        self.table.setColumnWidth(10, 55)  # Action
 
         self.table.verticalHeader().setDefaultSectionSize(48)
         lay.addWidget(self.table)
@@ -363,8 +377,6 @@ class AddMultipleBookingsDialog(QDialog):
         # Add 5 initial rows
         for _ in range(5):
             self._add_row()
-
-        lay.addWidget(self.table)
 
         row_actions = QHBoxLayout()
         add_row_btn = QPushButton("  + Add Row")
@@ -419,6 +431,8 @@ class AddMultipleBookingsDialog(QDialog):
         cust_combo = QComboBox()
         cust_combo.setEditable(True)
         cust_combo.setFixedHeight(34)
+        if cust_combo.view():
+            cust_combo.view().setMinimumWidth(320)
         cust_combo.lineEdit().setPlaceholderText("Select or Type Customer Name *")
         cust_combo.addItem("+ Type New Customer Name...", None)
         for c in self._customers:
@@ -443,10 +457,18 @@ class AddMultipleBookingsDialog(QDialog):
                     contact_edit.setText(phone)
         cust_combo.currentIndexChanged.connect(_on_cust_selected)
 
-        # 2. Occasion
+        # 2. Occasion (Dynamically loaded from Settings + Editable)
         occ_combo = QComboBox()
-        occ_combo.addItems(_OCCASIONS_LIST)
-        occ_combo.setCurrentText("Party")
+        occ_combo.setEditable(True)
+        if occ_combo.view():
+            occ_combo.view().setMinimumWidth(180)
+        if occ_combo.lineEdit():
+            occ_combo.lineEdit().setPlaceholderText("Select or Type Occasion...")
+        occ_combo.addItems(self._occasions if self._occasions else ["Wedding", "Birthday", "Debut", "Party"])
+        if "Party" in self._occasions:
+            occ_combo.setCurrentText("Party")
+        elif self._occasions:
+            occ_combo.setCurrentIndex(0)
         occ_combo.setFixedHeight(34)
         self.table.setCellWidget(r, 2, occ_combo)
 
@@ -458,6 +480,8 @@ class AddMultipleBookingsDialog(QDialog):
 
         menu_combo = QComboBox()
         menu_combo.setFixedHeight(34)
+        if menu_combo.view():
+            menu_combo.view().setMinimumWidth(340)
 
         # Add Packages
         if self._packages:
@@ -501,32 +525,51 @@ class AddMultipleBookingsDialog(QDialog):
         date_edit.setFixedHeight(34)
         self.table.setCellWidget(r, 4, date_edit)
 
-        # 5. Pax
+        # 5. Event Time (Editable QComboBox)
+        time_combo = QComboBox()
+        time_combo.setEditable(True)
+        if time_combo.view():
+            time_combo.view().setMinimumWidth(140)
+        time_combo.addItems(["6:00 PM", "12:00 PM", "10:00 AM", "11:00 AM", "1:00 PM", "2:00 PM", "5:00 PM", "7:00 PM", "8:00 PM"])
+        time_combo.setCurrentText("6:00 PM")
+        time_combo.setFixedHeight(34)
+        self.table.setCellWidget(r, 5, time_combo)
+
+        # 6. Pax
         pax_spin = QSpinBox()
         pax_spin.setRange(1, 10000)
         pax_spin.setValue(50)
+        pax_spin.setAlignment(Qt.AlignCenter)
         pax_spin.setFixedHeight(34)
-        self.table.setCellWidget(r, 5, pax_spin)
+        pax_spin.setStyleSheet("QSpinBox { font-size: 13px; font-weight: 700; padding: 2px 6px; }")
+        self.table.setCellWidget(r, 6, pax_spin)
 
-        # 6. Total Amount
+        # 7. Theme / Motif / Notes
+        theme_edit = QLineEdit()
+        theme_edit.setPlaceholderText("e.g. Purple & Gold theme, Twin Babies...")
+        theme_edit.setFixedHeight(34)
+        self.table.setCellWidget(r, 7, theme_edit)
+
+        # 8. Total Amount
         total_spin = QDoubleSpinBox()
         total_spin.setRange(0, 9999999)
         total_spin.setPrefix("₱ ")
         total_spin.setDecimals(2)
         total_spin.setSingleStep(500)
         total_spin.setFixedHeight(34)
-        self.table.setCellWidget(r, 6, total_spin)
+        self.table.setCellWidget(r, 8, total_spin)
 
-        # 7. Down Payment
+        # 9. Down Payment (Defaults to ₱0.00 — user manually inputs actual payment)
         down_spin = QDoubleSpinBox()
         down_spin.setRange(0, 9999999)
         down_spin.setPrefix("₱ ")
         down_spin.setDecimals(2)
         down_spin.setSingleStep(500)
+        down_spin.setValue(0.0)
         down_spin.setFixedHeight(34)
-        self.table.setCellWidget(r, 7, down_spin)
+        self.table.setCellWidget(r, 9, down_spin)
 
-        # 8. Action: Delete Row
+        # 10. Action: Delete Row
         del_btn = QPushButton()
         del_btn.setIcon(get_icon("trash", color="#EF4444", size=QSize(14, 14)))
         del_btn.setFixedSize(28, 28)
@@ -534,7 +577,7 @@ class AddMultipleBookingsDialog(QDialog):
         del_btn.setCursor(Qt.PointingHandCursor)
         del_btn.setToolTip("Remove row")
         del_btn.clicked.connect(lambda _, w=menu_widget: self._delete_row_by_widget(w))
-        self.table.setCellWidget(r, 8, del_btn)
+        self.table.setCellWidget(r, 10, del_btn)
 
         # Multi-dish selector handler
         def _open_dish_picker():
@@ -554,14 +597,13 @@ class AddMultipleBookingsDialog(QDialog):
 
         btn_dishes.clicked.connect(_open_dish_picker)
 
-        # Auto-recompute total & down payment
+        # Auto-recompute total only (do NOT auto-assign 30% down payment)
         def _recompute_price():
             m_data = menu_combo.currentData() or {}
             rate = float(m_data.get("rate", 350.0))
             pax_val = pax_spin.value()
             computed_tot = rate * pax_val
             total_spin.setValue(computed_tot)
-            down_spin.setValue(round(computed_tot * 0.30, 2))
             self._update_grand_totals()
 
         menu_combo.currentIndexChanged.connect(_recompute_price)
@@ -607,8 +649,8 @@ class AddMultipleBookingsDialog(QDialog):
         tot_sales = 0.0
         tot_dp = 0.0
         for r in range(count):
-            tot_w = self.table.cellWidget(r, 6)
-            dp_w = self.table.cellWidget(r, 7)
+            tot_w = self.table.cellWidget(r, 7)
+            dp_w = self.table.cellWidget(r, 8)
             if isinstance(tot_w, QDoubleSpinBox):
                 tot_sales += tot_w.value()
             if isinstance(dp_w, QDoubleSpinBox):
@@ -623,9 +665,11 @@ class AddMultipleBookingsDialog(QDialog):
             occ_w = self.table.cellWidget(r, 2)
             menu_cell = self.table.cellWidget(r, 3)
             date_w = self.table.cellWidget(r, 4)
-            pax_w = self.table.cellWidget(r, 5)
-            total_w = self.table.cellWidget(r, 6)
-            down_w = self.table.cellWidget(r, 7)
+            time_w = self.table.cellWidget(r, 5)
+            pax_w = self.table.cellWidget(r, 6)
+            theme_w = self.table.cellWidget(r, 7)
+            total_w = self.table.cellWidget(r, 8)
+            down_w = self.table.cellWidget(r, 9)
 
             # Customer Name extraction
             cust_name = ""
@@ -664,7 +708,16 @@ class AddMultipleBookingsDialog(QDialog):
                 menu_val = menu_combo.currentText() if menu_combo else "Standard Package"
 
             date_val = date_w.date().toString("yyyy-MM-dd") if isinstance(date_w, QDateEdit) else ""
+            
+            # Event Time extraction
+            time_val = "6:00 PM"
+            if isinstance(time_w, QComboBox):
+                time_val = time_w.currentText().strip() or "6:00 PM"
+            elif isinstance(time_w, QLineEdit):
+                time_val = time_w.text().strip() or "6:00 PM"
+
             pax = pax_w.value() if isinstance(pax_w, QSpinBox) else 50
+            theme_txt = theme_w.text().strip() if isinstance(theme_w, QLineEdit) else ""
             tot = total_w.value() if isinstance(total_w, QDoubleSpinBox) else 0.0
             down = down_w.value() if isinstance(down_w, QDoubleSpinBox) else 0.0
 
@@ -674,7 +727,8 @@ class AddMultipleBookingsDialog(QDialog):
                 "contact": contact,
                 "occasion": occ,
                 "date": date_val,
-                "event_time": "18:00",
+                "event_time": time_val,
+                "time": time_val,
                 "venue": "Client Venue",
                 "pax": pax,
                 "total": tot,
@@ -685,7 +739,7 @@ class AddMultipleBookingsDialog(QDialog):
                 "menu_value": menu_val,
                 "package_id": pkg_id,
                 "status": "PENDING",
-                "notes": f"Multi-Order entry with {menu_val}",
+                "notes": theme_txt if theme_txt else f"Multi-Order entry with {menu_val}",
             })
 
         if not rows_to_save:
@@ -1086,6 +1140,67 @@ class BookingPage(QWidget):
         c3.addWidget(tot_val)
         lay.addLayout(c3, 1)
 
+        # Col 3.5: Event Time
+        c_time = QVBoxLayout()
+        c_time.setSpacing(2)
+        time_title = QLabel("EVENT TIME")
+        time_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280; letter-spacing: 0.5px;")
+        t_val = str(b.get("event_time") or b.get("time") or "6:00 PM")
+        time_val = QLabel(t_val)
+        time_val.setStyleSheet("font-weight: 700; font-size: 13px; color: #38BDF8;")
+        c_time.addWidget(time_title)
+        c_time.addWidget(time_val)
+        lay.addLayout(c_time, 1)
+
+        # Col 3.8: Color Motif (Clickable Badge)
+        c_motif = QVBoxLayout()
+        c_motif.setSpacing(2)
+        motif_title = QLabel("COLOR MOTIF")
+        motif_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280; letter-spacing: 0.5px;")
+        c_motif.addWidget(motif_title)
+
+        c_hex = str(b.get("color_theme") or b.get("color") or "#2563EB").strip()
+        from components.color_picker_widget import PRESET_THEME_COLORS
+        theme_name = next((name for h, name in PRESET_THEME_COLORS if h.upper() == c_hex.upper()), "Custom")
+
+        bref = b["id"]
+        motif_btn = QPushButton()
+        motif_btn.setCursor(Qt.PointingHandCursor)
+        motif_btn.setToolTip("Click to change event color motif")
+        motif_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-left: 3.5px solid {c_hex};
+                border-radius: 6px;
+                padding: 3px 8px;
+                text-align: left;
+            }}
+            QPushButton:hover {{
+                background: rgba(255, 255, 255, 0.12);
+                border-color: {c_hex};
+            }}
+        """)
+        m_lay = QHBoxLayout(motif_btn)
+        m_lay.setContentsMargins(3, 2, 5, 2)
+        m_lay.setSpacing(6)
+
+        dot = QFrame()
+        dot.setFixedSize(9, 9)
+        dot.setAttribute(Qt.WA_TransparentForMouseEvents)
+        dot.setStyleSheet(f"background-color: {c_hex}; border-radius: 4px;")
+        m_lay.addWidget(dot)
+
+        m_name_lbl = QLabel(theme_name)
+        m_name_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+        m_name_lbl.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {c_hex};")
+        m_lay.addWidget(m_name_lbl)
+        m_lay.addStretch()
+
+        motif_btn.clicked.connect(lambda _, r=bref: self._change_booking_color(r))
+        c_motif.addWidget(motif_btn)
+        lay.addLayout(c_motif, 1)
+
         # Col 4: Status Badge & Reason/Approvals
         c4 = QVBoxLayout()
         c4.setSpacing(4)
@@ -1105,14 +1220,12 @@ class BookingPage(QWidget):
             ))
         lay.addLayout(c4, 2)
 
-        # Col 5: Actions (Edit, Delete, Confirmation)
+        # Col 5: Actions (Edit, Delete, Confirmation, Color)
         actions_w = QFrame()
         actions_w.setStyleSheet("background: transparent;")
         actions_l = QHBoxLayout(actions_w)
         actions_l.setContentsMargins(0, 0, 0, 0)
         actions_l.setSpacing(6)
-
-        bref = b["id"]
 
         edit_btn = QPushButton()
         edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
@@ -1120,11 +1233,23 @@ class BookingPage(QWidget):
         edit_btn.setFixedSize(30, 30)
         edit_btn.setStyleSheet("background:transparent;border:none;")
         edit_btn.setCursor(Qt.PointingHandCursor)
-        edit_btn.setToolTip("Edit booking")
-        edit_btn.setEnabled(b["status"] == "PENDING")
-        if b["status"] != "PENDING":
+        edit_btn.setToolTip("Edit booking / order details")
+        edit_btn.setEnabled(b.get("status") != "CANCELLED")
+        if b.get("status") == "CANCELLED":
             edit_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
         edit_btn.clicked.connect(lambda _, r=bref: self._edit_booking(r))
+
+        color_btn = QPushButton()
+        color_btn.setIcon(get_icon("palette", color="#9CA3AF", size=QSize(13, 13)))
+        color_btn.setIconSize(QSize(13, 13))
+        color_btn.setFixedSize(30, 30)
+        color_btn.setStyleSheet("background:transparent;border:none;")
+        color_btn.setCursor(Qt.PointingHandCursor)
+        color_btn.setToolTip("Change Color Motif")
+        color_btn.setEnabled(b.get("status") != "CANCELLED")
+        if b.get("status") == "CANCELLED":
+            color_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
+        color_btn.clicked.connect(lambda _, r=bref: self._change_booking_color(r))
 
         del_btn = QPushButton()
         del_btn.setIcon(btn_icon_red("trash"))
@@ -1148,11 +1273,58 @@ class BookingPage(QWidget):
         confirm_btn.clicked.connect(lambda _, r=bref: self._send_confirmation(r))
 
         actions_l.addWidget(edit_btn)
+        actions_l.addWidget(color_btn)
         actions_l.addWidget(del_btn)
         actions_l.addWidget(confirm_btn)
         lay.addWidget(actions_w)
 
         return card
+
+    def _change_booking_color(self, ref: str):
+        b = next((x for x in self._bookings if x["id"] == ref), None)
+        if not b:
+            return
+        db_id = b.get("db_id")
+
+        from components.color_picker_widget import ColorThemeSelector
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Select Color Motif")
+        dlg.setMinimumWidth(480)
+        dlg.setModal(True)
+        dlg_lay = QVBoxLayout(dlg)
+        dlg_lay.setContentsMargins(24, 22, 24, 22)
+        dlg_lay.setSpacing(14)
+
+        head = QLabel(f"🎨  Select Color Motif for <b>{b.get('name', ref)}</b>")
+        head.setStyleSheet("font-size: 13.5px; font-weight: 600;")
+        dlg_lay.addWidget(head)
+
+        cur_c = str(b.get("color_theme") or b.get("color") or "#2563EB")
+        picker = ColorThemeSelector(initial_color=cur_c)
+        dlg_lay.addWidget(picker)
+
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setObjectName("secondaryButton")
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_save = QPushButton("Save Motif")
+        btn_save.setObjectName("primaryButton")
+        btn_save.clicked.connect(dlg.accept)
+        btn_box.addWidget(btn_cancel)
+        btn_box.addWidget(btn_save)
+        dlg_lay.addLayout(btn_box)
+
+        if dlg.exec() == QDialog.Accepted:
+            new_col = picker.get_color()
+            if db_id:
+                repo.update_booking_color_theme(db_id, new_col)
+            b["color_theme"] = new_col
+            b["color"] = new_col
+            self._populate_table()
+            app_events().booking_updated.emit()
+            app_events().data_changed.emit()
+            success(self, message=f"Color motif updated for {b.get('name', ref)}!")
 
     def _approve_booking(self, ref):
         b = next((x for x in self._bookings if x["id"] == ref), None)
@@ -1189,7 +1361,10 @@ class BookingPage(QWidget):
                         print(f"[booking] pay_invoice error: {p_err}")
                 
                 # Explicitly guarantee booking status is persisted as CONFIRMED in database
-                repo.update_booking_status(db_id, "CONFIRMED")
+                color_theme = dlg.get_color_theme()
+                repo.update_booking_status(db_id, "CONFIRMED", color_theme=color_theme)
+                if color_theme:
+                    repo.update_booking_color_theme(db_id, color_theme)
 
                 try:
                     if detail.get("customer_id"):
@@ -1546,12 +1721,12 @@ class BookingPage(QWidget):
         if not self._selected_refs:
             return
 
-        pending_refs = [
-            ref for ref in list(self._selected_refs)
-            if any(b["id"] == ref and b.get("status") == "PENDING" for b in self._bookings)
+        pending_items = [
+            b for b in self._bookings
+            if b.get("id") in self._selected_refs and b.get("status") == "PENDING"
         ]
 
-        if not pending_refs:
+        if not pending_items:
             QMessageBox.information(
                 self,
                 "Already Confirmed",
@@ -1559,40 +1734,67 @@ class BookingPage(QWidget):
             )
             return
 
-        count = len(pending_refs)
-        if not confirm(self, title="Batch Confirm Bookings",
-                       message=f"Confirm and approve {count} pending booking(s)?\nThis will mark them as CONFIRMED and mark them as FULLY PAID by default.",
-                       confirm_label=f"Confirm & Fully Pay {count} Bookings"):
+        from components.confirm_booking_dialog import BatchConfirmBookingDialog, _parse_amount
+        from datetime import date as _d
+
+        dlg = BatchConfirmBookingDialog(pending_items, parent=self)
+        if dlg.exec() != QDialog.Accepted:
             return
 
-        from datetime import date as _d
-        from components.confirm_booking_dialog import _parse_amount
+        mode = dlg.get_action_mode()  # "none", "downpayment", "full"
+        method = dlg.get_payment_method()
+        remarks = dlg.get_payment_remarks()
+        fixed_dp = dlg.get_payment_amount_per_booking()
+        batch_color = dlg.get_color_theme()
 
         approved_cnt = 0
-        for ref in pending_refs:
+        total_collected = 0.0
+
+        for b in pending_items:
             try:
-                b = next((x for x in self._bookings if x["id"] == ref), None)
-                if b and b.get("db_id"):
-                    db_id = b["db_id"]
-                    detail = repo.get_booking_detail(db_id) or b
-                    tot_val = _parse_amount(detail.get("total") or detail.get("total_amount") or b.get("total", 0.0))
-                    paid_val = _parse_amount(detail.get("amount_paid") or detail.get("down_payment") or 0.0)
-                    rem = max(0.0, tot_val - paid_val)
+                db_id = b.get("db_id")
+                if not db_id:
+                    continue
+                detail = repo.get_booking_detail(db_id) or b
+                tot_val = _parse_amount(detail.get("total") or detail.get("total_amount") or b.get("total", 0.0))
+                paid_val = _parse_amount(detail.get("amount_paid") or detail.get("down_payment") or 0.0)
+                rem = max(0.0, tot_val - paid_val)
+
+                if mode == "full":
                     if rem > 0:
                         try:
-                            repo.pay_invoice(db_id, payment_amount=rem, payment_date=_d.today(), method="Cash", note="Batch confirmed & auto fully paid")
+                            repo.pay_invoice(db_id, payment_amount=rem, payment_date=_d.today(), method=method, note=remarks)
+                            total_collected += rem
                         except Exception as p_err:
-                            print(f"[booking] batch pay error: {p_err}")
-                    repo.update_booking_status(db_id, "CONFIRMED")
-                    approved_cnt += 1
+                            print(f"[booking] batch pay error for {db_id}: {p_err}")
+                elif mode == "downpayment":
+                    pay_amt = min(fixed_dp, rem) if fixed_dp > 0 else 0.0
+                    if pay_amt > 0:
+                        try:
+                            repo.pay_invoice(db_id, payment_amount=pay_amt, payment_date=_d.today(), method=method, note=remarks)
+                            total_collected += pay_amt
+                        except Exception as p_err:
+                            print(f"[booking] batch pay error for {db_id}: {p_err}")
+
+                repo.update_booking_status(db_id, "CONFIRMED", color_theme=batch_color)
+                if batch_color:
+                    repo.update_booking_color_theme(db_id, batch_color)
+                approved_cnt += 1
             except Exception as exc:
-                print(f"[booking] batch confirm error for {ref}: {exc}")
+                print(f"[booking] batch confirm error for {b.get('id')}: {exc}")
 
         self._selected_refs.clear()
         self.reload()
         app_events().booking_saved.emit()
+        app_events().booking_updated.emit()
         app_events().data_changed.emit()
-        success(self, message=f"Successfully batch confirmed {approved_cnt} booking(s) as fully paid.")
+
+        if mode == "full":
+            success(self, message=f"Successfully batch confirmed {approved_cnt} booking(s) as Fully Paid (₱{total_collected:,.2f} recorded).")
+        elif mode == "downpayment" and total_collected > 0:
+            success(self, message=f"Successfully batch confirmed {approved_cnt} booking(s) with down payment (₱{total_collected:,.2f} recorded).")
+        else:
+            success(self, message=f"Successfully batch confirmed {approved_cnt} booking(s) (Unpaid / Kept Remaining Balance).")
 
     def _batch_cancel_bookings(self):
         if not self._selected_refs:
@@ -1657,29 +1859,65 @@ class BookingPage(QWidget):
         headers = [
             "Reference ID", "Customer Name", "Contact Number", "Email Address",
             "Event Date", "Event Time", "Occasion", "Venue", "Pax",
-            "Total Amount (₱)", "Down Payment (₱)", "Balance (₱)", "Status", "Notes"
+            "Total Amount (₱)", "Down Payment (₱)", "Balance (₱)", "Status", "Payment Mode", "Notes"
         ]
 
         rows = []
         for b in bookings:
-            total_amt = float(b.get("total_amount") or 0.0)
-            down_amt = float(b.get("down_payment") or 0.0)
-            balance = max(0.0, total_amt - down_amt)
+            raw_tot = b.get("total_amount") or b.get("total") or 0.0
+            if isinstance(raw_tot, str):
+                try:
+                    tot_num = float(raw_tot.replace("₱", "").replace(",", "").strip())
+                except ValueError:
+                    tot_num = 0.0
+            else:
+                tot_num = float(raw_tot or 0.0)
+
+            raw_paid = b.get("amount_paid") or b.get("down_payment") or 0.0
+            if isinstance(raw_paid, str):
+                try:
+                    paid_num = float(raw_paid.replace("₱", "").replace(",", "").strip())
+                except ValueError:
+                    paid_num = 0.0
+            else:
+                paid_num = float(raw_paid or 0.0)
+
+            balance_num = max(0.0, tot_num - paid_num)
+            
+            pax_raw = b.get("pax") or 0
+            try:
+                pax_val = int(pax_raw)
+            except (ValueError, TypeError):
+                pax_val = 0
+
+            ref_id = str(b.get("booking_ref") or b.get("ref_id") or b.get("id") or "—")
+            cust_name = str(b.get("customer_name") or b.get("name") or b.get("client_name") or "—")
+            contact = str(b.get("contact") or b.get("phone") or "—")
+            email = str(b.get("email") or "—")
+            ev_date = str(b.get("event_date") or b.get("date") or "—")
+            ev_time = str(b.get("event_time") or b.get("time") or "—")
+            occasion = str(b.get("occasion") or "—")
+            venue = str(b.get("venue") or "—")
+            status = str(b.get("status") or "PENDING").upper()
+            pay_mode = str(b.get("payment_mode") or "Cash")
+            notes = str(b.get("notes") or "")
+
             rows.append([
-                b.get("ref_id") or b.get("id") or "—",
-                b.get("client_name") or b.get("customer_name") or "—",
-                b.get("contact") or b.get("phone") or "—",
-                b.get("email") or "—",
-                str(b.get("event_date") or ""),
-                str(b.get("event_time") or ""),
-                b.get("occasion") or "—",
-                b.get("venue") or "—",
-                int(b.get("pax") or 0),
-                f"{total_amt:,.2f}",
-                f"{down_amt:,.2f}",
-                f"{balance:,.2f}",
-                str(b.get("status") or "PENDING").upper(),
-                b.get("notes") or ""
+                ref_id,
+                cust_name,
+                contact,
+                email,
+                ev_date,
+                ev_time,
+                occasion,
+                venue,
+                pax_val,
+                f"{tot_num:,.2f}",
+                f"{paid_num:,.2f}",
+                f"{balance_num:,.2f}",
+                status,
+                pay_mode,
+                notes
             ])
 
         if ext in (".xlsx", ".xls"):
@@ -1693,8 +1931,8 @@ class BookingPage(QWidget):
                 ws.title = "Bookings & Orders"
 
                 header_fill = PatternFill(start_color="E11D48", end_color="E11D48", fill_type="solid")
-                header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
-                data_font = Font(name="Arial", size=10)
+                header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+                data_font = Font(name="Calibri", size=10)
                 thin_border = Border(
                     left=Side(style='thin', color='CBD5E1'),
                     right=Side(style='thin', color='CBD5E1'),
@@ -1714,7 +1952,13 @@ class BookingPage(QWidget):
                             cell.alignment = Alignment(horizontal="center", vertical="center")
                         else:
                             cell.font = data_font
-                            cell.alignment = Alignment(vertical="center")
+                            val_str = str(cell.value or "")
+                            if col_idx in (9, 10, 11, 12): # Pax and Currency columns
+                                cell.alignment = Alignment(horizontal="right", vertical="center")
+                            elif col_idx in (1, 5, 6, 13, 14): # Ref, Date, Time, Status, Pay Mode
+                                cell.alignment = Alignment(horizontal="center", vertical="center")
+                            else:
+                                cell.alignment = Alignment(horizontal="left", vertical="center")
 
                 ws.row_dimensions[1].height = 28
                 for r_idx in range(2, len(all_rows) + 1):

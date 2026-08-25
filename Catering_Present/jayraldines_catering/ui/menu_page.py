@@ -10,6 +10,7 @@ from PySide6.QtGui import QColor, QFont
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
 from components.dialogs import confirm, success, prompt_file_saved
+from utils.animations import animate_dialog_open
 from utils.theme import ThemeManager
 import utils.menu_store as menu_store
 import utils.repository as repo
@@ -281,31 +282,150 @@ class AddMenuItemDialog(QDialog):
         return self._result
 
 
+class QuickAddDishDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add New Dish to Menu")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setModal(True)
+        self.resize(440, 340)
+        self._result = None
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 12, 12, 12)
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(22, 20, 22, 20)
+        lay.setSpacing(14)
+
+        h_row = QHBoxLayout()
+        title = QLabel("Add New Dish")
+        title.setObjectName("h3")
+        h_row.addWidget(title)
+        h_row.addStretch()
+        c_btn = QPushButton()
+        c_btn.setIcon(get_icon("close", color="#9CA3AF", size=QSize(14, 14)))
+        c_btn.setFixedSize(26, 26)
+        c_btn.setStyleSheet("background: transparent; border: none;")
+        c_btn.clicked.connect(self.reject)
+        h_row.addWidget(c_btn)
+        lay.addLayout(h_row)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        lay.addWidget(div)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        self.f_name = QLineEdit()
+        self.f_name.setPlaceholderText("e.g. Garlic Butter Shrimp")
+        form.addRow("Dish Name *", self.f_name)
+
+        self.f_cat = QComboBox()
+        self.f_cat.addItems(["Beef", "Pork", "Chicken", "Seafood", "Pasta / Noodles", "Vegetables", "Dessert", "Beverage", "Rice", "Appetizer", "Other"])
+        form.addRow("Category", self.f_cat)
+
+        self.f_price = QDoubleSpinBox()
+        self.f_price.setPrefix("₱ ")
+        self.f_price.setRange(0, 999999)
+        self.f_price.setDecimals(2)
+        self.f_price.setValue(350.0)
+        form.addRow("Base Price", self.f_price)
+
+        lay.addLayout(form)
+
+        self.err_lbl = QLabel()
+        self.err_lbl.setStyleSheet("color: #E11D48; font-size: 11px;")
+        self.err_lbl.hide()
+        lay.addWidget(self.err_lbl)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("Save & Include")
+        save.setObjectName("primaryButton")
+        save.clicked.connect(self._save)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(card)
+
+    def _save(self):
+        name = self.f_name.text().strip()
+        if not name:
+            self.err_lbl.setText("Dish name is required.")
+            self.err_lbl.show()
+            return
+        data = {
+            "item": name,
+            "category": self.f_cat.currentText(),
+            "package": "Standard Package",
+            "price": self.f_price.value(),
+            "status": "Available",
+            "description": "",
+        }
+        item_id = repo.add_menu_item(data)
+        if item_id:
+            data["id"] = item_id
+            self._result = data
+            self.accept()
+        else:
+            self.err_lbl.setText("Failed to save dish.")
+            self.err_lbl.show()
+
+    def get_result(self):
+        return self._result
+
+
 class PackageDialog(QDialog):
     def __init__(self, parent=None, pkg_data=None):
         super().__init__(parent)
         self._edit_mode = pkg_data is not None
         self._pkg_data = pkg_data or {}
-        self._pkg_id = self._pkg_data.get("id")
+        self._pkg_id = self._pkg_data.get("id") or self._pkg_data.get("pkg_id")
         self.setWindowTitle("Edit Package" if self._edit_mode else "Add Package")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setMinimumWidth(720)
         self.setModal(True)
+
+        from PySide6.QtWidgets import QApplication
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            target_w = min(760, max(540, int(avail.width() * 0.90)))
+            target_h = min(680, max(460, int(avail.height() * 0.88)))
+            self.resize(target_w, target_h)
+            self.setMinimumSize(min(520, target_w), min(420, target_h))
+            self.setMaximumSize(avail.width(), avail.height())
+        else:
+            self.resize(720, 580)
+            self.setMinimumSize(540, 420)
+
         self._result = None
         self._item_rows = []
+        self._existing_item_ids = {}
         self._build_ui()
         self._load_menu_items()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        animate_dialog_open(self, duration=240, auto_center=True)
+
     def _build_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setContentsMargins(12, 12, 12, 12)
 
         container = QFrame()
         container.setObjectName("card")
         lay = QVBoxLayout(container)
-        lay.setContentsMargins(28, 24, 28, 24)
-        lay.setSpacing(16)
+        lay.setContentsMargins(24, 20, 24, 18)
+        lay.setSpacing(12)
 
         header = QHBoxLayout()
         title = QLabel("Edit Package" if self._edit_mode else "Add Package")
@@ -328,7 +448,7 @@ class PackageDialog(QDialog):
         lay.addWidget(div)
 
         form = QFormLayout()
-        form.setSpacing(12)
+        form.setSpacing(10)
         form.setLabelAlignment(Qt.AlignRight)
         form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
@@ -359,7 +479,7 @@ class PackageDialog(QDialog):
 
         self.desc_field = QTextEdit()
         self.desc_field.setPlaceholderText("Describe what's included in this package...")
-        self.desc_field.setFixedHeight(72)
+        self.desc_field.setFixedHeight(60)
         if self._edit_mode:
             self.desc_field.setPlainText(self._pkg_data.get("description", ""))
 
@@ -368,22 +488,38 @@ class PackageDialog(QDialog):
         form.addRow(QLabel("Description"), self.desc_field)
         lay.addLayout(form)
 
+        # Header for Items section with counter & quick-add
+        items_hdr_row = QHBoxLayout()
         items_lbl = QLabel("Included Menu Items")
-        items_lbl.setStyleSheet("font-weight: 600; font-size: 13px; margin-top: 4px;")
-        lay.addWidget(items_lbl)
+        items_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
+        items_hdr_row.addWidget(items_lbl)
 
-        hint = QLabel("Check items to include in this package and set a custom price per item.")
-        hint.setStyleSheet("color: #9CA3AF; font-size: 12px;")
-        lay.addWidget(hint)
+        self._count_badge = QLabel("0 selected")
+        self._count_badge.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 600;")
+        items_hdr_row.addWidget(self._count_badge)
+        items_hdr_row.addStretch()
+
+        self.search_dishes = QLineEdit()
+        self.search_dishes.setPlaceholderText("Filter dishes...")
+        self.search_dishes.setFixedWidth(160)
+        self.search_dishes.textChanged.connect(self._filter_items)
+        items_hdr_row.addWidget(self.search_dishes)
+
+        add_dish_btn = QPushButton("+ New Dish")
+        add_dish_btn.setObjectName("secondaryButton")
+        add_dish_btn.setCursor(Qt.PointingHandCursor)
+        add_dish_btn.setToolTip("Add a brand new dish to the menu and include it in this package")
+        add_dish_btn.clicked.connect(self._quick_add_dish)
+        items_hdr_row.addWidget(add_dish_btn)
+        lay.addLayout(items_hdr_row)
 
         _is_light = not ThemeManager().is_dark()
         _sf_border = "#E2E8F0" if _is_light else "#374151"
         self._row_hover = "#F1F5F9" if _is_light else "#1F2937"
-        _row_hover = self._row_hover
+
         scroll_frame = QFrame()
         scroll_frame.setObjectName("card")
         scroll_frame.setStyleSheet(f"#card {{ border: 1px solid {_sf_border}; border-radius: 8px; }}")
-        scroll_frame.setFixedHeight(260)
         scroll_frame_lay = QVBoxLayout(scroll_frame)
         scroll_frame_lay.setContentsMargins(0, 0, 0, 0)
 
@@ -394,13 +530,12 @@ class PackageDialog(QDialog):
 
         self._items_container = QWidget()
         self._items_layout = QVBoxLayout(self._items_container)
-        self._items_layout.setContentsMargins(12, 8, 12, 8)
+        self._items_layout.setContentsMargins(10, 6, 10, 6)
         self._items_layout.setSpacing(2)
-        self._items_layout.addStretch()
 
         scroll.setWidget(self._items_container)
         scroll_frame_lay.addWidget(scroll)
-        lay.addWidget(scroll_frame)
+        lay.addWidget(scroll_frame, 1)
 
         self._err = QLabel("")
         self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
@@ -426,43 +561,73 @@ class PackageDialog(QDialog):
 
         outer.addWidget(container)
 
+    def _update_count_badge(self):
+        cnt = sum(1 for r in self._item_rows if r["chk"].isChecked())
+        self._count_badge.setText(f"{cnt} selected")
+
+    def _filter_items(self, query: str):
+        q = (query or "").strip().lower()
+        for r in self._item_rows:
+            visible = (q in r["name"].lower()) or (q in r["category"].lower())
+            r["widget"].setVisible(visible)
+
+    def _quick_add_dish(self):
+        dlg = QuickAddDishDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            new_dish = dlg.get_result()
+            if new_dish:
+                # Add to existing item rows and check it
+                self._existing_item_ids[new_dish["id"]] = float(new_dish.get("price", 0))
+                self._load_menu_items()
+
     def _load_menu_items(self):
-        all_items = repo.get_all_menu_items()
-        existing = {}
-        if self._edit_mode and self._pkg_id:
+        # Clear existing layout
+        while self._items_layout.count():
+            it = self._items_layout.takeAt(0)
+            if it.widget():
+                it.widget().hide()
+                it.widget().deleteLater()
+
+        self._item_rows = []
+        all_items = repo.get_all_menu_items() or []
+        
+        if self._edit_mode and self._pkg_id and not self._existing_item_ids:
             for row in repo.get_package_items(self._pkg_id):
-                existing[row["menu_item_id"]] = float(row["custom_price"])
+                self._existing_item_ids[row["menu_item_id"]] = float(row["custom_price"])
 
         categories = {}
         for item in all_items:
             cat = item.get("category", "Other")
             categories.setdefault(cat, []).append(item)
 
-        stretch = self._items_layout.takeAt(self._items_layout.count() - 1)
-
         for cat, items in sorted(categories.items()):
-            cat_lbl = QLabel(cat)
-            cat_lbl.setStyleSheet("color: #6B7280; font-size: 11px; font-weight: 600; padding: 6px 0 2px 0;")
+            cat_lbl = QLabel(cat.upper())
+            cat_lbl.setStyleSheet("color: #94A3B8; font-size: 10px; font-weight: 700; padding: 6px 4px 2px 4px; letter-spacing: 0.5px;")
             self._items_layout.addWidget(cat_lbl)
 
             for item in items:
                 item_id = item.get("id")
-                row_widget = QWidget()
-                row_widget.setStyleSheet(f"QWidget {{ border-radius: 4px; }} QWidget:hover {{ background: {self._row_hover}; }}")
+                item_name = item.get("item", "")
+                base_price = float(item.get("price", 0))
+                is_checked = item_id in self._existing_item_ids
+
+                row_widget = QFrame()
+                row_widget.setCursor(Qt.PointingHandCursor)
+                row_widget.setStyleSheet(f"QFrame {{ border-radius: 4px; background: transparent; }} QFrame:hover {{ background: {self._row_hover}; }}")
                 row_lay = QHBoxLayout(row_widget)
-                row_lay.setContentsMargins(4, 4, 4, 4)
+                row_lay.setContentsMargins(6, 4, 6, 4)
                 row_lay.setSpacing(10)
 
                 chk = QCheckBox()
-                chk.setChecked(item_id in existing)
+                chk.setChecked(is_checked)
                 row_lay.addWidget(chk)
 
-                name_lbl = QLabel(item.get("item", ""))
-                name_lbl.setMinimumWidth(180)
+                name_lbl = QLabel(item_name)
+                name_lbl.setStyleSheet("font-weight: 600; font-size: 13px;")
                 name_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
                 row_lay.addWidget(name_lbl)
 
-                orig_price_lbl = QLabel(f"(Base: ₱{float(item.get('price', 0)):,.2f})")
+                orig_price_lbl = QLabel(f"(Base: ₱{base_price:,.2f})")
                 orig_price_lbl.setStyleSheet("color: #6B7280; font-size: 11px;")
                 row_lay.addWidget(orig_price_lbl)
 
@@ -471,31 +636,30 @@ class PackageDialog(QDialog):
                 custom_price.setRange(0, 9999999)
                 custom_price.setDecimals(2)
                 custom_price.setSingleStep(50)
-                custom_price.setFixedWidth(130)
-                custom_price.setToolTip("Custom price for this item in the package")
-                if item_id in existing:
-                    custom_price.setValue(existing[item_id])
-                else:
-                    custom_price.setValue(float(item.get("price", 0)))
+                custom_price.setFixedWidth(120)
+                custom_price.setToolTip("Custom price for this item in this package")
+                
+                saved_price = self._existing_item_ids.get(item_id, base_price)
+                custom_price.setValue(saved_price)
+                custom_price.setEnabled(is_checked)
 
-                def _toggle_price(state, sp=custom_price):
-                    sp.setEnabled(bool(state))
+                chk.toggled.connect(custom_price.setEnabled)
+                chk.toggled.connect(self._update_count_badge)
 
-                chk.stateChanged.connect(_toggle_price)
-                custom_price.setEnabled(item_id in existing)
                 row_lay.addWidget(custom_price)
-
                 self._items_layout.addWidget(row_widget)
+
                 self._item_rows.append({
-                    "item_id": item_id,
-                    "chk": chk,
+                    "item_id":    item_id,
+                    "name":       item_name,
+                    "category":   cat,
+                    "chk":        chk,
                     "price_spin": custom_price,
+                    "widget":     row_widget,
                 })
 
-        if stretch:
-            self._items_layout.addItem(stretch)
-        else:
-            self._items_layout.addStretch()
+        self._items_layout.addStretch()
+        self._update_count_badge()
 
     def _save(self):
         name = self.name_field.text().strip()

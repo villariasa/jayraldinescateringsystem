@@ -29,7 +29,8 @@ def create_installer():
             "QtOpenGL.pyd", "QtOpenGLWidgets.pyd", "Qt6Charts.dll",
             "Qt6ChartsQml.dll", "QtCharts.pyd", "pyside6.abi3.dll",
             "Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll",
-            "Qt6Network.dll", "Qt6PrintSupport.dll", "Qt6Svg.dll"
+            "Qt6Network.dll", "Qt6PrintSupport.dll", "Qt6Svg.dll",
+            "PySide6.dll", "shiboken6.dll"
         ]
         for f in CRITICAL_DLLS:
             s_file = pyside_src / f

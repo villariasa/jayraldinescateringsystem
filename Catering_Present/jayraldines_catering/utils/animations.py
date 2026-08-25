@@ -92,8 +92,34 @@ def _scaled_rect(rect: QRect, scale: float) -> QRect:
     return QRect(center.x() - width // 2, center.y() - height // 2, width, height)
 
 
-def animate_dialog_open(dialog, duration=240):
-    """Subtle modal scale/fade-in without changing the app theme."""
+def center_dialog_on_window(dialog):
+    """Centers a dialog horizontally and vertically over the top-level MainWindow or screen."""
+    from PySide6.QtWidgets import QApplication
+    top_win = None
+    if dialog.parent():
+        top_win = dialog.parent().window()
+    if not top_win or top_win == dialog:
+        top_win = QApplication.activeWindow()
+
+    if top_win and top_win != dialog:
+        win_rect = top_win.geometry()
+        x = win_rect.x() + (win_rect.width() - dialog.width()) // 2
+        y = win_rect.y() + (win_rect.height() - dialog.height()) // 2
+        dialog.move(x, y)
+    else:
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            x = avail.x() + (avail.width() - dialog.width()) // 2
+            y = avail.y() + (avail.height() - dialog.height()) // 2
+            dialog.move(x, y)
+
+
+def animate_dialog_open(dialog, duration=240, auto_center=True):
+    """Subtle modal scale/fade-in with automatic true centering over MainWindow."""
+    if auto_center:
+        center_dialog_on_window(dialog)
+
     def run():
         final_rect = dialog.geometry()
         if final_rect.width() <= 1 or final_rect.height() <= 1:

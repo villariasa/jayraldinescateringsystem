@@ -48,12 +48,26 @@ class _ExportWorker(QObject):
                     if ey == y and em == m:
                         day_map[ed] = [
                             {
-                                "event_name": ev.get("name") or ev.get("event_name", ""),
-                                "pax":        ev.get("pax", 0),
-                                "time":       ev.get("time", "6:00 PM"),
-                                "location":   ev.get("loc") or ev.get("venue", "—"),
-                                "ref":        ev.get("ref", "—"),
-                                "status":     ev.get("status", "CONFIRMED"),
+                                **ev,
+                                "event_name":    ev.get("name") or ev.get("customer_name", ""),
+                                "customer_name": ev.get("customer_name") or ev.get("name", ""),
+                                "occasion":      ev.get("occasion") or "",
+                                "pax":           ev.get("pax", 0),
+                                "time":          ev.get("time", "6:00 PM"),
+                                "location":      ev.get("loc") or ev.get("venue", "—"),
+                                "venue":         ev.get("venue") or ev.get("loc", "—"),
+                                "address":       ev.get("address", ""),
+                                "menu":          ev.get("menu") or ev.get("package_name", "—"),
+                                "notes":         ev.get("notes") or ev.get("theme") or "",
+                                "theme":         ev.get("theme") or ev.get("notes") or "",
+                                "description_theme": ev.get("description_theme") or ev.get("notes") or ev.get("theme") or "",
+                                "color_theme":   ev.get("color_theme") or ev.get("color") or "#2563EB",
+                                "color":         ev.get("color_theme") or ev.get("color") or "#2563EB",
+                                "total_amount":  ev.get("total_amount", 0.0),
+                                "amount_paid":   ev.get("amount_paid", 0.0),
+                                "balance":       ev.get("balance", 0.0),
+                                "ref":           ev.get("ref", "—"),
+                                "status":        ev.get("status", "CONFIRMED"),
                             }
                             for ev in ev_list
                         ]

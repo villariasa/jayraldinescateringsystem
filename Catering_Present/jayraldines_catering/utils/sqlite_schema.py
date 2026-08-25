@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     bk_package_id INTEGER REFERENCES packages(pkg_id),
     bk_notes TEXT,
     bk_status TEXT DEFAULT 'PENDING',
+    bk_color_theme TEXT DEFAULT '#2563EB',
     bk_cancellation_reason TEXT,
     bk_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -655,6 +656,20 @@ def init_sqlite_db(conn: sqlite3.Connection):
                 (name, desc, price, min_pax)
             )
 
+    # Seed Default Occasions if empty
+    cursor.execute("SELECT COUNT(*) FROM occasions")
+    if cursor.fetchone()[0] == 0:
+        log.info("Seeding default occasions...")
+        default_occasions = [
+            "Wedding", "Birthday", "Debut", "Corporate Event", "Anniversary",
+            "Christening", "Graduation", "Holiday Party"
+        ]
+        for occ in default_occasions:
+            cursor.execute(
+                "INSERT OR IGNORE INTO occasions (occ_name, occ_is_active) VALUES (?, 1)",
+                (occ,)
+            )
+
     # Seed Default Menu Items if empty
     cursor.execute("SELECT COUNT(*) FROM menu_items")
     if cursor.fetchone()[0] == 0:
@@ -743,6 +758,15 @@ def init_sqlite_db(conn: sqlite3.Connection):
                     (cat, desc, amt, dt, dt)
                 )
         cursor.execute("INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES ('expenses_initial_seed_done', '1')")
+
+    # Ensure bk_color_theme column exists in bookings table
+    try:
+        cursor.execute("PRAGMA table_info(bookings)")
+        bk_cols = [r[1] for r in cursor.fetchall()]
+        if "bk_color_theme" not in bk_cols:
+            cursor.execute("ALTER TABLE bookings ADD COLUMN bk_color_theme TEXT DEFAULT '#2563EB'")
+    except Exception as exc:
+        log.warning(f"Error checking/adding bk_color_theme column: {exc}")
 
     # Automatically and silently merge any duplicate customers and remove duplicate bookings
     try:

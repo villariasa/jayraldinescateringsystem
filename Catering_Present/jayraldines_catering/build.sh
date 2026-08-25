@@ -393,10 +393,12 @@ a = Analysis(
         "ui.customers_page",
         "ui.menu_page",
         "ui.calendar_page",
+        "ui.cash_flow_page",
         "ui.kitchen_page",
         "ui.billing_page",
         "ui.reports_page",
         "ui.expenses_page",
+        "ui.inventory_page",
         "ui.ai_page",
         "ui.settings_page",
         # Components

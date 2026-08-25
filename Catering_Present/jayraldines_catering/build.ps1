@@ -178,10 +178,12 @@ a = Analysis(
         'ui.customers_page',
         'ui.menu_page',
         'ui.calendar_page',
+        'ui.cash_flow_page',
         'ui.kitchen_page',
         'ui.billing_page',
         'ui.reports_page',
         'ui.expenses_page',
+        'ui.inventory_page',
         'ui.ai_page',
         'ui.settings_page',
         # Components
@@ -342,12 +344,12 @@ Print-Step "Step 7 - Writing Inno Setup Installer Script"
 
 $iss  = "[Setup]`r`n"
 $iss += "AppName=Jayraldines Catering`r`n"
-$iss += "AppVersion=4.0.6`r`n"
+$iss += "AppVersion=4.1.1`r`n"
 $iss += "AppPublisher=Jayraldines Catering`r`n"
 $iss += "DefaultDirName={autopf}\JayraldinesCatering`r`n"
 $iss += "DefaultGroupName=Jayraldines Catering`r`n"
 $iss += "OutputDir=installer_output`r`n"
-$iss += "OutputBaseFilename=JayraldinesSetup_v4.0.6`r`n"
+$iss += "OutputBaseFilename=JayraldinesSetup_v4.1.1`r`n"
 if (Test-Path "assets\logo.ico") {
     $iss += "SetupIconFile=assets\logo.ico`r`n"
 }

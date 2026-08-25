@@ -86,11 +86,101 @@ def build_user_bubble(question: str) -> QWidget:
     return wrap
 
 
+import re
+
+
+def format_ai_text(text: str, is_dark: bool) -> str:
+    if not text:
+        return ""
+    # Escape basic html entities
+    html = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Convert **bold** to <b>bold</b>
+    html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', html)
+    # Convert *italic* to <i>italic</i>
+    html = re.sub(r'\*(.+?)\*', r'<i>\1</i>', html)
+    # Convert `code` to formatted monospace span
+    code_bg = "#1E293B" if is_dark else "#F1F5F9"
+    code_col = "#38BDF8" if is_dark else "#0284C7"
+    html = re.sub(r'`(.+?)`', rf'<span style="background:{code_bg}; color:{code_col}; font-family:monospace; padding:1px 4px; border-radius:3px;">\1</span>', html)
+    # Convert newlines to <br/>
+    html = html.replace("\n", "<br/>")
+    return html
+
+
+class TypewriterLabel(QLabel):
+    typing_finished = Signal()
+    step_typed = Signal()
+
+    def __init__(self, full_text: str, animate: bool = True, parent=None):
+        super().__init__(parent)
+        self.setWordWrap(True)
+        self.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._full_text = full_text or ""
+        self._is_dark = _is_dark()
+        self._text_color = '#F9FAFB' if self._is_dark else '#0F172A'
+        self.setStyleSheet(f"font-size: 13px; line-height: 140%; color: {self._text_color};")
+        
+        self._current_len = 0
+        self._total_len = len(self._full_text)
+        
+        if not animate or self._total_len == 0:
+            self._render_text(self._full_text, cursor=False)
+            QTimer.singleShot(0, self.typing_finished.emit)
+        else:
+            self.setCursor(Qt.PointingHandCursor)
+            self._timer = QTimer(self)
+            self._timer.setInterval(14)
+            self._timer.timeout.connect(self._on_tick)
+            
+            # Adaptive typing speed: feels organic and finishes in 1-2.5 seconds
+            if self._total_len < 60:
+                self._step = 1
+            elif self._total_len < 160:
+                self._step = 2
+            elif self._total_len < 380:
+                self._step = 3
+            else:
+                self._step = max(4, self._total_len // 90)
+                
+            self._render_text("", cursor=True)
+            self._timer.start()
+
+    def _render_text(self, sub_text: str, cursor: bool = False):
+        formatted = format_ai_text(sub_text, self._is_dark)
+        if cursor:
+            cur_color = AccentManager().current
+            formatted += f' <span style="color:{cur_color}; font-weight:bold; font-size:13px;">▌</span>'
+        self.setText(formatted)
+
+    def _on_tick(self):
+        self._current_len += self._step
+        if self._current_len >= self._total_len:
+            self._current_len = self._total_len
+            self._timer.stop()
+            self._render_text(self._full_text, cursor=False)
+            self.setCursor(Qt.ArrowCursor)
+            self.step_typed.emit()
+            self.typing_finished.emit()
+        else:
+            self._render_text(self._full_text[:self._current_len], cursor=True)
+            self.step_typed.emit()
+
+    def mousePressEvent(self, event):
+        if hasattr(self, "_timer") and self._timer.isActive():
+            self._timer.stop()
+            self._render_text(self._full_text, cursor=False)
+            self.setCursor(Qt.ArrowCursor)
+            self.step_typed.emit()
+            self.typing_finished.emit()
+        super().mousePressEvent(event)
+
+
 def build_ai_card(answer: str, chart_spec: dict | None = None,
                   error: str = "", action: dict | None = None,
                   options: list | None = None, on_option_send=None,
-                  on_action_result=None) -> QWidget:
-    """Renders an AI answer card with Chef Jay AI Profile Avatar."""
+                  on_action_result=None, animate_typing: bool = True,
+                  on_scroll_request=None) -> QWidget:
+    """Renders an AI answer card with Chef Jay AI Profile Avatar and typing animation."""
     card = QFrame()
     card.setObjectName("card")
     main_lay = QVBoxLayout(card)
@@ -145,6 +235,8 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
     div.setFixedHeight(1)
     main_lay.addWidget(div)
 
+    extra_widgets = []
+
     # Body Content
     if error:
         lbl = QLabel(error)
@@ -152,19 +244,20 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
         lbl.setStyleSheet("color: #DC2626; font-size: 13px;")
         main_lay.addWidget(lbl)
     else:
-        lbl = QLabel(answer or "(no answer)")
-        lbl.setWordWrap(True)
-        lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        lbl.setStyleSheet(f"font-size: 13px; line-height: 140%; color: {'#F9FAFB' if dark else '#0F172A'};")
+        type_anim = animate_typing and bool(answer and answer.strip())
+        lbl = TypewriterLabel(answer or "(no answer)", animate=type_anim)
         main_lay.addWidget(lbl)
 
         if chart_spec:
             chart_view = _build_chart(chart_spec)
             if chart_view is not None:
                 main_lay.addWidget(chart_view)
+                extra_widgets.append(chart_view)
 
         if options:
-            opt_col = QVBoxLayout()
+            opt_col_w = QWidget()
+            opt_col = QVBoxLayout(opt_col_w)
+            opt_col.setContentsMargins(0, 0, 0, 0)
             opt_col.setSpacing(6)
             for opt in options:
                 label = opt.get("label", "")
@@ -175,9 +268,14 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
                 if on_option_send:
                     ob.clicked.connect(lambda _, s=opt.get("send", ""): on_option_send(s))
                 opt_col.addWidget(ob)
-            main_lay.addLayout(opt_col)
+            main_lay.addWidget(opt_col_w)
+            extra_widgets.append(opt_col_w)
 
         if action:
+            act_w = QWidget()
+            act_lay = QVBoxLayout(act_w)
+            act_lay.setContentsMargins(0, 0, 0, 0)
+            act_lay.setSpacing(6)
             btn_row = QHBoxLayout()
             btn_row.setSpacing(8)
             btn_row.addStretch()
@@ -189,12 +287,14 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
             confirm_btn.setCursor(Qt.PointingHandCursor)
             btn_row.addWidget(dismiss_btn)
             btn_row.addWidget(confirm_btn)
-            main_lay.addLayout(btn_row)
+            act_lay.addLayout(btn_row)
 
             feedback_lbl = QLabel()
             feedback_lbl.setWordWrap(True)
             feedback_lbl.setVisible(False)
-            main_lay.addWidget(feedback_lbl)
+            act_lay.addWidget(feedback_lbl)
+            main_lay.addWidget(act_w)
+            extra_widgets.append(act_w)
 
             def _on_confirm():
                 confirm_btn.setEnabled(False)
@@ -231,7 +331,10 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
             confirm_btn.clicked.connect(_on_confirm)
             dismiss_btn.clicked.connect(_on_cancel)
 
-    # Footer Action Buttons (Copy, Like)
+        if on_scroll_request:
+            lbl.step_typed.connect(on_scroll_request)
+
+    # Footer Action Buttons (Copy)
     footer_row = QHBoxLayout()
     footer_row.setSpacing(6)
     footer_row.addStretch()
@@ -248,8 +351,20 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
 
     copy_btn.clicked.connect(_copy_answer)
     footer_row.addWidget(copy_btn)
-
     main_lay.addLayout(footer_row)
+
+    if not error and animate_typing and extra_widgets:
+        for ew in extra_widgets:
+            ew.setVisible(False)
+
+        def _reveal_extras():
+            for ew in extra_widgets:
+                ew.setVisible(True)
+            if on_scroll_request:
+                on_scroll_request()
+
+        lbl.typing_finished.connect(_reveal_extras)
+
     return card
 
 
@@ -509,6 +624,11 @@ class GlobalAIChatDrawer(QFrame):
         except Exception:
             pass
 
+    def _scroll_to_bottom(self):
+        self._scroll.verticalScrollBar().setValue(
+            self._scroll.verticalScrollBar().maximum()
+        )
+
     def _on_alarm_fired(self, entry: dict):
         msg = entry.get("message", "Alarm")
         target_dt = entry.get("target_dt")
@@ -524,15 +644,15 @@ class GlobalAIChatDrawer(QFrame):
             {"label": "Snooze 10 mins", "send": "snooze 10 minutes"},
             {"label": "Dismiss", "send": "ok"}
         ]
-        card = build_ai_card(ans, None, options=options, on_option_send=self.ask)
+        card = build_ai_card(ans, None, options=options, on_option_send=self.ask,
+                              animate_typing=True, on_scroll_request=self._scroll_to_bottom)
         self._add_to_feed(card)
         if self._mascot_widget and hasattr(self._mascot_widget, "mascot"):
             self._mascot_widget.mascot.set_state("surprised")
 
     def _add_to_feed(self, w: QWidget):
         self._feed.insertWidget(self._feed.count() - 1, w)
-        QTimer.singleShot(60, lambda: self._scroll.verticalScrollBar().setValue(
-            self._scroll.verticalScrollBar().maximum()))
+        QTimer.singleShot(60, self._scroll_to_bottom)
 
     def ask(self, question: str):
         question = (question or "").strip()
@@ -599,14 +719,17 @@ class GlobalAIChatDrawer(QFrame):
                 except Exception:
                     pass
             # Post a follow-up card confirming the action execution in conversational style
-            followup_card = build_ai_card(msg, None, error="" if is_ok else msg, on_option_send=self.ask)
+            followup_card = build_ai_card(msg, None, error="" if is_ok else msg, on_option_send=self.ask,
+                                          animate_typing=True, on_scroll_request=self._scroll_to_bottom)
             self._add_to_feed(followup_card)
 
         card = build_ai_card(
             result.get("answer", ""), result.get("chart"),
             result.get("error", ""), result.get("action"),
             result.get("options"), on_option_send=self.ask,
-            on_action_result=_on_action_done
+            on_action_result=_on_action_done,
+            animate_typing=True,
+            on_scroll_request=self._scroll_to_bottom
         )
         self._add_to_feed(card)
 

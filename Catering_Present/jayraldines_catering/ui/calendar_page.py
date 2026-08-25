@@ -28,13 +28,13 @@ class DayCell(QFrame):
         self.day_num = day_num
         self.is_current_month = is_current_month
         
-        # Responsive sizing instead of fixed
-        self.setMinimumSize(100, 100)
+        # Responsive sizing
+        self.setMinimumSize(100, 110)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(8, 8, 8, 8)
-        self.layout.setSpacing(4)
+        self.layout.setContentsMargins(5, 5, 5, 5)
+        self.layout.setSpacing(2)
 
         if not is_current_month or day_num == 0:
             # Empty filler cell
@@ -43,36 +43,130 @@ class DayCell(QFrame):
             self.setObjectName("dayCell")
             self.setProperty("active", False)
             
-            # Date Number
+            # Top Header Row: Day Number (left) & Pax Tag (right)
+            self.top_row = QHBoxLayout()
+            self.top_row.setContentsMargins(0, 0, 0, 0)
+            self.top_row.setSpacing(4)
+
             self.lbl_day = QLabel(str(day_num))
             self.lbl_day.setObjectName("dayNumber")
-            self.layout.addWidget(self.lbl_day, alignment=Qt.AlignTop | Qt.AlignLeft)
+            self.top_row.addWidget(self.lbl_day)
 
-            # Placeholders for tags
+            self.lbl_pax_tag = QLabel("")
+            self.lbl_pax_tag.setAlignment(Qt.AlignCenter)
+            self.lbl_pax_tag.hide()
+            self.top_row.addWidget(self.lbl_pax_tag)
+
+            self.top_row.addStretch()
+            self.layout.addLayout(self.top_row)
+
+            # Container for event item widgets
+            self.events_box = QVBoxLayout()
+            self.events_box.setContentsMargins(0, 0, 0, 0)
+            self.events_box.setSpacing(2)
+            self.layout.addLayout(self.events_box)
+
             self.layout.addStretch()
 
-    def set_data(self, total_pax, booking_count):
-        if not self.is_current_month or self.day_num == 0 or total_pax == 0:
+    def set_events(self, events):
+        if not self.is_current_month or self.day_num == 0 or not events:
             return
 
-        # 1. Pax Tag
-        pax_tag = QLabel(f"{total_pax} Pax")
-        pax_tag.setAlignment(Qt.AlignCenter)
-        
-        if total_pax >= 600:
-            pax_tag.setStyleSheet("background-color: rgba(248,113,113,0.15); color: #f87171; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
-        elif total_pax >= 400:
-            pax_tag.setStyleSheet("background-color: rgba(197,164,109,0.15); color: #c5a46d; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
-        else:
-            pax_tag.setStyleSheet("background-color: rgba(110,231,183,0.15); color: #6ee7b7; font-weight: 700; font-size: 11px; padding: 4px; border-radius: 4px;")
-            
-        self.layout.insertWidget(1, pax_tag)
+        total_pax = sum(int(e.get("pax", 0) or 0) for e in events)
+        d_count = len(events)
 
-        # 2. Booking Count
-        count_lbl = QLabel(f"{booking_count} Booking{'s' if booking_count > 1 else ''}")
-        count_lbl.setObjectName("bookingCount")
-        count_lbl.setStyleSheet("color: #9aa0a6; font-size: 11px; font-weight: 600;")
-        self.layout.insertWidget(2, count_lbl)
+        # 1. Update Header Pax Tag on the top right
+        self.lbl_pax_tag.setText(f"{total_pax}p")
+        self.lbl_pax_tag.show()
+        if total_pax >= 600:
+            self.lbl_pax_tag.setStyleSheet("background-color: rgba(248,113,113,0.22); color: #f87171; font-weight: 700; font-size: 9.5px; padding: 1px 4px; border-radius: 3px;")
+        elif total_pax >= 400:
+            self.lbl_pax_tag.setStyleSheet("background-color: rgba(197,164,109,0.22); color: #c5a46d; font-weight: 700; font-size: 9.5px; padding: 1px 4px; border-radius: 3px;")
+        else:
+            self.lbl_pax_tag.setStyleSheet("background-color: rgba(110,231,183,0.22); color: #6ee7b7; font-weight: 700; font-size: 9.5px; padding: 1px 4px; border-radius: 3px;")
+
+        # Clear any existing event items
+        while self.events_box.count():
+            item = self.events_box.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Display ALL booking items without truncating or hiding behind +X more
+        border_colors = ["#38BDF8", "#F59E0B", "#34D399", "#A855F7", "#F43F5E", "#06B6D4", "#EC4899"]
+        N = len(events)
+        is_compact = (N >= 3)
+        is_ultra = (N >= 5)
+
+        for idx, ev in enumerate(events):
+            occ = str(ev.get("occasion") or ev.get("name") or ev.get("customer_name") or "EVENT").strip().upper()
+            t_raw = ev.get("time") or ev.get("event_time") or ""
+            t_short = self._format_time_short(t_raw)
+            pax = int(ev.get("pax", 0) or 0)
+
+            b_col = ev.get("color_theme") or ev.get("color") or border_colors[idx % len(border_colors)]
+            title_txt = f"{occ} {t_short}".strip()
+
+            if is_ultra:
+                html_text = (
+                    f"<div style='line-height:95%; margin:0; padding:0;'>"
+                    f"<span style='font-size:8px; font-weight:700; color:#F1F5F9;'>{title_txt}</span> · "
+                    f"<span style='font-size:7.5px; font-weight:700; color:#38BDF8;'>{pax}p</span>"
+                    f"</div>"
+                )
+                pad = "1px 2px"
+            elif is_compact:
+                html_text = (
+                    f"<div style='line-height:100%; margin:0; padding:0;'>"
+                    f"<span style='font-size:8.5px; font-weight:700; color:#F1F5F9;'>{title_txt}</span><br>"
+                    f"<span style='font-size:7.5px; font-weight:600; color:#94A3B8;'>{pax} PAX</span>"
+                    f"</div>"
+                )
+                pad = "1px 3px"
+            else:
+                html_text = (
+                    f"<div style='line-height:105%; margin:0; padding:0;'>"
+                    f"<span style='font-size:9.5px; font-weight:700; color:#F1F5F9;'>{title_txt}</span><br>"
+                    f"<span style='font-size:8.5px; font-weight:600; color:#94A3B8;'>{pax} PAX</span>"
+                    f"</div>"
+                )
+                pad = "1px 3px"
+
+            item_lbl = QLabel(html_text)
+            item_lbl.setTextFormat(Qt.RichText)
+            item_lbl.setStyleSheet(
+                f"background-color: rgba(255, 255, 255, 0.05); "
+                f"border-left: 2.5px solid {b_col}; "
+                f"border-radius: 3px; "
+                f"padding: {pad}; "
+                f"margin: 0px;"
+            )
+            self.events_box.addWidget(item_lbl)
+
+    def set_data(self, total_pax, booking_count, events=None):
+        if events is not None:
+            self.set_events(events)
+        else:
+            if not self.is_current_month or self.day_num == 0 or booking_count <= 0:
+                return
+            self.lbl_pax_tag.setText(f"{total_pax}p")
+            self.lbl_pax_tag.show()
+
+    @staticmethod
+    def _format_time_short(t_raw) -> str:
+        if not t_raw:
+            return ""
+        if hasattr(t_raw, "strftime"):
+            s = t_raw.strftime("%I:%M %p").lstrip("0")
+        else:
+            s = str(t_raw).strip()
+            for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M%p"):
+                try:
+                    parsed = datetime.strptime(s, fmt).time()
+                    s = parsed.strftime("%I:%M %p").lstrip("0")
+                    break
+                except ValueError:
+                    continue
+        return s.replace(":00 ", " ").replace(" ", "").upper()
 
     def mousePressEvent(self, event):
         if self.is_current_month and self.day_num != 0:
@@ -81,13 +175,15 @@ class DayCell(QFrame):
 
 # --- HELPER: Schedule Item Card ---
 class ScheduleCard(AnimatedCard):
-    def __init__(self, event_name, pax, time, location, source="manual", ref=None, status=None):
+    def __init__(self, event_name, pax, time, location, source="manual", ref=None, status=None,
+                 theme_notes=None, balance=0.0, total_amount=0.0, amount_paid=0.0, color_theme=None):
         super().__init__()
-        border_color = "#3B82F6" if source == "booking" else "#E11D48"
+        border_color = color_theme if color_theme else ("#3B82F6" if source == "booking" else "#E11D48")
         self.setStyleSheet(f"QFrame#card {{ border-left: 4px solid {border_color}; border-radius: 8px; }}")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(6)
 
         top_row = QHBoxLayout()
         title = QLabel(event_name)
@@ -100,21 +196,45 @@ class ScheduleCard(AnimatedCard):
         layout.addLayout(top_row)
 
         if source == "booking" and ref:
+            meta_row = QHBoxLayout()
             ref_lbl = QLabel(f"Booking: {ref}")
-            ref_lbl.setStyleSheet("font-size:11px;color:#3B82F6;font-weight:600;")
-            layout.addWidget(ref_lbl)
-            if status:
-                st_colors = {"CONFIRMED": "#22C55E", "PENDING": "#F59E0B"}
-                st_lbl = QLabel(status.capitalize())
-                st_lbl.setStyleSheet(f"font-size:10px;font-weight:700;color:{st_colors.get(status,'#9CA3AF')};")
-                layout.addWidget(st_lbl)
+            ref_lbl.setStyleSheet("font-size:11px;color:#3B82F6;font-weight:700;")
+            meta_row.addWidget(ref_lbl)
 
-        time_lbl = QLabel(f"Time: {time}")
+            if status:
+                st_colors = {"CONFIRMED": "#22C55E", "PENDING": "#F59E0B", "COMPLETED": "#10B981"}
+                st_lbl = QLabel(f"● {status.capitalize()}")
+                st_lbl.setStyleSheet(f"font-size:11px;font-weight:700;color:{st_colors.get(str(status).upper(),'#9CA3AF')};")
+                meta_row.addWidget(st_lbl)
+            meta_row.addStretch()
+
+            if total_amount > 0:
+                if balance <= 0:
+                    pay_lbl = QLabel("✓ Fully Paid")
+                    pay_lbl.setStyleSheet("font-size:10px;font-weight:700;color:#22C55E;background:rgba(34,197,94,0.12);padding:2px 6px;border-radius:4px;")
+                elif amount_paid > 0:
+                    pay_lbl = QLabel(f"₱ {amount_paid:,.0f} Paid (Bal: ₱{balance:,.0f})")
+                    pay_lbl.setStyleSheet("font-size:10px;font-weight:700;color:#38BDF8;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px;")
+                else:
+                    pay_lbl = QLabel("Unpaid (₱ 0 DP)")
+                    pay_lbl.setStyleSheet("font-size:10px;font-weight:700;color:#F59E0B;background:rgba(245,158,11,0.12);padding:2px 6px;border-radius:4px;")
+                meta_row.addWidget(pay_lbl)
+
+            layout.addLayout(meta_row)
+
+        time_lbl = QLabel(f"🕒 Time: {time}")
         time_lbl.setObjectName("subtitle")
-        loc_lbl = QLabel(f"Venue: {location}")
+        loc_lbl = QLabel(f"📍 Venue: {location}")
         loc_lbl.setObjectName("subtitle")
+        loc_lbl.setWordWrap(True)
         layout.addWidget(time_lbl)
         layout.addWidget(loc_lbl)
+
+        if theme_notes and theme_notes != "Standard Setup":
+            theme_lbl = QLabel(f"🎨 Theme/Notes: {theme_notes}")
+            theme_lbl.setStyleSheet("font-size:11px;color:#C084FC;font-style:italic;")
+            theme_lbl.setWordWrap(True)
+            layout.addWidget(theme_lbl)
 
 # --- MANAGE DAY SCHEDULE DIALOG ---
 class ManageScheduleDialog(QDialog):
@@ -503,6 +623,9 @@ class CalendarPage(QWidget):
         try:
             from utils.signals import app_events
             app_events().booking_saved.connect(self._mark_dirty)
+            app_events().booking_created.connect(self._mark_dirty)
+            app_events().booking_updated.connect(self._mark_dirty)
+            app_events().payment_recorded.connect(self._mark_dirty)
             app_events().data_changed.connect(self._mark_dirty)
         except Exception:
             pass
@@ -594,13 +717,16 @@ class CalendarPage(QWidget):
                 db_key = (self.current_year, self.current_month, day_num)
                 if db_key in self._db_cache:
                     events = self._db_cache[db_key]
-                    total_pax = sum(e["pax"] for e in events)
-                    cell.set_data(total_pax, len(events))
+                    cell.set_events(events)
 
                 cell.clicked.connect(self.on_day_clicked)
                 self.grid.addWidget(cell, row, col)
                 self.cells.append(cell)
+            self.grid.setRowStretch(row, 1)
             row += 1
+
+        for c_idx in range(7):
+            self.grid.setColumnStretch(c_idx, 1)
 
     def _open_booking_modal(self):
         modal = BookingModal(self)
@@ -665,6 +791,11 @@ class CalendarPage(QWidget):
                     source=event.get("source", "manual"),
                     ref=event.get("ref"),
                     status=event.get("status"),
+                    theme_notes=event.get("description_theme") or event.get("theme") or event.get("notes"),
+                    balance=float(event.get("balance") or 0.0),
+                    total_amount=float(event.get("total_amount") or 0.0),
+                    amount_paid=float(event.get("amount_paid") or 0.0),
+                    color_theme=event.get("color_theme") or event.get("color")
                 )
                 self.cards_container.addWidget(card)
         else:

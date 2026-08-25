@@ -754,31 +754,41 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
     sheets = {}
 
     if "Bookings" in entity_name:
-        headers = ["Booking Ref", "Customer Name", "Contact Number", "Event Date", "Event Time", "Venue / Location", "Occasion", "Guest Count (Pax)", "Total Amount (\u20b1)", "Down Paid (\u20b1)", "Balance (\u20b1)", "Payment Mode", "Status"]
+        headers = ["Booking Ref", "Customer Name", "Contact Number", "Email Address", "Event Date", "Event Time", "Venue / Location", "Occasion", "Guest Count (Pax)", "Total Amount (₱)", "Down Paid (₱)", "Balance (₱)", "Status", "Payment Mode", "Notes / Theme"]
         b_list = repo.get_all_bookings_for_export() or []
         for b in b_list:
             try:
+                tot = _parse_amount(b.get('total') or b.get('total_amount') or 0)
+                paid = _parse_amount(b.get('amount_paid') or b.get('down_payment') or 0)
+                bal = max(0.0, tot - paid)
                 rows.append([
-                    b.get("id", ""), b.get("name", ""), b.get("contact", ""),
-                    b.get("date", ""), b.get("time", ""), b.get("venue", ""),
-                    b.get("occasion", ""), b.get("pax", ""),
-                    f"\u20b1{_parse_amount(b.get('total', 0)):,.2f}",
-                    f"\u20b1{_parse_amount(b.get('amount_paid', 0)):,.2f}",
-                    f"\u20b1{_parse_amount(b.get('balance', 0)):,.2f}",
-                    b.get("payment_mode", ""),
-                    b.get("status", "")
+                    b.get("id") or b.get("booking_ref") or "",
+                    b.get("name") or b.get("customer_name") or "",
+                    b.get("contact") or b.get("phone") or "",
+                    b.get("email") or "",
+                    b.get("date") or b.get("event_date") or "",
+                    b.get("time") or b.get("event_time") or "",
+                    b.get("venue") or "",
+                    b.get("occasion") or "",
+                    str(b.get("pax") or 0),
+                    f"₱{tot:,.2f}",
+                    f"₱{paid:,.2f}",
+                    f"₱{bal:,.2f}",
+                    str(b.get("status") or "PENDING").upper(),
+                    b.get("payment_mode") or "Cash",
+                    b.get("notes") or ""
                 ])
             except Exception as row_exc:
                 print(f"[exporter] Bookings row error (skipping): {row_exc}")
         sheets["Bookings"] = (headers, rows)
 
     elif "Customers" in entity_name:
-        headers = ["Customer ID", "Customer Name", "Contact Number", "Email Address", "System Address ID", "Imported Address Text", "Notes / History"]
+        headers = ["Customer ID", "Customer Name", "Contact Number", "Email Address", "Address", "Notes / History"]
         c_list = repo.get_all_customers() or []
         for c in c_list:
             rows.append([
                 c.get("id", ""), c.get("name", ""), c.get("contact", ""),
-                c.get("email", ""), c.get("address_id", ""), c.get("address", ""),
+                c.get("email", ""), c.get("address", "") or c.get("imported_address", ""),
                 c.get("notes", "")
             ])
         sheets["Customers"] = (headers, rows)
@@ -798,7 +808,7 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
         m_list = repo.get_all_menu_items() or []
         for m in m_list:
             rows.append([
-                m.get("id", ""), m.get("name", ""), m.get("category", ""),
+                m.get("id", ""), m.get("name", "") or m.get("item", ""), m.get("category", ""),
                 f"₱{_parse_amount(m.get('price', 0)):,.2f}", m.get("description", "")
             ])
         sheets["Menu Items"] = (headers, rows)
@@ -839,17 +849,36 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
         sheets["Cash Flow Ledger"] = (headers, rows)
 
     else: # Master Export
-        b_hdrs = ["Booking Ref", "Customer Name", "Contact Number", "Event Date", "Event Time", "Venue", "Occasion", "Pax", "Total Amount (\u20b1)", "Down Paid (\u20b1)", "Balance (\u20b1)", "Payment Mode", "Status"]
+        b_hdrs = ["Booking Ref", "Customer Name", "Contact Number", "Email Address", "Event Date", "Event Time", "Venue", "Occasion", "Pax", "Total Amount (₱)", "Down Paid (₱)", "Balance (₱)", "Status", "Payment Mode", "Notes / Theme"]
         b_rows = []
         for b in (repo.get_all_bookings_for_export() or []):
             try:
-                b_rows.append([b.get("id", ""), b.get("name", ""), b.get("contact", ""), b.get("date", ""), b.get("time", ""), b.get("venue", ""), b.get("occasion", ""), b.get("pax", ""), f"\u20b1{_parse_amount(b.get('total', 0)):,.2f}", f"\u20b1{_parse_amount(b.get('amount_paid', 0)):,.2f}", f"\u20b1{_parse_amount(b.get('balance', 0)):,.2f}", b.get("payment_mode", ""), b.get("status", "")])
+                tot = _parse_amount(b.get('total') or b.get('total_amount') or 0)
+                paid = _parse_amount(b.get('amount_paid') or b.get('down_payment') or 0)
+                bal = max(0.0, tot - paid)
+                b_rows.append([
+                    b.get("id") or b.get("booking_ref") or "",
+                    b.get("name") or b.get("customer_name") or "",
+                    b.get("contact") or b.get("phone") or "",
+                    b.get("email") or "",
+                    b.get("date") or b.get("event_date") or "",
+                    b.get("time") or b.get("event_time") or "",
+                    b.get("venue") or "",
+                    b.get("occasion") or "",
+                    str(b.get("pax") or 0),
+                    f"₱{tot:,.2f}",
+                    f"₱{paid:,.2f}",
+                    f"₱{bal:,.2f}",
+                    str(b.get("status") or "PENDING").upper(),
+                    b.get("payment_mode") or "Cash",
+                    b.get("notes") or ""
+                ])
             except Exception as row_exc:
                 print(f"[exporter] Master Bookings row error (skipping): {row_exc}")
         sheets["Bookings"] = (b_hdrs, b_rows)
 
-        c_hdrs = ["Customer ID", "Customer Name", "Contact Number", "Email Address", "System Address ID", "Imported Address Text", "Notes / History"]
-        c_rows = [[c.get("id", ""), c.get("name", ""), c.get("contact", ""), c.get("email", ""), c.get("address_id", ""), c.get("address", ""), c.get("notes", "")] for c in (repo.get_all_customers() or [])]
+        c_hdrs = ["Customer ID", "Customer Name", "Contact Number", "Email Address", "Address", "Notes / History"]
+        c_rows = [[c.get("id", ""), c.get("name", ""), c.get("contact", ""), c.get("email", ""), c.get("address", "") or c.get("imported_address", ""), c.get("notes", "")] for c in (repo.get_all_customers() or [])]
         sheets["Customers"] = (c_hdrs, c_rows)
 
         e_hdrs = ["Expense ID", "Expense Date", "Category", "Description", "Amount (₱)"]
@@ -857,7 +886,7 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
         sheets["Expenses"] = (e_hdrs, e_rows)
 
         m_hdrs = ["Item ID", "Item / Package Name", "Category", "Price / Rate (₱)", "Description / Inclusions"]
-        m_rows = [[m.get("id", ""), m.get("name", ""), m.get("category", ""), f"₱{_parse_amount(m.get('price', 0)):,.2f}", m.get("description", "")] for m in (repo.get_all_menu_items() or [])]
+        m_rows = [[m.get("id", ""), m.get("name", "") or m.get("item", ""), m.get("category", ""), f"₱{_parse_amount(m.get('price', 0)):,.2f}", m.get("description", "")] for m in (repo.get_all_menu_items() or [])]
         sheets["Menu Items"] = (m_hdrs, m_rows)
 
         cf_hdrs = ["Date", "Check #", "Particulars (Account / Detail)", "Deposit (₱)", "Withdrawal (₱)", "Running Balance (₱)", "Actual Sales (₱)", "Variance / Difference (₱)", "Remarks / Notes"]
@@ -936,6 +965,38 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
     except Exception as exc:
         print(f"[exporter] Excel export failed: {exc}")
         return False
+
+
+def _format_time_short(t_raw) -> str:
+    """Format time string compactly for calendar day cells: e.g. 5:00 PM -> 5PM, 11:30 AM -> 11:30AM."""
+    if not t_raw:
+        return ""
+    from datetime import datetime as _dt
+    if hasattr(t_raw, "strftime"):
+        s = t_raw.strftime("%I:%M %p").lstrip("0")
+    else:
+        s = str(t_raw).strip()
+        for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M%p"):
+            try:
+                parsed = _dt.strptime(s, fmt).time()
+                s = parsed.strftime("%I:%M %p").lstrip("0")
+                break
+            except ValueError:
+                continue
+    # Replace :00 AM/PM with AM/PM (e.g. 5:00 PM -> 5PM, but keep 5:30 PM -> 5:30PM)
+    s = s.replace(":00 ", " ").replace(" ", "").upper()
+    return s
+
+
+def _fit_string(c, text: str, font_name: str, font_size: float, max_w: float) -> str:
+    """Safely truncate string with ellipsis if it exceeds max_w in ReportLab."""
+    if not text:
+        return ""
+    if c.stringWidth(text, font_name, font_size) <= max_w:
+        return text
+    while len(text) > 3 and c.stringWidth(text + "…", font_name, font_size) > max_w:
+        text = text[:-1]
+    return text + "…"
 
 
 # ─── shared helper: draw one landscape wall-calendar page onto a Canvas ──────
@@ -1058,46 +1119,113 @@ def _draw_calendar_page(c, LS_W, LS_H, year, month, month_events,
             c.setLineWidth(0.5)
             c.rect(cx, cy, col_w, cell_h, fill=1, stroke=1)
 
-            day_fs = max(11, min(17, cell_h * 0.20))
+            day_fs = max(10, min(14, cell_h * 0.17))
             c.setFillColor(colors.HexColor("#1D4ED8") if is_today else _C_NAV)
             c.setFont("Helvetica-Bold", day_fs)
-            c.drawString(cx + 5, cy + cell_h - day_fs - 4, str(day))
+            c.drawString(cx + 4, cy + cell_h - day_fs - 3, str(day))
             if is_today:
                 c.setFillColor(colors.HexColor("#1D4ED8"))
                 c.setFont("Helvetica-Bold", 5.5)
-                c.drawString(cx + 5 + day_fs + 3, cy + cell_h - 9, "TODAY")
+                c.drawString(cx + 4 + day_fs + 3, cy + cell_h - 8, "TODAY")
 
             day_evs = (month_events or {}).get(day, [])
             if day_evs:
                 d_count = len(day_evs)
                 d_pax   = sum(int(e.get("pax", 0) or 0) for e in day_evs)
 
-                if d_pax >= 600:
-                    bg_c, txt_c = _C_RD_BG, _C_RD_TXT
-                elif d_pax >= 400:
-                    bg_c, txt_c = _C_AM_BG, _C_AM_TXT
-                else:
-                    bg_c, txt_c = _C_GR_BG, _C_GR_TXT
+                top_space_y = cy + cell_h - day_fs - 5
+                bot_space_y = cy + 2
+                avail_h_box = top_space_y - bot_space_y
+                bw = col_w - 6
+                bx = cx + 3
 
-                BM = 5
-                bx, by = cx + BM, cy + BM
-                bw = col_w - 2 * BM
-                bh = min(cell_h * 0.50, 40)
-                stripe = 4
+                # Visual palette per event row (distinct colored accent borders)
+                accent_colors = [
+                    (colors.HexColor("#F1F5F9"), colors.HexColor("#2563EB"), colors.HexColor("#1E3A8A")),  # Slate/Blue
+                    (colors.HexColor("#FFFBEB"), colors.HexColor("#D97706"), colors.HexColor("#92400E")),  # Amber
+                    (colors.HexColor("#F0FDF4"), colors.HexColor("#16A34A"), colors.HexColor("#14532D")),  # Emerald
+                    (colors.HexColor("#FAF5FF"), colors.HexColor("#9333EA"), colors.HexColor("#581C87")),  # Purple
+                    (colors.HexColor("#FFF1F2"), colors.HexColor("#E11D48"), colors.HexColor("#881337")),  # Rose
+                    (colors.HexColor("#F0FDFA"), colors.HexColor("#0D9488"), colors.HexColor("#115E59")),  # Teal
+                    (colors.HexColor("#FEF2F2"), colors.HexColor("#DC2626"), colors.HexColor("#991B1B")),  # Red
+                ]
 
-                c.setFillColor(bg_c)
-                c.roundRect(bx, by, bw, bh, 4, fill=1, stroke=0)
-                c.setFillColor(txt_c)
-                c.roundRect(bx, by, stripe, bh, 2, fill=1, stroke=0)
+                N = d_count
+                if N == 1:
+                    gap = 0.0
+                    bh = min(avail_h_box, 30.0)
+                    fs_t, fs_p = 7.2, 6.8
+                    two_lines = True
+                elif N == 2:
+                    gap = 2.5
+                    bh = min(26.0, (avail_h_box - gap) / 2)
+                    fs_t, fs_p = 6.8, 6.2
+                    two_lines = True
+                elif N == 3:
+                    gap = 1.8
+                    bh = (avail_h_box - 2 * gap) / 3
+                    fs_t, fs_p = 5.8, 5.2
+                    two_lines = True
+                elif N == 4:
+                    gap = 1.2
+                    bh = (avail_h_box - 3 * gap) / 4
+                    fs_t, fs_p = 5.0, 4.6
+                    two_lines = True
+                elif N == 5:
+                    gap = 1.0
+                    bh = (avail_h_box - 4 * gap) / 5
+                    fs_t, fs_p = 4.8, 4.4
+                    two_lines = (bh >= 13.0)
+                else: # N >= 6
+                    gap = 0.8
+                    bh = (avail_h_box - (N - 1) * gap) / N
+                    fs_t = max(4.0, min(4.8, bh * 0.55))
+                    fs_p = max(3.8, fs_t * 0.9)
+                    two_lines = False
 
-                cnt_fs = max(8, min(13, bh * 0.40))
-                bk_lbl = "BOOKING" if d_count == 1 else "BOOKINGS"
-                c.setFont("Helvetica-Bold", cnt_fs)
-                c.drawString(bx + stripe + 4, by + bh - cnt_fs - 3,
-                             f"{d_count} {bk_lbl}")
-                pax_fs = max(6, cnt_fs * 0.72)
-                c.setFont("Helvetica", pax_fs)
-                c.drawString(bx + stripe + 4, by + 3, f"{d_pax:,} Pax")
+                for i, ev in enumerate(day_evs):
+                    by = top_space_y - (i + 1) * bh - i * gap
+                    occ = str(ev.get("occasion") or ev.get("name") or ev.get("customer_name") or "EVENT").strip().upper()
+                    t_short = _format_time_short(ev.get("time") or ev.get("event_time"))
+                    pax = int(ev.get("pax", 0) or 0)
+                    header_txt = f"{occ} {t_short}".strip()
+                    pax_txt = f"{pax:,} PAX"
+
+                    col_hex = str(ev.get("color_theme") or ev.get("color") or "").strip()
+                    if col_hex and col_hex.startswith("#"):
+                        try:
+                            bar_c = colors.HexColor(col_hex)
+                            c_r, c_g, c_b = bar_c.red, bar_c.green, bar_c.blue
+                            bg_c = colors.Color(0.93 + 0.07 * c_r, 0.93 + 0.07 * c_g, 0.93 + 0.07 * c_b)
+                            txt_c = bar_c
+                        except Exception:
+                            bg_c, bar_c, txt_c = accent_colors[i % len(accent_colors)]
+                    else:
+                        bg_c, bar_c, txt_c = accent_colors[i % len(accent_colors)]
+
+                    stripe = 2.2 if N <= 3 else 1.8
+
+                    c.setFillColor(bg_c)
+                    c.roundRect(bx, by, bw, bh, 2.0, fill=1, stroke=0)
+                    c.setFillColor(bar_c)
+                    c.roundRect(bx, by, stripe, bh, 1.0, fill=1, stroke=0)
+
+                    if two_lines:
+                        c.setFillColor(colors.HexColor("#0F172A"))
+                        c.setFont("Helvetica-Bold", fs_t)
+                        fit_h = _fit_string(c, header_txt, "Helvetica-Bold", fs_t, bw - stripe - 5)
+                        c.drawString(bx + stripe + 3, by + bh - fs_t - 2.0, fit_h)
+
+                        c.setFillColor(txt_c)
+                        c.setFont("Helvetica-Bold", fs_p)
+                        fit_p = _fit_string(c, pax_txt, "Helvetica-Bold", fs_p, bw - stripe - 5)
+                        c.drawString(bx + stripe + 3, by + 1.8, fit_p)
+                    else:
+                        line_txt = f"{header_txt} · {pax}p"
+                        c.setFillColor(colors.HexColor("#0F172A"))
+                        c.setFont("Helvetica-Bold", fs_t)
+                        fit_l = _fit_string(c, line_txt, "Helvetica-Bold", fs_t, bw - stripe - 4)
+                        c.drawString(bx + stripe + 3, by + (bh - fs_t) / 2, fit_l)
 
     # ── Legend ─────────────────────────────────────────────────────────────
     leg_y = MY + 1
@@ -1139,8 +1267,8 @@ def _build_agenda_story(year, month, month_events, styles, biz_name):
                   for d, evl in sorted((month_events or {}).items())
                   for ev in (evl or [])]
 
-    agenda_hdrs = ["Date & Time", "Ref #", "Event / Customer", "Venue", "Pax", "Status"]
-    agenda_w    = [3.2*cm, 2.4*cm, 5.2*cm, 3.8*cm, 1.6*cm, 2.0*cm]
+    agenda_hdrs = ["Date & Time", "Ref / Occasion", "Customer & Menu", "Venue", "Pax", "Theme / Notes", "Status"]
+    agenda_w    = [2.6*cm, 2.6*cm, 4.4*cm, 3.8*cm, 1.4*cm, 3.2*cm, 2.0*cm]
     agenda_rows = [[Paragraph(h, styles["TableHead"]) for h in agenda_hdrs]]
 
     sstyles = {
@@ -1153,21 +1281,35 @@ def _build_agenda_story(year, month, month_events, styles, biz_name):
     if not all_events:
         agenda_rows.append([
             Paragraph("No events scheduled for this month.", styles["TableCellCenter"]),
-            "", "", "", "", ""
+            "", "", "", "", "", ""
         ])
     else:
         for day, ev in all_events:
             time_str = ev.get("time") or "6:00 PM"
             st_key   = str(ev.get("status") or "CONFIRMED").upper()
+            c_name   = ev.get("customer_name") or ev.get("name") or "Valued Client"
+            occ      = ev.get("occasion") or "Event"
+            menu_txt = ev.get("menu") or ev.get("package_name") or "Standard Menu"
+            theme_notes = str(ev.get("notes") or ev.get("theme") or ev.get("description_theme") or ev.get("description") or "Standard Setup").strip()
+            if not theme_notes:
+                theme_notes = "Standard Setup"
+
             agenda_rows.append([
                 Paragraph(
-                    f"{month_name[:3]} {day}, {year}<br/>"
+                    f"<b>{month_name[:3]} {day}, {year}</b><br/>"
                     f"<font color='#6B7280' size=7>{time_str}</font>",
                     styles["TableCell"]),
-                Paragraph(str(ev.get("ref") or "—"), styles["TableCell"]),
-                Paragraph(f"<b>{ev.get('event_name', '')}</b>", styles["TableCell"]),
-                Paragraph(str(ev.get("location") or "—"), styles["TableCell"]),
+                Paragraph(
+                    f"<font color='#E11D48'><b>{ev.get('ref') or '—'}</b></font><br/>"
+                    f"<font color='#4B5563' size=7>{occ}</font>",
+                    styles["TableCell"]),
+                Paragraph(
+                    f"<b>{c_name}</b><br/>"
+                    f"<font color='#6B7280' size=7>{menu_txt}</font>",
+                    styles["TableCell"]),
+                Paragraph(str(ev.get("venue") or ev.get("location") or "—"), styles["TableCell"]),
                 Paragraph(str(ev.get("pax", 0)), styles["TableCellCenter"]),
+                Paragraph(f"<font color='#374151'>{theme_notes}</font>", styles["TableCell"]),
                 Paragraph(str(st_key).capitalize(),
                           sstyles.get(st_key, styles["TableCellCenter"])),
             ])
@@ -1178,10 +1320,10 @@ def _build_agenda_story(year, month, month_events, styles, biz_name):
         ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_C_WHITE, _C_LIGHT]),
         ("BOX",           (0, 0), (-1, -1), 0.4, _C_BORDER),
         ("INNERGRID",     (0, 0), (-1, -1), 0.3, _C_BORDER),
-        ("TOPPADDING",    (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 5),
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
     ]))
     story.append(tbl)
@@ -1190,11 +1332,7 @@ def _build_agenda_story(year, month, month_events, styles, biz_name):
 
 
 def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
-    """Draw one or more LANDSCAPE A4 agenda pages onto canvas `c`.
-
-    Uses only canvas primitives — no Platypus, no external PDF library.
-    Automatically adds new pages when content overflows.
-    """
+    """Draw one or more LANDSCAPE A4 agenda pages onto canvas `c` with full booking details."""
     import calendar as _cal
     from datetime import datetime
     from reportlab.lib.pagesizes import landscape, A4
@@ -1225,31 +1363,28 @@ def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
         for ev in (evl or [])
     ]
 
-    # ── Column layout (landscape, 6 columns) ─────────────────────────────
-    # Positions relative to MX (left margin)
-    # DATE  | REF    | EVENT / CUSTOMER        | VENUE             | PAX  | STATUS
-    # 90pt  | 70pt   | ~260pt                  | ~200pt            | 50pt | 70pt
+    # ── Column layout (landscape, 7 columns) ─────────────────────────────
     COL_X = [
-        MX + 2,          # Date
-        MX + 94,         # Ref
-        MX + 166,        # Event / Customer
-        MX + 430,        # Venue
-        MX + 634,        # Pax
-        MX + 686,        # Status
+        MX + 4,          # 0: Date & Time (84pt)
+        MX + 92,         # 1: Ref & Occasion (100pt)
+        MX + 196,        # 2: Customer & Menu (165pt)
+        MX + 366,        # 3: Venue & Address (145pt)
+        MX + 516,        # 4: Pax (40pt)
+        MX + 560,        # 5: Description / Theme (115pt)
+        MX + 680,        # 6: Status (68pt)
     ]
-    COL_HDRS   = ["DATE & TIME", "REF #", "EVENT / CUSTOMER", "VENUE", "PAX", "STATUS"]
-    COL_MAXW   = [88, 68, 258, 198, 48, 100]   # max text width in pts per column
+    COL_HDRS   = ["DATE & TIME", "REF / OCCASION", "CUSTOMER & MENU", "VENUE / ADDRESS", "PAX", "THEME / NOTES", "STATUS"]
+    COL_MAXW   = [84, 98, 160, 140, 36, 110, 65]
 
     HEADER_H   = 50   # title bar height
     COL_HDR_H  = 22   # column-header row height
-    ROW_H      = 30   # data row height
+    ROW_H      = 36   # data row height (2-line layout)
     PAGE_BOT   = MY + 14
 
-    # ── Helper: start a new landscape page ───────────────────────────────
     def start_page():
         c.setPageSize(LS)
 
-        # Dark title bar (same style as calendar page)
+        # Dark title bar
         c.setFillColor(C_DARK)
         c.roundRect(MX, PH - MY - HEADER_H, CW, HEADER_H, 7, fill=1, stroke=0)
 
@@ -1267,7 +1402,7 @@ def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
 
         # Title
         c.setFillColor(colors.white)
-        c.setFont("Helvetica-Bold", 18)
+        c.setFont("Helvetica-Bold", 17)
         c.drawCentredString(PW / 2,
                             PH - MY - HEADER_H / 2 - 6,
                             f"Booking Agenda — {month_name.upper()}  {year}")
@@ -1283,7 +1418,7 @@ def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
         c.setFillColor(colors.HexColor("#1E293B"))
         c.rect(MX, hdr_y, CW, COL_HDR_H, fill=1, stroke=0)
         c.setFillColor(colors.white)
-        c.setFont("Helvetica-Bold", 8)
+        c.setFont("Helvetica-Bold", 7.5)
         for cx, hdr in zip(COL_X, COL_HDRS):
             c.drawString(cx, hdr_y + 7, hdr)
 
@@ -1293,9 +1428,8 @@ def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
         c.drawCentredString(PW / 2, MY - 2,
                             f"Generated: {now_str}  •  {biz_name}")
 
-        return hdr_y - 1   # y = top of first data row
+        return hdr_y - 1
 
-    # Status colour helper
     def status_color(st):
         st = str(st or "").upper()
         if st in ("CONFIRMED", "COMPLETED"):
@@ -1307,15 +1441,13 @@ def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
         return C_MUTED
 
     def trunc(text, font, size, max_w):
-        """Truncate text to fit within max_w points."""
-        t = str(text)
+        t = str(text or "")
         if c.stringWidth(t, font, size) <= max_w:
             return t
         while t and c.stringWidth(t + "…", font, size) > max_w:
             t = t[:-1]
         return t + "…"
 
-    # ── Render pages ─────────────────────────────────────────────────────
     y       = start_page()
     row_num = 0
 
@@ -1328,7 +1460,6 @@ def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
         return
 
     for day, ev in all_events:
-        # Overflow → new page
         if y - ROW_H < PAGE_BOT:
             c.showPage()
             y = start_page()
@@ -1343,48 +1474,88 @@ def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
         c.setLineWidth(0.3)
         c.line(MX, y - ROW_H, MX + CW, y - ROW_H)
 
-        # ── DATE ─────────────────────────────────────────────────────────
+        # ── 0: DATE & TIME ────────────────────────────────────────────────
         c.setFillColor(C_DARK)
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(COL_X[0], y - 12, f"{month_name[:3]} {day}, {year}")
-        c.setFont("Helvetica", 7.5)
+        c.setFont("Helvetica-Bold", 8.5)
+        c.drawString(COL_X[0], y - 14, f"{month_name[:3]} {day}, {year}")
+        c.setFont("Helvetica", 7)
         c.setFillColor(C_MUTED)
-        c.drawString(COL_X[0], y - 23, str(ev.get("time") or "6:00 PM"))
+        c.drawString(COL_X[0], y - 26, str(ev.get("time") or "6:00 PM"))
 
-        # ── REF ──────────────────────────────────────────────────────────
+        # ── 1: REF / OCCASION ─────────────────────────────────────────────
+        c.setFillColor(colors.HexColor("#E11D48"))
+        c.setFont("Helvetica-Bold", 8.5)
+        c.drawString(COL_X[1], y - 14, trunc(ev.get("ref") or "—", "Helvetica-Bold", 8.5, COL_MAXW[1]))
+        c.setFont("Helvetica", 7)
+        c.setFillColor(colors.HexColor("#4B5563"))
+        c.drawString(COL_X[1], y - 26, trunc(ev.get("occasion") or "Event", "Helvetica", 7, COL_MAXW[1]))
+
+        # ── 2: CUSTOMER & MENU ────────────────────────────────────────────
         c.setFillColor(C_DARK)
-        c.setFont("Helvetica", 8.5)
-        c.drawString(COL_X[1], y - 15, trunc(ev.get("ref") or "—", "Helvetica", 8.5, COL_MAXW[1]))
+        c.setFont("Helvetica-Bold", 8.5)
+        c_name = ev.get("customer_name") or ev.get("name") or "Valued Client"
+        c.drawString(COL_X[2], y - 14, trunc(c_name, "Helvetica-Bold", 8.5, COL_MAXW[2]))
+        c.setFont("Helvetica", 7)
+        c.setFillColor(C_MUTED)
+        menu_desc = ev.get("menu") or ev.get("package_name") or "Standard Package"
+        c.drawString(COL_X[2], y - 26, trunc(menu_desc, "Helvetica", 7, COL_MAXW[2]))
 
-        # ── EVENT / CUSTOMER ─────────────────────────────────────────────
-        c.setFont("Helvetica-Bold", 9)
+        # ── 3: VENUE / ADDRESS ────────────────────────────────────────────
+        venue_str = ev.get("venue") or ev.get("location") or "Client Venue"
         c.setFillColor(C_DARK)
-        c.drawString(COL_X[2], y - 15,
-                     trunc(ev.get("event_name") or "", "Helvetica-Bold", 9, COL_MAXW[2]))
+        c.setFont("Helvetica", 8)
+        c.drawString(COL_X[3], y - 14, trunc(venue_str, "Helvetica", 8, COL_MAXW[3]))
+        addr_str = ev.get("address") or ""
+        if addr_str and addr_str != venue_str:
+            c.setFont("Helvetica", 6.5)
+            c.setFillColor(C_MUTED)
+            c.drawString(COL_X[3], y - 26, trunc(addr_str, "Helvetica", 6.5, COL_MAXW[3]))
 
-        # ── VENUE ────────────────────────────────────────────────────────
-        c.setFont("Helvetica", 8.5)
-        c.setFillColor(C_DARK)
-        c.drawString(COL_X[3], y - 15,
-                     trunc(ev.get("location") or "—", "Helvetica", 8.5, COL_MAXW[3]))
-
-        # ── PAX ──────────────────────────────────────────────────────────
+        # ── 4: PAX ────────────────────────────────────────────────────────
         c.setFont("Helvetica-Bold", 10)
         c.setFillColor(C_DARK)
-        c.drawCentredString(COL_X[4] + 22, y - 15, str(ev.get("pax") or 0))
+        c.drawCentredString(COL_X[4] + 18, y - 15, str(ev.get("pax") or 0))
+        c.setFont("Helvetica", 6.5)
+        c.setFillColor(C_MUTED)
+        c.drawCentredString(COL_X[4] + 18, y - 26, "guests")
 
-        # ── STATUS ───────────────────────────────────────────────────────
+        # ── 5: THEME / NOTES ──────────────────────────────────────────────
+        theme_txt = str(ev.get("notes") or ev.get("theme") or ev.get("description_theme") or ev.get("description") or "Standard Setup").strip()
+        if not theme_txt:
+            theme_txt = "Standard Setup"
+
+        c.setFillColor(C_DARK)
+        if c.stringWidth(theme_txt, "Helvetica", 7.5) <= COL_MAXW[5]:
+            c.setFont("Helvetica", 7.5)
+            c.drawString(COL_X[5], y - 18, theme_txt)
+        else:
+            words = theme_txt.split()
+            line1, line2 = "", ""
+            for word in words:
+                test_l1 = (line1 + " " + word).strip()
+                if c.stringWidth(test_l1, "Helvetica", 7.5) <= COL_MAXW[5]:
+                    line1 = test_l1
+                else:
+                    line2 = (line2 + " " + word).strip()
+            if not line1:
+                line1 = trunc(theme_txt, "Helvetica", 7.5, COL_MAXW[5])
+            c.setFont("Helvetica", 7.5)
+            c.drawString(COL_X[5], y - 14, line1)
+            if line2:
+                c.setFont("Helvetica", 7)
+                c.setFillColor(C_MUTED)
+                c.drawString(COL_X[5], y - 26, trunc(line2, "Helvetica", 7, COL_MAXW[5]))
+
+        # ── 6: STATUS ─────────────────────────────────────────────────────
         st_key = str(ev.get("status") or "CONFIRMED").upper()
         st_col = status_color(st_key)
 
-        # Pill badge
         badge_lbl = st_key.capitalize()
-        badge_w   = max(60, c.stringWidth(badge_lbl, "Helvetica-Bold", 8) + 16)
-        badge_x   = COL_X[5]
-        badge_y   = y - ROW_H + 6
+        badge_w   = max(56, c.stringWidth(badge_lbl, "Helvetica-Bold", 7.5) + 14)
+        badge_x   = COL_X[6]
+        badge_y   = y - ROW_H + 9
         badge_h   = 18
 
-        # Light background pill
         if st_key in ("CONFIRMED", "COMPLETED"):
             pill_bg = colors.HexColor("#DCFCE7")
         elif st_key == "PENDING":
@@ -1395,9 +1566,9 @@ def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
             pill_bg = colors.HexColor("#F1F5F9")
 
         c.setFillColor(pill_bg)
-        c.roundRect(badge_x, badge_y, badge_w, badge_h, 5, fill=1, stroke=0)
+        c.roundRect(badge_x, badge_y, badge_w, badge_h, 4, fill=1, stroke=0)
         c.setFillColor(st_col)
-        c.setFont("Helvetica-Bold", 8)
+        c.setFont("Helvetica-Bold", 7.5)
         c.drawCentredString(badge_x + badge_w / 2, badge_y + 5, badge_lbl)
 
         y -= ROW_H
@@ -1483,13 +1654,24 @@ def export_calendar_pdf_range(
 
 
 
-def export_calendar_pdf(save_path: str, year: int, month: int, month_events: dict,
+def export_calendar_pdf(arg1, arg2, arg3, month_events: dict = None,
                         biz_name: str = "Jayraldine's Catering") -> bool:
     """Generate a printable monthly wall-calendar PDF (single month).
-
-    Delegates to export_calendar_pdf_range for a single month so both paths
-    share the same single-canvas renderer and are always consistent.
+    Flexibly supports (save_path, year, month, events) or (year, month, save_path, events).
     """
+    if isinstance(arg1, str) and (arg1.endswith(".pdf") or "/" in arg1 or "\\" in arg1):
+        save_path = str(arg1)
+        year = int(arg2)
+        month = int(arg3)
+    elif isinstance(arg3, str) and (arg3.endswith(".pdf") or "/" in arg3 or "\\" in arg3):
+        year = int(arg1)
+        month = int(arg2)
+        save_path = str(arg3)
+    else:
+        save_path = str(arg1)
+        year = int(arg2)
+        month = int(arg3)
+
     return export_calendar_pdf_range(
         save_path       = save_path,
         months          = [(year, month)],

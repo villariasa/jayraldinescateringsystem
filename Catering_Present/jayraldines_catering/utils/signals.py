@@ -5,6 +5,8 @@ class _AppEvents(QObject):
     booking_saved     = Signal()
     booking_created   = Signal()
     booking_updated   = Signal()
+    invoice_saved     = Signal()
+    invoice_created   = Signal()
     payment_recorded  = Signal()
     kitchen_updated   = Signal()
     customer_saved    = Signal()

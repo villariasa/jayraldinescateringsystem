@@ -16,6 +16,7 @@ from utils.accent import AccentManager, PRESET_THEMES
 from utils.palette import THEME_CATEGORIES, THEME_PALETTES, get_palettes_by_category
 from components.dialogs import success, prompt_file_saved
 import utils.repository as repo
+from utils.signals import app_events
 
 
 _BUSINESS_INFO = {
@@ -774,6 +775,7 @@ class SettingsPage(QWidget):
             try:
                 repo.add_occasion(text.strip())
                 self._load_occasions()
+                app_events().data_changed.emit()
             except Exception as e:
                 QMessageBox.warning(self, "Error", str(e))
 
@@ -788,6 +790,7 @@ class SettingsPage(QWidget):
             try:
                 repo.update_occasion(old_name, text.strip())
                 self._load_occasions()
+                app_events().data_changed.emit()
             except Exception as e:
                 QMessageBox.warning(self, "Error", str(e))
 
@@ -806,6 +809,7 @@ class SettingsPage(QWidget):
             try:
                 repo.delete_occasion(name)
                 self._load_occasions()
+                app_events().data_changed.emit()
             except Exception as e:
                 QMessageBox.warning(self, "Error", str(e))
 

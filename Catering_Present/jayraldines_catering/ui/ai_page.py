@@ -230,10 +230,14 @@ class AIPage(QWidget):
 
     # ── Feed helpers ─────────────────────────────────────────────────────────
 
+    def _scroll_to_bottom(self):
+        self._scroll.verticalScrollBar().setValue(
+            self._scroll.verticalScrollBar().maximum()
+        )
+
     def _add_to_feed(self, w: QWidget):
         self._feed.insertWidget(self._feed.count() - 1, w)
-        QTimer.singleShot(50, lambda: self._scroll.verticalScrollBar().setValue(
-            self._scroll.verticalScrollBar().maximum()))
+        QTimer.singleShot(50, self._scroll_to_bottom)
 
     def _add_note(self, text: str):
         card = QFrame()
@@ -251,7 +255,7 @@ class AIPage(QWidget):
 
     def _add_answer_card(self, answer: str, chart_spec: dict | None,
                          error: str = "", action: dict | None = None,
-                         options: list | None = None):
+                         options: list | None = None, animate_typing: bool = True):
         def _on_action_done(res: dict):
             msg = res.get("message", "Action completed.") if isinstance(res, dict) else str(res)
             is_ok = res.get("ok", True) if isinstance(res, dict) else True
@@ -263,11 +267,13 @@ class AIPage(QWidget):
                     app_events().data_changed.emit()
                 except Exception:
                     pass
-            self._add_answer_card(msg, None, error="" if is_ok else msg)
+            self._add_answer_card(msg, None, error="" if is_ok else msg, animate_typing=True)
 
         card = build_ai_card(answer, chart_spec, error, action, options,
                               on_option_send=self._ask,
-                              on_action_result=_on_action_done if action else None)
+                              on_action_result=_on_action_done if action else None,
+                              animate_typing=animate_typing,
+                              on_scroll_request=self._scroll_to_bottom)
         self._add_to_feed(card)
 
     def _on_alarm_fired(self, entry: dict):

@@ -203,6 +203,163 @@ class RecordPaymentDialog(QDialog):
         return self._result
 
 
+class EditBillingDialog(QDialog):
+    """Allows editing payment-related values on an invoice (Amount Paid and Balance)
+    to correct manual encoding mistakes as requested.
+    """
+    def __init__(self, parent=None, inv: dict = None):
+        super().__init__(parent)
+        self._inv = inv or {}
+        self.setWindowTitle("Edit Billing Payment")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(460)
+        self.setModal(True)
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+
+        container = QFrame()
+        container.setObjectName("card")
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(28, 24, 28, 24)
+        lay.setSpacing(16)
+
+        header = QHBoxLayout()
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+        title = QLabel(f"Edit Payment — {self._inv.get('invoice', 'Invoice')}")
+        title.setObjectName("h3")
+        sub = QLabel(f"Customer: {self._inv.get('customer', 'Valued Client')}")
+        sub.setObjectName("subtitle")
+        title_col.addWidget(title)
+        title_col.addWidget(sub)
+        header.addLayout(title_col)
+        header.addStretch()
+
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        lay.addWidget(div)
+
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignLeft)
+
+        self._total_val = float(self._inv.get("amount") or 0.0)
+        curr_paid = float(self._inv.get("paid") or 0.0)
+        curr_bal = float(self._inv.get("balance") if self._inv.get("balance") is not None else max(0.0, self._total_val - curr_paid))
+
+        # Total Amount (Read-only reference)
+        lbl_tot = QLabel(f"₱ {self._total_val:,.2f}")
+        lbl_tot.setStyleSheet("font-weight: 800; font-size: 15px; color: #D97706;")
+        form.addRow(QLabel("Total Amount"), lbl_tot)
+
+        # 1. Paid Amount (Editable)
+        self._paid_spin = QDoubleSpinBox()
+        self._paid_spin.setRange(0, 9999999)
+        self._paid_spin.setPrefix("₱ ")
+        self._paid_spin.setDecimals(2)
+        self._paid_spin.setSingleStep(500)
+        self._paid_spin.setValue(curr_paid)
+        self._paid_spin.setFixedHeight(38)
+
+        # 2. Balance Due (Editable)
+        self._bal_spin = QDoubleSpinBox()
+        self._bal_spin.setRange(0, 9999999)
+        self._bal_spin.setPrefix("₱ ")
+        self._bal_spin.setDecimals(2)
+        self._bal_spin.setSingleStep(500)
+        self._bal_spin.setValue(curr_bal)
+        self._bal_spin.setFixedHeight(38)
+
+        self._updating = False
+
+        def _on_paid_changed(val):
+            if self._updating:
+                return
+            self._updating = True
+            new_bal = max(0.0, self._total_val - val)
+            self._bal_spin.setValue(new_bal)
+            self._updating = False
+
+        def _on_bal_changed(val):
+            if self._updating:
+                return
+            self._updating = True
+            new_paid = max(0.0, self._total_val - val)
+            self._paid_spin.setValue(new_paid)
+            self._updating = False
+
+        self._paid_spin.valueChanged.connect(_on_paid_changed)
+        self._bal_spin.valueChanged.connect(_on_bal_changed)
+
+        form.addRow(QLabel("Amount Paid (₱) *"), self._paid_spin)
+        form.addRow(QLabel("Remaining Balance (₱) *"), self._bal_spin)
+
+        lay.addLayout(form)
+
+        self._err = QLabel("")
+        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.setWordWrap(True)
+        self._err.hide()
+        lay.addWidget(self._err)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+
+        save = QPushButton("  Save Changes")
+        save.setObjectName("primaryButton")
+        save.setIcon(btn_icon_primary("check"))
+        save.setIconSize(QSize(15, 15))
+        save.setCursor(Qt.PointingHandCursor)
+        save.clicked.connect(self._save)
+
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(container)
+
+    def _save(self):
+        new_paid = self._paid_spin.value()
+        new_bal = self._bal_spin.value()
+
+        if new_paid < 0 or new_bal < 0:
+            self._err.setText("Values cannot be negative.")
+            self._err.show()
+            return
+
+        db_id = self._inv.get("db_id")
+        if not db_id:
+            self._err.setText("Invoice database ID not found.")
+            self._err.show()
+            return
+
+        ok = repo.update_invoice_payment(db_id, new_paid, new_bal)
+        if ok:
+            self.accept()
+        else:
+            self._err.setText("Failed to save changes to database.")
+            self._err.show()
+
+
 class PaymentHistoryDialog(QDialog):
     def __init__(self, parent=None, inv: dict = None):
         super().__init__(parent)
@@ -598,14 +755,14 @@ class BillingPage(QWidget):
         print_btn.setToolTip("Print / Save Receipt PDF")
         print_btn.clicked.connect(lambda _, invoice=inv: self._print_receipt_dict(invoice))
 
-        email_btn = QPushButton()
-        email_btn.setIcon(get_icon("bell", color="#3B82F6", size=QSize(14, 14)))
-        email_btn.setIconSize(QSize(14, 14))
-        email_btn.setFixedSize(32, 32)
-        email_btn.setStyleSheet("background: transparent; border: none;")
-        email_btn.setCursor(Qt.PointingHandCursor)
-        email_btn.setToolTip("Email Receipt")
-        email_btn.clicked.connect(lambda _, invoice=inv: self._email_receipt_dict(invoice))
+        edit_btn = QPushButton()
+        edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(14, 14)))
+        edit_btn.setIconSize(QSize(14, 14))
+        edit_btn.setFixedSize(32, 32)
+        edit_btn.setStyleSheet("background: transparent; border: none;")
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.setToolTip("Edit Payment / Balance")
+        edit_btn.clicked.connect(lambda _, invoice=inv: self._edit_billing_dict(invoice))
 
         del_btn = QPushButton()
         del_btn.setIcon(btn_icon_red("trash"))
@@ -619,12 +776,18 @@ class BillingPage(QWidget):
         actions_l.addWidget(pay_btn)
         actions_l.addWidget(hist_btn)
         actions_l.addWidget(print_btn)
-        actions_l.addWidget(email_btn)
+        actions_l.addWidget(edit_btn)
         actions_l.addWidget(del_btn)
 
         lay.addWidget(actions_w)
 
         return card
+
+    def _edit_billing_dict(self, inv: dict):
+        dlg = EditBillingDialog(self, inv=inv)
+        if dlg.exec() == QDialog.Accepted:
+            success(self, message=f"Invoice {inv.get('invoice')} payment details updated successfully.")
+            self.reload()
 
     def _verify_payment_dict(self, inv: dict):
         if not inv.get("db_id"):

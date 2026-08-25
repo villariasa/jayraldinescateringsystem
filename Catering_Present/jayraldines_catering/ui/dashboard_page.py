@@ -803,12 +803,12 @@ class DashboardPage(QWidget):
 
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(16)
-        self._kpi_today    = KPICard("Today's Events",   "—", "Loading...",  "success", "calendar")
-        self._kpi_pending  = KPICard("Pending Bookings", "—", "Loading...",  "warning", "orders")
-        self._kpi_revenue  = KPICard("Weekly Revenue",   "—", "Loading...",  "success", "trending-up")
-        self._kpi_unpaid   = KPICard("Unpaid Invoices",  "—", "Loading...",  "danger",  "billing")
-        self._kpi_profit   = KPICard("Net Profit (YTD)", "—", "Loading...",  "success", "trending-up")
-        for card in [self._kpi_today, self._kpi_pending, self._kpi_revenue, self._kpi_unpaid, self._kpi_profit]:
+        self._kpi_today       = KPICard("Today's Events",       "—", "Loading...",  "success", "calendar")
+        self._kpi_downpayment = KPICard("Downpayment Received", "—", "Loading...",  "warning", "billing")
+        self._kpi_revenue     = KPICard("Weekly Revenue",       "—", "Loading...",  "success", "trending-up")
+        self._kpi_unpaid      = KPICard("Unpaid Invoices",      "—", "Loading...",  "danger",  "billing")
+        self._kpi_profit      = KPICard("Net Profit (YTD)",     "—", "Loading...",  "success", "trending-up")
+        for card in [self._kpi_today, self._kpi_downpayment, self._kpi_revenue, self._kpi_unpaid, self._kpi_profit]:
             kpi_row.addWidget(card)
         self.lay.addLayout(kpi_row)
 
@@ -1095,15 +1095,15 @@ class DashboardPage(QWidget):
         followups   = data.get("followups", [])
 
         todays  = kpis.get("todays_events", 0)
-        pending = kpis.get("pending_bookings", 0)
+        dp_rec  = float(kpis.get("downpayment_received") or 0.0)
         revenue = kpis.get("weekly_revenue", 0.0)
         unpaid  = kpis.get("unpaid_invoices", 0.0)
         pax     = kpis.get("todays_pax", 0)
 
         self._kpi_today.update_value(str(todays))
         self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} today")
-        self._kpi_pending.update_value(str(pending))
-        self._kpi_pending.update_trend("Requires review" if pending > 0 else "All clear")
+        self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
+        self._kpi_downpayment.update_trend("From upcoming events")
         self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
         self._kpi_revenue.update_trend("This week's revenue")
         self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
