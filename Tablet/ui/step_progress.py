@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt
 
 from ui import theme
 
-STEPS = ["Customer", "Event & Package", "Menu", "Charges", "Billing", "Preview", "Terms"]
+STEPS = ["Customer", "Event & Package", "Menu", "Charges", "Billing", "Preview"]
 
 
 class StepProgress(QWidget):

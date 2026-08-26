@@ -156,9 +156,40 @@ CREATE TABLE IF NOT EXISTS booking_additional_charges (
     ac_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Address Tables (built-in address dropdown and hierarchy)
+CREATE TABLE IF NOT EXISTS address_provinces (
+    ap_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ap_name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS address_cities (
+    ac_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ac_province_id INTEGER REFERENCES address_provinces(ap_id),
+    ac_name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS address_barangays (
+    ab_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ab_city_id INTEGER REFERENCES address_cities(ac_id),
+    ab_name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS addresses (
+    ad_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ad_street TEXT,
+    ad_barangay_id INTEGER REFERENCES address_barangays(ab_id),
+    ad_city_id INTEGER REFERENCES address_cities(ac_id),
+    ad_province_id INTEGER REFERENCES address_provinces(ap_id),
+    ad_zip_code TEXT
+);
+
+CREATE TABLE IF NOT EXISTS customer_addresses (
+    ca_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ca_customer_id INTEGER REFERENCES customers(cus_id) ON DELETE CASCADE,
+    ca_address_id INTEGER REFERENCES addresses(ad_id) ON DELETE CASCADE
+);
+
 -- Terms & Conditions acknowledgement, tied to the order (Tablet-mode.md #6/#7).
--- This table is ALSO added to the PC schema (same name/columns) so it merges
--- cleanly via the existing import path instead of becoming an orphaned record.
 CREATE TABLE IF NOT EXISTS terms_acknowledgements (
     ta_id INTEGER PRIMARY KEY AUTOINCREMENT,
     ta_booking_id INTEGER NOT NULL REFERENCES bookings(bk_id) ON DELETE CASCADE,
@@ -169,17 +200,14 @@ CREATE TABLE IF NOT EXISTS terms_acknowledgements (
     ta_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- ── Tablet-only (local operational state, never exported/merged) ──
-
--- Tracks when master data (packages/menu) was last imported from the PC, and
--- which PC-side export version it came from, so a re-import can tell whether
--- the file being opened is newer than what's already loaded.
+-- Tracks when master data was last imported from the PC.
 CREATE TABLE IF NOT EXISTS tablet_master_sync (
     tms_id INTEGER PRIMARY KEY AUTOINCREMENT,
     tms_source_export_version TEXT,
     tms_imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     tms_packages_count INTEGER DEFAULT 0,
-    tms_menu_items_count INTEGER DEFAULT 0
+    tms_menu_items_count INTEGER DEFAULT 0,
+    tms_customers_count INTEGER DEFAULT 0
 );
 """
 
@@ -200,5 +228,49 @@ def init_sqlite_db(conn: sqlite3.Connection):
     every app startup."""
     cursor = conn.cursor()
     cursor.executescript(SQLITE_FULL_SCHEMA)
+
+    # Migrations for existing databases
+    try:
+        cursor.execute("ALTER TABLE tablet_master_sync ADD COLUMN tms_customers_count INTEGER DEFAULT 0")
+    except Exception:
+        pass
+
+    # Seed Address Data if empty
+    cursor.execute("SELECT COUNT(*) FROM address_provinces")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("INSERT OR IGNORE INTO address_provinces (ap_name) VALUES ('Cebu')")
+        prov_id = cursor.lastrowid or 1
+
+        cities = [
+            ("Cebu City", [
+                "Apas", "Banilad", "Basak San Nicolas", "Busay", "Camputhaw", "Capitol Site",
+                "Guadalupe", "Kasambagan", "Lahug", "Mabolo", "Pardo", "Punta Princesa",
+                "Sambag I", "Sambag II", "Talamban", "Tisa", "Zapatera"
+            ]),
+            ("Mandaue City", [
+                "Alang-alang", "Bakilid", "Banilad", "Cabancalan", "Centro", "Guizo",
+                "Ibabao-Estancia", "Maguikay", "Paknaan", "Subangdaku", "Tipolo"
+            ]),
+            ("Lapu-Lapu City", [
+                "Basak", "Gun-ob", "Ibo", "Mactan", "Maribago", "Marigondon",
+                "Pajac", "Pajo", "Poblacion", "Pusok", "Subabasbas"
+            ]),
+            ("Talisay City", [
+                "Bulacao", "Cansojong", "Dumlog", "Lawaan I", "Lawaan II",
+                "Mohon", "Poblacion", "San Roque", "Tabunok", "Tangke"
+            ]),
+            ("Consolacion", [
+                "Casili", "Cansaga", "Danlag", "Jugan", "Nangka", "Pitogo", "Poblacion", "Tayud"
+            ]),
+            ("Liloan", [
+                "Catarman", "Cotcot", "Jubay", "Poblacion", "San Roque", "San Vicente", "Yati"
+            ]),
+        ]
+        for c_name, brgys in cities:
+            cursor.execute("INSERT INTO address_cities (ac_province_id, ac_name) VALUES (?, ?)", (prov_id, c_name))
+            c_id = cursor.lastrowid
+            for b_name in brgys:
+                cursor.execute("INSERT INTO address_barangays (ab_city_id, ab_name) VALUES (?, ?)", (c_id, b_name))
+
     conn.commit()
     log.info("Tablet SQLite schema verified successfully.")

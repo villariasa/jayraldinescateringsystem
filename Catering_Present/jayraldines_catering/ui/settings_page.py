@@ -758,6 +758,8 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "Merge Completed With Warnings",
                 "Merge finished, but some issues occurred:\n\n" + "\n".join(stats["errors"][:10]))
         summary = (
+            f"New customers added: {stats.get('new_customers', 0)}\n"
+            f"Existing customers matched: {stats.get('matched_customers', 0)}\n"
             f"New bookings added: {stats['new_bookings']}\n"
             f"Existing bookings matched: {stats['matched_bookings']}\n"
             f"New payments merged: {stats['new_payments']}\n"

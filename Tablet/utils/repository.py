@@ -25,13 +25,21 @@ _BOOKING_REF_PREFIX = "TB"  # Tablet-originated booking ref, distinct from
 def search_customers(query: str) -> list[dict]:
     query = (query or "").strip()
     if not query:
-        rows = db.fetchall("SELECT * FROM customers ORDER BY cus_name LIMIT 50")
+        rows = db.fetchall("""
+            SELECT cus_id, cus_name, cus_contact, cus_email, cus_address
+            FROM customers
+            GROUP BY LOWER(cus_name), cus_contact
+            ORDER BY cus_name LIMIT 100
+        """)
     else:
         like = f"%{query}%"
-        rows = db.fetchall(
-            "SELECT * FROM customers WHERE cus_name LIKE ? OR cus_contact LIKE ? ORDER BY cus_name LIMIT 50",
-            (like, like),
-        )
+        rows = db.fetchall("""
+            SELECT cus_id, cus_name, cus_contact, cus_email, cus_address
+            FROM customers
+            WHERE cus_name LIKE ? OR cus_contact LIKE ?
+            GROUP BY LOWER(cus_name), cus_contact
+            ORDER BY cus_name LIMIT 100
+        """, (like, like))
     return [
         {
             "id": r["cus_id"], "name": r["cus_name"], "contact": r["cus_contact"] or "",
@@ -48,6 +56,11 @@ def find_possible_duplicate_customer(contact: str, name: str) -> Optional[dict]:
         row = db.fetchone("SELECT * FROM customers WHERE cus_contact = ? AND cus_contact != '' LIMIT 1", (contact,))
         if row:
             return {"id": row["cus_id"], "name": row["cus_name"], "contact": row["cus_contact"] or ""}
+    name = (name or "").strip()
+    if name:
+        row = db.fetchone("SELECT * FROM customers WHERE LOWER(cus_name) = LOWER(?) LIMIT 1", (name,))
+        if row:
+            return {"id": row["cus_id"], "name": row["cus_name"], "contact": row["cus_contact"] or ""}
     return None
 
 
@@ -55,15 +68,42 @@ def add_customer(name: str, contact: str = "", email: str = "", address: str = "
     name = (name or "").strip()
     if not name:
         raise ValueError("Customer name is required.")
+    contact_clean = contact.strip()
+    if contact_clean:
+        existing = db.fetchone("SELECT cus_id FROM customers WHERE cus_contact = ? AND cus_contact != '' LIMIT 1", (contact_clean,))
+        if existing:
+            return existing["cus_id"]
+    existing_name = db.fetchone("SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(?) LIMIT 1", (name,))
+    if existing_name:
+        return existing_name["cus_id"]
+
     cust_id = db.execute(
         "INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status) VALUES (?, ?, ?, ?, 'Active')",
-        (name, contact.strip(), email.strip(), address.strip()),
+        (name, contact_clean, email.strip(), address.strip()),
     )
     return cust_id
 
 
+def update_customer(customer_id: int, name: str, contact: str = "", email: str = "", address: str = "") -> bool:
+    name = (name or "").strip()
+    if not name or not customer_id:
+        return False
+    db.execute(
+        "UPDATE customers SET cus_name = ?, cus_contact = ?, cus_email = ?, cus_address = ? WHERE cus_id = ?",
+        (name, contact.strip(), email.strip(), address.strip(), customer_id),
+    )
+    return True
+
+
+def delete_customer(customer_id: int) -> bool:
+    if not customer_id:
+        return False
+    db.execute("DELETE FROM customers WHERE cus_id = ?", (customer_id,))
+    return True
+
+
 # ─────────────────────────────────────────────────────────────────────────
-# MASTER DATA — packages / menu (imported from PC, read-only on tablet)
+# MASTER DATA — packages / menu management
 # ─────────────────────────────────────────────────────────────────────────
 
 def get_packages() -> list[dict]:
@@ -77,29 +117,102 @@ def get_packages() -> list[dict]:
     ]
 
 
-def get_package_menu_choices(package_id: int) -> dict[str, list[dict]]:
-    """Menu choices grouped by category for a package (Tablet-mode.md #13 Step 3)."""
-    rows = db.fetchall(
-        "SELECT * FROM package_items WHERE pi_package_id = ? ORDER BY pi_category, pi_item_name",
-        (package_id,),
+def add_package(name: str, description: str = "", price_per_pax: float = 350.0, min_pax: int = 30) -> int:
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Package name is required.")
+    return db.execute(
+        "INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
+        (name, (description or "").strip(), float(price_per_pax or 0.0), int(min_pax or 30)),
     )
-    grouped: dict[str, list[dict]] = {}
-    for r in rows:
-        cat = r["pi_category"] or "Other"
-        grouped.setdefault(cat, []).append({
-            "menu_item_id": r["pi_menu_item_id"],
-            "name": r["pi_item_name"],
-            "price": float(r["pi_custom_price"] or 0.0),
-        })
-    return grouped
+
+
+def update_package(pkg_id: int, name: str, description: str = "", price_per_pax: float = 350.0, min_pax: int = 30) -> bool:
+    name = (name or "").strip()
+    if not name or not pkg_id:
+        return False
+    db.execute(
+        "UPDATE packages SET pkg_name = ?, pkg_description = ?, pkg_price_per_pax = ?, pkg_min_pax = ? WHERE pkg_id = ?",
+        (name, (description or "").strip(), float(price_per_pax or 0.0), int(min_pax or 30), pkg_id),
+    )
+    return True
+
+
+def delete_package(pkg_id: int) -> bool:
+    if not pkg_id:
+        return False
+    db.execute("DELETE FROM package_items WHERE pi_package_id = ?", (pkg_id,))
+    db.execute("DELETE FROM packages WHERE pkg_id = ?", (pkg_id,))
+    return True
 
 
 def get_all_menu_items() -> list[dict]:
-    rows = db.fetchall("SELECT * FROM menu_items WHERE mi_status = 'Available' ORDER BY mi_category, mi_name")
+    rows = db.fetchall("SELECT * FROM menu_items ORDER BY mi_category, mi_name")
     return [
-        {"id": r["mi_id"], "name": r["mi_name"], "category": r["mi_category"], "price": float(r["mi_price"] or 0.0)}
+        {
+            "id": r["mi_id"], "name": r["mi_name"], "category": r["mi_category"] or "Other",
+            "price": float(r["mi_price"] or 0.0), "status": r.get("mi_status") or "Available",
+            "description": r.get("mi_description") or "",
+        }
         for r in rows
     ]
+
+
+def add_menu_item(name: str, category: str = "Main Dish", price: float = 0.0, status: str = "Available", description: str = "") -> int:
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Item name is required.")
+    return db.execute(
+        "INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description) VALUES (?, ?, ?, ?, ?)",
+        (name, (category or "Other").strip(), float(price or 0.0), status, (description or "").strip()),
+    )
+
+
+def update_menu_item(mi_id: int, name: str, category: str = "Main Dish", price: float = 0.0, status: str = "Available", description: str = "") -> bool:
+    name = (name or "").strip()
+    if not name or not mi_id:
+        return False
+    db.execute(
+        "UPDATE menu_items SET mi_name = ?, mi_category = ?, mi_price = ?, mi_status = ?, mi_description = ? WHERE mi_id = ?",
+        (name, (category or "Other").strip(), float(price or 0.0), status, (description or "").strip(), mi_id),
+    )
+    return True
+
+
+def delete_menu_item(mi_id: int) -> bool:
+    if not mi_id:
+        return False
+    db.execute("DELETE FROM menu_items WHERE mi_id = ?", (mi_id,))
+    return True
+
+
+def get_menu_categories() -> list[str]:
+    rows = db.fetchall("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND mi_category != '' ORDER BY mi_category")
+    cats = [r["mi_category"] for r in rows]
+    defaults = ["Beef", "Pork", "Chicken", "Fish & Seafood", "Pasta & Noodles", "Vegetables", "Dessert", "Beverage", "Add-on"]
+    for d in defaults:
+        if d not in cats:
+            cats.append(d)
+    return cats
+
+
+def get_package_menu_choices(package_id: int = None) -> dict[str, list[dict]]:
+    """Menu choices grouped by category for selection. If package items exist, includes them;
+    otherwise lists all available menu items grouped by category."""
+    grouped: dict[str, list[dict]] = {}
+
+    # First check all available menu items
+    all_items = db.fetchall("SELECT * FROM menu_items WHERE mi_status = 'Available' ORDER BY mi_category, mi_name")
+    for r in all_items:
+        cat = r["mi_category"] or "Main Dish"
+        grouped.setdefault(cat, []).append({
+            "menu_item_id": r["mi_id"],
+            "name": r["mi_name"],
+            "category": cat,
+            "price": float(r["mi_price"] or 0.0),
+            "description": r.get("mi_description") or "",
+        })
+    return grouped
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -233,3 +346,75 @@ def get_all_orders(limit: int = 100) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def clear_all_orders() -> int:
+    """Clears all historical orders and transactions from the tablet
+    while keeping the customer list, menu, packages, and addresses intact.
+    Returns the count of bookings cleared."""
+    row = db.fetchone("SELECT COUNT(*) AS c FROM bookings")
+    count = row["c"] if row else 0
+
+    try:
+        db.execute("PRAGMA foreign_keys = OFF;")
+        db.execute("DELETE FROM payment_records")
+        db.execute("DELETE FROM invoices")
+        db.execute("DELETE FROM booking_additional_charges")
+        db.execute("DELETE FROM booking_menu_items")
+        db.execute("DELETE FROM terms_acknowledgements")
+        db.execute("DELETE FROM bookings")
+    finally:
+        try:
+            db.execute("PRAGMA foreign_keys = ON;")
+        except Exception:
+            pass
+
+    return count
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# BUILT-IN ADDRESS SYSTEM
+# ─────────────────────────────────────────────────────────────────────────
+
+_cebu_address_cache: Optional[list[dict]] = None
+
+
+def get_all_cebu_addresses() -> list[dict]:
+    global _cebu_address_cache
+    if _cebu_address_cache:
+        return _cebu_address_cache
+    try:
+        rows = db.fetchall("""
+            SELECT b.ab_id AS barangay_id, b.ab_name AS barangay,
+                   c.ac_id AS city_id, c.ac_name AS city,
+                   pr.ap_id AS province_id, pr.ap_name AS province,
+                   (b.ab_name || ', ' || c.ac_name || ', ' || pr.ap_name) AS display_text
+            FROM address_barangays b
+            JOIN address_cities    c  ON c.ac_id  = b.ab_city_id
+            JOIN address_provinces pr ON pr.ap_id = c.ac_province_id
+            ORDER BY c.ac_name, b.ab_name
+        """)
+        if rows:
+            _cebu_address_cache = [dict(r) for r in rows]
+            return _cebu_address_cache
+    except Exception as exc:
+        print(f"[tablet repo] get_all_cebu_addresses failed: {exc}")
+
+    _cebu_address_cache = _cebu_address_cache or []
+    return _cebu_address_cache
+
+
+def search_cebu_address(query: str, limit: int = 15) -> list[dict]:
+    if not query or len(query.strip()) < 1:
+        return []
+    all_addrs = get_all_cebu_addresses()
+    q_tokens = query.strip().lower().replace(",", " ").split()
+    results = []
+    for addr in all_addrs:
+        text = addr["display_text"].lower()
+        if all(token in text for token in q_tokens):
+            results.append(addr)
+            if len(results) >= limit:
+                break
+    return results
+

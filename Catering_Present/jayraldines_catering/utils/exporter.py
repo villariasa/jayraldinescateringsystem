@@ -387,15 +387,13 @@ def export_pdf(path: str, kpis: dict, bookings: list,
 
 
 def export_tablet_master_data(save_path: str) -> dict:
-    """PC -> Tablet master data transfer (Tablet-mode.md sections 11/15/16).
-    Writes a standalone SQLite file containing only packages, package_items,
-    and menu_items - never bookings/customers/payments - so the Tablet App's
-    "Import Master Data" can load it directly. Uses ATTACH DATABASE so the
-    output is a plain SQLite file with the same table/column names the
-    tablet expects (Tablet-mode.md #17: reuse the existing schema, no second
-    incompatible representation)."""
+    """PC -> Tablet master data transfer.
+    Writes a standalone SQLite file containing packages, package_items, menu_items,
+    customers directory, and address lookup tables - strictly without past bookings
+    or transaction records - so the Tablet App gets the complete customer list,
+    menu catalog, and address dropdown data."""
     import utils.db as db
-    stats = {"packages": 0, "menu_items": 0, "package_items": 0, "errors": []}
+    stats = {"packages": 0, "menu_items": 0, "package_items": 0, "customers": 0, "addresses": 0, "errors": []}
     try:
         db.execute("ATTACH DATABASE ? AS dst", (save_path,))
     except Exception as exc:
@@ -422,17 +420,61 @@ def export_tablet_master_data(save_path: str) -> dict:
                 pi_item_name TEXT, pi_category TEXT, pi_custom_price REAL DEFAULT 0.0, pi_quantity INTEGER DEFAULT 1
             )
         """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS dst.customers (
+                cus_id INTEGER PRIMARY KEY, cus_name TEXT NOT NULL, cus_contact TEXT,
+                cus_email TEXT, cus_address TEXT, cus_address_id INTEGER,
+                cus_loyalty_tier TEXT DEFAULT 'Bronze', cus_total_events INTEGER DEFAULT 0,
+                cus_total_spent REAL DEFAULT 0.0, cus_status TEXT DEFAULT 'Active',
+                cus_notes TEXT, cus_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS dst.address_provinces (
+                ap_id INTEGER PRIMARY KEY AUTOINCREMENT, ap_name TEXT NOT NULL UNIQUE
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS dst.address_cities (
+                ac_id INTEGER PRIMARY KEY AUTOINCREMENT, ac_province_id INTEGER, ac_name TEXT NOT NULL
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS dst.address_barangays (
+                ab_id INTEGER PRIMARY KEY AUTOINCREMENT, ab_city_id INTEGER, ab_name TEXT NOT NULL
+            )
+        """)
+
         db.execute("DELETE FROM dst.packages")
         db.execute("DELETE FROM dst.menu_items")
         db.execute("DELETE FROM dst.package_items")
+        db.execute("DELETE FROM dst.customers")
+        db.execute("DELETE FROM dst.address_barangays")
+        db.execute("DELETE FROM dst.address_cities")
+        db.execute("DELETE FROM dst.address_provinces")
+
         db.execute("INSERT INTO dst.packages SELECT pkg_id, pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_created_at FROM main.packages")
         db.execute("INSERT INTO dst.menu_items (mi_id, mi_name, mi_category, mi_price, mi_status, mi_description, mi_created_at) "
                    "SELECT mi_id, mi_name, mi_category, mi_price, mi_status, mi_description, mi_created_at FROM main.menu_items")
         db.execute("INSERT INTO dst.package_items SELECT pi_id, pi_package_id, pi_menu_item_id, pi_item_name, pi_category, pi_custom_price, pi_quantity FROM main.package_items")
 
+        # Copy customer profiles without orders
+        db.execute("""
+            INSERT INTO dst.customers (cus_id, cus_name, cus_contact, cus_email, cus_address, cus_address_id, cus_loyalty_tier, cus_total_events, cus_total_spent, cus_status, cus_notes, cus_created_at)
+            SELECT cus_id, cus_name, cus_contact, cus_email, cus_address, cus_address_id, cus_loyalty_tier, cus_total_events, cus_total_spent, cus_status, cus_notes, cus_created_at
+            FROM main.customers WHERE cus_status = 'Active' OR cus_status IS NULL
+        """)
+
+        # Copy address lookup hierarchy
+        db.execute("INSERT INTO dst.address_provinces SELECT ap_id, ap_name FROM main.address_provinces")
+        db.execute("INSERT INTO dst.address_cities SELECT ac_id, ac_province_id, ac_name FROM main.address_cities")
+        db.execute("INSERT INTO dst.address_barangays SELECT ab_id, ab_city_id, ab_name FROM main.address_barangays")
+
         stats["packages"] = db.fetchone("SELECT COUNT(*) AS c FROM dst.packages")["c"]
         stats["menu_items"] = db.fetchone("SELECT COUNT(*) AS c FROM dst.menu_items")["c"]
         stats["package_items"] = db.fetchone("SELECT COUNT(*) AS c FROM dst.package_items")["c"]
+        stats["customers"] = db.fetchone("SELECT COUNT(*) AS c FROM dst.customers")["c"]
+        stats["addresses"] = db.fetchone("SELECT COUNT(*) AS c FROM dst.address_barangays")["c"]
     except Exception as exc:
         stats["errors"].append(str(exc))
     finally:

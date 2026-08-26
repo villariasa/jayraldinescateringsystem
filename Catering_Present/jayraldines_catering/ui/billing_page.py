@@ -90,11 +90,11 @@ class RecordPaymentDialog(QDialog):
 
         pi = self._pay_info
         if pi:
-            total     = pi["total"]
-            paid      = pi["paid"]
-            remaining = pi["remaining"]
-            req       = pi["required_payment"]
-            min_pct   = pi["min_pct"]
+            total     = float(pi["total"] or 0.0)
+            paid      = float(pi["paid"] or 0.0)
+            remaining = float(pi["remaining"] or 0.0)
+            req       = float(pi["required_payment"] or 0.0)
+            min_pct   = float(pi["min_pct"] or 50.0)
             is_first  = paid == 0
             req_label = (
                 f"Required downpayment ({min_pct:.0f}%): <b style='color:#F59E0B;'>₱ {req:,.2f}</b>"
@@ -109,21 +109,102 @@ class RecordPaymentDialog(QDialog):
                 f"{req_label}"
             )
             max_amount = remaining
-            default_amount = req if req > 0 else remaining
+            down_target = req if req > 0 else round(total * 0.50, 2)
+            down_target = min(remaining, max(0.01, down_target))
+            full_target = remaining
+            default_amount = down_target if is_first else remaining
         else:
-            balance = float(self._inv.get("amount", 0)) - float(self._inv.get("paid", 0))
+            total = float(self._inv.get("amount", 0) or 0.0)
+            paid = float(self._inv.get("paid", 0) or 0.0)
+            balance = max(0.0, total - paid)
             summary_html = (
                 f"<b>{self._inv.get('invoice', '')}</b> — {self._inv.get('customer', '')}<br>"
+                f"Total: <b>₱ {total:,.2f}</b> &nbsp;|&nbsp; "
+                f"Paid: <b>₱ {paid:,.2f}</b> &nbsp;|&nbsp; "
                 f"Balance due: <span style='color:#E11D48;font-weight:700;'>₱ {balance:,.2f}</span>"
             )
             max_amount = balance
-            default_amount = balance
+            down_target = min(balance, max(0.01, round(total * 0.50, 2)))
+            full_target = balance
+            default_amount = down_target if paid == 0 else balance
 
         info = QLabel(summary_html)
         info.setWordWrap(True)
         info.setTextFormat(Qt.RichText)
-        info.setStyleSheet("font-size:13px; padding:8px 0;")
+        info.setStyleSheet("font-size:13px; padding:6px 0;")
         lay.addWidget(info)
+
+        # ── AUTO-FILL PAYMENT PRESETS (Downpayment vs Fully Paid) ─────────────
+        opt_box = QFrame()
+        opt_box.setStyleSheet("""
+            QFrame {
+                background: #F8FAFC;
+                border: 1px solid #E2E8F0;
+                border-radius: 8px;
+                padding: 6px;
+            }
+        """)
+        opt_lay = QVBoxLayout(opt_box)
+        opt_lay.setContentsMargins(8, 8, 8, 8)
+        opt_lay.setSpacing(6)
+
+        opt_lbl = QLabel("AUTO-FILL PAYMENT OPTION:")
+        opt_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #64748B; letter-spacing: 0.5px;")
+        opt_lay.addWidget(opt_lbl)
+
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(8)
+
+        self._btn_down = QPushButton(f"💰 Downpayment (₱ {down_target:,.2f})")
+        self._btn_down.setCursor(Qt.PointingHandCursor)
+        self._btn_down.setFixedHeight(34)
+
+        self._btn_full = QPushButton(f"💳 Fully Paid (₱ {full_target:,.2f})")
+        self._btn_full.setCursor(Qt.PointingHandCursor)
+        self._btn_full.setFixedHeight(34)
+
+        preset_row.addWidget(self._btn_down, 1)
+        preset_row.addWidget(self._btn_full, 1)
+        opt_lay.addLayout(preset_row)
+        lay.addWidget(opt_box)
+
+        STYLE_INACTIVE = """
+            QPushButton {
+                background: #FFFFFF;
+                border: 1.5px solid #CBD5E1;
+                border-radius: 6px;
+                color: #334155;
+                font-weight: 600;
+                font-size: 12px;
+                padding: 4px 8px;
+            }
+            QPushButton:hover {
+                border-color: #94A3B8;
+                background: #F1F5F9;
+            }
+        """
+        STYLE_ACTIVE_DOWN = """
+            QPushButton {
+                background: #EFF6FF;
+                border: 2px solid #2563EB;
+                border-radius: 6px;
+                color: #1D4ED8;
+                font-weight: 700;
+                font-size: 12px;
+                padding: 4px 8px;
+            }
+        """
+        STYLE_ACTIVE_FULL = """
+            QPushButton {
+                background: #F0FDF4;
+                border: 2px solid #16A34A;
+                border-radius: 6px;
+                color: #15803D;
+                font-weight: 700;
+                font-size: 12px;
+                padding: 4px 8px;
+            }
+        """
 
         form = QFormLayout()
         form.setSpacing(12)
@@ -136,6 +217,34 @@ class RecordPaymentDialog(QDialog):
         self._amount_f.setDecimals(2)
         self._amount_f.setSingleStep(1000)
         self._amount_f.setFixedHeight(38)
+
+        def _apply_downpayment():
+            self._amount_f.setValue(max(0.01, down_target))
+            self._btn_down.setStyleSheet(STYLE_ACTIVE_DOWN)
+            self._btn_full.setStyleSheet(STYLE_INACTIVE)
+
+        def _apply_fully_paid():
+            self._amount_f.setValue(max(0.01, full_target))
+            self._btn_full.setStyleSheet(STYLE_ACTIVE_FULL)
+            self._btn_down.setStyleSheet(STYLE_INACTIVE)
+
+        def _on_amount_changed(val):
+            if abs(val - down_target) < 0.01 and down_target > 0:
+                self._btn_down.setStyleSheet(STYLE_ACTIVE_DOWN)
+                self._btn_full.setStyleSheet(STYLE_INACTIVE)
+            elif abs(val - full_target) < 0.01 and full_target > 0:
+                self._btn_full.setStyleSheet(STYLE_ACTIVE_FULL)
+                self._btn_down.setStyleSheet(STYLE_INACTIVE)
+            else:
+                self._btn_down.setStyleSheet(STYLE_INACTIVE)
+                self._btn_full.setStyleSheet(STYLE_INACTIVE)
+
+        self._btn_down.clicked.connect(_apply_downpayment)
+        self._btn_full.clicked.connect(_apply_fully_paid)
+        self._amount_f.valueChanged.connect(_on_amount_changed)
+
+        # Initial button state
+        _on_amount_changed(self._amount_f.value())
 
         self._date_f = QDateEdit()
         self._date_f.setCalendarPopup(True)
@@ -254,10 +363,6 @@ class EditBillingDialog(QDialog):
         div.setFixedHeight(1)
         lay.addWidget(div)
 
-        form = QFormLayout()
-        form.setSpacing(12)
-        form.setLabelAlignment(Qt.AlignLeft)
-
         self._total_val = float(self._inv.get("amount") or 0.0)
         curr_paid = float(self._inv.get("paid") or 0.0)
         curr_bal = float(self._inv.get("balance") if self._inv.get("balance") is not None else max(0.0, self._total_val - curr_paid))
@@ -265,6 +370,47 @@ class EditBillingDialog(QDialog):
         # Total Amount (Read-only reference)
         lbl_tot = QLabel(f"₱ {self._total_val:,.2f}")
         lbl_tot.setStyleSheet("font-weight: 800; font-size: 15px; color: #D97706;")
+
+        # Quick auto-fill options
+        opt_box = QFrame()
+        opt_box.setStyleSheet("""
+            QFrame {
+                background: #F8FAFC;
+                border: 1px solid #E2E8F0;
+                border-radius: 8px;
+                padding: 6px;
+            }
+        """)
+        opt_lay = QVBoxLayout(opt_box)
+        opt_lay.setContentsMargins(8, 8, 8, 8)
+        opt_lay.setSpacing(6)
+
+        opt_lbl = QLabel("QUICK AUTO-FILL:")
+        opt_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #64748B; letter-spacing: 0.5px;")
+        opt_lay.addWidget(opt_lbl)
+
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(8)
+
+        down_val = round(self._total_val * 0.50, 2)
+        btn_down = QPushButton(f"💰 50% Down (₱ {down_val:,.2f})")
+        btn_down.setCursor(Qt.PointingHandCursor)
+        btn_down.setFixedHeight(32)
+        btn_down.setStyleSheet("background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 6px; font-weight: 600; font-size: 11px;")
+
+        btn_full = QPushButton(f"💳 Fully Paid (₱ {self._total_val:,.2f})")
+        btn_full.setCursor(Qt.PointingHandCursor)
+        btn_full.setFixedHeight(32)
+        btn_full.setStyleSheet("background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 6px; font-weight: 600; font-size: 11px;")
+
+        preset_row.addWidget(btn_down, 1)
+        preset_row.addWidget(btn_full, 1)
+        opt_lay.addLayout(preset_row)
+        lay.addWidget(opt_box)
+
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignLeft)
         form.addRow(QLabel("Total Amount"), lbl_tot)
 
         # 1. Paid Amount (Editable)
@@ -303,8 +449,14 @@ class EditBillingDialog(QDialog):
             self._paid_spin.setValue(new_paid)
             self._updating = False
 
-        self._paid_spin.valueChanged.connect(_on_paid_changed)
-        self._bal_spin.valueChanged.connect(_on_bal_changed)
+        def _apply_edit_down():
+            self._paid_spin.setValue(down_val)
+
+        def _apply_edit_full():
+            self._paid_spin.setValue(self._total_val)
+
+        btn_down.clicked.connect(_apply_edit_down)
+        btn_full.clicked.connect(_apply_edit_full)
 
         form.addRow(QLabel("Amount Paid (₱) *"), self._paid_spin)
         form.addRow(QLabel("Remaining Balance (₱) *"), self._bal_spin)

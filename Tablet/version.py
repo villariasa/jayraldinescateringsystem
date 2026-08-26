@@ -10,21 +10,18 @@ Semantic versioning: MAJOR.MINOR.PATCH
 APP_NAME = "Jayraldine's Catering - Tablet"
 APP_ID = "com.jayraldines.catering.tablet"
 
-VERSION_MAJOR = 0
-VERSION_MINOR = 1
+VERSION_MAJOR = 1
+VERSION_MINOR = 0
 VERSION_PATCH = 0
 
 VERSION = f"{VERSION_MAJOR}.{VERSION_MINOR}.{VERSION_PATCH}"
+BUILD_CODE = 10000
 
 # Bumped whenever the local SQLite schema changes shape in a way that affects
-# compatibility with the PC's merge_database_file() import. The PC's merge
-# logic matches on table/column names, not this number directly, but keep it
-# in sync with utils/sqlite_schema.py SCHEMA_VERSION for diagnostics.
+# compatibility with the PC's merge_database_file() import.
 SCHEMA_VERSION = 1
 
-# Terms & Conditions version currently bundled with this build. Must match
-# utils/terms.py CURRENT_TERMS_VERSION - bump both together whenever the
-# business changes the Terms and Conditions text.
+# Terms & Conditions version currently bundled with this build.
 TERMS_VERSION = "1.0"
 
 

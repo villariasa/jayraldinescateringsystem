@@ -44,55 +44,123 @@ def import_master_data(source_path: str) -> dict:
     return _import_master_data_db(source_path)
 
 
-def _replace_master_tables(packages: list, menu_items: list, package_items: list) -> dict:
+def _replace_master_tables(packages: list, menu_items: list, package_items: list,
+                          customers: list = None, provinces: list = None,
+                          cities: list = None, barangays: list = None) -> dict:
     """packages: [{"name","description","price_per_pax","min_pax"}]
     menu_items: [{"name","category","price","status","description"}]
     package_items: [{"package_name","category","item_name","price","quantity"}]
-    Wipes and reloads packages/menu_items/package_items — safe, see module docstring."""
-    stats = {"packages": 0, "menu_items": 0, "package_items": 0, "errors": []}
+    customers: [{"id","name","contact","email","address"}] - only customer directory, no orders."""
+    stats = {"packages": 0, "menu_items": 0, "package_items": 0, "customers": 0, "addresses": 0, "errors": []}
 
-    db.execute("DELETE FROM package_items")
-    db.execute("DELETE FROM packages")
-    db.execute("DELETE FROM menu_items")
+    try:
+        db.execute("PRAGMA foreign_keys = OFF;")
+        db.execute("DELETE FROM package_items")
+        db.execute("DELETE FROM packages")
+        db.execute("DELETE FROM menu_items")
 
-    pkg_id_by_name = {}
-    for p in packages:
-        name = (p.get("name") or "").strip()
-        if not name:
-            continue
-        new_id = db.execute(
-            "INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
-            (name, p.get("description") or "", float(p.get("price_per_pax") or 0.0), int(p.get("min_pax") or 30)),
-        )
-        pkg_id_by_name[name.lower()] = new_id
-        stats["packages"] += 1
+        pkg_id_by_name = {}
+        for p in packages:
+            name = (p.get("name") or "").strip()
+            if not name:
+                continue
+            new_id = db.execute(
+                "INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
+                (name, p.get("description") or "", float(p.get("price_per_pax") or 0.0), int(p.get("min_pax") or 30)),
+            )
+            pkg_id_by_name[name.lower()] = new_id
+            stats["packages"] += 1
 
-    for m in menu_items:
-        name = (m.get("name") or "").strip()
-        if not name:
-            continue
+        for m in menu_items:
+            name = (m.get("name") or "").strip()
+            if not name:
+                continue
+            db.execute(
+                "INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description) VALUES (?, ?, ?, ?, ?)",
+                (name, m.get("category") or "Other", float(m.get("price") or 0.0), m.get("status") or "Available", m.get("description") or ""),
+            )
+            stats["menu_items"] += 1
+
+        for pi in package_items:
+            pkg_name = (pi.get("package_name") or "").strip().lower()
+            pkg_id = pkg_id_by_name.get(pkg_name)
+            item_name = (pi.get("item_name") or "").strip()
+            if not pkg_id or not item_name:
+                continue
+            db.execute(
+                "INSERT INTO package_items (pi_package_id, pi_item_name, pi_category, pi_custom_price, pi_quantity) VALUES (?, ?, ?, ?, ?)",
+                (pkg_id, item_name, pi.get("category") or "Other", float(pi.get("price") or 0.0), int(pi.get("quantity") or 1)),
+            )
+            stats["package_items"] += 1
+
+        # Customer directory import (safe merge without touching orders)
+        if customers:
+            for c in customers:
+                c_name = (c.get("name") or c.get("cus_name") or "").strip()
+                if not c_name:
+                    continue
+                c_id = c.get("id") or c.get("cus_id")
+                c_contact = (c.get("contact") or c.get("cus_contact") or "").strip()
+                c_email = (c.get("email") or c.get("cus_email") or "").strip()
+                c_addr = (c.get("address") or c.get("cus_address") or "").strip()
+                
+                existing = None
+                if c_id:
+                    existing = db.fetchone("SELECT cus_id FROM customers WHERE cus_id = ?", (c_id,))
+                if not existing and c_contact:
+                    existing = db.fetchone("SELECT cus_id FROM customers WHERE cus_contact = ? AND cus_contact != ''", (c_contact,))
+                if not existing:
+                    existing = db.fetchone("SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(?)", (c_name,))
+
+                if existing:
+                    db.execute(
+                        "UPDATE customers SET cus_name = ?, cus_contact = ?, cus_email = ?, cus_address = ? WHERE cus_id = ?",
+                        (c_name, c_contact, c_email, c_addr, existing["cus_id"])
+                    )
+                else:
+                    db.execute(
+                        "INSERT INTO customers (cus_id, cus_name, cus_contact, cus_email, cus_address, cus_status) VALUES (?, ?, ?, ?, ?, 'Active')",
+                        (c_id, c_name, c_contact, c_email, c_addr)
+                    )
+                stats["customers"] += 1
+
+            # Auto-cleanup orphaned duplicate customer rows
+            try:
+                db.execute("""
+                    DELETE FROM customers 
+                    WHERE cus_id NOT IN (
+                        SELECT MIN(cus_id) FROM customers GROUP BY LOWER(cus_name), cus_contact
+                    ) AND cus_id NOT IN (
+                        SELECT DISTINCT bk_customer_id FROM bookings WHERE bk_customer_id IS NOT NULL
+                    )
+                """)
+            except Exception:
+                pass
+
+        # Address hierarchy import
+        if provinces:
+            for pr in provinces:
+                db.execute("INSERT OR IGNORE INTO address_provinces (ap_id, ap_name) VALUES (?, ?)", (pr.get("ap_id"), pr.get("ap_name")))
+        if cities:
+            for ci in cities:
+                db.execute("INSERT OR IGNORE INTO address_cities (ac_id, ac_province_id, ac_name) VALUES (?, ?, ?)", (ci.get("ac_id"), ci.get("ac_province_id"), ci.get("ac_name")))
+        if barangays:
+            for bg in barangays:
+                db.execute("INSERT OR IGNORE INTO address_barangays (ab_id, ab_city_id, ab_name) VALUES (?, ?, ?)", (bg.get("ab_id"), bg.get("ab_city_id"), bg.get("ab_name")))
+                stats["addresses"] += 1
+
         db.execute(
-            "INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description) VALUES (?, ?, ?, ?, ?)",
-            (name, m.get("category") or "Other", float(m.get("price") or 0.0), m.get("status") or "Available", m.get("description") or ""),
+            "INSERT INTO tablet_master_sync (tms_source_export_version, tms_packages_count, tms_menu_items_count, tms_customers_count) VALUES (?, ?, ?, ?)",
+            (datetime.now().isoformat(timespec="seconds"), stats["packages"], stats["menu_items"], stats["customers"]),
         )
-        stats["menu_items"] += 1
+    except Exception as exc:
+        stats["errors"].append(str(exc))
+    finally:
+        try:
+            db.execute("PRAGMA foreign_keys = ON;")
+        except Exception:
+            pass
 
-    for pi in package_items:
-        pkg_name = (pi.get("package_name") or "").strip().lower()
-        pkg_id = pkg_id_by_name.get(pkg_name)
-        item_name = (pi.get("item_name") or "").strip()
-        if not pkg_id or not item_name:
-            continue
-        db.execute(
-            "INSERT INTO package_items (pi_package_id, pi_item_name, pi_category, pi_custom_price, pi_quantity) VALUES (?, ?, ?, ?, ?)",
-            (pkg_id, item_name, pi.get("category") or "Other", float(pi.get("price") or 0.0), int(pi.get("quantity") or 1)),
-        )
-        stats["package_items"] += 1
-
-    db.execute(
-        "INSERT INTO tablet_master_sync (tms_source_export_version, tms_packages_count, tms_menu_items_count) VALUES (?, ?, ?)",
-        (datetime.now().isoformat(timespec="seconds"), stats["packages"], stats["menu_items"]),
-    )
     return stats
 
 
@@ -110,9 +178,19 @@ def _import_master_data_db(source_path: str) -> dict:
             src_pkg_items = db.fetchall("SELECT * FROM src.package_items")
         except Exception:
             src_pkg_items = []
+        try:
+            src_customers = db.fetchall("SELECT * FROM src.customers")
+        except Exception:
+            src_customers = []
+        try:
+            src_provinces = db.fetchall("SELECT * FROM src.address_provinces")
+            src_cities = db.fetchall("SELECT * FROM src.address_cities")
+            src_barangays = db.fetchall("SELECT * FROM src.address_barangays")
+        except Exception:
+            src_provinces, src_cities, src_barangays = [], [], []
 
-        if not src_packages and not src_items:
-            return {**_EMPTY_STATS, "errors": ["Master data file has no packages or menu items."]}
+        if not src_packages and not src_items and not src_customers:
+            return {**_EMPTY_STATS, "errors": ["Master data file has no packages, menu items, or customers."]}
 
         pkg_name_by_id = {p["pkg_id"]: p["pkg_name"] for p in src_packages}
         packages = [
@@ -131,7 +209,11 @@ def _import_master_data_db(source_path: str) -> dict:
             }
             for pi in src_pkg_items
         ]
-        return _replace_master_tables(packages, menu_items, package_items)
+        return _replace_master_tables(
+            packages, menu_items, package_items,
+            customers=src_customers, provinces=src_provinces,
+            cities=src_cities, barangays=src_barangays
+        )
     except Exception as exc:
         return {**_EMPTY_STATS, "errors": [str(exc)]}
     finally:

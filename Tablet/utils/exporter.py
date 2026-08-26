@@ -128,3 +128,177 @@ def export_order_receipt_pdf(path: str, order: dict, business_name: str = "Jayra
     except Exception as exc:
         print(f"[tablet exporter] Receipt PDF failed: {exc}")
         return False
+
+
+def export_all_orders_to_excel(save_path: str) -> dict:
+    """Exports all orders currently recorded on the tablet into an Excel (.xlsx) archive file
+    with multi-tab organization: Orders Summary, Menu Selections, Additional Charges, and Payments.
+    Returns {"success": bool, "orders_count": int, "path": str, "error": str | None}."""
+    import utils.db as db
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return {"success": False, "orders_count": 0, "path": "", "error": "openpyxl is required for Excel export."}
+
+    try:
+        bookings = db.fetchall("""
+            SELECT b.*, i.inv_id, i.inv_invoice_number, i.inv_total_amount, i.inv_amount_paid, i.inv_balance, i.inv_status
+            FROM bookings b
+            LEFT JOIN invoices i ON i.inv_booking_id = b.bk_id
+            ORDER BY b.bk_created_at DESC
+        """)
+
+        wb = openpyxl.Workbook()
+        # Sheet 1: Orders Summary
+        ws_orders = wb.active
+        ws_orders.title = "Orders Summary"
+
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+        title_font = Font(name="Calibri", size=14, bold=True, color="0F172A")
+        sub_font = Font(name="Calibri", size=10, italic=True, color="64748B")
+        border_thin = Border(
+            left=Side(style="thin", color="E2E8F0"),
+            right=Side(style="thin", color="E2E8F0"),
+            top=Side(style="thin", color="E2E8F0"),
+            bottom=Side(style="thin", color="E2E8F0")
+        )
+
+        ws_orders.append(["JAYRALDINE'S CATERING — TABLET ORDERS ARCHIVE"])
+        ws_orders.append([f"Export Date & Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"])
+        ws_orders.append([])
+
+        ws_orders.cell(1, 1).font = title_font
+        ws_orders.cell(2, 1).font = sub_font
+
+        order_headers = [
+            "Booking Ref", "Customer Name", "Contact Number", "Email Address", "Delivery / Billing Address",
+            "Event Date", "Event Time", "Venue", "Occasion", "Pax", "Package",
+            "Base Total (PHP)", "Total Amount (PHP)", "Amount Paid (PHP)", "Balance Due (PHP)",
+            "Status", "Payment Mode", "Date Created", "Notes"
+        ]
+        ws_orders.append(order_headers)
+        header_row = 4
+        for col_num in range(1, len(order_headers) + 1):
+            c = ws_orders.cell(row=header_row, column=col_num)
+            c.font = header_font
+            c.fill = header_fill
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        for b in bookings:
+            ws_orders.append([
+                b.get("bk_booking_ref") or f"TB-{b['bk_id']:05d}",
+                b.get("bk_customer_name", ""),
+                b.get("bk_contact", ""),
+                b.get("bk_email", ""),
+                b.get("bk_address", ""),
+                b.get("bk_event_date", ""),
+                b.get("bk_event_time", ""),
+                b.get("bk_venue", ""),
+                b.get("bk_occasion", ""),
+                b.get("bk_pax", 0),
+                b.get("bk_package_name") or "Custom Package",
+                float(b.get("bk_base_total") or 0.0),
+                float(b.get("bk_total_amount") or 0.0),
+                float(b.get("inv_amount_paid") or b.get("bk_amount_paid") or 0.0),
+                float(b.get("inv_balance") or 0.0),
+                b.get("inv_status") or b.get("bk_status") or "PENDING",
+                b.get("bk_payment_mode", "Cash"),
+                b.get("bk_created_at", ""),
+                b.get("bk_notes", ""),
+            ])
+
+        # Sheet 2: Menu Selections
+        ws_menu = wb.create_sheet(title="Menu Selections")
+        ws_menu.append(["Booking Ref", "Customer Name", "Dish Name", "Category", "Quantity", "Extra Price (PHP)"])
+        for col_num in range(1, 7):
+            c = ws_menu.cell(row=1, column=col_num)
+            c.font = header_font
+            c.fill = header_fill
+            c.alignment = Alignment(horizontal="center", vertical="center")
+
+        menu_items = db.fetchall("""
+            SELECT bmi.*, b.bk_booking_ref, b.bk_customer_name
+            FROM booking_menu_items bmi
+            JOIN bookings b ON b.bk_id = bmi.bmi_booking_id
+            ORDER BY b.bk_id, bmi.bmi_category
+        """)
+        for m in menu_items:
+            ws_menu.append([
+                m.get("bk_booking_ref", ""),
+                m.get("bk_customer_name", ""),
+                m.get("bmi_item_name", ""),
+                m.get("bmi_category", ""),
+                m.get("bmi_quantity", 1),
+                float(m.get("bmi_price") or 0.0),
+            ])
+
+        # Sheet 3: Additional Charges
+        ws_charges = wb.create_sheet(title="Additional Charges")
+        ws_charges.append(["Booking Ref", "Customer Name", "Charge Description", "Amount (PHP)", "Date Added", "Added By"])
+        for col_num in range(1, 7):
+            c = ws_charges.cell(row=1, column=col_num)
+            c.font = header_font
+            c.fill = header_fill
+            c.alignment = Alignment(horizontal="center", vertical="center")
+
+        charges = db.fetchall("""
+            SELECT ac.*, b.bk_booking_ref, b.bk_customer_name
+            FROM booking_additional_charges ac
+            JOIN bookings b ON b.bk_id = ac.ac_booking_id
+            ORDER BY b.bk_id, ac.ac_date_added
+        """)
+        for ch in charges:
+            ws_charges.append([
+                ch.get("bk_booking_ref", ""),
+                ch.get("bk_customer_name", ""),
+                ch.get("ac_description", ""),
+                float(ch.get("ac_amount") or 0.0),
+                ch.get("ac_date_added", ""),
+                ch.get("ac_added_by", "Staff"),
+            ])
+
+        # Sheet 4: Payment Records
+        ws_payments = wb.create_sheet(title="Payment Records")
+        ws_payments.append(["Booking Ref", "Customer Name", "Invoice Ref", "Payment Amount (PHP)", "Payment Date", "Payment Method", "Is Downpayment", "Notes"])
+        for col_num in range(1, 9):
+            c = ws_payments.cell(row=1, column=col_num)
+            c.font = header_font
+            c.fill = header_fill
+            c.alignment = Alignment(horizontal="center", vertical="center")
+
+        payments = db.fetchall("""
+            SELECT pr.*, i.inv_invoice_number, b.bk_booking_ref, b.bk_customer_name
+            FROM payment_records pr
+            JOIN invoices i ON i.inv_id = pr.pr_invoice_id
+            JOIN bookings b ON b.bk_id = i.inv_booking_id
+            ORDER BY pr.pr_payment_date DESC
+        """)
+        for p in payments:
+            ws_payments.append([
+                p.get("bk_booking_ref", ""),
+                p.get("bk_customer_name", ""),
+                p.get("inv_invoice_number", ""),
+                float(p.get("pr_amount") or 0.0),
+                p.get("pr_payment_date", ""),
+                p.get("pr_payment_method") or p.get("pr_method") or "Cash",
+                "Yes" if p.get("pr_is_downpayment") else "No",
+                p.get("pr_notes") or p.get("pr_note") or "",
+            ])
+
+        # Auto-adjust column widths for all sheets
+        for sheet in wb.worksheets:
+            for col in sheet.columns:
+                max_len = max(len(str(cell.value or "")) for cell in col)
+                col_letter = get_column_letter(col[0].column)
+                sheet.column_dimensions[col_letter].width = max(max_len + 3, 12)
+
+        wb.save(save_path)
+        return {"success": True, "orders_count": len(bookings), "path": save_path, "error": None}
+
+    except Exception as exc:
+        print(f"[tablet exporter] Excel export failed: {exc}")
+        return {"success": False, "orders_count": 0, "path": "", "error": str(exc)}
+

@@ -8,22 +8,26 @@ BG = "#0B1220"
 CARD = "#141C2E"
 CARD_ELEVATED = "#1A2438"
 BORDER = "#263248"
+BORDER_LIGHT = "#334155"
 INPUT_BG = "#1A2438"
 
 TEXT = "#F8FAFC"
-TEXT_MUTED = "#8B98AF"
+TEXT_MUTED = "#94A3B8"
 TEXT_FAINT = "#64748B"
 
 ACCENT = "#E11D48"
 ACCENT_HOVER = "#F43F5E"
 ACCENT_PRESS = "#BE123C"
+GOLD = "#F59E0B"
+GOLD_BG = "rgba(245, 158, 11, 0.12)"
 
-SUCCESS = "#22C55E"
+SUCCESS = "#10B981"
+SUCCESS_BG = "rgba(16, 185, 129, 0.12)"
 WARNING = "#F59E0B"
 DANGER = "#EF4444"
 INFO = "#38BDF8"
 
-RADIUS = 14
+RADIUS = 16
 RADIUS_SM = 10
 
 FONT_FAMILY = "'Segoe UI', 'Noto Sans', sans-serif"
@@ -40,8 +44,8 @@ QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; border:
 QMessageBox, QInputDialog, QFileDialog {{ background: {CARD}; }}
 QLabel {{ color: {TEXT}; background: transparent; border: none; }}
 
-QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
-QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 5px; min-height: 30px; }}
+QScrollBar:vertical {{ background: transparent; width: 8px; margin: 2px; }}
+QScrollBar::handle:vertical {{ background: {BORDER}; border-radius: 4px; min-height: 30px; }}
 QScrollBar::handle:vertical:hover {{ background: {TEXT_FAINT}; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
 
@@ -80,18 +84,25 @@ QRadioButton::indicator:checked, QCheckBox::indicator:checked {{
 QRadioButton::indicator:hover, QCheckBox::indicator:hover {{ border: 2px solid {ACCENT}; }}
 
 QPushButton#Primary {{
-    font-size: 16px; font-weight: 700; padding: 15px 26px; border-radius: {RADIUS_SM}px;
+    font-size: 16px; font-weight: 700; padding: 14px 24px; border-radius: {RADIUS_SM}px;
     background: {ACCENT}; color: white; border: none;
 }}
 QPushButton#Primary:hover {{ background: {ACCENT_HOVER}; }}
 QPushButton#Primary:pressed {{ background: {ACCENT_PRESS}; }}
-QPushButton#Primary:disabled {{ background: #3A4356; color: #6B7688; }}
+QPushButton#Primary:disabled {{ background: #334155; color: #64748B; }}
+
+QPushButton#GoldPrimary {{
+    font-size: 16px; font-weight: 800; padding: 15px 26px; border-radius: {RADIUS_SM}px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #F59E0B, stop:1 #D97706); color: #0F172A; border: none;
+}}
+QPushButton#GoldPrimary:hover {{ background: #FBBF24; }}
+QPushButton#GoldPrimary:pressed {{ background: #B45309; }}
 
 QPushButton#Secondary {{
     font-size: 15px; font-weight: 600; padding: 13px 22px; border-radius: {RADIUS_SM}px;
     background: {CARD_ELEVATED}; color: {TEXT}; border: 1.5px solid {BORDER};
 }}
-QPushButton#Secondary:hover {{ border: 1.5px solid {TEXT_FAINT}; background: #202B42; }}
+QPushButton#Secondary:hover {{ border: 1.5px solid {TEXT_FAINT}; background: #222F48; }}
 QPushButton#Secondary:pressed {{ background: {BG}; }}
 
 QPushButton#Ghost {{
@@ -107,31 +118,37 @@ QPushButton#Danger {{
 QPushButton#Danger:hover {{ background: rgba(239,68,68,0.12); }}
 """
 
-
 _card_counter = [0]
 
 
 def card_frame_style(elevated: bool = False, accent_border: bool = False) -> str:
-    """DEPRECATED for direct use on QFrame.setStyleSheet(): an unselected
-    (bare-property) stylesheet on a widget instance cascades to ALL
-    descendant widgets in Qt's QSS engine — including QLabel, since QLabel
-    derives from QFrame and QSS type selectors match by inheritance. Use
-    make_card() instead, which scopes the rule to an objectName so it only
-    paints the card frame itself, never its children."""
     bg = CARD_ELEVATED if elevated else CARD
     border = ACCENT if accent_border else BORDER
     return f"background: {bg}; border-radius: {RADIUS}px; border: 1px solid {border};"
 
 
 def style_card(frame, elevated: bool = False, accent_border: bool = False) -> None:
-    """Applies card styling to `frame` scoped so it can never leak onto
-    child widgets (see card_frame_style docstring for why that matters)."""
     _card_counter[0] += 1
     name = f"ThemeCard{_card_counter[0]}"
     frame.setObjectName(name)
     bg = CARD_ELEVATED if elevated else CARD
     border = ACCENT if accent_border else BORDER
-    frame.setStyleSheet(f"QFrame#{name} {{ background: {bg}; border-radius: {RADIUS}px; border: 1px solid {border}; }}")
+    frame.setStyleSheet(f"QFrame#{name} {{ background: {bg}; border-radius: {RADIUS}px; border: 1.5px solid {border}; }}")
+
+
+def style_dish_card(frame, selected: bool = False) -> None:
+    _card_counter[0] += 1
+    name = f"DishCard{_card_counter[0]}"
+    frame.setObjectName(name)
+    if selected:
+        bg = "#251824"
+        border = ACCENT
+    else:
+        bg = CARD
+        border = BORDER
+    frame.setStyleSheet(
+        f"QFrame#{name} {{ background: {bg}; border-radius: {RADIUS_SM}px; border: 2px solid {border}; }}"
+    )
 
 
 def heading_style(size: int = 22) -> str:
@@ -142,11 +159,43 @@ def subtitle_style(size: int = 13) -> str:
     return f"font-size: {size}px; color: {TEXT_MUTED};"
 
 
-def pill_style(color: str) -> str:
+def pill_style(color: str, bg_alpha: float = 0.12) -> str:
     return (
-        f"font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 10px; "
-        f"background: rgba(255,255,255,0.06); color: {color}; border: 1px solid {color};"
+        f"font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 8px; "
+        f"background: rgba(255,255,255,{bg_alpha}); color: {color}; border: 1px solid {color};"
     )
 
 
 STATUS_COLORS = {"Paid": SUCCESS, "Partial": WARNING, "Unpaid": DANGER}
+
+
+def create_fullscreen_icon(color: str = "#E2E8F0", size: int = 24) -> "QIcon":
+    from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QIcon
+    from PySide6.QtCore import Qt, QSize
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(color), 2, Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin)
+    painter.setPen(pen)
+
+    c = 5
+    m = 3
+    s = size - m
+    # Top-Left corner
+    painter.drawLine(m, m + c, m, m)
+    painter.drawLine(m, m, m + c, m)
+    # Top-Right corner
+    painter.drawLine(s - c, m, s, m)
+    painter.drawLine(s, m, s, m + c)
+    # Bottom-Left corner
+    painter.drawLine(m, s - c, m, s)
+    painter.drawLine(m, s, m + c, s)
+    # Bottom-Right corner
+    painter.drawLine(s - c, s, s, s)
+    painter.drawLine(s, s - c, s, s)
+
+    painter.end()
+    return QIcon(pix)
+
+

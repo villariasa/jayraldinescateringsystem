@@ -1,20 +1,22 @@
 """
-The full tablet order-creation wizard (Tablet-mode.md sections 1-10, 13):
+The full tablet order-creation wizard with clean professional typography:
+Customer -> Package & Event -> Mix & Match Menu -> Upsell Add-ons -> Billing -> Preview -> Terms -> Receipt
 
-Customer -> Package -> Menu -> Additional Charges -> Billing -> Preview
--> Terms & Conditions -> Confirm -> Receipt -> Export
-
-Nothing is written to the database until Confirm (after Terms acceptance) -
-the draft lives entirely in self._draft until then, so an abandoned order
-never leaves a half-finished row behind.
+Features:
+- Live Sticky Cart Sidebar on the right showing real-time subtotal & selected dishes.
+- Visual touchable cards with clear active highlights.
+- Visual "Mix & Match" dish selector with category tabs and selection counters.
+- "Would you like an add-on?" upselling cards for Lechon, Desserts, and Styling.
 """
+from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QLineEdit, QDateEdit, QTimeEdit, QSpinBox, QDoubleSpinBox, QComboBox,
     QScrollArea, QRadioButton, QButtonGroup, QCheckBox, QMessageBox,
-    QTextEdit, QTextBrowser, QFileDialog, QSizePolicy
+    QTextEdit, QTextBrowser, QFileDialog, QSizePolicy, QStackedWidget,
+    QGraphicsOpacityEffect
 )
-from PySide6.QtCore import Qt, QDate, QTime
+from PySide6.QtCore import Qt, QDate, QTime, QPropertyAnimation, QEasingCurve
 
 import utils.repository as repo
 import utils.exporter as exporter
@@ -22,6 +24,7 @@ import utils.terms as terms
 from utils.session import get_actor
 from ui import theme
 from ui.step_progress import StepProgress
+from ui.components.address_search import AddressSearchWidget
 
 
 def _card(elevated=False, accent=False):
@@ -30,13 +33,15 @@ def _card(elevated=False, accent=False):
     return f
 
 
-def _nav_row(back_cb=None, next_cb=None, next_label="Next", next_enabled=True):
+def _nav_row(back_cb=None, next_cb=None, next_label="Next ->", next_enabled=True):
     row = QHBoxLayout()
+    row.setSpacing(14)
     if back_cb:
-        back_btn = QPushButton("←  Back")
+        back_btn = QPushButton("<- Back")
         back_btn.setObjectName("Secondary")
         back_btn.setCursor(Qt.PointingHandCursor)
-        back_btn.setMinimumHeight(50)
+        back_btn.setMinimumHeight(48)
+        back_btn.setMinimumWidth(120)
         back_btn.clicked.connect(back_cb)
         row.addWidget(back_btn)
     row.addStretch()
@@ -45,8 +50,8 @@ def _nav_row(back_cb=None, next_cb=None, next_label="Next", next_enabled=True):
         next_btn = QPushButton(next_label)
         next_btn.setObjectName("Primary")
         next_btn.setCursor(Qt.PointingHandCursor)
-        next_btn.setMinimumHeight(50)
-        next_btn.setMinimumWidth(200)
+        next_btn.setMinimumHeight(48)
+        next_btn.setMinimumWidth(220)
         next_btn.setEnabled(next_enabled)
         next_btn.clicked.connect(next_cb)
         row.addWidget(next_btn)
@@ -54,13 +59,14 @@ def _nav_row(back_cb=None, next_cb=None, next_label="Next", next_enabled=True):
 
 
 class OrderWizard(QWidget):
-    def __init__(self, on_finish):
+    def __init__(self, on_finish, on_toggle_fullscreen=None):
         super().__init__()
-        self._on_finish = on_finish  # called with no args when wizard is closed/cancelled/done
+        self._on_finish = on_finish
+        self._on_toggle_fullscreen = on_toggle_fullscreen
         self._draft = {
             "customer_id": None, "customer_name": "", "contact": "", "email": "", "address": "",
             "event_date": QDate.currentDate().addDays(14).toString("yyyy-MM-dd"), "event_time": "18:00",
-            "venue": "", "occasion": "", "pax": 60,
+            "venue": "", "occasion": "Birthday", "pax": 100,
             "package_id": None, "package_name": "", "base_total": 0.0,
             "menu_selections": [], "additional_charges": [],
             "down_payment": 0.0, "payment_method": "Cash", "notes": "",
@@ -71,63 +77,214 @@ class OrderWizard(QWidget):
 
     def _build_ui(self):
         self._root = QVBoxLayout(self)
-        self._root.setContentsMargins(36, 24, 36, 24)
-        self._root.setSpacing(18)
+        self._root.setContentsMargins(28, 18, 28, 18)
+        self._root.setSpacing(14)
 
+        # Header
         header = QHBoxLayout()
+        header.setAlignment(Qt.AlignVCenter)
         title_box = QVBoxLayout()
+        title_box.setSpacing(2)
+        title_box.setAlignment(Qt.AlignVCenter)
         self._step_lbl = QLabel()
-        self._step_lbl.setStyleSheet(theme.heading_style(22))
+        self._step_lbl.setStyleSheet(theme.heading_style(20))
+        self._step_sub_lbl = QLabel("Tap items to customize your catering package")
+        self._step_sub_lbl.setStyleSheet(theme.subtitle_style(12))
         title_box.addWidget(self._step_lbl)
+        title_box.addWidget(self._step_sub_lbl)
         header.addLayout(title_box)
         header.addStretch()
-        self._cancel_btn = QPushButton("✕  Cancel Order")
+
+        right_actions = QHBoxLayout()
+        right_actions.setSpacing(10)
+        right_actions.setAlignment(Qt.AlignVCenter)
+
+        if self._on_toggle_fullscreen:
+            fs_btn = QPushButton()
+            fs_btn.setIcon(theme.create_fullscreen_icon("#CBD5E1", 20))
+            fs_btn.setToolTip("Toggle Fullscreen (F11)")
+            fs_btn.setObjectName("Secondary")
+            fs_btn.setFixedSize(40, 40)
+            fs_btn.setCursor(Qt.PointingHandCursor)
+            fs_btn.clicked.connect(self._on_toggle_fullscreen)
+            right_actions.addWidget(fs_btn, alignment=Qt.AlignVCenter)
+
+        self._cancel_btn = QPushButton("Cancel Order")
         self._cancel_btn.setObjectName("Danger")
+        self._cancel_btn.setFixedHeight(40)
         self._cancel_btn.setCursor(Qt.PointingHandCursor)
         self._cancel_btn.clicked.connect(self._cancel)
-        header.addWidget(self._cancel_btn, alignment=Qt.AlignTop)
+        right_actions.addWidget(self._cancel_btn, alignment=Qt.AlignVCenter)
+
+        header.addLayout(right_actions)
         self._root.addLayout(header)
 
+        # Stepper Progress Bar
         self._stepper = StepProgress()
         self._root.addWidget(self._stepper)
 
+        # Main Split Content (Left: Step Form, Right: Sticky Cart Sidebar)
+        self._split_lay = QHBoxLayout()
+        self._split_lay.setSpacing(20)
+
+        # Left Step Content Container
         self._body_scroll = QScrollArea()
         self._body_scroll.setWidgetResizable(True)
         self._body_scroll.setFrameShape(QFrame.NoFrame)
-        self._root.addWidget(self._body_scroll, 1)
+        self._split_lay.addWidget(self._body_scroll, 3)
 
+        # Right Sticky Cart Sidebar
+        self._cart_card = _card(elevated=True, accent=True)
+        self._cart_card.setMinimumWidth(290)
+        self._cart_card.setMaximumWidth(340)
+        self._cart_lay = QVBoxLayout(self._cart_card)
+        self._cart_lay.setContentsMargins(18, 16, 18, 16)
+        self._cart_lay.setSpacing(10)
+        self._build_cart_sidebar()
+        self._split_lay.addWidget(self._cart_card, 1)
+
+        self._root.addLayout(self._split_lay, 1)
+
+        # Navigation Bar
         self._nav_container = QVBoxLayout()
         self._root.addLayout(self._nav_container)
         self._nav_widget = None
 
-    def _center_wrap(self, inner: QWidget, max_width: int = 780) -> QWidget:
-        """Centers wizard content with a comfortable reading width instead of
-        stretching every field across a full tablet-width screen."""
-        outer = QWidget()
-        lay = QHBoxLayout(outer)
-        lay.setContentsMargins(0, 0, 0, 0)
-        inner.setMaximumWidth(max_width)
-        inner.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        lay.addStretch()
-        lay.addWidget(inner)
-        lay.addStretch()
-        return outer
+    def _build_cart_sidebar(self):
+        # Header
+        cart_head = QHBoxLayout()
+        cart_title = QLabel("Live Event Summary")
+        cart_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #FFFFFF;")
+        cart_head.addWidget(cart_title)
+        self._cart_lay.addLayout(cart_head)
 
-    def _set_body(self, widget: QWidget, step_title: str, step_index: int = None):
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("color: #334155; margin: 2px 0;")
+        self._cart_lay.addWidget(line)
+
+        # Scrollable items area in sidebar
+        self._cart_items_scroll = QScrollArea()
+        self._cart_items_scroll.setWidgetResizable(True)
+        self._cart_items_scroll.setFrameShape(QFrame.NoFrame)
+        self._cart_items_widget = QWidget()
+        self._cart_items_lay = QVBoxLayout(self._cart_items_widget)
+        self._cart_items_lay.setContentsMargins(0, 0, 0, 0)
+        self._cart_items_lay.setSpacing(8)
+        self._cart_items_scroll.setWidget(self._cart_items_widget)
+        self._cart_lay.addWidget(self._cart_items_scroll, 1)
+
+        # Totals box
+        totals_box = QFrame()
+        totals_box.setStyleSheet("background: rgba(11, 18, 32, 0.6); border-radius: 10px; padding: 6px;")
+        tlay = QVBoxLayout(totals_box)
+        tlay.setSpacing(4)
+
+        r1 = QHBoxLayout()
+        r1.addWidget(QLabel("Subtotal:"))
+        self._cart_subtotal_lbl = QLabel("₱0.00")
+        self._cart_subtotal_lbl.setStyleSheet("font-size: 15px; font-weight: 800; color: #FFFFFF;")
+        self._cart_subtotal_lbl.setAlignment(Qt.AlignRight)
+        r1.addWidget(self._cart_subtotal_lbl)
+        tlay.addLayout(r1)
+
+        r2 = QHBoxLayout()
+        dp_tag = QLabel("50% Downpayment:")
+        dp_tag.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        r2.addWidget(dp_tag)
+        self._cart_dp_lbl = QLabel("₱0.00")
+        self._cart_dp_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {theme.GOLD};")
+        self._cart_dp_lbl.setAlignment(Qt.AlignRight)
+        r2.addWidget(self._cart_dp_lbl)
+        tlay.addLayout(r2)
+
+        self._cart_lay.addWidget(totals_box)
+        self.update_cart_sidebar()
+
+    def update_cart_sidebar(self):
+        # Clear items
+        while self._cart_items_lay.count():
+            item = self._cart_items_lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Customer & Package Info
+        pkg_name = self._draft.get("package_name") or "No Package Selected"
+        pax = int(self._draft.get("pax", 100))
+        base_tot = float(self._draft.get("base_total", 0.0))
+
+        pkg_box = QFrame()
+        pkg_box.setStyleSheet("background: #1E293B; border-radius: 8px; padding: 6px;")
+        play = QVBoxLayout(pkg_box)
+        play.setSpacing(2)
+        pname = QLabel(f"Package: {pkg_name}")
+        pname.setStyleSheet("font-size: 13px; font-weight: 700; color: #F8FAFC;")
+        pname.setWordWrap(True)
+        pdetails = QLabel(f"Guests: {pax} Pax")
+        pdetails.setStyleSheet("font-size: 11px; color: #94A3B8;")
+        play.addWidget(pname)
+        play.addWidget(pdetails)
+        self._cart_items_lay.addWidget(pkg_box)
+
+        # Selected Dishes
+        menu_items = self._draft.get("menu_selections", [])
+        if menu_items:
+            dish_hdr = QLabel(f"Included Dishes ({len(menu_items)})")
+            dish_hdr.setStyleSheet("font-size: 11px; font-weight: 700; color: #94A3B8; margin-top: 4px;")
+            self._cart_items_lay.addWidget(dish_hdr)
+            for m in menu_items:
+                dl = QLabel(f"- {m['item_name']}")
+                dl.setStyleSheet("font-size: 11px; color: #E2E8F0;")
+                dl.setWordWrap(True)
+                self._cart_items_lay.addWidget(dl)
+
+        # Additional Charges & Upsells
+        charges = self._draft.get("additional_charges", [])
+        if charges:
+            chg_hdr = QLabel(f"Add-ons & Extras ({len(charges)})")
+            chg_hdr.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {theme.GOLD}; margin-top: 4px;")
+            self._cart_items_lay.addWidget(chg_hdr)
+            for c in charges:
+                is_disc = c["amount"] < 0
+                sign = "- " if is_disc else "+ "
+                col = theme.WARNING if is_disc else theme.SUCCESS
+                cl = QLabel(f"- {c['description']} ({sign}₱{abs(c['amount']):,.2f})")
+                cl.setStyleSheet(f"font-size: 11px; color: {col};")
+                cl.setWordWrap(True)
+                self._cart_items_lay.addWidget(cl)
+
+        self._cart_items_lay.addStretch()
+
+        # Calculate totals
+        charges_sum = sum(c["amount"] for c in charges)
+        total = base_tot + charges_sum
+        dp = round(total * 0.50, 2)
+        self._cart_subtotal_lbl.setText(f"₱{total:,.2f}")
+        self._cart_dp_lbl.setText(f"₱{dp:,.2f}")
+
+    def _set_body(self, widget: QWidget, step_title: str, step_subtitle: str = "", step_index: int = None, show_cart: bool = True):
         self._step_lbl.setText(step_title)
-        self._body_scroll.setWidget(self._center_wrap(widget))
+        self._step_sub_lbl.setText(step_subtitle or "Tap items to customize your catering package")
+        self._body_scroll.setWidget(widget)
+        self._cart_card.setVisible(show_cart)
         if step_index is not None:
             self._stepper.set_current(step_index)
             self._stepper.setVisible(True)
         else:
             self._stepper.setVisible(False)
+        self.update_cart_sidebar()
+
+        # Smooth Page Fade-In Transition
+        self._fade_eff = QGraphicsOpacityEffect(self._body_scroll)
+        self._body_scroll.setGraphicsEffect(self._fade_eff)
+        self._fade_anim = QPropertyAnimation(self._fade_eff, b"opacity")
+        self._fade_anim.setDuration(160)
+        self._fade_anim.setStartValue(0.15)
+        self._fade_anim.setEndValue(1.0)
+        self._fade_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._fade_anim.start()
 
     def _set_nav(self, row_layout):
-        # Swap in a fresh container widget rather than picking apart the old
-        # layout's children with deleteLater() — deleteLater() only takes
-        # effect on the next event-loop tick, so the old buttons could still
-        # render (stacked behind the new ones) for one frame. hide() takes
-        # effect immediately, so do that first.
         if self._nav_widget is not None:
             self._nav_widget.hide()
             self._nav_container.removeWidget(self._nav_widget)
@@ -145,343 +302,640 @@ class OrderWizard(QWidget):
 
     def _field_label(self, text):
         l = QLabel(text)
-        l.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {theme.TEXT_MUTED}; margin-top: 6px;")
+        l.setStyleSheet(f"font-size: 12px; font-weight: 800; color: {theme.TEXT_MUTED}; letter-spacing: 0.5px; margin-top: 4px;")
         return l
 
-    # ── Step 1: Customer ──────────────────────────────────────────────
+    # ── Step 1: Customer Info ──────────────────────────────────────────
 
     def goto_customer_step(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setSpacing(16)
-
-        intro = QLabel("Who is this order for?")
-        intro.setStyleSheet(theme.subtitle_style(14))
-        lay.addWidget(intro)
+        lay.setSpacing(14)
+        lay.setContentsMargins(10, 10, 10, 10)
 
         mode_row = QHBoxLayout()
         mode_row.setSpacing(12)
-        new_btn = QPushButton("＋  New Customer")
-        existing_btn = QPushButton("🔍  Existing Customer")
+        new_btn = QPushButton("+ New Customer")
+        existing_btn = QPushButton("Search Existing Customer")
         for b in (new_btn, existing_btn):
             b.setObjectName("Secondary")
-            b.setMinimumHeight(58)
+            b.setMinimumHeight(52)
             b.setCursor(Qt.PointingHandCursor)
         mode_row.addWidget(new_btn)
         mode_row.addWidget(existing_btn)
         lay.addLayout(mode_row)
 
-        form_frame = _card()
+        form_frame = _card(elevated=True)
         form_lay = QVBoxLayout(form_frame)
-        form_lay.setContentsMargins(22, 22, 22, 22)
-        form_lay.setSpacing(8)
+        form_lay.setContentsMargins(20, 20, 20, 20)
+        form_lay.setSpacing(12)
+
+        # ── Selection Summary Banner (when an existing customer is picked) ──
+        selected_banner = QFrame()
+        selected_banner.setStyleSheet(f"background: #064E3B; border: 1.5px solid {theme.SUCCESS}; border-radius: 8px; padding: 10px 14px;")
+        sb_lay = QHBoxLayout(selected_banner)
+        sb_lay.setContentsMargins(10, 8, 10, 8)
+        sb_lbl = QLabel()
+        sb_lbl.setStyleSheet("font-size: 14px; font-weight: 700; color: #ECFDF5;")
+        sb_clear_btn = QPushButton("Change / New Customer")
+        sb_clear_btn.setObjectName("Secondary")
+        sb_clear_btn.setFixedHeight(34)
+        sb_clear_btn.setCursor(Qt.PointingHandCursor)
+        sb_lay.addWidget(sb_lbl, 1)
+        sb_lay.addWidget(sb_clear_btn)
+        selected_banner.setVisible(False)
+        form_lay.addWidget(selected_banner)
+
+        # ── Page 0: New Customer Inputs ──
+        new_cust_widget = QWidget()
+        new_cust_lay = QVBoxLayout(new_cust_widget)
+        new_cust_lay.setContentsMargins(0, 0, 0, 0)
+        new_cust_lay.setSpacing(10)
+        new_cust_lay.addWidget(self._field_label("CUSTOMER CONTACT DETAILS"))
+
+        name_in = QLineEdit(self._draft["customer_name"])
+        name_in.setPlaceholderText("Customer Full Name *")
+        name_in.setMinimumHeight(46)
+        contact_in = QLineEdit(self._draft["contact"])
+        contact_in.setPlaceholderText("Contact Number (e.g. 0917-123-4567)")
+        contact_in.setMinimumHeight(46)
+        email_in = QLineEdit(self._draft["email"])
+        email_in.setPlaceholderText("Email Address (optional)")
+        email_in.setMinimumHeight(46)
+        address_widget = AddressSearchWidget(placeholder="Select Delivery / Billing Address (Dropdown)...")
+        if self._draft["address"]:
+            address_widget.set_value(self._draft["address"])
+
+        for w in (name_in, contact_in, email_in, address_widget):
+            new_cust_lay.addWidget(w)
+        form_lay.addWidget(new_cust_widget)
+
+        # ── Page 1: Existing Customer Search ──
+        search_cust_widget = QWidget()
+        search_cust_lay = QVBoxLayout(search_cust_widget)
+        search_cust_lay.setContentsMargins(0, 0, 0, 0)
+        search_cust_lay.setSpacing(10)
+        search_cust_lay.addWidget(self._field_label("SEARCH CUSTOMER DIRECTORY"))
+
+        search_in = QLineEdit()
+        search_in.setPlaceholderText("Type name, phone number, or address...")
+        search_in.setMinimumHeight(46)
+        search_cust_lay.addWidget(search_in)
+
+        results_container = QVBoxLayout()
+        results_container.setSpacing(6)
+        results_widget = QWidget()
+        results_widget.setLayout(results_container)
+        search_cust_lay.addWidget(results_widget)
+        search_cust_widget.setVisible(False)
+        form_lay.addWidget(search_cust_widget)
+
         lay.addWidget(form_frame)
         lay.addStretch()
 
-        name_in = QLineEdit(self._draft["customer_name"])
-        name_in.setPlaceholderText("Full Name")
-        contact_in = QLineEdit(self._draft["contact"])
-        contact_in.setPlaceholderText("Contact Number")
-        email_in = QLineEdit(self._draft["email"])
-        email_in.setPlaceholderText("Email (optional)")
-        address_in = QLineEdit(self._draft["address"])
-        address_in.setPlaceholderText("Address")
-
         def highlight(btn, active):
             btn.setObjectName("Primary" if active else "Secondary")
-            btn.setStyleSheet("")  # force re-polish via objectName QSS
+            btn.setStyleSheet("")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 
-        def show_new_customer_form():
-            self._draft["customer_id"] = None
+        def show_new_mode():
             highlight(new_btn, True)
             highlight(existing_btn, False)
-            while form_lay.count():
-                item = form_lay.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-            form_lay.addWidget(self._field_label("CUSTOMER DETAILS"))
-            for w in (name_in, contact_in, email_in, address_in):
-                form_lay.addWidget(w)
+            new_cust_widget.setVisible(True)
+            search_cust_widget.setVisible(False)
 
-        def show_existing_customer_search():
-            self._draft["customer_id"] = None
+        def show_search_mode():
             highlight(new_btn, False)
             highlight(existing_btn, True)
-            while form_lay.count():
-                item = form_lay.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-            form_lay.addWidget(self._field_label("SEARCH CUSTOMERS"))
-            search_in = QLineEdit()
-            search_in.setPlaceholderText("Search by name or contact number...")
-            form_lay.addWidget(search_in)
-
-            results_container = QVBoxLayout()
-            results_container.setSpacing(8)
-            results_widget = QWidget()
-            results_widget.setLayout(results_container)
-            form_lay.addWidget(results_widget)
-
-            def do_search():
-                while results_container.count():
-                    item = results_container.takeAt(0)
-                    if item.widget():
-                        item.widget().deleteLater()
-                found = repo.search_customers(search_in.text())
-                if not found:
-                    empty = QLabel("No matching customers.")
-                    empty.setStyleSheet(theme.subtitle_style())
-                    results_container.addWidget(empty)
-                for c in found:
-                    btn = QPushButton(f"{c['name']}   •   {c['contact'] or 'no contact'}")
-                    btn.setObjectName("Secondary")
-                    btn.setMinimumHeight(48)
-                    btn.setCursor(Qt.PointingHandCursor)
-
-                    def select(_, cust=c):
-                        self._draft.update({
-                            "customer_id": cust["id"], "customer_name": cust["name"],
-                            "contact": cust["contact"], "email": cust["email"], "address": cust["address"],
-                        })
-                        self.goto_event_step()
-
-                    btn.clicked.connect(select)
-                    results_container.addWidget(btn)
-
-            search_in.textChanged.connect(lambda _: do_search())
+            new_cust_widget.setVisible(False)
+            search_cust_widget.setVisible(True)
             do_search()
 
-        new_btn.clicked.connect(lambda: show_new_customer_form())
-        existing_btn.clicked.connect(lambda: show_existing_customer_search())
-        show_new_customer_form()
+        def do_search():
+            while results_container.count():
+                item = results_container.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            found = repo.search_customers(search_in.text())
+            if not found:
+                empty = QLabel("No matching customers found in directory.")
+                empty.setStyleSheet(theme.subtitle_style(12))
+                results_container.addWidget(empty)
+            for c in found[:8]:
+                btn = QPushButton(f"{c['name']}   —   {c['contact'] or 'No phone'}   ({c['address'] or 'No address'})")
+                btn.setObjectName("Secondary")
+                btn.setMinimumHeight(46)
+                btn.setCursor(Qt.PointingHandCursor)
+
+                def select(_, cust=c):
+                    self._draft.update({
+                        "customer_id": cust["id"], "customer_name": cust["name"],
+                        "contact": cust["contact"], "email": cust["email"], "address": cust["address"],
+                    })
+                    name_in.setText(cust["name"])
+                    contact_in.setText(cust["contact"] or "")
+                    email_in.setText(cust["email"] or "")
+                    address_widget.set_value(cust["address"] or "")
+                    sb_lbl.setText(f"Selected Existing Customer: {cust['name']} ({cust['contact'] or 'No phone'})")
+                    selected_banner.setVisible(True)
+                    show_new_mode()
+
+                btn.clicked.connect(select)
+                results_container.addWidget(btn)
+
+        def clear_selection():
+            self._draft["customer_id"] = None
+            selected_banner.setVisible(False)
+            name_in.clear()
+            contact_in.clear()
+            email_in.clear()
+            address_widget.clear()
+
+        sb_clear_btn.clicked.connect(clear_selection)
+        search_in.textChanged.connect(lambda _: do_search())
+        new_btn.clicked.connect(show_new_mode)
+        existing_btn.clicked.connect(show_search_mode)
+
+        if self._draft.get("customer_id") and self._draft.get("customer_name"):
+            sb_lbl.setText(f"Selected Existing Customer: {self._draft['customer_name']} ({self._draft.get('contact') or ''})")
+            selected_banner.setVisible(True)
+
+        show_new_mode()
 
         def next_step():
-            if self._draft.get("customer_id") is None:
-                name = name_in.text().strip()
-                if not name:
-                    QMessageBox.warning(self, "Missing Name", "Please enter the customer's name.")
-                    return
-                dup = repo.find_possible_duplicate_customer(contact_in.text().strip(), name)
-                if dup and QMessageBox.question(
-                    self, "Possible Existing Customer",
-                    f"A customer with this contact information may already exist:\n\n{dup['name']} ({dup['contact']})\n\nUse this existing customer instead?",
-                    QMessageBox.Yes | QMessageBox.No,
-                ) == QMessageBox.Yes:
-                    self._draft.update({"customer_id": dup["id"], "customer_name": dup["name"], "contact": dup["contact"]})
-                else:
-                    self._draft.update({
-                        "customer_name": name, "contact": contact_in.text().strip(),
-                        "email": email_in.text().strip(), "address": address_in.text().strip(),
-                    })
+            name = name_in.text().strip()
+            if not name:
+                QMessageBox.warning(self, "Missing Name", "Please enter customer name.")
+                return
+            self._draft.update({
+                "customer_name": name, "contact": contact_in.text().strip(),
+                "email": email_in.text().strip(), "address": address_widget.get_full_address(),
+            })
             self.goto_event_step()
 
-        row, _ = _nav_row(next_cb=next_step, next_label="Next: Event Details  →")
+        row, _ = _nav_row(next_cb=next_step, next_label="Next: Package & Event ->")
         self._set_nav(row)
-        self._set_body(page, "Step 1 — Customer", step_index=0)
+        self._set_body(page, "Step 1 — Customer Info", "Enter client contact details", step_index=0)
 
-    # ── Step 2: Event details + Package ─────────────────────────────────
+    # ── Step 2: Package & Event Details ─────────────────────────────────
 
     def goto_event_step(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setSpacing(16)
+        lay.setSpacing(14)
+        lay.setContentsMargins(10, 10, 10, 10)
 
-        form = _card()
-        flay = QVBoxLayout(form)
-        flay.setContentsMargins(22, 22, 22, 22)
-        flay.setSpacing(8)
+        # Event Information Card
+        evt_card = _card(elevated=True)
+        evt_lay = QVBoxLayout(evt_card)
+        evt_lay.setContentsMargins(18, 16, 18, 16)
+        evt_lay.setSpacing(10)
+        evt_lay.addWidget(self._field_label("EVENT DATE & LOCATION"))
 
-        date_edit = QDateEdit(QDate.fromString(self._draft["event_date"], "yyyy-MM-dd"))
+        drow = QHBoxLayout()
+        drow.setSpacing(12)
+
+        dbox = QVBoxLayout()
+        dbox.setSpacing(4)
+        dlbl = QLabel("Event Date:")
+        dlbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
+        date_edit = QDateEdit()
         date_edit.setCalendarPopup(True)
-        time_edit = QTimeEdit(QTime.fromString(self._draft["event_time"], "HH:mm"))
-        venue_in = QLineEdit(self._draft["venue"])
-        venue_in.setPlaceholderText("Venue")
-        occasion_in = QLineEdit(self._draft["occasion"])
-        occasion_in.setPlaceholderText("Occasion (e.g. Wedding, Birthday)")
+        date_edit.setMinimumHeight(44)
+        init_date = QDate.fromString(self._draft["event_date"], "yyyy-MM-dd") if self._draft["event_date"] else QDate.currentDate().addDays(7)
+        date_edit.setDate(init_date)
+        dbox.addWidget(dlbl)
+        dbox.addWidget(date_edit)
+        drow.addLayout(dbox, 1)
+
+        tbox = QVBoxLayout()
+        tbox.setSpacing(4)
+        tlbl = QLabel("Event Time:")
+        tlbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
+        time_edit = QTimeEdit()
+        time_edit.setMinimumHeight(44)
+        init_time = QTime.fromString(self._draft["event_time"], "HH:mm") if self._draft["event_time"] else QTime(12, 0)
+        time_edit.setTime(init_time)
+        tbox.addWidget(tlbl)
+        tbox.addWidget(time_edit)
+        drow.addLayout(tbox, 1)
+
+        pbox = QVBoxLayout()
+        pbox.setSpacing(4)
+        plbl = QLabel("Guest Count (Pax):")
+        plbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
         pax_in = QSpinBox()
-        pax_in.setRange(1, 5000)
-        pax_in.setValue(int(self._draft["pax"]))
+        pax_in.setRange(10, 2000)
+        pax_in.setValue(self._draft["pax"] or 50)
+        pax_in.setMinimumHeight(44)
+        pbox.addWidget(plbl)
+        pbox.addWidget(pax_in)
+        drow.addLayout(pbox, 1)
+        evt_lay.addLayout(drow)
 
-        flay.addWidget(self._field_label("EVENT DETAILS"))
-        grid = QHBoxLayout()
-        col1 = QVBoxLayout()
-        col1.addWidget(QLabel("Event Date"))
-        col1.addWidget(date_edit)
-        col1.addWidget(QLabel("Venue"))
-        col1.addWidget(venue_in)
-        col2 = QVBoxLayout()
-        col2.addWidget(QLabel("Event Time"))
-        col2.addWidget(time_edit)
-        col2.addWidget(QLabel("Occasion"))
-        col2.addWidget(occasion_in)
-        grid.addLayout(col1)
-        grid.addLayout(col2)
-        flay.addLayout(grid)
-        flay.addWidget(QLabel("Guests (Pax)"))
-        flay.addWidget(pax_in)
-        lay.addWidget(form)
+        venue_widget = AddressSearchWidget(placeholder="Event Venue / Location (Dropdown)...")
+        if self._draft["venue"]:
+            venue_widget.set_value(self._draft["venue"])
+        evt_lay.addWidget(venue_widget)
 
-        pkg_card = _card()
+        occasion_in = QLineEdit(self._draft["occasion"])
+        occasion_in.setPlaceholderText("Occasion (e.g. Wedding, Birthday, Corporate Gala)")
+        occasion_in.setMinimumHeight(44)
+        evt_lay.addWidget(occasion_in)
+        lay.addWidget(evt_card)
+
+        # Package Selection Card
+        pkg_card = _card(elevated=True)
         pkg_lay = QVBoxLayout(pkg_card)
-        pkg_lay.setContentsMargins(22, 22, 22, 22)
+        pkg_lay.setContentsMargins(18, 16, 18, 16)
         pkg_lay.setSpacing(10)
-        pkg_lay.addWidget(self._field_label("SELECT PACKAGE"))
+        pkg_lay.addWidget(self._field_label("SELECT BUFFET PACKAGE"))
 
-        pkg_group = QButtonGroup(page)
         packages = repo.get_packages()
-        selected_pkg = {"id": self._draft.get("package_id")}
+        selected_pkg = {"id": self._draft.get("package_id"), "name": self._draft.get("package_name"), "price_per_pax": 0.0}
 
         if not packages:
-            warn = QLabel("⚠  No packages available. Go to Home → 'Import Master Data' first.")
-            warn.setStyleSheet(f"color:{theme.WARNING}; font-size: 14px;")
-            warn.setWordWrap(True)
+            warn = QLabel("No packages available. Please add packages in Owner Settings or import master data.")
+            warn.setStyleSheet(f"color:{theme.WARNING}; font-size: 13px;")
             pkg_lay.addWidget(warn)
 
+        pkg_frames = []
         for pkg in packages:
-            opt = QFrame()
-            theme.style_card(opt, elevated=True)
-            opt_lay = QHBoxLayout(opt)
-            opt_lay.setContentsMargins(14, 10, 14, 10)
-            btn = QRadioButton()
-            if pkg["id"] == self._draft.get("package_id"):
-                btn.setChecked(True)
-            btn.toggled.connect(lambda checked, p=pkg: selected_pkg.update(p) if checked else None)
-            pkg_group.addButton(btn)
-            opt_lay.addWidget(btn)
+            pf = QFrame()
+            is_active = pkg["id"] == self._draft.get("package_id")
+            theme.style_dish_card(pf, selected=is_active)
+            play = QHBoxLayout(pf)
+            play.setContentsMargins(14, 12, 14, 12)
+            play.setSpacing(12)
 
-            info = QVBoxLayout()
-            name_lbl = QLabel(pkg["name"])
-            name_lbl.setStyleSheet("font-size: 16px; font-weight: 700;")
-            desc_lbl = QLabel(pkg.get("description") or "")
-            desc_lbl.setStyleSheet(theme.subtitle_style())
-            desc_lbl.setWordWrap(True)
-            info.addWidget(name_lbl)
-            if pkg.get("description"):
-                info.addWidget(desc_lbl)
-            opt_lay.addLayout(info, 1)
+            info_box = QVBoxLayout()
+            info_box.setSpacing(3)
+            p_name = QLabel(f"{pkg['name']}")
+            p_name.setStyleSheet("font-size: 16px; font-weight: 800; color: #FFFFFF;")
+            p_desc = QLabel(pkg.get("description") or "Complete Buffet Service + Free Drinks")
+            p_desc.setStyleSheet(theme.subtitle_style(12))
+            p_desc.setWordWrap(True)
+            info_box.addWidget(p_name)
+            info_box.addWidget(p_desc)
+            play.addLayout(info_box, 3)
 
-            price_lbl = QLabel(f"₱{pkg['price_per_pax']:,.2f}/pax\nmin {pkg['min_pax']} pax")
-            price_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {theme.ACCENT};")
-            price_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            opt_lay.addWidget(price_lbl)
+            price_tag = QVBoxLayout()
+            price_tag.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            p_amt = QLabel(f"₱{pkg['price_per_pax']:,.2f} / pax")
+            p_amt.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {theme.GOLD};")
+            p_min = QLabel(f"Min: {pkg['min_pax']} Pax")
+            p_min.setStyleSheet("font-size: 11px; color: #94A3B8;")
+            price_tag.addWidget(p_amt)
+            price_tag.addWidget(p_min)
+            play.addLayout(price_tag, 1)
 
-            pkg_lay.addWidget(opt)
+            select_btn = QPushButton("Selected" if is_active else "Select")
+            select_btn.setObjectName("Primary" if is_active else "Secondary")
+            select_btn.setMinimumHeight(42)
+            select_btn.setMinimumWidth(100)
+            select_btn.setCursor(Qt.PointingHandCursor)
+
+            def make_select(p=pkg, frame=pf, sbtn=select_btn):
+                def do_sel():
+                    selected_pkg.update(p)
+                    for of, ob in pkg_frames:
+                        theme.style_dish_card(of, selected=False)
+                        ob.setObjectName("Secondary")
+                        ob.setText("Select")
+                        ob.style().unpolish(ob)
+                        ob.style().polish(ob)
+                    theme.style_dish_card(frame, selected=True)
+                    sbtn.setObjectName("Primary")
+                    sbtn.setText("Selected")
+                    sbtn.style().unpolish(sbtn)
+                    sbtn.style().polish(sbtn)
+                    self._draft.update({
+                        "package_id": p["id"], "package_name": p["name"],
+                        "base_total": float(p.get("price_per_pax", 0)) * pax_in.value(),
+                    })
+                    pp_spin.setValue(float(p.get("price_per_pax", 0)))
+                    tot_spin.setValue(float(p.get("price_per_pax", 0)) * pax_in.value())
+                    self.update_cart_sidebar()
+                return do_sel
+
+            select_btn.clicked.connect(make_select())
+            play.addWidget(select_btn)
+            pkg_frames.append((pf, select_btn))
+            pkg_lay.addWidget(pf)
 
         lay.addWidget(pkg_card)
+
+        # ── PACKAGE PRICING CONTROLS (OWNER / USER CAN TYPE CUSTOM PRICE) ──
+        price_card = _card(elevated=True)
+        price_lay = QVBoxLayout(price_card)
+        price_lay.setContentsMargins(18, 16, 18, 16)
+        price_lay.setSpacing(10)
+        price_lay.addWidget(self._field_label("PACKAGE PRICING (EDITABLE / CUSTOM AMOUNT)"))
+
+        prow = QHBoxLayout()
+        prow.setSpacing(14)
+
+        pp_box = QVBoxLayout()
+        pp_box.setSpacing(4)
+        pp_lbl = QLabel("Price Per Pax (₱):")
+        pp_lbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
+        pp_spin = QDoubleSpinBox()
+        pp_spin.setRange(0.0, 50000.0)
+        pp_spin.setDecimals(2)
+        pp_spin.setMinimumHeight(44)
+        init_ppp = float(selected_pkg.get("price_per_pax") or (float(self._draft.get("base_total") or 0.0) / max(1, pax_in.value())) or 350.0)
+        pp_spin.setValue(init_ppp)
+        pp_box.addWidget(pp_lbl)
+        pp_box.addWidget(pp_spin)
+        prow.addLayout(pp_box, 1)
+
+        tot_box = QVBoxLayout()
+        tot_box.setSpacing(4)
+        tot_lbl = QLabel("Package Base Total (₱):")
+        tot_lbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
+        tot_spin = QDoubleSpinBox()
+        tot_spin.setRange(0.0, 10000000.0)
+        tot_spin.setDecimals(2)
+        tot_spin.setMinimumHeight(44)
+        init_base = float(self._draft.get("base_total") or (pp_spin.value() * pax_in.value()))
+        tot_spin.setValue(init_base)
+        tot_box.addWidget(tot_lbl)
+        tot_box.addWidget(tot_spin)
+        prow.addLayout(tot_box, 1)
+
+        price_lay.addLayout(prow)
+        lay.addWidget(price_card)
+
+        # Wire Real-Time Pricing Synchronization
+        is_syncing = False
+
+        def on_ppp_changed(val):
+            nonlocal is_syncing
+            if is_syncing:
+                return
+            is_syncing = True
+            selected_pkg["price_per_pax"] = val
+            calc_tot = round(val * pax_in.value(), 2)
+            tot_spin.setValue(calc_tot)
+            self._draft["base_total"] = calc_tot
+            self.update_cart_sidebar()
+            is_syncing = False
+
+        def on_tot_changed(val):
+            nonlocal is_syncing
+            if is_syncing:
+                return
+            is_syncing = True
+            calc_ppp = round(val / max(1, pax_in.value()), 2)
+            pp_spin.setValue(calc_ppp)
+            selected_pkg["price_per_pax"] = calc_ppp
+            self._draft["base_total"] = val
+            self.update_cart_sidebar()
+            is_syncing = False
+
+        def on_pax_changed(val):
+            nonlocal is_syncing
+            self._draft["pax"] = val
+            if is_syncing:
+                return
+            is_syncing = True
+            calc_tot = round(pp_spin.value() * val, 2)
+            tot_spin.setValue(calc_tot)
+            self._draft["base_total"] = calc_tot
+            self.update_cart_sidebar()
+            is_syncing = False
+
+        pp_spin.valueChanged.connect(on_ppp_changed)
+        tot_spin.valueChanged.connect(on_tot_changed)
+        pax_in.valueChanged.connect(on_pax_changed)
+
         lay.addStretch()
 
         def next_step():
-            if not venue_in.text().strip():
-                QMessageBox.warning(self, "Missing Venue", "Please enter the event venue.")
+            venue_val = venue_widget.get_full_address()
+            if not venue_val:
+                QMessageBox.warning(self, "Missing Venue", "Please enter or select the event venue location.")
                 return
             if not selected_pkg.get("id"):
-                QMessageBox.warning(self, "No Package Selected", "Please select a catering package.")
+                QMessageBox.warning(self, "No Package Selected", "Please tap 'Select' on a catering package.")
                 return
             self._draft.update({
                 "event_date": date_edit.date().toString("yyyy-MM-dd"),
                 "event_time": time_edit.time().toString("HH:mm"),
-                "venue": venue_in.text().strip(), "occasion": occasion_in.text().strip(),
+                "venue": venue_val, "occasion": occasion_in.text().strip(),
                 "pax": pax_in.value(), "package_id": selected_pkg["id"], "package_name": selected_pkg.get("name", ""),
-                "base_total": float(selected_pkg.get("price_per_pax", 0)) * pax_in.value(),
+                "base_total": tot_spin.value(),
             })
             self.goto_menu_step()
 
-        row, _ = _nav_row(back_cb=self.goto_customer_step, next_cb=next_step, next_label="Next: Menu  →")
+        row, _ = _nav_row(back_cb=self.goto_customer_step, next_cb=next_step, next_label="Next: Menu & Add-ons ->")
         self._set_nav(row)
-        self._set_body(page, "Step 2 — Event & Package", step_index=1)
+        self._set_body(page, "Step 2 — Package & Event", "Choose your buffet tier and guest count", step_index=1)
 
-    # ── Step 3: Menu selection ──────────────────────────────────────────
+    # ── Step 3: Multi-Category Menu Selection & Add-ons ──────────────────
 
     def goto_menu_step(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setSpacing(16)
+        lay.setSpacing(14)
+        lay.setContentsMargins(10, 10, 10, 10)
 
-        choices = repo.get_package_menu_choices(self._draft["package_id"])
-        selections = {}  # category -> selected item dict
+        choices = repo.get_package_menu_choices(self._draft.get("package_id"))
+        
+        # Build existing selections lookup by (category, item_name)
+        selected_items_map = {}
+        for m in self._draft.get("menu_selections", []):
+            key = (m.get("category", ""), m.get("item_name", ""))
+            selected_items_map[key] = m
 
         if not choices:
             info = _card()
             il = QVBoxLayout(info)
             il.setContentsMargins(20, 20, 20, 20)
-            lbl = QLabel("This package has no configured menu choices. You may continue without selecting specific items.")
-            lbl.setStyleSheet(theme.subtitle_style(14))
-            lbl.setWordWrap(True)
+            lbl = QLabel("No specific dish choices found. You can add items in Owner Settings or tap Next to continue.")
+            lbl.setStyleSheet(theme.subtitle_style(13))
             il.addWidget(lbl)
             lay.addWidget(info)
 
         for category, items in choices.items():
-            cat_card = _card()
+            cat_card = _card(elevated=True)
             cat_lay = QVBoxLayout(cat_card)
-            cat_lay.setContentsMargins(20, 16, 20, 16)
-            cat_lay.setSpacing(6)
+            cat_lay.setContentsMargins(18, 14, 18, 14)
+            cat_lay.setSpacing(8)
 
-            cat_lbl = QLabel(category)
-            cat_lbl.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {theme.ACCENT};")
-            cat_lay.addWidget(cat_lbl)
+            cat_hdr = QHBoxLayout()
+            cat_lbl = QLabel(f"CATEGORY: {category.upper()}")
+            cat_lbl.setStyleSheet("font-size: 14px; font-weight: 800; color: #F8FAFC; letter-spacing: 0.5px;")
+            cat_hdr.addWidget(cat_lbl)
+            cat_hdr.addStretch()
 
-            group = QButtonGroup(page)
+            count_lbl = QLabel("0 Selected")
+            count_lbl.setStyleSheet(theme.pill_style(theme.GOLD))
+            cat_hdr.addWidget(count_lbl)
+            cat_lay.addLayout(cat_hdr)
+
+            cat_item_checkboxes = []
+
+            def update_cat_count(c_lbl=count_lbl, c_boxes=cat_item_checkboxes):
+                c = sum(1 for cb, _ in c_boxes if cb.isChecked())
+                c_lbl.setText(f"{c} Selected" if c > 0 else "Optional")
+                c_lbl.setStyleSheet(theme.pill_style(theme.SUCCESS if c > 0 else theme.TEXT_MUTED))
+
             for item in items:
-                text = item["name"] + (f"   (+₱{item['price']:,.2f})" if item["price"] else "")
-                btn = QRadioButton(text)
-                existing = next((m for m in self._draft["menu_selections"] if m["category"] == category and m["item_name"] == item["name"]), None)
-                if existing:
-                    btn.setChecked(True)
-                btn.toggled.connect(lambda checked, c=category, it=item: selections.update({c: it}) if checked else None)
-                group.addButton(btn)
-                cat_lay.addWidget(btn)
+                df = QFrame()
+                key = (category, item["name"])
+                is_selected = key in selected_items_map
+                theme.style_dish_card(df, selected=is_selected)
+                dlay = QHBoxLayout(df)
+                dlay.setContentsMargins(12, 10, 12, 10)
+                dlay.setSpacing(10)
 
+                chk = QCheckBox()
+                chk.setChecked(is_selected)
+                chk.setCursor(Qt.PointingHandCursor)
+                chk.setStyleSheet("QCheckBox::indicator { width: 22px; height: 22px; }")
+                dlay.addWidget(chk)
+
+                dinfo = QVBoxLayout()
+                dinfo.setSpacing(2)
+                dname = QLabel(item["name"])
+                dname.setStyleSheet("font-size: 14px; font-weight: 700; color: #FFFFFF;")
+                dinfo.addWidget(dname)
+                if item.get("description"):
+                    ddesc = QLabel(item["description"])
+                    ddesc.setStyleSheet(theme.subtitle_style(11))
+                    dinfo.addWidget(ddesc)
+                dlay.addLayout(dinfo, 1)
+
+                if item.get("price") and item["price"] > 0:
+                    dprice = QLabel(f"+ ₱{item['price']:,.2f} add-on")
+                    dprice.setStyleSheet(f"font-size: 12px; font-weight: 800; color: {theme.GOLD};")
+                    dlay.addWidget(dprice)
+
+                def make_chk_handler(cat=category, it=item, frame=df, cbox=chk, cb_list=cat_item_checkboxes, clbl=count_lbl):
+                    def on_toggled(checked):
+                        theme.style_dish_card(frame, selected=checked)
+                        mkey = (cat, it["name"])
+                        if checked:
+                            selected_items_map[mkey] = {
+                                "item_name": it["name"], "category": cat,
+                                "price": it.get("price", 0.0), "quantity": 1,
+                            }
+                        else:
+                            selected_items_map.pop(mkey, None)
+                        self._draft["menu_selections"] = list(selected_items_map.values())
+                        update_cat_count(clbl, cb_list)
+                        self.update_cart_sidebar()
+                    return on_toggled
+
+                chk.toggled.connect(make_chk_handler())
+                cat_item_checkboxes.append((chk, item))
+                cat_lay.addWidget(df)
+
+            update_cat_count(count_lbl, cat_item_checkboxes)
             lay.addWidget(cat_card)
 
         lay.addStretch()
 
         def next_step():
-            self._draft["menu_selections"] = [
-                {"item_name": it["name"], "category": cat, "price": it["price"], "quantity": 1}
-                for cat, it in selections.items()
-            ]
+            self._draft["menu_selections"] = list(selected_items_map.values())
             self.goto_charges_step()
 
-        row, _ = _nav_row(back_cb=self.goto_event_step, next_cb=next_step, next_label="Next: Additional Charges  →")
+        row, _ = _nav_row(back_cb=self.goto_event_step, next_cb=next_step, next_label="Next: Add-ons & Extras ->")
         self._set_nav(row)
-        self._set_body(page, "Step 3 — Menu Selection", step_index=2)
+        self._set_body(page, "Step 3 — Menu Dishes & Add-ons", "Select any number of dishes across buffet categories", step_index=2)
 
-    # ── Step 4: Additional Charges ───────────────────────────────────────
+    # ── Step 4: Upselling & Add-ons ──────────────────────────────────────
 
     def goto_charges_step(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setSpacing(16)
+        lay.setSpacing(14)
+        lay.setContentsMargins(10, 10, 10, 10)
 
-        info = QLabel("Add any extra items, menu changes, or discounts. Use a negative amount for a discount.")
-        info.setStyleSheet(theme.subtitle_style(14))
-        info.setWordWrap(True)
-        lay.addWidget(info)
+        # Recommendation Banner
+        rec_card = _card(elevated=True, accent=True)
+        rlay = QVBoxLayout(rec_card)
+        rlay.setContentsMargins(18, 14, 18, 14)
+        rlay.setSpacing(10)
 
-        form_card = _card()
-        form = QHBoxLayout(form_card)
-        form.setContentsMargins(18, 16, 18, 16)
-        form.setSpacing(10)
+        rtitle = QLabel("POPULAR EVENT ADD-ONS & UPGRADES")
+        rtitle.setStyleSheet("font-size: 13px; font-weight: 800; color: #F59E0B; letter-spacing: 0.5px;")
+        rlay.addWidget(rtitle)
+
+        rec_items = [
+            ("Whole Roast Lechon Platter (15kg)", 6500.00),
+            ("Premium Dessert Bar Buffet (3 Desserts)", 3500.00),
+            ("Unlimited Fruit Juice & Iced Tea Station", 2000.00),
+            ("Themed Floral Backdrop Arch", 4500.00),
+            ("Sound System with Microphones & Lights", 3000.00),
+        ]
+
+        rec_grid = QVBoxLayout()
+        rec_grid.setSpacing(6)
+        for r_name, r_price in rec_items:
+            rf = QFrame()
+            rf.setStyleSheet("background: #1E293B; border-radius: 8px; padding: 6px 12px;")
+            rflay = QHBoxLayout(rf)
+            rflay.setContentsMargins(8, 4, 8, 4)
+
+            lbl = QLabel(r_name)
+            lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #FFFFFF;")
+            prc = QLabel(f"₱{r_price:,.2f}")
+            prc.setStyleSheet(f"font-size: 13px; font-weight: 800; color: {theme.GOLD};")
+
+            add_rec_btn = QPushButton("+ Add")
+            add_rec_btn.setObjectName("Secondary")
+            add_rec_btn.setFixedSize(70, 34)
+            add_rec_btn.setCursor(Qt.PointingHandCursor)
+
+            def make_add_rec(name=r_name, amt=r_price):
+                def do_add():
+                    self._draft["additional_charges"].append({"description": name, "amount": amt})
+                    refresh_list()
+                    self.update_cart_sidebar()
+                return do_add
+
+            add_rec_btn.clicked.connect(make_add_rec())
+
+            rflay.addWidget(lbl, 3)
+            rflay.addWidget(prc, 1)
+            rflay.addWidget(add_rec_btn)
+            rec_grid.addWidget(rf)
+
+        rlay.addLayout(rec_grid)
+        lay.addWidget(rec_card)
+
+        # Custom Charge / Discount Form
+        custom_card = _card()
+        cform = QHBoxLayout(custom_card)
+        cform.setContentsMargins(16, 12, 16, 12)
+        cform.setSpacing(8)
+
         desc_in = QLineEdit()
-        desc_in.setPlaceholderText("Description (e.g. Additional Lechon, Discount - Loyalty)")
+        desc_in.setPlaceholderText("Custom Add-on or Discount Description")
+        desc_in.setMinimumHeight(44)
         amt_in = QDoubleSpinBox()
         amt_in.setRange(-1_000_000, 1_000_000)
         amt_in.setDecimals(2)
         amt_in.setPrefix("₱ ")
-        amt_in.setFixedWidth(170)
-        add_btn = QPushButton("＋ Add")
-        add_btn.setObjectName("Primary")
-        add_btn.setCursor(Qt.PointingHandCursor)
-        add_btn.setMinimumHeight(48)
-        form.addWidget(desc_in, 3)
-        form.addWidget(amt_in, 1)
-        form.addWidget(add_btn)
-        lay.addWidget(form_card)
+        amt_in.setFixedWidth(160)
+        amt_in.setMinimumHeight(44)
 
+        add_custom_btn = QPushButton("+ Add Custom")
+        add_custom_btn.setObjectName("Primary")
+        add_custom_btn.setMinimumHeight(44)
+        add_custom_btn.setCursor(Qt.PointingHandCursor)
+
+        cform.addWidget(desc_in, 3)
+        cform.addWidget(amt_in, 1)
+        cform.addWidget(add_custom_btn)
+        lay.addWidget(custom_card)
+
+        # Active Add-ons List
         list_container = QVBoxLayout()
-        list_container.setSpacing(8)
+        list_container.setSpacing(6)
         list_widget = QWidget()
         list_widget.setLayout(list_container)
         lay.addWidget(list_widget)
@@ -494,93 +948,132 @@ class OrderWizard(QWidget):
             for i, c in enumerate(self._draft["additional_charges"]):
                 row_f = _card(elevated=True)
                 row_l = QHBoxLayout(row_f)
-                row_l.setContentsMargins(16, 12, 16, 12)
+                row_l.setContentsMargins(14, 8, 14, 8)
                 lbl = QLabel(c["description"])
-                lbl.setStyleSheet("font-size: 14px; font-weight: 600;")
+                lbl.setStyleSheet("font-size: 13px; font-weight: 700;")
                 is_discount = c["amount"] < 0
-                amt_lbl = QLabel(f"− ₱{abs(c['amount']):,.2f}" if is_discount else f"₱{c['amount']:,.2f}")
-                amt_lbl.setStyleSheet(f"font-size: 14px; font-weight: 800; color: {theme.WARNING if is_discount else theme.SUCCESS};")
+                amt_lbl = QLabel(f"- ₱{abs(c['amount']):,.2f}" if is_discount else f"₱{c['amount']:,.2f}")
+                amt_lbl.setStyleSheet(f"font-size: 13px; font-weight: 800; color: {theme.WARNING if is_discount else theme.SUCCESS};")
                 del_btn = QPushButton("Remove")
                 del_btn.setObjectName("Danger")
                 del_btn.setCursor(Qt.PointingHandCursor)
-                del_btn.clicked.connect(lambda _, idx=i: (self._draft["additional_charges"].pop(idx), refresh_list()))
+
+                def make_del(idx=i):
+                    def do_del():
+                        self._draft["additional_charges"].pop(idx)
+                        refresh_list()
+                        self.update_cart_sidebar()
+                    return do_del
+
+                del_btn.clicked.connect(make_del())
                 row_l.addWidget(lbl, 3)
                 row_l.addWidget(amt_lbl, 1)
                 row_l.addWidget(del_btn)
                 list_container.addWidget(row_f)
+            self.update_cart_sidebar()
 
         def add_charge():
             desc = desc_in.text().strip()
             amt = amt_in.value()
             if not desc or amt == 0:
-                QMessageBox.warning(self, "Invalid Entry", "Enter a description and a non-zero amount.")
+                QMessageBox.warning(self, "Invalid Entry", "Enter description and amount.")
                 return
             self._draft["additional_charges"].append({"description": desc, "amount": amt})
             desc_in.clear()
             amt_in.setValue(0)
             refresh_list()
 
-        add_btn.clicked.connect(add_charge)
+        add_custom_btn.clicked.connect(add_charge)
         refresh_list()
         lay.addStretch()
 
-        row, _ = _nav_row(back_cb=self.goto_menu_step, next_cb=self.goto_billing_step, next_label="Next: Billing  →")
+        row, _ = _nav_row(back_cb=self.goto_menu_step, next_cb=self.goto_billing_step, next_label="Next: Billing & Payment ->")
         self._set_nav(row)
-        self._set_body(page, "Step 4 — Additional Charges", step_index=3)
+        self._set_body(page, "Step 4 — Add-ons & Extras", "Enhance your event with lechon, drinks, or decor", step_index=3)
 
-    # ── Step 5: Billing ─────────────────────────────────────────────────
+    # ── Step 5: Billing & Payment Presets ────────────────────────────────
 
     def goto_billing_step(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setSpacing(16)
+        lay.setSpacing(14)
+        lay.setContentsMargins(10, 10, 10, 10)
 
         charges_sum = sum(c["amount"] for c in self._draft["additional_charges"])
         total = self._draft["base_total"] + charges_sum
+        req_downpayment = round(total * 0.50, 2)
 
         summary = _card(accent=True)
         slay = QVBoxLayout(summary)
-        slay.setContentsMargins(22, 18, 22, 18)
-        slay.setSpacing(8)
+        slay.setContentsMargins(20, 16, 20, 16)
+        slay.setSpacing(6)
+
+        stitle = QLabel("BILLING BREAKDOWN")
+        stitle.setStyleSheet(f"font-size: 13px; font-weight: 800; color: {theme.GOLD}; letter-spacing: 0.5px;")
+        slay.addWidget(stitle)
+
         for label, val, big in [
-            ("Base Package Price", self._draft["base_total"], False),
-            ("Additional Charges / Discounts", charges_sum, False),
-            ("Final Order Total", total, True),
+            ("Base Package Total", self._draft["base_total"], False),
+            ("Add-ons & Adjustments", charges_sum, False),
+            ("Final Event Total", total, True),
         ]:
             row = QHBoxLayout()
             l = QLabel(label)
-            l.setStyleSheet("font-size: 14px;" if not big else "font-size: 15px; font-weight: 700;")
+            l.setStyleSheet("font-size: 13px;" if not big else "font-size: 16px; font-weight: 800;")
             v = QLabel(f"₱{val:,.2f}")
-            v.setStyleSheet(f"font-size: {'22px' if big else '15px'}; font-weight: 800; color: {theme.ACCENT if big else theme.TEXT};")
+            v.setStyleSheet(f"font-size: {'20px' if big else '14px'}; font-weight: 800; color: {theme.ACCENT if big else theme.TEXT};")
             v.setAlignment(Qt.AlignRight)
             row.addWidget(l)
             row.addWidget(v)
             slay.addLayout(row)
         lay.addWidget(summary)
 
-        form = _card()
+        form = _card(elevated=True)
         flay = QVBoxLayout(form)
-        flay.setContentsMargins(22, 20, 22, 20)
-        flay.setSpacing(6)
-        flay.addWidget(self._field_label("DOWN PAYMENT"))
+        flay.setContentsMargins(20, 18, 20, 18)
+        flay.setSpacing(8)
+
+        flay.addWidget(self._field_label("QUICK AUTO-FILL PAYMENT OPTION"))
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(10)
+
+        dp_preset_btn = QPushButton(f"50% Downpayment (₱{req_downpayment:,.2f})")
+        dp_preset_btn.setObjectName("Secondary")
+        dp_preset_btn.setMinimumHeight(48)
+        dp_preset_btn.setCursor(Qt.PointingHandCursor)
+
+        full_preset_btn = QPushButton(f"Fully Paid (₱{total:,.2f})")
+        full_preset_btn.setObjectName("Secondary")
+        full_preset_btn.setMinimumHeight(48)
+        full_preset_btn.setCursor(Qt.PointingHandCursor)
+
+        preset_row.addWidget(dp_preset_btn)
+        preset_row.addWidget(full_preset_btn)
+        flay.addLayout(preset_row)
+
+        flay.addWidget(self._field_label("DOWN PAYMENT AMOUNT (₱)"))
         dp_in = QDoubleSpinBox()
         dp_in.setRange(0, 10_000_000)
         dp_in.setDecimals(2)
         dp_in.setPrefix("₱ ")
-        dp_in.setValue(float(self._draft.get("down_payment") or 0.0))
+        dp_in.setMinimumHeight(46)
+        dp_in.setValue(float(self._draft.get("down_payment") or req_downpayment))
         flay.addWidget(dp_in)
+
+        dp_preset_btn.clicked.connect(lambda: dp_in.setValue(req_downpayment))
+        full_preset_btn.clicked.connect(lambda: dp_in.setValue(total))
 
         flay.addWidget(self._field_label("PAYMENT METHOD"))
         method_in = QComboBox()
-        method_in.addItems(["Cash", "GCash", "Maya", "Bank Transfer", "Other"])
+        method_in.addItems(["Cash", "GCash", "Maya", "Bank Transfer", "Check", "Other"])
+        method_in.setMinimumHeight(44)
         method_in.setCurrentText(self._draft.get("payment_method", "Cash"))
         flay.addWidget(method_in)
 
-        flay.addWidget(self._field_label("NOTES"))
+        flay.addWidget(self._field_label("SPECIAL EVENT INSTRUCTIONS / NOTES"))
         notes_in = QTextEdit(self._draft.get("notes", ""))
-        notes_in.setFixedHeight(80)
+        notes_in.setFixedHeight(70)
         flay.addWidget(notes_in)
-
         lay.addWidget(form)
         lay.addStretch()
 
@@ -594,9 +1087,9 @@ class OrderWizard(QWidget):
             })
             self.goto_preview_step()
 
-        row, _ = _nav_row(back_cb=self.goto_charges_step, next_cb=next_step, next_label="Next: Preview  →")
+        row, _ = _nav_row(back_cb=self.goto_charges_step, next_cb=next_step, next_label="Next: Order Preview ->")
         self._set_nav(row)
-        self._set_body(page, "Step 5 — Billing", step_index=4)
+        self._set_body(page, "Step 5 — Billing & Payment", "Set downpayment amount and payment method", step_index=4)
 
     # ── Step 6: Order Preview ────────────────────────────────────────────
 
@@ -604,46 +1097,47 @@ class OrderWizard(QWidget):
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setSpacing(14)
+        lay.setContentsMargins(10, 10, 10, 10)
 
         charges_sum = sum(c["amount"] for c in self._draft["additional_charges"])
         total = self._draft["base_total"] + charges_sum
         balance = max(0.0, total - self._draft["down_payment"])
 
-        card = _card()
+        card = _card(elevated=True)
         clay = QVBoxLayout(card)
-        clay.setContentsMargins(24, 22, 24, 22)
-        clay.setSpacing(10)
+        clay.setContentsMargins(20, 18, 20, 18)
+        clay.setSpacing(8)
 
         def row(label, value, big=False):
             r = QHBoxLayout()
             l = QLabel(label)
-            l.setStyleSheet(theme.subtitle_style(13))
+            l.setStyleSheet(theme.subtitle_style(12))
             v = QLabel(str(value))
-            v.setStyleSheet(f"font-size: {'16px' if big else '14px'}; font-weight: {'800' if big else '600'};")
+            v.setStyleSheet(f"font-size: {'15px' if big else '13px'}; font-weight: {'800' if big else '700'}; color: #FFFFFF;")
             v.setAlignment(Qt.AlignRight)
             v.setWordWrap(True)
             r.addWidget(l, 2)
             r.addWidget(v, 3)
             clay.addLayout(r)
 
-        row("Customer", self._draft["customer_name"])
-        row("Contact", self._draft["contact"] or "—")
-        row("Event", f"{self._draft['occasion']} — {self._draft['event_date']} {self._draft['event_time']}")
-        row("Venue", self._draft["venue"])
-        row("Guests", self._draft["pax"])
-        row("Package", self._draft["package_name"])
+        row("Client Name", self._draft["customer_name"])
+        row("Contact", self._draft["contact"] or "-")
+        row("Event Schedule", f"{self._draft['occasion']} — {self._draft['event_date']} {self._draft['event_time']}")
+        row("Venue Location", self._draft["venue"])
+        row("Headcount (Pax)", f"{self._draft['pax']} Guests")
+        row("Selected Package", self._draft["package_name"])
         if self._draft["menu_selections"]:
-            row("Selected Menu", ", ".join(f"{m['category']}: {m['item_name']}" for m in self._draft["menu_selections"]))
+            row("Menu Items", ", ".join(f"{m['item_name']}" for m in self._draft["menu_selections"]))
         if self._draft["additional_charges"]:
-            row("Additional Charges", ", ".join(f"{c['description']} (₱{c['amount']:,.2f})" for c in self._draft["additional_charges"]))
+            row("Add-ons", ", ".join(f"{c['description']} (₱{c['amount']:,.2f})" for c in self._draft["additional_charges"]))
         lay.addWidget(card)
 
         totals = _card(accent=True)
         tlay = QVBoxLayout(totals)
-        tlay.setContentsMargins(24, 20, 24, 20)
-        tlay.setSpacing(8)
+        tlay.setContentsMargins(20, 16, 20, 16)
+        tlay.setSpacing(6)
 
-        def trow(label, value, size="15px", color=None):
+        def trow(label, value, size="14px", color=None):
             r = QHBoxLayout()
             l = QLabel(label)
             l.setStyleSheet(f"font-size: {size}; font-weight: 700;")
@@ -655,70 +1149,16 @@ class OrderWizard(QWidget):
             tlay.addLayout(r)
 
         trow("Total Amount", f"₱{total:,.2f}")
-        trow("Down Payment", f"₱{self._draft['down_payment']:,.2f}", color=theme.SUCCESS)
-        trow("Remaining Balance", f"₱{balance:,.2f}", size="20px", color=theme.ACCENT)
+        trow("Down Payment Paid", f"₱{self._draft['down_payment']:,.2f}", color=theme.SUCCESS)
+        trow("Remaining Balance Due", f"₱{balance:,.2f}", size="18px", color=theme.ACCENT)
         lay.addWidget(totals)
-
         lay.addStretch()
 
-        row_nav, _ = _nav_row(back_cb=self.goto_billing_step, next_cb=self.goto_terms_step, next_label="Next: Terms && Conditions  →")
+        row_nav, _ = _nav_row(back_cb=self.goto_billing_step, next_cb=self._confirm_order, next_label="Confirm & Place Order ->")
         self._set_nav(row_nav)
-        self._set_body(page, "Step 6 — Order Preview", step_index=5)
+        self._set_body(page, "Step 6 — Order Review", "Verify event details and confirm order", step_index=5)
 
-    # ── Step 7: Terms & Conditions ───────────────────────────────────────
-
-    def goto_terms_step(self):
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setSpacing(16)
-
-        header_card = _card(accent=True)
-        hlay = QVBoxLayout(header_card)
-        hlay.setContentsMargins(22, 18, 22, 18)
-        title = QLabel("📋  " + terms.TERMS_TITLE)
-        title.setStyleSheet(theme.heading_style(17))
-        title.setWordWrap(True)
-        hlay.addWidget(title)
-        sub = QLabel("Please read the Catering Terms and Conditions below before confirming this order.")
-        sub.setStyleSheet(theme.subtitle_style(13))
-        sub.setWordWrap(True)
-        hlay.addWidget(sub)
-        lay.addWidget(header_card)
-
-        text_card = _card()
-        text_card.setMinimumHeight(360)
-        tlay = QVBoxLayout(text_card)
-        tlay.setContentsMargins(4, 4, 4, 4)
-
-        browser = QTextBrowser()
-        browser.setOpenExternalLinks(False)
-        browser.setStyleSheet(
-            f"border: none; background: transparent; font-size: 14px; padding: 18px; color: {theme.TEXT};"
-        )
-        html_body = terms.TERMS_TEXT.strip().replace("\n\n", "</p><p>").replace("\n", "<br>")
-        browser.setHtml(
-            f"<div style='line-height:1.6;'><p>{html_body}</p>"
-            f"<p style='color:{theme.TEXT_FAINT}; font-size:12px; margin-top:16px;'>Terms version {terms.CURRENT_TERMS_VERSION}</p></div>"
-        )
-        tlay.addWidget(browser)
-        lay.addWidget(text_card, 1)
-
-        ack_card = QFrame()
-        theme.style_card(ack_card, elevated=True, accent_border=True)
-        alay = QHBoxLayout(ack_card)
-        alay.setContentsMargins(20, 16, 20, 16)
-        ack_cb = QCheckBox(terms.TERMS_ACKNOWLEDGEMENT_LABEL)
-        ack_cb.setStyleSheet("font-size: 15px; font-weight: 700;")
-        alay.addWidget(ack_cb)
-        lay.addWidget(ack_card)
-
-        row, next_btn = _nav_row(back_cb=self.goto_preview_step, next_cb=self._confirm_order,
-                                 next_label="✔  Confirm Order", next_enabled=False)
-        ack_cb.toggled.connect(lambda checked: next_btn.setEnabled(checked))
-        self._set_nav(row)
-        self._set_body(page, "Step 7 — Terms & Conditions", step_index=6)
-
-    # ── Confirm -> write to DB, then Receipt/Export step ─────────────────
+    # ── Confirm -> write to DB, then Receipt step ────────────────────────
 
     def _confirm_order(self):
         draft = dict(self._draft)
@@ -726,57 +1166,57 @@ class OrderWizard(QWidget):
         try:
             result = repo.create_order(draft)
         except Exception as exc:
-            QMessageBox.critical(self, "Order Failed", f"Could not save the order:\n{exc}")
+            QMessageBox.critical(self, "Order Failed", f"Could not save order:\n{exc}")
             return
         repo.record_terms_acknowledgement(result["booking_id"], terms.CURRENT_TERMS_VERSION, draft["customer_name"])
         self._confirmed_order = repo.get_order_detail(result["booking_id"])
         self.goto_receipt_step()
 
     def goto_receipt_step(self):
-        self._cancel_btn.hide()  # the order is already saved — nothing left to cancel
+        self._cancel_btn.hide()
 
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setSpacing(18)
-        lay.setContentsMargins(0, 20, 0, 0)
+        lay.setSpacing(16)
+        lay.setContentsMargins(10, 10, 10, 10)
 
         card = _card(accent=True)
         clay = QVBoxLayout(card)
-        clay.setContentsMargins(30, 28, 30, 28)
-        clay.setSpacing(14)
+        clay.setContentsMargins(28, 24, 28, 24)
+        clay.setSpacing(12)
 
-        ok_lbl = QLabel(f"✔  Order Confirmed")
-        ok_lbl.setStyleSheet(f"font-size: 24px; font-weight: 800; color: {theme.SUCCESS};")
+        ok_lbl = QLabel("ORDER CONFIRMED SUCCESSFULLY")
+        ok_lbl.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {theme.SUCCESS};")
         clay.addWidget(ok_lbl)
 
-        ref_lbl = QLabel(self._confirmed_order["booking_ref"])
-        ref_lbl.setStyleSheet(f"font-size: 15px; color: {theme.TEXT_MUTED};")
+        ref_lbl = QLabel(f"Booking Reference: {self._confirmed_order['booking_ref']}")
+        ref_lbl.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {theme.GOLD};")
         clay.addWidget(ref_lbl)
 
         status_colors = theme.STATUS_COLORS
         summary = QLabel(
-            f"Customer: <b>{self._confirmed_order['customer_name']}</b><br>"
+            f"Client: <b>{self._confirmed_order['customer_name']}</b><br>"
             f"Total: <b>₱{self._confirmed_order['total']:,.2f}</b> &nbsp;·&nbsp; "
             f"Paid: <b style='color:{theme.SUCCESS}'>₱{self._confirmed_order['paid']:,.2f}</b> &nbsp;·&nbsp; "
             f"Balance: <b style='color:{theme.ACCENT}'>₱{self._confirmed_order['balance']:,.2f}</b><br>"
             f"Status: <b style='color:{status_colors.get(self._confirmed_order['status'], theme.TEXT)}'>{self._confirmed_order['status']}</b>"
         )
-        summary.setStyleSheet("font-size: 14px;")
+        summary.setStyleSheet("font-size: 14px; line-height: 1.5;")
         clay.addWidget(summary)
         lay.addWidget(card)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
-        print_btn = QPushButton("🖨  Print / Save Receipt PDF")
+        print_btn = QPushButton("Print / Save Receipt PDF")
         print_btn.setObjectName("Primary")
-        print_btn.setMinimumHeight(56)
+        print_btn.setMinimumHeight(54)
         print_btn.setCursor(Qt.PointingHandCursor)
         print_btn.clicked.connect(self._print_receipt)
         btn_row.addWidget(print_btn)
 
         done_btn = QPushButton("Done — Back to Home")
         done_btn.setObjectName("Secondary")
-        done_btn.setMinimumHeight(56)
+        done_btn.setMinimumHeight(54)
         done_btn.setCursor(Qt.PointingHandCursor)
         done_btn.clicked.connect(lambda: self._on_finish())
         btn_row.addWidget(done_btn)
@@ -784,7 +1224,7 @@ class OrderWizard(QWidget):
 
         lay.addStretch()
         self._set_nav(QHBoxLayout())
-        self._set_body(page, "Step 8 — Receipt", step_index=None)
+        self._set_body(page, "Order Complete", "Thank you for choosing Jayraldine's Catering", step_index=None, show_cart=False)
 
     def _print_receipt(self):
         default_name = f"receipt_{self._confirmed_order['booking_ref']}.pdf"
@@ -795,4 +1235,4 @@ class OrderWizard(QWidget):
         if ok:
             QMessageBox.information(self, "Receipt Saved", f"Receipt saved to:\n{path}")
         else:
-            QMessageBox.warning(self, "Export Failed", "Could not generate the receipt PDF. Make sure reportlab is installed.")
+            QMessageBox.warning(self, "Export Failed", "Could not generate receipt PDF. Make sure reportlab is installed.")
