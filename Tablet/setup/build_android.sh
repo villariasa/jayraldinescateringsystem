@@ -113,22 +113,39 @@ if [ -z "${SHIBOKEN6_ANDROID_WHEEL:-}" ]; then
 fi
 
 PYSIDE_VER="$("$PY" -c 'import PySide6; print(PySide6.__version__)')"
+WHEEL_ARCH="${TABLET_TARGET_ARCH:-android_aarch64}"
+[ "$WHEEL_ARCH" = "x86_64" ] && WHEEL_ARCH="android_x86_64"
 
+# Auto-download the two Android target wheels if not already cached — these
+# are cross-compiled wheels (same file regardless of host OS), safe to fetch
+# automatically instead of making the user run curl by hand.
 if [ -z "${PYSIDE6_ANDROID_WHEEL:-}" ]; then
-    echo "ERROR: no PySide6 Android wheel found (checked $WHEEL_CACHE_DIR and $APP_DIR)." >&2
-    echo "       Download it — this is a cross-compiled target wheel, same file" >&2
-    echo "       regardless of host OS — from:" >&2
-    echo "         https://download.qt.io/official_releases/QtForPython/pyside6/pyside6-$PYSIDE_VER-$PYSIDE_VER-cp311-cp311-android_aarch64.whl" >&2
-    echo "       (use android_x86_64 instead of android_aarch64 if the target tablet" >&2
-    echo "       is x86_64, not arm), save it into $WHEEL_CACHE_DIR, and re-run this script." >&2
-    exit 1
+    mkdir -p "$WHEEL_CACHE_DIR"
+    PYSIDE6_ANDROID_WHEEL="$WHEEL_CACHE_DIR/pyside6-$PYSIDE_VER-$WHEEL_ARCH.whl"
+    echo "==> Downloading PySide6 $PYSIDE_VER Android wheel (~80MB, one-time)..."
+    if ! curl -sL --fail -o "$PYSIDE6_ANDROID_WHEEL" \
+        "https://download.qt.io/official_releases/QtForPython/pyside6/pyside6-$PYSIDE_VER-$PYSIDE_VER-cp311-cp311-$WHEEL_ARCH.whl"; then
+        rm -f "$PYSIDE6_ANDROID_WHEEL"
+        echo "ERROR: download failed. Check your internet connection, or manually grab it" >&2
+        echo "       from https://download.qt.io/official_releases/QtForPython/pyside6/" >&2
+        echo "       and save it into $WHEEL_CACHE_DIR." >&2
+        exit 1
+    fi
+    export PYSIDE6_ANDROID_WHEEL
 fi
 if [ -z "${SHIBOKEN6_ANDROID_WHEEL:-}" ]; then
-    echo "ERROR: no shiboken6 Android wheel found (checked $WHEEL_CACHE_DIR and $APP_DIR)." >&2
-    echo "       Download it from:" >&2
-    echo "         https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-$PYSIDE_VER-$PYSIDE_VER-cp311-cp311-android_aarch64.whl" >&2
-    echo "       (same aarch64/x86_64 note as above), save it into $WHEEL_CACHE_DIR, and re-run this script." >&2
-    exit 1
+    mkdir -p "$WHEEL_CACHE_DIR"
+    SHIBOKEN6_ANDROID_WHEEL="$WHEEL_CACHE_DIR/shiboken6-$PYSIDE_VER-$WHEEL_ARCH.whl"
+    echo "==> Downloading shiboken6 $PYSIDE_VER Android wheel (one-time)..."
+    if ! curl -sL --fail -o "$SHIBOKEN6_ANDROID_WHEEL" \
+        "https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-$PYSIDE_VER-$PYSIDE_VER-cp311-cp311-$WHEEL_ARCH.whl"; then
+        rm -f "$SHIBOKEN6_ANDROID_WHEEL"
+        echo "ERROR: download failed. Check your internet connection, or manually grab it" >&2
+        echo "       from https://download.qt.io/official_releases/QtForPython/shiboken6/" >&2
+        echo "       and save it into $WHEEL_CACHE_DIR." >&2
+        exit 1
+    fi
+    export SHIBOKEN6_ANDROID_WHEEL
 fi
 
 EXTRA_ARGS=("-f" "--keep-deployment-files")
