@@ -127,6 +127,28 @@ set "TMP_OUT=%TEMP%\jc_out_%RANDOM%.txt"
 set /p PYSIDE_VER=<"%TMP_OUT%"
 del "%TMP_PY%" "%TMP_OUT%" >nul 2>&1
 
+REM Self-heal a partial/corrupted PySide6 install (common Windows cause:
+REM antivirus silently stripping files during pip's wheel extraction) —
+REM if the deploy-tool's own data files or console-script entry point are
+REM missing, force a clean reinstall automatically instead of erroring out
+REM and telling the user to run pip by hand.
+for %%I in ("!PY!") do set "ENV_SCRIPTS=%%~dpI"
+for %%I in ("!PY!") do set "ENV_SITEPKGS=%%~dpILib\site-packages"
+set "NEEDS_REPAIR="
+if not exist "!ENV_SCRIPTS!pyside6-android-deploy.exe" set "NEEDS_REPAIR=1"
+if not exist "!ENV_SITEPKGS!\PySide6\scripts\requirements-android.txt" set "NEEDS_REPAIR=1"
+if defined NEEDS_REPAIR (
+    echo ==^> PySide6 install looks incomplete ^(missing deploy-tool files —
+    echo     often antivirus stripping files during install^). Reinstalling...
+    "!PY!" -m pip install --force-reinstall --no-cache-dir "PySide6==%PYSIDE_VER%"
+    if not exist "!ENV_SCRIPTS!pyside6-android-deploy.exe" (
+        echo ERROR: still missing !ENV_SCRIPTS!pyside6-android-deploy.exe after
+        echo        reinstalling. Temporarily disable your antivirus's real-time
+        echo        protection and re-run this script, then re-enable it after.
+        exit /b 1
+    )
+)
+
 REM Auto-download the two Android target wheels if not already cached —
 REM these are cross-compiled wheels (same file regardless of host OS), safe
 REM to fetch automatically instead of making the user run curl by hand.
