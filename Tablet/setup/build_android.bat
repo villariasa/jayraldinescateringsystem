@@ -127,22 +127,28 @@ set "TMP_OUT=%TEMP%\jc_out_%RANDOM%.txt"
 set /p PYSIDE_VER=<"%TMP_OUT%"
 del "%TMP_PY%" "%TMP_OUT%" >nul 2>&1
 
-REM Self-heal a partial/corrupted PySide6 install (common Windows cause:
-REM antivirus silently stripping files during pip's wheel extraction) —
-REM if the deploy-tool's own data files or console-script entry point are
+REM Self-heal a partial/corrupted PySide6 install (seen cause: antivirus
+REM silently stripping files during pip's wheel extraction) — if the
+REM deploy-tool's actual Python module or its requirements file are
 REM missing, force a clean reinstall automatically instead of erroring out
 REM and telling the user to run pip by hand.
+REM
+REM NOTE: pyside6-android-deploy.exe (the console-script .exe wrapper) is
+REM deliberately NOT checked here — confirmed on a real machine that it's
+REM simply absent from Windows PySide6 wheels even after a totally clean
+REM reinstall. That's handled separately below by falling back to running
+REM the module directly via `-m`, not treated as corruption.
 for %%I in ("!PY!") do set "ENV_SCRIPTS=%%~dpI"
 for %%I in ("!PY!") do set "ENV_SITEPKGS=%%~dpILib\site-packages"
 set "NEEDS_REPAIR="
-if not exist "!ENV_SCRIPTS!pyside6-android-deploy.exe" set "NEEDS_REPAIR=1"
+if not exist "!ENV_SITEPKGS!\PySide6\scripts\android_deploy.py" set "NEEDS_REPAIR=1"
 if not exist "!ENV_SITEPKGS!\PySide6\scripts\requirements-android.txt" set "NEEDS_REPAIR=1"
 if defined NEEDS_REPAIR (
     echo ==^> PySide6 install looks incomplete ^(missing deploy-tool files —
     echo     often antivirus stripping files during install^). Reinstalling...
     "!PY!" -m pip install --force-reinstall --no-cache-dir "PySide6==%PYSIDE_VER%"
-    if not exist "!ENV_SCRIPTS!pyside6-android-deploy.exe" (
-        echo ERROR: still missing !ENV_SCRIPTS!pyside6-android-deploy.exe after
+    if not exist "!ENV_SITEPKGS!\PySide6\scripts\android_deploy.py" (
+        echo ERROR: still missing PySide6\scripts\android_deploy.py after
         echo        reinstalling. Temporarily disable your antivirus's real-time
         echo        protection and re-run this script, then re-enable it after.
         exit /b 1
@@ -195,16 +201,22 @@ set /p ANDROID_REQS=<"%TMP_OUT%"
 del "%TMP_PY%" "%TMP_OUT%" >nul 2>&1
 "!PY!" -m pip install -r "!ANDROID_REQS!"
 
-REM pyside6-android-deploy is a console-script entry point installed into
-REM the same env's Scripts\ folder as python.exe (mirrors how build_android.sh
-REM calls it from the venv's bin\ on Linux) — call it by full path, same
-REM shadowing rationale as above.
+REM pyside6-android-deploy is normally a console-script .exe wrapper in the
+REM env's Scripts\ folder — but Windows PySide6 wheels don't reliably ship
+REM that entry point (confirmed: still missing after a clean reinstall).
+REM The actual tool is just a regular Python module underneath, so fall
+REM back to running it directly via -m, which works regardless of whether
+REM pip generated the .exe wrapper.
 for %%I in ("!PY!") do set "ENV_SCRIPTS=%%~dpI"
 set "DEPLOY_EXE=!ENV_SCRIPTS!pyside6-android-deploy.exe"
+REM Not wrapped in `set "VAR=..."` here on purpose — that form strips a
+REM matching pair of outer quotes from the value, but we need the literal
+REM quote characters around the exe path to stay in DEPLOY_CMD's value.
+set DEPLOY_CMD="!DEPLOY_EXE!"
 if not exist "!DEPLOY_EXE!" (
-    echo ERROR: pyside6-android-deploy.exe not found at !DEPLOY_EXE!.
-    echo        The requirements-android.txt install above may have failed.
-    exit /b 1
+    echo ==^> pyside6-android-deploy.exe not found ^(known gap in some Windows
+    echo     PySide6 wheels^) — running the module directly instead.
+    set DEPLOY_CMD="!PY!" -m PySide6.scripts.android_deploy
 )
 
 echo ==^> Building Android APK (this can take a long time on first run —
@@ -214,7 +226,7 @@ REM project has been hand-edited with another developer's machine-specific
 REM absolute paths (wheel locations, a conda env path) that don't exist on
 REM this machine. Passing all values explicitly via CLI flags avoids
 REM silently falling back to those stale paths.
-"!DEPLOY_EXE!" ^
+!DEPLOY_CMD! ^
     --name "JayraldinesCateringTablet" ^
     -f ^
     --wheel-pyside="%PYSIDE6_ANDROID_WHEEL%" ^
