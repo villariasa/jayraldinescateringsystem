@@ -54,7 +54,19 @@ fi
 echo "==> Using interpreter: $PY"
 export PATH="$(dirname "$PY"):$PATH"
 
-
+# python-for-android/buildozer refuses to run on Python 3.12+ ("Android
+# deployment requires Python version 3.11 or lower"). setup_linux.sh's venv
+# is created from whatever python3 resolves to, which may already be 3.12+
+# on a newer distro — check here with a clear error instead of failing deep
+# inside a buildozer stack trace after the SDK/NDK download has run.
+PYVER_CHECK=$("$PY" -c 'import sys; print(1 if sys.version_info[:2] <= (3, 11) else 0)')
+if [ "$PYVER_CHECK" != "1" ]; then
+    echo "ERROR: this environment's Python is too new for the Android build" >&2
+    echo "       (python-for-android requires Python 3.11 or lower). Install" >&2
+    echo "       Python 3.11, recreate the venv with it (e.g. python3.11 -m venv .venv)," >&2
+    echo "       and re-run this script." >&2
+    exit 1
+fi
 
 # Auto-detect Android SDK & NDK if not manually set
 if [ -z "${ANDROID_SDK_ROOT:-}" ]; then
@@ -100,28 +112,52 @@ if [ -z "${SHIBOKEN6_ANDROID_WHEEL:-}" ]; then
     fi
 fi
 
+PYSIDE_VER="$("$PY" -c 'import PySide6; print(PySide6.__version__)')"
+
+if [ -z "${PYSIDE6_ANDROID_WHEEL:-}" ]; then
+    echo "ERROR: no PySide6 Android wheel found (checked $WHEEL_CACHE_DIR and $APP_DIR)." >&2
+    echo "       Download it — this is a cross-compiled target wheel, same file" >&2
+    echo "       regardless of host OS — from:" >&2
+    echo "         https://download.qt.io/official_releases/QtForPython/pyside6/pyside6-$PYSIDE_VER-$PYSIDE_VER-cp311-cp311-android_aarch64.whl" >&2
+    echo "       (use android_x86_64 instead of android_aarch64 if the target tablet" >&2
+    echo "       is x86_64, not arm), save it into $WHEEL_CACHE_DIR, and re-run this script." >&2
+    exit 1
+fi
+if [ -z "${SHIBOKEN6_ANDROID_WHEEL:-}" ]; then
+    echo "ERROR: no shiboken6 Android wheel found (checked $WHEEL_CACHE_DIR and $APP_DIR)." >&2
+    echo "       Download it from:" >&2
+    echo "         https://download.qt.io/official_releases/QtForPython/shiboken6/shiboken6-$PYSIDE_VER-$PYSIDE_VER-cp311-cp311-android_aarch64.whl" >&2
+    echo "       (same aarch64/x86_64 note as above), save it into $WHEEL_CACHE_DIR, and re-run this script." >&2
+    exit 1
+fi
+
 EXTRA_ARGS=("-f" "--keep-deployment-files")
+echo "==> Using PySide6 Android wheel: $PYSIDE6_ANDROID_WHEEL"
+EXTRA_ARGS+=("--wheel-pyside=$PYSIDE6_ANDROID_WHEEL")
+echo "==> Using Shiboken6 Android wheel: $SHIBOKEN6_ANDROID_WHEEL"
+EXTRA_ARGS+=("--wheel-shiboken=$SHIBOKEN6_ANDROID_WHEEL")
 
-if [ -n "${PYSIDE6_ANDROID_WHEEL:-}" ]; then
-    echo "==> Using PySide6 Android wheel: $PYSIDE6_ANDROID_WHEEL"
-    EXTRA_ARGS+=("--wheel-pyside=$PYSIDE6_ANDROID_WHEEL")
+if [ -z "${ANDROID_NDK_ROOT:-}" ]; then
+    echo "ERROR: ANDROID_NDK_ROOT must be set. See the prerequisites comment" >&2
+    echo "       block at the top of this script." >&2
+    exit 1
 fi
+EXTRA_ARGS+=("--ndk-path=$ANDROID_NDK_ROOT")
 
-if [ -n "${SHIBOKEN6_ANDROID_WHEEL:-}" ]; then
-    echo "==> Using Shiboken6 Android wheel: $SHIBOKEN6_ANDROID_WHEEL"
-    EXTRA_ARGS+=("--wheel-shiboken=$SHIBOKEN6_ANDROID_WHEEL")
+if [ -z "${ANDROID_SDK_ROOT:-}" ]; then
+    echo "ERROR: ANDROID_SDK_ROOT must be set. See the prerequisites comment" >&2
+    echo "       block at the top of this script." >&2
+    exit 1
 fi
+EXTRA_ARGS+=("--sdk-path=$ANDROID_SDK_ROOT")
 
-if [ -n "${ANDROID_NDK_ROOT:-}" ]; then
-    EXTRA_ARGS+=("--ndk-path=$ANDROID_NDK_ROOT")
-else
-    echo "INFO: ANDROID_NDK_ROOT not set. Using cached/default NDK if available."
-fi
-
-if [ -n "${ANDROID_SDK_ROOT:-}" ]; then
-    EXTRA_ARGS+=("--sdk-path=$ANDROID_SDK_ROOT")
-else
-    echo "INFO: ANDROID_SDK_ROOT not set. Using cached/default SDK if available."
+# buildozer still expects the legacy "tools/bin/sdkmanager" layout that
+# Google dropped from newer cmdline-tools distributions (which only ship
+# "cmdline-tools/latest/bin/sdkmanager"). Shim it if missing.
+if [ ! -f "$ANDROID_SDK_ROOT/tools/bin/sdkmanager" ] && [ -f "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+    mkdir -p "$ANDROID_SDK_ROOT/tools/bin"
+    ln -sf "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_SDK_ROOT/tools/bin/sdkmanager"
+    ln -sf "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager" "$ANDROID_SDK_ROOT/tools/bin/avdmanager" 2>/dev/null || true
 fi
 
 echo "==> Installing Android-deploy Python dependencies"
@@ -133,7 +169,13 @@ if [ ! -x "$DEPLOY_EXE" ]; then
     DEPLOY_EXE="pyside6-android-deploy"
 fi
 
-# Pre-clone & patch python-for-android hostpython3 recipe if needed
+# Pre-clone & patch python-for-android hostpython3 recipe if needed: some
+# distros/hosts don't ship a system zstd, which the hostpython3 recipe's
+# default config assumes. --without-zstd is always safe to add. The zlib
+# include/lib path injection below only kicks in if zlib.h isn't already
+# on the system include path (e.g. a rootless build machine using a local
+# zlib build via CPATH/LIBRARY_PATH) — on a normal machine with
+# zlib1g-dev/zlib-devel installed this is a no-op.
 P4A_DIR="$APP_DIR/.buildozer/android/platform/python-for-android"
 if [ ! -d "$P4A_DIR" ]; then
     mkdir -p "$APP_DIR/.buildozer/android/platform"
@@ -142,22 +184,34 @@ fi
 
 P4A_HOSTPYTHON_RECIPE="$P4A_DIR/pythonforandroid/recipes/hostpython3/__init__.py"
 if [ -f "$P4A_HOSTPYTHON_RECIPE" ]; then
-    "$PY" -c '
+    ZLIB_INCLUDE_DIR="" ZLIB_LIB_DIR=""
+    if [ ! -f "/usr/include/zlib.h" ]; then
+        for p in ${CPATH:-} ""; do
+            if [ -n "$p" ] && [ -f "$p/zlib.h" ]; then ZLIB_INCLUDE_DIR="$p"; break; fi
+        done
+        for p in ${LIBRARY_PATH:-} ""; do
+            if [ -n "$p" ] && ls "$p"/libz.* >/dev/null 2>&1; then ZLIB_LIB_DIR="$p"; break; fi
+        done
+    fi
+    ZLIB_INCLUDE_DIR="$ZLIB_INCLUDE_DIR" ZLIB_LIB_DIR="$ZLIB_LIB_DIR" "$PY" -c '
+import os
 path = "'"$P4A_HOSTPYTHON_RECIPE"'"
+zlib_include = os.environ.get("ZLIB_INCLUDE_DIR", "")
+zlib_lib = os.environ.get("ZLIB_LIB_DIR", "")
 with open(path, "r") as f:
     content = f.read()
 modified = False
 if "without-zstd" not in content:
     content = content.replace("self.local_dir,", "self.local_dir,\n                    \"--without-zstd\",")
     modified = True
-if "jayraldines_tablet" not in content:
+if zlib_include and zlib_lib and "JAYRALDINES_LOCAL_ZLIB" not in content:
     target = "        return env"
-    replacement = """        conda_dir = \"/home/villarias/miniconda3/envs/jayraldines_tablet\"
-        if os.path.exists(join(conda_dir, \"include\", \"zlib.h\")):
-            env[\"CPPFLAGS\"] = f\"-I{conda_dir}/include \" + env.get(\"CPPFLAGS\", \"\")
-            env[\"CFLAGS\"] = f\"-I{conda_dir}/include \" + env.get(\"CFLAGS\", \"\")
-            env[\"LDFLAGS\"] = f\"-L{conda_dir}/lib -lz -lzstd \" + env.get(\"LDFLAGS\", \"\")
-            env[\"LD_LIBRARY_PATH\"] = f\"{conda_dir}/lib:\" + env.get(\"LD_LIBRARY_PATH\", \"\")
+    replacement = f"""        # JAYRALDINES_LOCAL_ZLIB: rootless build machine without system zlib headers
+        zlib_include, zlib_lib = {zlib_include!r}, {zlib_lib!r}
+        env["CPPFLAGS"] = f"-I{{zlib_include}} " + env.get("CPPFLAGS", "")
+        env["CFLAGS"] = f"-I{{zlib_include}} " + env.get("CFLAGS", "")
+        env["LDFLAGS"] = f"-L{{zlib_lib}} -lz " + env.get("LDFLAGS", "")
+        env["LD_LIBRARY_PATH"] = f"{{zlib_lib}}:" + env.get("LD_LIBRARY_PATH", "")
         return env"""
     content = content.replace(target, replacement, 1)
     modified = True
@@ -167,12 +221,16 @@ if modified:
 '
 fi
 
+# Deliberately NOT passing -c pysidedeploy.spec here: that file in this
+# project was hand-edited with another developer's machine-specific
+# absolute paths (wheel locations, a conda env path) that don't exist on
+# other machines. Passing all values explicitly via CLI flags (EXTRA_ARGS,
+# built up above) avoids silently falling back to those stale paths.
 echo "==> Building Android APK (this can take a long time on first run —"
 echo "    it downloads/builds a Python-for-Android toolchain)"
 "$DEPLOY_EXE" \
     --name "JayraldinesCateringTablet" \
-    "${EXTRA_ARGS[@]}" \
-    -c "$APP_DIR/pysidedeploy.spec"
+    "${EXTRA_ARGS[@]}"
 
 echo "==> Done. Look for the generated .apk under $APP_DIR (path reported above)."
 echo "    Install on a tablet with: adb install -r <path-to-apk>"
