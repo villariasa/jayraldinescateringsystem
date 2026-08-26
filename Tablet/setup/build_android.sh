@@ -177,12 +177,15 @@ if [ ! -f "$ANDROID_SDK_ROOT/tools/bin/sdkmanager" ] && [ -f "$ANDROID_SDK_ROOT/
     ln -sf "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager" "$ANDROID_SDK_ROOT/tools/bin/avdmanager" 2>/dev/null || true
 fi
 
+export PIP_USER=0
+export PIP_NO_USER=1
+
 echo "==> Installing Android-deploy Python dependencies"
 ANDROID_REQS="$("$PY" -c 'import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), "scripts", "requirements-android.txt"))' 2>/dev/null || true)"
 if [ -n "$ANDROID_REQS" ] && [ -f "$ANDROID_REQS" ]; then
-    "$PY" -m pip install -r "$ANDROID_REQS"
+    "$PY" -m pip install --no-user -r "$ANDROID_REQS" || true
 else
-    "$PY" -m pip install "buildozer>=1.5.0" "cython<3.0.0"
+    "$PY" -m pip install --no-user "buildozer>=1.5.0" "cython<3.0.0" || true
 fi
 
 DEPLOY_EXE="$(dirname "$PY")/pyside6-android-deploy"
