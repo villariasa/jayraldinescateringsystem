@@ -151,8 +151,17 @@ def delete_multiple_bookings(booking_ids: list[int | str]) -> int:
 
 
 def merge_duplicate_customers() -> int:
-    """Finds duplicate customers (matching normalized name or contact number)
-    and consolidates all booking relations and event totals into a single master customer row."""
+    """Finds duplicate customers (same normalized name, with a matching or
+    absent contact number) and consolidates all booking relations and event
+    totals into a single master customer row.
+
+    Deliberately does NOT match on contact number alone: two different real
+    customers can share a phone number (a household landline, an office
+    number), and merging on that basis silently hard-deletes one of them.
+    Only rows with the same name are considered duplicates of each other;
+    among those, a contact mismatch (both sides non-empty and different)
+    blocks the merge since it signals two distinct people who just share a
+    name."""
     import re
     all_custs = get_all_customers()
     if not all_custs:
@@ -162,14 +171,37 @@ def merge_duplicate_customers() -> int:
     seen_groups = {}
     for c in all_custs:
         norm_name = re.sub(r"[^\w]", "", str(c.get("name", "")).lower())
-        norm_contact = re.sub(r"\D", "", str(c.get("contact", "")))
-        key = norm_name or norm_contact
-        if not key:
+        if not norm_name:
             continue
-        seen_groups.setdefault(key, []).append(c)
+        seen_groups.setdefault(norm_name, []).append(c)
 
-    for key, group in seen_groups.items():
-        if len(group) > 1:
+    for key, name_group in seen_groups.items():
+        non_empty_contacts = {}
+        no_contact = []
+        for c in name_group:
+            norm_contact = re.sub(r"\D", "", str(c.get("contact", "")))
+            if norm_contact:
+                non_empty_contacts.setdefault(norm_contact, []).append(c)
+            else:
+                no_contact.append(c)
+
+        if len(non_empty_contacts) == 0:
+            # No one under this name has a contact on file - nothing to
+            # disambiguate by, merge them same as before.
+            groups_to_merge = [name_group] if len(name_group) > 1 else []
+        elif len(non_empty_contacts) == 1:
+            # Only one distinct contact for this name - blank-contact rows
+            # unambiguously belong with it.
+            (only_group,) = non_empty_contacts.values()
+            groups_to_merge = [only_group + no_contact]
+        else:
+            # Multiple distinct contacts under the same name: these are
+            # likely different people who happen to share a name. Only
+            # merge exact contact matches; leave blank-contact rows alone
+            # since it's ambiguous which person they belong to.
+            groups_to_merge = [g for g in non_empty_contacts.values() if len(g) > 1]
+
+        for group in groups_to_merge:
             group.sort(key=lambda x: (int(x.get("events") or 0), -(int(x.get("id") or 0))), reverse=True)
             master = group[0]
             master_id = master["id"]
@@ -222,6 +254,20 @@ def get_customer_by_name(name: str) -> Optional[dict]:
         (name,)
     )
     return dict(row) if row else None
+
+
+def customer_exists(name: str) -> bool:
+    """Case-insensitive duplicate check by customer name — matches the
+    convention used elsewhere in this file (bookings/customers are keyed by
+    name, not contact, e.g. get_customer_by_name)."""
+    name = (name or "").strip()
+    if not name:
+        return False
+    row = db.fetchone(
+        "SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1",
+        (name,),
+    )
+    return bool(row)
 
 
 def get_customer_email_by_name(name: str) -> str:
@@ -1032,6 +1078,7 @@ def get_all_invoices() -> list[dict]:
                COALESCE(c.cus_email, '') AS customer_email
         FROM invoices i
         LEFT JOIN customers c ON c.cus_name = i.inv_customer_name
+        WHERE i.inv_status != 'CANCELLED'
         ORDER BY i.inv_created_at DESC
     """)
     if not rows:
@@ -1116,16 +1163,9 @@ def update_invoice_payment(invoice_id: int, new_paid: float, new_balance: float 
         else:
             bal = max(0.0, tot - paid)
         
-        # Determine status
-        if bal <= 0.005 and paid >= tot - 0.005:
-            new_inv_status = "Paid"
-            new_bk_status = "CONFIRMED"
-        elif paid > 0:
-            new_inv_status = "Partial"
-            new_bk_status = "CONFIRMED"
-        else:
-            new_inv_status = "Unpaid"
-            new_bk_status = "PENDING"
+        # Determine status via the single source-of-truth helper
+        new_inv_status = db.compute_invoice_status(tot, paid)
+        new_bk_status = "CONFIRMED" if new_inv_status in ("Paid", "Partial") else "PENDING"
         
         # Update invoices
         db.execute("""
@@ -1252,6 +1292,46 @@ def add_payment_record(invoice_id: int, amount: float,
     return None
 
 
+def get_payment_ledger(year: int = None, month: int = None) -> list[dict]:
+    """Full cross-customer payment history for the Ledger view: Date, Customer,
+    Transaction type (Down Payment vs Full/Remaining Payment), Amount, Status.
+
+    Each payment_records row keeps its own pr_payment_date - a later payment
+    never overwrites an earlier one's date, so down payment and subsequent
+    payments both show their real, distinct dates here."""
+    sql = """
+        SELECT pr.pr_id            AS id,
+               pr.pr_payment_date  AS payment_date,
+               i.inv_customer_name AS customer,
+               pr.pr_is_downpayment AS is_downpayment,
+               pr.pr_amount        AS amount,
+               i.inv_status        AS status,
+               i.inv_booking_id    AS booking_id
+        FROM payment_records pr
+        JOIN invoices i ON i.inv_id = pr.pr_invoice_id
+    """
+    params: tuple = ()
+    if year and month:
+        sql += " WHERE strftime('%Y', pr.pr_payment_date) = %s AND strftime('%m', pr.pr_payment_date) = %s"
+        params = (str(year), f"{month:02d}")
+    sql += " ORDER BY pr.pr_payment_date DESC, pr.pr_created_at DESC"
+    rows = db.fetchall(sql, params)
+    if not rows:
+        return []
+    return [
+        {
+            "id":          r["id"],
+            "date":        r["payment_date"].strftime("%b %d, %Y") if hasattr(r["payment_date"], "strftime") else str(r["payment_date"]),
+            "customer":    r["customer"],
+            "transaction": "Down Payment" if r["is_downpayment"] else "Full/Remaining Payment",
+            "amount":      float(r["amount"]),
+            "status":      r["status"],
+            "booking_id":  r["booking_id"],
+        }
+        for r in rows
+    ]
+
+
 def get_payment_records(invoice_id: int) -> list[dict]:
     rows = db.fetchall(
         """
@@ -1279,6 +1359,83 @@ def get_payment_records(invoice_id: int) -> list[dict]:
         }
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# ADDITIONAL CHARGES / ADDITIONAL ITEMS
+# ---------------------------------------------------------------------------
+
+def get_additional_charges(booking_id: int) -> list[dict]:
+    rows = db.fetchall(
+        """
+        SELECT ac_id AS id, ac_description AS description, ac_amount AS amount,
+               ac_date_added AS date_added, ac_added_by AS added_by
+        FROM booking_additional_charges
+        WHERE ac_booking_id = %s
+        ORDER BY ac_created_at DESC
+        """,
+        (booking_id,),
+    )
+    if not rows:
+        return []
+    return [
+        {
+            "id":          r["id"],
+            "description": r["description"],
+            "amount":      float(r["amount"]),
+            "date_added":  r["date_added"].strftime("%b %d, %Y") if hasattr(r["date_added"], "strftime") else str(r["date_added"]),
+            "added_by":    r["added_by"] or "",
+        }
+        for r in rows
+    ]
+
+
+def _recalc_booking_totals(booking_id: int) -> None:
+    """Recompute bk_total_amount / invoice totals as base + additional charges,
+    then re-derive Paid/Partial/Unpaid from the single source-of-truth helper."""
+    row = db.fetchone("SELECT bk_base_total, bk_total_amount, bk_amount_paid FROM bookings WHERE bk_id = %s", (booking_id,))
+    if not row:
+        return
+    base = row.get("bk_base_total")
+    base = float(base) if base is not None else float(row.get("bk_total_amount") or 0.0)
+    charges_row = db.fetchone("SELECT COALESCE(SUM(ac_amount), 0.0) AS s FROM booking_additional_charges WHERE ac_booking_id = %s", (booking_id,))
+    charges_sum = float(charges_row["s"]) if charges_row else 0.0
+    new_total = base + charges_sum
+    paid = float(row.get("bk_amount_paid") or 0.0)
+
+    db.execute("UPDATE bookings SET bk_total_amount = %s WHERE bk_id = %s", (new_total, booking_id))
+
+    inv_row = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = %s", (booking_id,))
+    if inv_row:
+        new_status = db.compute_invoice_status(new_total, paid)
+        new_balance = max(0.0, new_total - paid)
+        db.execute(
+            "UPDATE invoices SET inv_total_amount = %s, inv_balance = %s, inv_status = %s WHERE inv_id = %s",
+            (new_total, new_balance, new_status, inv_row["inv_id"]),
+        )
+
+
+def add_additional_charge(booking_id: int, description: str, amount: float, added_by: str = "") -> list[dict]:
+    from datetime import date as _d
+    db.execute(
+        """
+        INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        (booking_id, description.strip(), float(amount), _d.today(), added_by or ""),
+    )
+    _recalc_booking_totals(booking_id)
+    return get_additional_charges(booking_id)
+
+
+def delete_additional_charge(charge_id: int) -> bool:
+    row = db.fetchone("SELECT ac_booking_id FROM booking_additional_charges WHERE ac_id = %s", (charge_id,))
+    if not row:
+        return False
+    booking_id = row["ac_booking_id"]
+    db.execute("DELETE FROM booking_additional_charges WHERE ac_id = %s", (charge_id,))
+    _recalc_booking_totals(booking_id)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -2180,34 +2337,116 @@ def write_audit_log(actor: str, action: str, table_name: str, record_id: int,
         print(f"[audit] write failed: {exc}")
 
 
-def get_audit_log(limit: int = 50) -> list[dict]:
-    rows = db.fetchall(
-        """
+def _format_audit_description(action: str, old_value, new_value) -> str:
+    """Build a human-readable sentence like 'John added a new order for Maria
+    Santos - P15,000' from the JSON old/new value blobs written alongside
+    every audit_logs row."""
+    import json
+    import re
+
+    def _load(v):
+        if not v or v in ("None", "null"):
+            return {}
+        try:
+            return json.loads(v) if isinstance(v, str) else v
+        except Exception:
+            return {}
+
+    def _parse_amount(v):
+        if v in (None, ""):
+            return None
+        if isinstance(v, str):
+            v = re.sub(r"[^\d.\-]", "", v)
+            if not v:
+                return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    data = {**_load(old_value), **_load(new_value)}
+    customer = data.get("customer") or data.get("customer_name") or ""
+    amount = _parse_amount(data.get("amount"))
+    amount_str = f" — ₱{amount:,.2f}" if amount is not None else ""
+    reason = data.get("reason") or ""
+    charge_desc = data.get("description") or ""
+
+    verbs = {
+        "CREATE":     "added a new order",
+        "UPDATE":     "updated an order",
+        "DELETE":     "deleted an order",
+        "CANCEL":     "cancelled an order",
+        "APPROVE":    "approved an order",
+        "PAYMENT":      "recorded a payment",
+        "DOWN_PAYMENT": "recorded a down payment",
+        "ADD_CHARGE": "added an additional charge",
+        "STATUS_CHANGE": "changed the order status",
+    }
+    verb = verbs.get(action, action.replace("_", " ").title())
+
+    parts = [verb]
+    if customer:
+        parts.append(f"from {customer}" if action in ("PAYMENT", "DOWN_PAYMENT") else f"for {customer}")
+    if action == "ADD_CHARGE" and charge_desc:
+        parts.append(f"({charge_desc})")
+    if action == "CANCEL" and reason:
+        parts.append(f"— reason: {reason}")
+    return (" ".join(parts) + amount_str).strip()
+
+
+def get_audit_log(limit: int = 50, start_date=None, end_date=None) -> list[dict]:
+    """Recent activity log. If start_date/end_date are given, returns every
+    matching entry in that range (used by the Daily Activity Report) instead
+    of only the most recent `limit` rows."""
+    sql = """
         SELECT al_id          AS id,
                al_actor       AS actor,
                al_action      AS action,
                al_table_name  AS table_name,
                al_record_id   AS record_id,
-               description,
+               al_old_value,
+               al_new_value,
                al_created_at  AS created_at
-        FROM v_audit_log_recent LIMIT %s
-        """,
-        (limit,),
-    )
+        FROM audit_logs
+    """
+    params: list = []
+    if start_date and end_date:
+        sql += " WHERE DATE(al_created_at) BETWEEN %s AND %s"
+        params.extend([start_date, end_date])
+    sql += " ORDER BY al_created_at DESC"
+    if not (start_date and end_date):
+        sql += " LIMIT %s"
+        params.append(limit)
+
+    rows = db.fetchall(sql, tuple(params))
     if not rows:
         return []
-    return [
-        {
+    results = []
+    for r in rows:
+        ts = r["created_at"]
+        if isinstance(ts, str):
+            for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+                try:
+                    ts = datetime.strptime(ts, fmt)
+                    break
+                except ValueError:
+                    continue
+        if hasattr(ts, "strftime"):
+            date_str, time_str = ts.strftime("%b %d, %Y"), ts.strftime("%I:%M %p")
+        else:
+            date_str, time_str = str(r["created_at"]), ""
+        results.append({
             "id":          r["id"],
             "actor":       r["actor"],
             "action":      r["action"],
             "table":       r["table_name"],
             "record_id":   r["record_id"],
-            "description": r["description"],
-            "created_at":  r["created_at"].strftime("%b %d, %Y %I:%M %p") if hasattr(r["created_at"], "strftime") else str(r["created_at"]),
-        }
-        for r in rows
-    ]
+            "description": _format_audit_description(r["action"], r.get("al_old_value"), r.get("al_new_value")),
+            "date":        date_str,
+            "time":        time_str,
+            "created_at":  f"{date_str} {time_str}".strip(),
+        })
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -2589,6 +2828,7 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
         "color_theme":   color_val,
         "color":         color_val,
         "status":        row["status"],
+        "additional_charges": get_additional_charges(db_id),
     }
 
 
@@ -2620,7 +2860,7 @@ def create_downpayment_invoice(booking_id: int, customer_name: str,
         from datetime import date as _d
         if isinstance(event_date, str):
             event_date = _parse_date(event_date)
-        paid_status = "Paid" if abs(amount_paid - total_amount) < 0.01 else "Partial"
+        paid_status = db.compute_invoice_status(total_amount, amount_paid)
         inv_result = db.callproc_out(
             "sp_create_invoice",
             in_params=(booking_id, customer_name, event_date, total_amount, amount_paid, paid_status),

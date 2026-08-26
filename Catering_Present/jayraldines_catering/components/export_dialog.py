@@ -88,6 +88,37 @@ class ExportWizardDialog(QDialog):
         self.combo_entity.setFixedHeight(36)
         inner.addWidget(self.combo_entity)
 
+        # Month / Year Selector Group
+        lbl_period = QLabel("Export Period:")
+        lbl_period.setStyleSheet("font-weight: 700; font-size: 13px; padding-top: 6px;")
+        inner.addWidget(lbl_period)
+
+        period_box = QFrame()
+        period_box.setObjectName("cardElevated")
+        p_lay = QHBoxLayout(period_box)
+        p_lay.setContentsMargins(14, 10, 14, 10)
+        p_lay.setSpacing(10)
+
+        self.combo_month = QComboBox()
+        self.combo_month.addItem("All Time", None)
+        month_names = ["January", "February", "March", "April", "May", "June",
+                       "July", "August", "September", "October", "November", "December"]
+        for i, mname in enumerate(month_names, 1):
+            self.combo_month.addItem(mname, i)
+
+        self.combo_year = QComboBox()
+        current_year = datetime.now().year
+        for y in range(current_year - 5, current_year + 2):
+            self.combo_year.addItem(str(y), y)
+        self.combo_year.setCurrentText(str(current_year))
+        self.combo_month.setCurrentIndex(0)  # default to "All Time"
+        self.combo_month.setFixedHeight(34)
+        self.combo_year.setFixedHeight(34)
+
+        p_lay.addWidget(self.combo_month, 2)
+        p_lay.addWidget(self.combo_year, 1)
+        inner.addWidget(period_box)
+
         # File Format Selector Group
         lbl_format = QLabel("Select File Format:")
         lbl_format.setStyleSheet("font-weight: 700; font-size: 13px; padding-top: 6px;")
@@ -138,7 +169,11 @@ class ExportWizardDialog(QDialog):
         ext = ".xlsx" if is_excel else ".csv"
         filter_str = "Excel Files (*.xlsx)" if is_excel else "CSV Files (*.csv)"
 
-        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        sel_month_for_name = self.combo_month.currentData()
+        if sel_month_for_name:
+            now_str = f"{self.combo_year.currentText()}-{sel_month_for_name:02d}"
+        else:
+            now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         if "Bookings" in sel_entity:
             default_name = f"jayraldines_bookings_{now_str}{ext}"
         elif "Customers" in sel_entity:
@@ -158,8 +193,11 @@ class ExportWizardDialog(QDialog):
         if not file_path:
             return
 
+        sel_month = self.combo_month.currentData()
+        sel_year = self.combo_year.currentData() if sel_month else None
+
         try:
-            success_ok = exporter.export_custom_entity_data(sel_entity, is_excel, file_path)
+            success_ok = exporter.export_custom_entity_data(sel_entity, is_excel, file_path, year=sel_year, month=sel_month)
             if success_ok:
                 prompt_file_saved(self, file_path, title="Export Successful", message=f"{sel_entity} data exported successfully.")
                 self.accept()

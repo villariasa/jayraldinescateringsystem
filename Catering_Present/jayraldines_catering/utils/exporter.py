@@ -1,6 +1,8 @@
 import os
-from datetime import datetime
+from datetime import datetime, date as _dt_date
 from typing import Optional, List, Dict, Any
+
+_dt_datetime = datetime
 
 try:
     from reportlab.lib.pagesizes import A4
@@ -384,11 +386,123 @@ def export_pdf(path: str, kpis: dict, bookings: list,
         return False
 
 
-def export_receipt_pdf(path: str, inv: dict, business: dict) -> bool:
-    """Generate a professional PDF receipt for a single invoice."""
+def export_tablet_master_data(save_path: str) -> dict:
+    """PC -> Tablet master data transfer (Tablet-mode.md sections 11/15/16).
+    Writes a standalone SQLite file containing only packages, package_items,
+    and menu_items - never bookings/customers/payments - so the Tablet App's
+    "Import Master Data" can load it directly. Uses ATTACH DATABASE so the
+    output is a plain SQLite file with the same table/column names the
+    tablet expects (Tablet-mode.md #17: reuse the existing schema, no second
+    incompatible representation)."""
+    import utils.db as db
+    stats = {"packages": 0, "menu_items": 0, "package_items": 0, "errors": []}
+    try:
+        db.execute("ATTACH DATABASE ? AS dst", (save_path,))
+    except Exception as exc:
+        stats["errors"].append(f"Could not create export file: {exc}")
+        return stats
+    try:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS dst.packages (
+                pkg_id INTEGER PRIMARY KEY, pkg_name TEXT NOT NULL UNIQUE, pkg_description TEXT,
+                pkg_price_per_pax REAL NOT NULL, pkg_min_pax INTEGER DEFAULT 30,
+                pkg_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS dst.menu_items (
+                mi_id INTEGER PRIMARY KEY, mi_name TEXT NOT NULL, mi_category TEXT NOT NULL,
+                mi_price REAL NOT NULL, mi_status TEXT DEFAULT 'Available', mi_description TEXT,
+                mi_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS dst.package_items (
+                pi_id INTEGER PRIMARY KEY, pi_package_id INTEGER, pi_menu_item_id INTEGER,
+                pi_item_name TEXT, pi_category TEXT, pi_custom_price REAL DEFAULT 0.0, pi_quantity INTEGER DEFAULT 1
+            )
+        """)
+        db.execute("DELETE FROM dst.packages")
+        db.execute("DELETE FROM dst.menu_items")
+        db.execute("DELETE FROM dst.package_items")
+        db.execute("INSERT INTO dst.packages SELECT pkg_id, pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_created_at FROM main.packages")
+        db.execute("INSERT INTO dst.menu_items (mi_id, mi_name, mi_category, mi_price, mi_status, mi_description, mi_created_at) "
+                   "SELECT mi_id, mi_name, mi_category, mi_price, mi_status, mi_description, mi_created_at FROM main.menu_items")
+        db.execute("INSERT INTO dst.package_items SELECT pi_id, pi_package_id, pi_menu_item_id, pi_item_name, pi_category, pi_custom_price, pi_quantity FROM main.package_items")
+
+        stats["packages"] = db.fetchone("SELECT COUNT(*) AS c FROM dst.packages")["c"]
+        stats["menu_items"] = db.fetchone("SELECT COUNT(*) AS c FROM dst.menu_items")["c"]
+        stats["package_items"] = db.fetchone("SELECT COUNT(*) AS c FROM dst.package_items")["c"]
+    except Exception as exc:
+        stats["errors"].append(str(exc))
+    finally:
+        try:
+            db.execute("DETACH DATABASE dst")
+        except Exception:
+            pass
+    return stats
+
+
+def export_daily_activity_report_pdf(path: str, entries: list, business: dict,
+                                     period_label: str = "Today") -> bool:
+    """PDF version of the Daily Activity / Audit Report: who did what, to
+    which customer/order, for how much, and when - so the owner can review
+    every action taken during the covered period."""
     if not REPORTLAB_OK:
         return False
     try:
+        biz_name = business.get("name", "Jayraldine's Catering")
+        doc = SimpleDocTemplate(
+            path, pagesize=A4,
+            leftMargin=_MARGIN, rightMargin=_MARGIN,
+            topMargin=_MARGIN, bottomMargin=_MARGIN,
+            title=f"{biz_name} — Daily Activity Report",
+            author=biz_name,
+        )
+        styles = _styles()
+        story = []
+        _header_block(story, styles, biz_name, "Daily Activity Report", period_label)
+
+        if entries:
+            headers = ["Date", "Time", "User", "Action", "Details"]
+            rows = []
+            for e in entries:
+                rows.append([
+                    e.get("date", ""), e.get("time", ""), e.get("actor", ""),
+                    e.get("action", ""), e.get("description", ""),
+                ])
+            _section_table(story, styles, f"Activity Log ({len(entries)} action{'s' if len(entries) != 1 else ''})", headers, rows)
+        else:
+            story.append(Paragraph("No activity recorded for this period.", styles["TableCell"]))
+
+        _footer(story, styles, biz_name)
+        doc.build(story)
+        return True
+    except Exception as exc:
+        print(f"[exporter] Daily Activity Report PDF failed: {exc}")
+        return False
+
+
+def export_receipt_pdf(path: str, inv: dict, business: dict,
+                       additional_charges: list = None,
+                       payment_records: list = None,
+                       down_payment: float = None) -> bool:
+    """Generate a professional PDF receipt for a single invoice.
+
+    additional_charges: list of {"description", "amount", "date_added"} - positive
+        amounts are extra charges, negative amounts are discounts.
+    payment_records: full payment history (down payment + subsequent payments),
+        each {"amount", "payment_date", "method", "note"} - each payment keeps its
+        own recorded date so the receipt shows exactly when each amount was paid.
+    down_payment: the original down payment amount, shown as its own line.
+    """
+    if not REPORTLAB_OK:
+        return False
+    try:
+        additional_charges = additional_charges or []
+        payment_records = payment_records or []
+        charges = [c for c in additional_charges if float(c.get("amount", 0)) > 0]
+        discounts = [c for c in additional_charges if float(c.get("amount", 0)) < 0]
         doc = SimpleDocTemplate(
             path, pagesize=A4,
             leftMargin=_MARGIN, rightMargin=_MARGIN,
@@ -488,30 +602,91 @@ def export_receipt_pdf(path: str, inv: dict, business: dict) -> bool:
         story.append(det_tbl)
         story.append(Spacer(1, 0.3*cm))
 
+        # Additional Charges / Additional Items breakdown - each stays a
+        # separate, explained line item, never silently merged into the total.
+        if charges:
+            story.append(Paragraph("Additional Charges / Items", styles["DetailLabel"]))
+            story.append(Spacer(1, 4))
+            rows = [[Paragraph("Description", styles["DetailLabel"]), Paragraph("Amount", styles["DetailLabel"])]]
+            for c in charges:
+                rows.append([
+                    Paragraph(str(c.get("description", "")), styles["DetailValue"]),
+                    Paragraph(f"PHP {float(c['amount']):,.2f}", ParagraphStyle(
+                        "chg_amt", fontName="Helvetica", fontSize=9.5,
+                        textColor=_C_DARK, alignment=TA_RIGHT, leading=12)),
+                ])
+            chg_tbl = Table(rows, colWidths=[_CONTENT_W * 0.7, _CONTENT_W * 0.3])
+            chg_tbl.setStyle(TableStyle([
+                ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
+                ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
+                ("BACKGROUND",   (0, 0), (-1, 0),  _C_LIGHT),
+                ("TOPPADDING",   (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
+                ("LEFTPADDING",  (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ]))
+            story.append(chg_tbl)
+            story.append(Spacer(1, 0.3*cm))
+
+        if discounts:
+            story.append(Paragraph("Discounts", styles["DetailLabel"]))
+            story.append(Spacer(1, 4))
+            rows = [[Paragraph("Description", styles["DetailLabel"]), Paragraph("Amount", styles["DetailLabel"])]]
+            for c in discounts:
+                rows.append([
+                    Paragraph(str(c.get("description", "")), styles["DetailValue"]),
+                    Paragraph(f"- PHP {abs(float(c['amount'])):,.2f}", ParagraphStyle(
+                        "disc_amt", fontName="Helvetica", fontSize=9.5,
+                        textColor=_C_GREEN, alignment=TA_RIGHT, leading=12)),
+                ])
+            disc_tbl = Table(rows, colWidths=[_CONTENT_W * 0.7, _CONTENT_W * 0.3])
+            disc_tbl.setStyle(TableStyle([
+                ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
+                ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
+                ("BACKGROUND",   (0, 0), (-1, 0),  _C_LIGHT),
+                ("TOPPADDING",   (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
+                ("LEFTPADDING",  (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ]))
+            story.append(disc_tbl)
+            story.append(Spacer(1, 0.3*cm))
+
         amount_rows = [
             [Paragraph("Total Amount", styles["DetailLabel"]),
              Paragraph(f"PHP {total:,.2f}", ParagraphStyle(
                  "amt", fontName="Helvetica", fontSize=10,
                  textColor=_C_DARK, alignment=TA_RIGHT, leading=13))],
-            [Paragraph("Amount Paid", styles["DetailLabel"]),
-             Paragraph(f"PHP {paid:,.2f}", ParagraphStyle(
-                 "paid", fontName="Helvetica", fontSize=10,
-                 textColor=_C_GREEN, alignment=TA_RIGHT, leading=13))],
-            [Paragraph("Balance Due", ParagraphStyle(
+        ]
+        if down_payment:
+            amount_rows.append([
+                Paragraph("Down Payment", styles["DetailLabel"]),
+                Paragraph(f"PHP {float(down_payment):,.2f}", ParagraphStyle(
+                    "dp", fontName="Helvetica", fontSize=10,
+                    textColor=_C_GREEN, alignment=TA_RIGHT, leading=13)),
+            ])
+        amount_rows.append([
+            Paragraph("Total Amount Paid", styles["DetailLabel"]),
+            Paragraph(f"PHP {paid:,.2f}", ParagraphStyle(
+                "paid", fontName="Helvetica", fontSize=10,
+                textColor=_C_GREEN, alignment=TA_RIGHT, leading=13)),
+        ])
+        amount_rows.append([
+            Paragraph("Balance Due", ParagraphStyle(
                  "bal_lbl", fontName="Helvetica-Bold", fontSize=10,
                  textColor=_C_DARK, leading=13)),
              Paragraph(f"PHP {balance:,.2f}", ParagraphStyle(
                  "bal_val", fontName="Helvetica-Bold", fontSize=12,
                  textColor=_C_RED if balance > 0 else _C_GREEN,
-                 alignment=TA_RIGHT, leading=15))],
-        ]
+                 alignment=TA_RIGHT, leading=15)),
+        ])
 
         amt_style = [
             ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
             ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
             ("BACKGROUND",   (0, 0), (-1, 0),  _C_LIGHT),
-            ("BACKGROUND",   (0, 1), (-1, 1),  _C_WHITE),
-            ("BACKGROUND",   (0, 2), (-1, 2),  colors.HexColor("#FFF1F2") if balance > 0 else colors.HexColor("#F0FDF4")),
+            ("BACKGROUND",   (0, len(amount_rows) - 1), (-1, len(amount_rows) - 1),
+                colors.HexColor("#FFF1F2") if balance > 0 else colors.HexColor("#F0FDF4")),
             ("TOPPADDING",   (0, 0), (-1, -1), 9),
             ("BOTTOMPADDING",(0, 0), (-1, -1), 9),
             ("LEFTPADDING",  (0, 0), (-1, -1), 10),
@@ -523,6 +698,36 @@ def export_receipt_pdf(path: str, inv: dict, business: dict) -> bool:
         amt_tbl.setStyle(TableStyle(amt_style))
         story.append(amt_tbl)
         story.append(Spacer(1, 0.3*cm))
+
+        # Payment History - every payment keeps its own recorded date.
+        if payment_records:
+            story.append(Paragraph("Payment History", styles["DetailLabel"]))
+            story.append(Spacer(1, 4))
+            rows = [[
+                Paragraph("Date", styles["DetailLabel"]),
+                Paragraph("Method", styles["DetailLabel"]),
+                Paragraph("Amount", styles["DetailLabel"]),
+            ]]
+            for p in payment_records:
+                rows.append([
+                    Paragraph(str(p.get("payment_date", "")), styles["DetailValue"]),
+                    Paragraph(str(p.get("method", "")), styles["DetailValue"]),
+                    Paragraph(f"PHP {float(p.get('amount', 0)):,.2f}", ParagraphStyle(
+                        "pr_amt", fontName="Helvetica", fontSize=9.5,
+                        textColor=_C_GREEN, alignment=TA_RIGHT, leading=12)),
+                ])
+            pr_tbl = Table(rows, colWidths=[_CONTENT_W * 0.3, _CONTENT_W * 0.35, _CONTENT_W * 0.35])
+            pr_tbl.setStyle(TableStyle([
+                ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
+                ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
+                ("BACKGROUND",   (0, 0), (-1, 0),  _C_LIGHT),
+                ("TOPPADDING",   (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
+                ("LEFTPADDING",  (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ]))
+            story.append(pr_tbl)
+            story.append(Spacer(1, 0.3*cm))
 
         status_row = Table(
             [[Paragraph("Payment Status:", ParagraphStyle(
@@ -744,8 +949,39 @@ def _parse_amount(val) -> float:
         return 0.0
 
 
-def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) -> bool:
-    """Export Bookings, Customers, Expenses, Menu, Billings, or Master Data to Excel or CSV."""
+def _record_in_month(rec: dict, date_key: str, year: int, month: int) -> bool:
+    """True if rec[date_key] falls within the given (year, month). Handles
+    date/datetime objects and common string formats used across the app."""
+    raw = rec.get(date_key)
+    if not raw:
+        return False
+    if isinstance(raw, (_dt_date, _dt_datetime)):
+        return raw.year == year and raw.month == month
+    s = str(raw).strip()
+    for fmt in ("%Y-%m-%d", "%b %d, %Y", "%B %d, %Y", "%m/%d/%Y"):
+        try:
+            d = _dt_datetime.strptime(s, fmt)
+            return d.year == year and d.month == month
+        except ValueError:
+            continue
+    return s.startswith(f"{year:04d}-{month:02d}")
+
+
+def _filter_by_month(records: list, date_key: str, year: int, month: int) -> list:
+    if not year or not month:
+        return records
+    return [r for r in records if _record_in_month(r, date_key, year, month)]
+
+
+def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str,
+                              year: int = None, month: int = None) -> bool:
+    """Export Bookings, Customers, Expenses, Menu, Billings, or Master Data to Excel or CSV.
+
+    When year and month are given, only records whose relevant date column falls
+    in that month are included (bookings/invoices by event date, expenses/cash
+    flow by their own date). Customers and Menu Items have no date to filter by
+    and are always exported in full.
+    """
     import utils.repository as repo
     import csv
 
@@ -755,7 +991,7 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
 
     if "Bookings" in entity_name:
         headers = ["Booking Ref", "Customer Name", "Contact Number", "Email Address", "Event Date", "Event Time", "Venue / Location", "Occasion", "Guest Count (Pax)", "Total Amount (₱)", "Down Paid (₱)", "Balance (₱)", "Status", "Payment Mode", "Notes / Theme"]
-        b_list = repo.get_all_bookings_for_export() or []
+        b_list = _filter_by_month(repo.get_all_bookings_for_export() or [], "event_date", year, month)
         for b in b_list:
             try:
                 tot = _parse_amount(b.get('total') or b.get('total_amount') or 0)
@@ -795,7 +1031,7 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
 
     elif "Expenses" in entity_name:
         headers = ["Expense ID", "Expense Date", "Category", "Description", "Amount (₱)"]
-        e_list = repo.get_all_expenses() or []
+        e_list = _filter_by_month(repo.get_all_expenses() or [], "date", year, month)
         for e in e_list:
             rows.append([
                 e.get("id", ""), e.get("date", ""), e.get("category", ""),
@@ -815,7 +1051,7 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
 
     elif "Billing" in entity_name:
         headers = ["Invoice Ref", "Booking Ref", "Customer Name", "Event Date", "Total Amount (₱)", "Paid Amount (₱)", "Balance Due (₱)", "Payment Status"]
-        i_list = repo.get_all_invoices() or []
+        i_list = _filter_by_month(repo.get_all_invoices() or [], "event_date", year, month)
         for inv in i_list:
             rows.append([
                 inv.get("invoice", ""), inv.get("booking_ref", ""), inv.get("customer", ""),
@@ -827,7 +1063,7 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
 
     elif "Cash" in entity_name or "Flow" in entity_name:
         headers = ["Date", "Check #", "Particulars (Account / Detail)", "Deposit (₱)", "Withdrawal (₱)", "Running Balance (₱)", "Actual Sales (₱)", "Variance / Difference (₱)", "Remarks / Notes"]
-        tx_list = repo.get_cash_flow_transactions() or []
+        tx_list = _filter_by_month(repo.get_cash_flow_transactions() or [], "date", year, month)
         for tx in tx_list:
             dep = float(tx.get("deposit") or 0.0)
             withd = float(tx.get("withdrawal") or 0.0)
@@ -851,7 +1087,7 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
     else: # Master Export
         b_hdrs = ["Booking Ref", "Customer Name", "Contact Number", "Email Address", "Event Date", "Event Time", "Venue", "Occasion", "Pax", "Total Amount (₱)", "Down Paid (₱)", "Balance (₱)", "Status", "Payment Mode", "Notes / Theme"]
         b_rows = []
-        for b in (repo.get_all_bookings_for_export() or []):
+        for b in _filter_by_month(repo.get_all_bookings_for_export() or [], "event_date", year, month):
             try:
                 tot = _parse_amount(b.get('total') or b.get('total_amount') or 0)
                 paid = _parse_amount(b.get('amount_paid') or b.get('down_payment') or 0)
@@ -882,7 +1118,7 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
         sheets["Customers"] = (c_hdrs, c_rows)
 
         e_hdrs = ["Expense ID", "Expense Date", "Category", "Description", "Amount (₱)"]
-        e_rows = [[e.get("id", ""), e.get("date", ""), e.get("category", ""), e.get("description", ""), f"₱{_parse_amount(e.get('amount', 0)):,.2f}"] for e in (repo.get_all_expenses() or [])]
+        e_rows = [[e.get("id", ""), e.get("date", ""), e.get("category", ""), e.get("description", ""), f"₱{_parse_amount(e.get('amount', 0)):,.2f}"] for e in _filter_by_month(repo.get_all_expenses() or [], "date", year, month)]
         sheets["Expenses"] = (e_hdrs, e_rows)
 
         m_hdrs = ["Item ID", "Item / Package Name", "Category", "Price / Rate (₱)", "Description / Inclusions"]
@@ -900,11 +1136,11 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str) 
             f"₱{float(tx.get('actual_sales') or 0.0):,.2f}" if float(tx.get('actual_sales') or 0.0) > 0 else "—",
             f"₱{(float(tx.get('balance') or 0.0) - float(tx.get('actual_sales') or 0.0)):,.2f}" if float(tx.get('actual_sales') or 0.0) > 0 and (float(tx.get('balance') or 0.0) - float(tx.get('actual_sales') or 0.0)) >= 0 else (f"(₱{abs(float(tx.get('balance') or 0.0) - float(tx.get('actual_sales') or 0.0)):,.2f})" if float(tx.get('actual_sales') or 0.0) > 0 else "—"),
             str(tx.get("notes", ""))
-        ] for tx in (repo.get_cash_flow_transactions() or [])]
+        ] for tx in _filter_by_month(repo.get_cash_flow_transactions() or [], "date", year, month)]
         sheets["Cash Flow Ledger"] = (cf_hdrs, cf_rows)
 
         i_hdrs = ["Invoice Ref", "Booking Ref", "Customer Name", "Event Date", "Total Amount (₱)", "Paid Amount (₱)", "Balance Due (₱)", "Payment Status"]
-        i_rows = [[inv.get("invoice", ""), inv.get("booking_ref", ""), inv.get("customer", ""), inv.get("event_date", ""), f"₱{_parse_amount(inv.get('amount', 0)):,.2f}", f"₱{_parse_amount(inv.get('paid', 0)):,.2f}", f"₱{_parse_amount(inv.get('balance', 0)):,.2f}", inv.get("status", "")] for inv in (repo.get_all_invoices() or [])]
+        i_rows = [[inv.get("invoice", ""), inv.get("booking_ref", ""), inv.get("customer", ""), inv.get("event_date", ""), f"₱{_parse_amount(inv.get('amount', 0)):,.2f}", f"₱{_parse_amount(inv.get('paid', 0)):,.2f}", f"₱{_parse_amount(inv.get('balance', 0)):,.2f}", inv.get("status", "")] for inv in _filter_by_month(repo.get_all_invoices() or [], "event_date", year, month)]
         sheets["Invoices & Payments"] = (i_hdrs, i_rows)
 
     if not is_excel:

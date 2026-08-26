@@ -217,6 +217,30 @@ CREATE TABLE IF NOT EXISTS payment_records (
     pr_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Additional Charges / Additional Items applied to an existing order
+CREATE TABLE IF NOT EXISTS booking_additional_charges (
+    ac_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ac_booking_id INTEGER NOT NULL REFERENCES bookings(bk_id) ON DELETE CASCADE,
+    ac_description TEXT NOT NULL,
+    ac_amount REAL NOT NULL DEFAULT 0.0,
+    ac_date_added DATE NOT NULL,
+    ac_added_by TEXT,
+    ac_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Terms & Conditions acknowledgement, tied to an order. Populated either by
+-- the PC's own booking flow or merged in from the Tablet App (Tablet-mode.md
+-- #6/#7/#17) - same table/columns on both sides so it merges cleanly.
+CREATE TABLE IF NOT EXISTS terms_acknowledgements (
+    ta_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ta_booking_id INTEGER NOT NULL REFERENCES bookings(bk_id) ON DELETE CASCADE,
+    ta_version TEXT NOT NULL,
+    ta_acknowledged INTEGER DEFAULT 0,
+    ta_acknowledged_at DATETIME,
+    ta_customer_name TEXT,
+    ta_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Cash Flow Transactions (for Cash Flow module)
 CREATE TABLE IF NOT EXISTS cash_flow_transactions (
     cft_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -582,6 +606,7 @@ def _ensure_columns(conn: sqlite3.Connection):
         ("invoices", "inv_down_payment", "REAL DEFAULT 0.0"),
         ("invoices", "inv_payment_verified", "INTEGER DEFAULT 0"),
         ("cash_flow_transactions", "cft_actual_sales", "REAL DEFAULT 0.0"),
+        ("bookings", "bk_base_total", "REAL"),
     ]
     for table, col, col_def in cols_to_add:
         try:
@@ -590,12 +615,35 @@ def _ensure_columns(conn: sqlite3.Connection):
             pass
     conn.commit()
 
+    # Backfill bk_base_total for rows created before this column existed:
+    # base = current total minus any additional charges already recorded.
+    try:
+        cur.execute("""
+            UPDATE bookings
+            SET bk_base_total = bk_total_amount - COALESCE(
+                (SELECT SUM(ac_amount) FROM booking_additional_charges WHERE ac_booking_id = bookings.bk_id), 0.0
+            )
+            WHERE bk_base_total IS NULL
+        """)
+        conn.commit()
+    except Exception:
+        pass
+
 
 def init_sqlite_db(conn: sqlite3.Connection):
     """Initialize SQLite tables, indexes, views, and essential seed data."""
     cursor = conn.cursor()
     cursor.executescript(SQLITE_FULL_SCHEMA)
     _ensure_columns(conn)
+
+    # Backfill: any invoice whose booking is already CANCELLED but was cancelled
+    # before this fix existed must not keep showing as outstanding Unpaid/Partial.
+    cursor.execute("""
+        UPDATE invoices
+        SET inv_status = 'CANCELLED', inv_balance = 0
+        WHERE inv_status != 'CANCELLED'
+          AND inv_booking_id IN (SELECT bk_id FROM bookings WHERE bk_status = 'CANCELLED')
+    """)
 
     # Seed Business Info if empty
     cursor.execute("SELECT COUNT(*) FROM business_info")

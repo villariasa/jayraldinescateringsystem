@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QDialog, QFormLayout, QComboBox, QLineEdit, QDoubleSpinBox,
-    QFileDialog, QMessageBox, QDateEdit, QScrollArea
+    QFileDialog, QMessageBox, QDateEdit, QScrollArea, QTabWidget
 )
 from PySide6.QtCore import Qt, QSize, QDate
 from datetime import date as _date_type
@@ -564,6 +564,12 @@ class BillingPage(QWidget):
 
         root.addWidget(self._dp_summary_box)
 
+        self.tabs = QTabWidget()
+
+        invoices_tab = QWidget()
+        inv_tab_lay = QVBoxLayout(invoices_tab)
+        inv_tab_lay.setContentsMargins(0, 12, 0, 0)
+
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.NoFrame)
@@ -577,7 +583,24 @@ class BillingPage(QWidget):
         self.cards_layout.setSpacing(12)
 
         self.scroll_area.setWidget(self.cards_container)
-        root.addWidget(self.scroll_area)
+        inv_tab_lay.addWidget(self.scroll_area)
+        self.tabs.addTab(invoices_tab, "Invoices")
+
+        ledger_tab = QWidget()
+        ledger_lay = QVBoxLayout(ledger_tab)
+        ledger_lay.setContentsMargins(0, 12, 0, 0)
+
+        self.ledger_table = QTableWidget()
+        self.ledger_table.setColumnCount(5)
+        self.ledger_table.setHorizontalHeaderLabels(["Date", "Customer", "Transaction", "Amount", "Status"])
+        self.ledger_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.ledger_table.verticalHeader().setVisible(False)
+        self.ledger_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.ledger_table.setSelectionBehavior(QTableWidget.SelectRows)
+        ledger_lay.addWidget(self.ledger_table)
+        self.tabs.addTab(ledger_tab, "Ledger")
+
+        root.addWidget(self.tabs)
 
     def _populate_table(self):
         # Refresh Billing summary metrics directly from active invoice records
@@ -616,6 +639,31 @@ class BillingPage(QWidget):
                 self.cards_layout.addWidget(i_card)
 
         self.cards_layout.addStretch()
+        self._populate_ledger()
+
+    def _populate_ledger(self):
+        try:
+            entries = repo.get_payment_ledger()
+        except Exception:
+            entries = []
+
+        self.ledger_table.setRowCount(len(entries))
+        for row, e in enumerate(entries):
+            date_item = QTableWidgetItem(e["date"])
+            cust_item = QTableWidgetItem(e["customer"])
+            txn_item = QTableWidgetItem(e["transaction"])
+            amt_item = QTableWidgetItem(f"₱ {e['amount']:,.2f}")
+            amt_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            status_item = QTableWidgetItem(e["status"])
+            status_color = _STATUS_COLORS.get(e["status"])
+            if status_color:
+                status_item.setForeground(QColor(status_color))
+
+            self.ledger_table.setItem(row, 0, date_item)
+            self.ledger_table.setItem(row, 1, cust_item)
+            self.ledger_table.setItem(row, 2, txn_item)
+            self.ledger_table.setItem(row, 3, amt_item)
+            self.ledger_table.setItem(row, 4, status_item)
 
     def _create_invoice_card(self, inv: dict) -> QFrame:
         card = QFrame()
@@ -746,6 +794,16 @@ class BillingPage(QWidget):
         hist_btn.setToolTip("Payment History")
         hist_btn.clicked.connect(lambda _, invoice=inv: PaymentHistoryDialog(self, inv=invoice).exec())
 
+        charges_btn = QPushButton()
+        charges_btn.setIcon(get_icon("plus", color="#9CA3AF", size=QSize(14, 14)))
+        charges_btn.setIconSize(QSize(14, 14))
+        charges_btn.setFixedSize(32, 32)
+        charges_btn.setStyleSheet("background: transparent; border: none;")
+        charges_btn.setCursor(Qt.PointingHandCursor)
+        charges_btn.setToolTip("Additional Charges / Additional Items")
+        charges_btn.setEnabled(bool(inv.get("booking_id")))
+        charges_btn.clicked.connect(lambda _, invoice=inv: self._open_additional_charges(invoice))
+
         print_btn = QPushButton()
         print_btn.setIcon(get_icon("export", color="#9CA3AF", size=QSize(14, 14)))
         print_btn.setIconSize(QSize(14, 14))
@@ -775,6 +833,7 @@ class BillingPage(QWidget):
 
         actions_l.addWidget(pay_btn)
         actions_l.addWidget(hist_btn)
+        actions_l.addWidget(charges_btn)
         actions_l.addWidget(print_btn)
         actions_l.addWidget(edit_btn)
         actions_l.addWidget(del_btn)
@@ -782,6 +841,16 @@ class BillingPage(QWidget):
         lay.addWidget(actions_w)
 
         return card
+
+    def _open_additional_charges(self, inv: dict):
+        if not inv.get("booking_id"):
+            return
+        from ui.booking_page import AdditionalChargesDialog
+        booking = {"db_id": inv["booking_id"], "name": inv.get("customer", "")}
+        dlg = AdditionalChargesDialog(self, booking=booking)
+        dlg.exec()
+        if dlg.changed:
+            self.reload()
 
     def _edit_billing_dict(self, inv: dict):
         dlg = EditBillingDialog(self, inv=inv)
@@ -809,6 +878,7 @@ class BillingPage(QWidget):
             result = dlg.get_result()
             if result:
                 try:
+                    was_unpaid = float(inv.get("paid", 0) or 0) <= 0
                     pr = repo.pay_invoice(
                         inv["booking_id"],
                         result["amount"],
@@ -819,8 +889,8 @@ class BillingPage(QWidget):
                     inv["paid"]   = pr["new_paid"]
                     inv["status"] = pr["new_invoice_status"]
                     self._populate_table()
-                    repo.write_audit_log(get_actor(), "PAYMENT", "invoices", inv["db_id"],
-                        None, {"amount": result["amount"], "method": result["method"]})
+                    repo.write_audit_log(get_actor(), "DOWN_PAYMENT" if was_unpaid else "PAYMENT", "invoices", inv["db_id"],
+                        None, {"amount": result["amount"], "method": result["method"], "customer": inv.get("customer")})
                     try:
                         repo.push_notification(
                             "success",
@@ -847,6 +917,30 @@ class BillingPage(QWidget):
         self._populate_table()
         success(self, message="Invoice deleted successfully.")
 
+    def _receipt_extras(self, inv: dict):
+        """Gather additional charges, full payment history, and down payment
+        amount for a receipt so it shows the complete financial breakdown."""
+        additional_charges = []
+        payment_records = []
+        down_payment = None
+        booking_id = inv.get("booking_id")
+        if booking_id:
+            try:
+                additional_charges = repo.get_additional_charges(booking_id)
+            except Exception:
+                additional_charges = []
+            try:
+                detail = repo.get_booking_detail(booking_id)
+                down_payment = float(detail.get("down_payment") or 0.0) if detail else None
+            except Exception:
+                down_payment = None
+        if inv.get("db_id"):
+            try:
+                payment_records = repo.get_payment_records(inv["db_id"])
+            except Exception:
+                payment_records = []
+        return additional_charges, payment_records, down_payment
+
     def _print_receipt_dict(self, inv: dict):
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Receipt PDF",
@@ -856,7 +950,8 @@ class BillingPage(QWidget):
         if not path:
             return
         business = repo.get_business_info()
-        ok = exporter.export_receipt_pdf(path, inv, business)
+        additional_charges, payment_records, down_payment = self._receipt_extras(inv)
+        ok = exporter.export_receipt_pdf(path, inv, business, additional_charges, payment_records, down_payment)
         if ok:
             if inv.get("db_id"):
                 repo.log_receipt_sent(inv["db_id"], "print")
@@ -883,7 +978,8 @@ class BillingPage(QWidget):
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp_path = tmp.name
         try:
-            pdf_ok = exporter.export_receipt_pdf(tmp_path, inv, business)
+            additional_charges, payment_records, down_payment = self._receipt_extras(inv)
+            pdf_ok = exporter.export_receipt_pdf(tmp_path, inv, business, additional_charges, payment_records, down_payment)
             if not pdf_ok:
                 QMessageBox.warning(self, "PDF Error",
                     "Could not generate receipt PDF. Make sure reportlab is installed.")

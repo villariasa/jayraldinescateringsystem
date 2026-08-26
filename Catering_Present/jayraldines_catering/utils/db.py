@@ -19,6 +19,23 @@ from utils.sqlite_schema import init_sqlite_db
 
 log = get_logger()
 
+
+def compute_invoice_status(total_amount: float, amount_paid: float) -> str:
+    """Single source of truth for deriving a billing status from totals.
+
+    Never trust a stored/imported status string - always recompute from the
+    actual total vs. actual valid payments so cancelled/edited/imported
+    records can't drift into a stale Paid/Partial/Unpaid label.
+    """
+    total_amount = total_amount or 0.0
+    amount_paid = amount_paid or 0.0
+    remaining = total_amount - amount_paid
+    if total_amount > 0 and remaining <= 0.0:
+        return "Paid"
+    if amount_paid > 0:
+        return "Partial"
+    return "Unpaid"
+
 try:
     import psycopg2
     import psycopg2.extras
@@ -667,13 +684,13 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         cur.execute("""
             INSERT INTO bookings (
                 bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time,
-                bk_venue, bk_occasion, bk_pax, bk_notes, bk_menu_type, bk_package_id, bk_total_amount,
+                bk_venue, bk_occasion, bk_pax, bk_notes, bk_menu_type, bk_package_id, bk_total_amount, bk_base_total,
                 bk_payment_mode, bk_amount_paid, bk_down_payment, bk_down_payment_status, bk_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')
         """, (
             booking_ref, cust_id, cust_name, p[3], event_d, p[7],
-            p[5], p[4], p[8], p[9], p[10], pkg_id, total_amt,
+            p[5], p[4], p[8], p[9], p[10], pkg_id, total_amt, total_amt,
             pay_mode, amt_paid, amt_paid
         ))
         booking_id = cur.lastrowid
@@ -697,7 +714,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
 
         # Auto create invoice (Unpaid or Partial if down payment recorded)
         bal = max(0.0, total_amt - amt_paid)
-        inv_status = "Paid" if (bal <= 0.0 and total_amt > 0) else ("Partial" if amt_paid > 0 else "Unpaid")
+        inv_status = compute_invoice_status(total_amt, amt_paid)
         inv_num = _gen_unique_invoice_ref(cur, booking_id)
         cur.execute("""
             INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_down_payment, inv_payment_verified, inv_status)
@@ -761,7 +778,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
 
         new_paid = v_paid + pay_amt
         remaining = max(0.0, v_total - new_paid)
-        new_inv_status = "Paid" if remaining <= 0 else ("Partial" if new_paid > 0 else "Unpaid")
+        new_inv_status = compute_invoice_status(v_total, new_paid)
 
         # Booking status: any payment/downpayment confirms the booking unless completed or cancelled
         cur.execute("SELECT bk_status FROM bookings WHERE bk_id = ? LIMIT 1", (b_id,))
@@ -823,7 +840,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
             tot = float(inv_row[0] or 0.0)
             paid = float(inv_row[1] or 0.0) + amt
             rem = max(0.0, tot - paid)
-            status = "Paid" if rem <= 0 else ("Partial" if paid > 0 else "Unpaid")
+            status = compute_invoice_status(tot, paid)
             cur.execute("UPDATE invoices SET inv_amount_paid = ?, inv_balance = ?, inv_status = ? WHERE inv_id = ?", (paid, rem, status, inv_id))
             if inv_row[2]:
                 cur.execute("UPDATE bookings SET bk_amount_paid = ? WHERE bk_id = ?", (paid, inv_row[2]))
@@ -835,6 +852,15 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         out_dict["p_record_id"] = rec_id
         out_dict["p_new_status"] = status
         out_dict["p_new_paid"] = paid
+
+    elif proc == "sp_write_audit_log":
+        # in_params: (actor, action, table_name, record_id, old_value_json, new_value_json)
+        cur.execute("""
+            INSERT INTO audit_logs (al_actor, al_action, al_table_name, al_record_id, al_old_value, al_new_value)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (p[0], p[1], p[2], p[3], str(p[4]) if p[4] is not None else None, str(p[5]) if p[5] is not None else None))
+        _sqlite_conn.commit()
+        out_dict["p_log_id"] = cur.lastrowid
 
     cur.close()
     return out_dict
@@ -908,19 +934,26 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
         m_type = str(p[11] or 'package').strip()
         pkg_id = p[12]
         m_val = str(p[13] or '').strip()
-        tot = float(p[14] or 0.0)
+        base_tot = float(p[14] or 0.0)
         pay_mode = str(p[15] or 'Cash').strip()
         amt_paid = float(p[16] or 0.0)
+
+        # The edited "Total" field is the base order amount; additional charges
+        # already recorded for this booking layer on top of it (never silently
+        # absorbed into a flat total).
+        cur.execute("SELECT COALESCE(SUM(ac_amount), 0.0) FROM booking_additional_charges WHERE ac_booking_id = ?", (bk_id,))
+        charges_sum = float(cur.fetchone()[0] or 0.0)
+        tot = base_tot + charges_sum
 
         # Update bookings row
         cur.execute("""
             UPDATE bookings
             SET bk_customer_name = ?, bk_address = ?, bk_occasion = ?, bk_venue = ?,
                 bk_event_date = ?, bk_event_time = ?, bk_pax = ?, bk_notes = ?,
-                bk_menu_type = ?, bk_package_id = ?, bk_total_amount = ?,
+                bk_menu_type = ?, bk_package_id = ?, bk_total_amount = ?, bk_base_total = ?,
                 bk_payment_mode = ?, bk_amount_paid = ?, bk_down_payment = ?
             WHERE bk_id = ?
-        """, (c_name, c_address, occasion, venue, event_d, event_t, pax, notes, m_type, pkg_id, tot, pay_mode, amt_paid, amt_paid, bk_id))
+        """, (c_name, c_address, occasion, venue, event_d, event_t, pax, notes, m_type, pkg_id, tot, base_tot, pay_mode, amt_paid, amt_paid, bk_id))
 
         # Update invoices row — recalculate amount_paid from actual payment_records (source of truth)
         cur.execute("SELECT inv_id FROM invoices WHERE inv_booking_id = ? LIMIT 1", (bk_id,))
@@ -935,7 +968,7 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
             if new_paid <= 0.0 and amt_paid > 0.0:
                 new_paid = amt_paid
             rem = max(0.0, tot - new_paid)
-            inv_stat = "Paid" if (rem <= 0.0 and tot > 0) else ("Partial" if new_paid > 0 else "Unpaid")
+            inv_stat = compute_invoice_status(tot, new_paid)
             cur.execute("""
                 UPDATE invoices
                 SET inv_customer_name = ?, inv_event_date = ?, inv_total_amount = ?,
@@ -945,7 +978,7 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
         else:
             inv_num = f"INV-{bk_id:04d}"
             rem = max(0.0, tot - amt_paid)
-            inv_stat = "Paid" if (rem <= 0.0 and tot > 0) else ("Partial" if amt_paid > 0 else "Unpaid")
+            inv_stat = compute_invoice_status(tot, amt_paid)
             cur.execute("""
                 INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -976,6 +1009,14 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
     elif proc == "sp_update_booking_status":
         # (booking_id, new_status)
         cur.execute("UPDATE bookings SET bk_status = ? WHERE bk_id = ?", (p[1], p[0]))
+        if p[1] == "CANCELLED":
+            # A cancelled order must not keep showing as active unpaid/partial
+            # billing - zero out the outstanding balance and tag the invoice
+            # CANCELLED so Billing/Ledger no longer treat it as pending.
+            cur.execute(
+                "UPDATE invoices SET inv_status = 'CANCELLED', inv_balance = 0 WHERE inv_booking_id = ?",
+                (p[0],),
+            )
 
     elif proc == "sp_delete_booking":
         cur.execute("DELETE FROM bookings WHERE bk_id = ?", (p[0],))

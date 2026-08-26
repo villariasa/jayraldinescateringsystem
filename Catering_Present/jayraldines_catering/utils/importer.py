@@ -11,6 +11,7 @@ from datetime import datetime, date, timedelta
 from typing import List, Dict, Tuple, Any, Optional
 
 import utils.repository as repo
+import utils.db as db
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ENTITY SCHEMAS
@@ -675,6 +676,7 @@ def execute_batch_import(
     success_count = 0
     fail_count = 0
     errors = []
+    seen_customer_names = set()
 
     for row_info in prepared_rows:
         if row_info["_status"] == "error" and skip_errors:
@@ -691,6 +693,13 @@ def execute_batch_import(
                     fail_count += 1
                     errors.append(f"Row {row_info['_row_index']} [Customer Name]: Value cannot be empty.")
                     continue
+
+                name_key = cust_name.lower()
+                if name_key in seen_customer_names or repo.customer_exists(cust_name):
+                    fail_count += 1
+                    errors.append(f"Row {row_info['_row_index']} [Customer: '{cust_name}']: Customer already exists, skipping this customer.")
+                    continue
+                seen_customer_names.add(name_key)
 
                 res = repo.add_customer({
                     "name": cust_name,
@@ -1022,3 +1031,251 @@ def generate_sample_csv(entity_type: str, save_path: str) -> Optional[str]:
         return None
     except Exception as e:
         return f"Failed to save CSV template: {e}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SMART DATABASE MERGE — multi-device conflict-safe import
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _normalize_merge_key(name, event_date, occasion) -> tuple:
+    n = re.sub(r"[^\w]", "", str(name or "").strip().lower())
+    d = str(event_date or "")
+    o = re.sub(r"[^\w]", "", str(occasion or "").strip().lower())
+    return (n, d, o)
+
+
+def _sync_paid_from_payment_records(booking_id: int, inv_id: int) -> float:
+    """bk_amount_paid / inv_amount_paid must reflect the actual, complete
+    payment_records sum after a merge inserts rows directly -
+    _recalc_booking_totals() trusts bk_amount_paid rather than re-summing
+    (and never touches inv_amount_paid at all), so both must be kept
+    correct here before it runs."""
+    paid_row = db.fetchone("SELECT COALESCE(SUM(pr_amount), 0.0) AS s FROM payment_records WHERE pr_invoice_id = ?", (inv_id,))
+    total_paid = float(paid_row["s"]) if paid_row else 0.0
+    db.execute("UPDATE bookings SET bk_amount_paid = ? WHERE bk_id = ?", (total_paid, booking_id))
+    db.execute("UPDATE invoices SET inv_amount_paid = ? WHERE inv_id = ?", (total_paid, inv_id))
+    return total_paid
+
+
+def merge_database_file(source_path: str, actor: str = "staff") -> dict:
+    """Smart multi-device merge: import ALL DATA from another device's backup
+    .db file into the current database without ever downgrading or erasing
+    valid financial progress already recorded here.
+
+    Bookings are matched by a stable natural key (customer name + event date
+    + occasion) since separate installs generate their own independent
+    booking-ref sequences. For a booking that already exists locally, only
+    NEW payment records and additional charges (ones that don't already
+    exist here, matched by amount/date/method or amount/date/description)
+    are merged in - existing local payments/charges are never removed or
+    altered, and the paid amount can only ever grow. The final billing
+    status is always recalculated from the complete, combined payment
+    history via compute_invoice_status() - the imported status text itself
+    is never trusted.
+    """
+    stats = {
+        "new_bookings": 0, "matched_bookings": 0,
+        "new_payments": 0, "new_charges": 0, "terms_merged": 0,
+        "invoices_recalculated": 0, "errors": [],
+    }
+    if not source_path or not os.path.exists(source_path):
+        stats["errors"].append("Source backup file not found.")
+        return stats
+
+    try:
+        db.execute("ATTACH DATABASE ? AS src", (source_path,))
+    except Exception as exc:
+        stats["errors"].append(f"Could not open backup file: {exc}")
+        return stats
+
+    try:
+        local_rows = db.fetchall("SELECT bk_id, bk_customer_name, bk_event_date, bk_occasion FROM bookings")
+        local_by_key = {
+            _normalize_merge_key(r["bk_customer_name"], r["bk_event_date"], r["bk_occasion"]): r["bk_id"]
+            for r in local_rows
+        }
+
+        try:
+            src_bookings = db.fetchall("""
+                SELECT bk_id, bk_customer_name, bk_address, bk_event_date, bk_event_time,
+                       bk_venue, bk_occasion, bk_pax, bk_notes, bk_menu_type, bk_total_amount,
+                       COALESCE(bk_base_total, bk_total_amount) AS base_total,
+                       bk_payment_mode, bk_status
+                FROM src.bookings
+            """)
+        except Exception as exc:
+            stats["errors"].append(f"Could not read bookings from backup: {exc}")
+            src_bookings = []
+
+        for sb in src_bookings:
+            key = _normalize_merge_key(sb["bk_customer_name"], sb["bk_event_date"], sb["bk_occasion"])
+            dest_bk_id = local_by_key.get(key)
+
+            src_inv = db.fetchone("SELECT inv_id FROM src.invoices WHERE inv_booking_id = ? LIMIT 1", (sb["bk_id"],))
+            src_payments = db.fetchall("SELECT * FROM src.payment_records WHERE pr_invoice_id = ?", (src_inv["inv_id"],)) if src_inv else []
+            try:
+                src_charges = db.fetchall("SELECT * FROM src.booking_additional_charges WHERE ac_booking_id = ?", (sb["bk_id"],))
+            except Exception:
+                src_charges = []
+            try:
+                src_menu_items = db.fetchall("SELECT * FROM src.booking_menu_items WHERE bmi_booking_id = ?", (sb["bk_id"],))
+            except Exception:
+                src_menu_items = []
+            try:
+                src_terms = db.fetchall("SELECT * FROM src.terms_acknowledgements WHERE ta_booking_id = ?", (sb["bk_id"],))
+            except Exception:
+                src_terms = []
+
+            try:
+                if dest_bk_id is None:
+                    cust_id = repo.add_customer({"name": sb["bk_customer_name"], "address": sb["bk_address"] or ""})
+                    booking_ref = f"BK-IMP-{abs(hash(key)) % 1000000:06d}"
+                    db.execute("""
+                        INSERT INTO bookings (
+                            bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time,
+                            bk_venue, bk_occasion, bk_pax, bk_notes, bk_menu_type, bk_total_amount, bk_base_total,
+                            bk_payment_mode, bk_amount_paid, bk_down_payment, bk_status
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, 0.0, ?)
+                    """, (
+                        booking_ref, cust_id, sb["bk_customer_name"], sb["bk_address"], sb["bk_event_date"], sb["bk_event_time"],
+                        sb["bk_venue"], sb["bk_occasion"], sb["bk_pax"], sb["bk_notes"], sb["bk_menu_type"],
+                        sb["base_total"], sb["base_total"], sb["bk_payment_mode"], sb["bk_status"] or "PENDING",
+                    ))
+                    new_bk_id = db.fetchone("SELECT last_insert_rowid() AS id")["id"]
+
+                    inv_num = f"INV-IMP-{new_bk_id:06d}"
+                    db.execute("""
+                        INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name,
+                            inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_status)
+                        VALUES (?, ?, ?, ?, ?, ?, 0.0, ?, 'Unpaid')
+                    """, (new_bk_id, inv_num, inv_num, sb["bk_customer_name"], sb["bk_event_date"], sb["base_total"], sb["base_total"]))
+                    new_inv_id = db.fetchone("SELECT last_insert_rowid() AS id")["id"]
+
+                    for p in src_payments:
+                        db.execute("""
+                            INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_payment_method, pr_notes, pr_is_downpayment)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (new_inv_id, p["pr_amount"], p["pr_payment_date"], p.get("pr_payment_method") or p.get("pr_method") or "Cash",
+                              p.get("pr_notes") or p.get("pr_note") or "", p.get("pr_is_downpayment") or 0))
+                        stats["new_payments"] += 1
+
+                    for c in src_charges:
+                        db.execute("""
+                            INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (new_bk_id, c["ac_description"], c["ac_amount"], c["ac_date_added"], c.get("ac_added_by") or "Imported"))
+                        stats["new_charges"] += 1
+
+                    for mi in src_menu_items:
+                        db.execute("""
+                            INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
+                            VALUES (?, NULL, ?, ?, ?, ?)
+                        """, (new_bk_id, mi.get("bmi_item_name"), mi.get("bmi_category"), mi.get("bmi_price") or 0.0, mi.get("bmi_quantity") or 1))
+
+                    for t in src_terms:
+                        db.execute("""
+                            INSERT INTO terms_acknowledgements (ta_booking_id, ta_version, ta_acknowledged, ta_acknowledged_at, ta_customer_name)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (new_bk_id, t.get("ta_version"), t.get("ta_acknowledged") or 0, t.get("ta_acknowledged_at"), t.get("ta_customer_name")))
+                        stats["terms_merged"] += 1
+
+                    _sync_paid_from_payment_records(new_bk_id, new_inv_id)
+                    repo._recalc_booking_totals(new_bk_id)
+                    stats["new_bookings"] += 1
+
+                else:
+                    stats["matched_bookings"] += 1
+                    dest_inv = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = ? LIMIT 1", (dest_bk_id,))
+                    if not dest_inv:
+                        continue
+                    dest_inv_id = dest_inv["inv_id"]
+
+                    existing_payments = db.fetchall(
+                        "SELECT pr_amount, pr_payment_date, pr_payment_method FROM payment_records WHERE pr_invoice_id = ?",
+                        (dest_inv_id,))
+                    existing_keys = {
+                        (round(float(p["pr_amount"] or 0), 2), str(p["pr_payment_date"]), str(p.get("pr_payment_method") or ""))
+                        for p in existing_payments
+                    }
+                    for p in src_payments:
+                        pkey = (round(float(p["pr_amount"] or 0), 2), str(p["pr_payment_date"]),
+                                str(p.get("pr_payment_method") or p.get("pr_method") or ""))
+                        if pkey in existing_keys:
+                            continue
+                        db.execute("""
+                            INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_payment_method, pr_notes, pr_is_downpayment)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (dest_inv_id, p["pr_amount"], p["pr_payment_date"], p.get("pr_payment_method") or p.get("pr_method") or "Cash",
+                              p.get("pr_notes") or p.get("pr_note") or "", p.get("pr_is_downpayment") or 0))
+                        stats["new_payments"] += 1
+
+                    existing_charges = db.fetchall(
+                        "SELECT ac_description, ac_amount, ac_date_added FROM booking_additional_charges WHERE ac_booking_id = ?",
+                        (dest_bk_id,))
+                    existing_charge_keys = {
+                        (str(c["ac_description"] or "").strip().lower(), round(float(c["ac_amount"] or 0), 2), str(c["ac_date_added"]))
+                        for c in existing_charges
+                    }
+                    for c in src_charges:
+                        ckey = (str(c["ac_description"] or "").strip().lower(), round(float(c["ac_amount"] or 0), 2), str(c["ac_date_added"]))
+                        if ckey in existing_charge_keys:
+                            continue
+                        db.execute("""
+                            INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (dest_bk_id, c["ac_description"], c["ac_amount"], c["ac_date_added"], c.get("ac_added_by") or "Imported"))
+                        stats["new_charges"] += 1
+
+                    existing_menu_items = db.fetchall(
+                        "SELECT bmi_item_name, bmi_category FROM booking_menu_items WHERE bmi_booking_id = ?",
+                        (dest_bk_id,))
+                    existing_menu_keys = {
+                        (str(m["bmi_item_name"] or "").strip().lower(), str(m["bmi_category"] or "").strip().lower())
+                        for m in existing_menu_items
+                    }
+                    for mi in src_menu_items:
+                        mkey = (str(mi.get("bmi_item_name") or "").strip().lower(), str(mi.get("bmi_category") or "").strip().lower())
+                        if mkey in existing_menu_keys:
+                            continue
+                        db.execute("""
+                            INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
+                            VALUES (?, NULL, ?, ?, ?, ?)
+                        """, (dest_bk_id, mi.get("bmi_item_name"), mi.get("bmi_category"), mi.get("bmi_price") or 0.0, mi.get("bmi_quantity") or 1))
+
+                    existing_terms_versions = {
+                        str(t["ta_version"]) for t in
+                        db.fetchall("SELECT ta_version FROM terms_acknowledgements WHERE ta_booking_id = ?", (dest_bk_id,))
+                    }
+                    for t in src_terms:
+                        if str(t.get("ta_version")) in existing_terms_versions:
+                            continue
+                        db.execute("""
+                            INSERT INTO terms_acknowledgements (ta_booking_id, ta_version, ta_acknowledged, ta_acknowledged_at, ta_customer_name)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (dest_bk_id, t.get("ta_version"), t.get("ta_acknowledged") or 0, t.get("ta_acknowledged_at"), t.get("ta_customer_name")))
+                        stats["terms_merged"] += 1
+
+                    # Because payments/charges are only ever ADDED (never removed or
+                    # replaced), the recomputed paid amount can never decrease - a
+                    # stale 'Unpaid' import can never downgrade an already Paid/Partial
+                    # invoice back down.
+                    _sync_paid_from_payment_records(dest_bk_id, dest_inv_id)
+                    repo._recalc_booking_totals(dest_bk_id)
+                    stats["invoices_recalculated"] += 1
+            except Exception as row_exc:
+                stats["errors"].append(f"{sb['bk_customer_name']}: {row_exc}")
+
+        repo.write_audit_log(actor, "MERGE_IMPORT", "bookings", 0, None, {
+            "new_bookings": stats["new_bookings"], "matched_bookings": stats["matched_bookings"],
+            "new_payments": stats["new_payments"], "new_charges": stats["new_charges"],
+        })
+
+    except Exception as exc:
+        stats["errors"].append(str(exc))
+    finally:
+        try:
+            db.execute("DETACH DATABASE src")
+        except Exception:
+            pass
+
+    return stats

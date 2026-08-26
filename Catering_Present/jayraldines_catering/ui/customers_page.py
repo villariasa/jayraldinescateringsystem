@@ -852,12 +852,29 @@ class AddMultipleCustomersDialog(QDialog):
             return
 
         saved = 0
+        skipped_names = []
+        seen_names = set()
         for data in rows_to_save:
+            name_key = data["name"].strip().lower()
+            if name_key in seen_names or repo.customer_exists(data["name"]):
+                skipped_names.append(data["name"])
+                continue
+            seen_names.add(name_key)
             res = repo.add_customer(data)
             if res:
                 saved += 1
 
         self._added_count = saved
+        if skipped_names:
+            from components.dialogs import success as _success
+            names_str = ", ".join(skipped_names)
+            _success(
+                self,
+                f"{names_str} already exist{'s' if len(skipped_names) == 1 else ''} — skipping "
+                f"{'this customer' if len(skipped_names) == 1 else 'these customers'}. "
+                f"{saved} new customer(s) added.",
+                "Some Customers Skipped",
+            )
         self.accept()
 
 
@@ -868,6 +885,7 @@ class CustomersPage(QWidget):
         self._customers = []
         self._selected_ids: set[int] = set()
         self._card_checkboxes: dict[int, QCheckBox] = {}
+        self._reload_generation = 0
         self._build_ui()
         self._do_reload()
 
@@ -899,15 +917,24 @@ class CustomersPage(QWidget):
 
     def _do_reload(self):
         self._dirty = False
-        run_async(self, repo.get_all_customers_with_loyalty, self._on_customers_loaded)
+        self._reload_generation += 1
+        gen = self._reload_generation
+        run_async(self, repo.get_all_customers_with_loyalty,
+                  lambda data, gen=gen: self._on_customers_loaded(data, gen))
 
-    def _on_customers_loaded(self, data):
+    def _on_customers_loaded(self, data, gen=None):
         try:
             from shiboken6 import isValid
             if not isValid(self):
                 return
         except Exception:
             pass
+        # Discard results from a reload that's been superseded by a newer
+        # one (e.g. customer_saved + booking_saved both firing off an
+        # all_in_one import) — otherwise whichever async query happens to
+        # finish last wins, even if it started first and is now stale.
+        if gen is not None and gen != self._reload_generation:
+            return
         rows = data or []
         if not rows:
             rows = repo.get_all_customers() or []
@@ -1402,6 +1429,12 @@ class CustomersPage(QWidget):
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
             if result:
+                if repo.customer_exists(result.get("name", "")):
+                    QMessageBox.warning(
+                        self, "Customer Already Exists",
+                        f"\"{result.get('name', '')}\" already exists — skipping this customer.",
+                    )
+                    return
                 new_id = repo.add_customer(result)
                 if new_id:
                     result["id"] = new_id

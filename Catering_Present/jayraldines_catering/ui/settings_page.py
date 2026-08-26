@@ -5,16 +5,16 @@ from PySide6.QtWidgets import (
     QFrame, QLineEdit, QFormLayout, QMessageBox, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QDoubleSpinBox,
     QSpinBox, QCheckBox, QFileDialog, QListWidget, QListWidgetItem,
-    QInputDialog, QColorDialog, QComboBox
+    QInputDialog, QColorDialog, QComboBox, QDateEdit
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QDate
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
 from utils.theme import ThemeManager
 from utils.accent import AccentManager, PRESET_THEMES
 from utils.palette import THEME_CATEGORIES, THEME_PALETTES, get_palettes_by_category
-from components.dialogs import success, prompt_file_saved
+from components.dialogs import success, prompt_file_saved, confirm
 import utils.repository as repo
 from utils.signals import app_events
 
@@ -54,6 +54,7 @@ class SettingsPage(QWidget):
         title.setObjectName("pageTitle")
         lay.addWidget(title)
 
+        lay.addWidget(self._build_current_user_card())
         lay.addWidget(self._build_business_card())
         lay.addWidget(self._build_sales_targets_card())
         lay.addWidget(self._build_import_card())
@@ -62,13 +63,50 @@ class SettingsPage(QWidget):
         lay.addWidget(self._build_smtp_card())
         lay.addWidget(self._build_theme_card())
         lay.addWidget(self._build_backup_card())
+        lay.addWidget(self._build_tablet_sync_card())
         lay.addWidget(self._build_audit_card())
+        lay.addWidget(self._build_daily_report_card())
         lay.addWidget(self._build_diagnostics_card())
         lay.addWidget(self._build_purge_data_card())
         lay.addStretch()
 
         scroll.setWidget(content)
         root_lay.addWidget(scroll)
+
+    def _build_current_user_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(14)
+
+        sec_title = QLabel("Current User")
+        sec_title.setObjectName("h3")
+        lay.addWidget(sec_title)
+
+        hint = QLabel("This name is attached to every action you perform (orders, payments, charges) so it appears correctly in the Audit Log and Daily Activity Report.")
+        hint.setObjectName("subtitle")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        row = QHBoxLayout()
+        from utils.session import get_actor, set_actor
+        self._actor_f = QLineEdit(get_actor())
+        self._actor_f.setPlaceholderText("Your name (e.g. John)")
+        save_btn = QPushButton("Save Name")
+        save_btn.setObjectName("primaryButton")
+        save_btn.setFixedHeight(34)
+
+        def _save_actor():
+            set_actor(self._actor_f.text().strip())
+            success(self, message=f"You are now logged as: {get_actor()}")
+
+        save_btn.clicked.connect(_save_actor)
+        row.addWidget(self._actor_f, 3)
+        row.addWidget(save_btn, 1)
+        lay.addLayout(row)
+
+        return card
 
     def _build_business_card(self):
         card = QFrame()
@@ -664,6 +702,7 @@ class SettingsPage(QWidget):
         restore_btn = QPushButton("  Restore Database")
         restore_btn.setObjectName("secondaryButton")
         restore_btn.setCursor(Qt.PointingHandCursor)
+        restore_btn.setToolTip("DESTRUCTIVE: completely replaces all current data with the backup file.\nUse 'Merge Data from Another Device' instead if you just want to bring in another device's records.")
         restore_btn.clicked.connect(self._restore_db)
 
         btn_row.addWidget(backup_btn)
@@ -671,7 +710,110 @@ class SettingsPage(QWidget):
         btn_row.addStretch()
         lay.addLayout(btn_row)
 
+        div = QFrame()
+        div.setObjectName("divider")
+        lay.addWidget(div)
+
+        merge_title = QLabel("Merge Data from Another Device (Safe)")
+        merge_title.setStyleSheet("font-weight: 700; font-size: 13px;")
+        lay.addWidget(merge_title)
+
+        merge_sub = QLabel(
+            "For multiple devices (e.g. a PC and a laptop) that each have their own bookings and "
+            "payments. This safely combines the other device's backup into this database — it never "
+            "deletes or downgrades a payment/status that already exists here (Paid stays Paid, Partial "
+            "stays at least Partial), only adds genuinely new bookings and payments."
+        )
+        merge_sub.setObjectName("subtitle")
+        merge_sub.setWordWrap(True)
+        lay.addWidget(merge_sub)
+
+        merge_btn = QPushButton("  Merge Backup File Into This Database...")
+        merge_btn.setObjectName("secondaryButton")
+        merge_btn.setCursor(Qt.PointingHandCursor)
+        merge_btn.clicked.connect(self._merge_db)
+        lay.addWidget(merge_btn, alignment=Qt.AlignLeft)
+
         return card
+
+    def _merge_db(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select Backup Database File to Merge", "", "SQLite Database (*.db);;All Files (*)")
+        if not path:
+            return
+        if not confirm(
+            self, title="Merge Database",
+            message=(
+                "This will merge bookings, customers, payments, and additional charges from:\n\n"
+                f"{path}\n\n"
+                "into this device's database. Existing payments and Paid/Partial statuses here will "
+                "never be removed or downgraded — only new records are added. Continue?"
+            ),
+            confirm_label="Merge",
+        ):
+            return
+        import utils.importer as importer
+        from utils.session import get_actor
+        stats = importer.merge_database_file(path, actor=get_actor())
+        if stats.get("errors"):
+            QMessageBox.warning(self, "Merge Completed With Warnings",
+                "Merge finished, but some issues occurred:\n\n" + "\n".join(stats["errors"][:10]))
+        summary = (
+            f"New bookings added: {stats['new_bookings']}\n"
+            f"Existing bookings matched: {stats['matched_bookings']}\n"
+            f"New payments merged: {stats['new_payments']}\n"
+            f"New additional charges merged: {stats['new_charges']}\n"
+            f"Terms acknowledgements merged: {stats.get('terms_merged', 0)}\n"
+            f"Invoices recalculated: {stats['invoices_recalculated']}"
+        )
+        success(self, message=f"Database merge complete.\n\n{summary}")
+        app_events().data_changed.emit()
+        app_events().booking_updated.emit()
+
+    def _build_tablet_sync_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(14)
+
+        sec_title = QLabel("Tablet App Sync")
+        sec_title.setObjectName("h3")
+        lay.addWidget(sec_title)
+
+        sub = QLabel(
+            "Export the current packages, menu items, and prices for use in the Tablet App "
+            "(Settings → Import Master Data on the tablet). Tablet orders are transferred back "
+            "into this PC using the 'Merge Backup File Into This Database' option above."
+        )
+        sub.setObjectName("subtitle")
+        sub.setWordWrap(True)
+        lay.addWidget(sub)
+
+        export_btn = QPushButton("  Export Tablet Master Data...")
+        export_btn.setObjectName("primaryButton")
+        export_btn.setIcon(btn_icon_primary("export"))
+        export_btn.setIconSize(QSize(15, 15))
+        export_btn.setCursor(Qt.PointingHandCursor)
+        export_btn.clicked.connect(self._export_tablet_master_data)
+        lay.addWidget(export_btn, alignment=Qt.AlignLeft)
+
+        return card
+
+    def _export_tablet_master_data(self):
+        from datetime import datetime as _dt
+        default_name = f"tablet_master_data_{_dt.now().strftime('%Y%m%d')}.db"
+        path, _ = QFileDialog.getSaveFileName(self, "Export Tablet Master Data", default_name, "SQLite Database (*.db)")
+        if not path:
+            return
+        import utils.exporter as exporter
+        stats = exporter.export_tablet_master_data(path)
+        if stats.get("errors"):
+            QMessageBox.warning(self, "Export Failed", "\n".join(stats["errors"]))
+            return
+        prompt_file_saved(
+            self, path, title="Tablet Master Data Exported",
+            message=f"{stats['packages']} Packages, {stats['menu_items']} Menu Items, {stats['package_items']} Package Items exported.\n\nImport this file on the tablet via Settings → Import Master Data.",
+        )
 
     def _build_import_card(self):
         card = QFrame()
@@ -870,7 +1012,8 @@ class SettingsPage(QWidget):
         else:
             action_colors = {
                 "APPROVE": "#22C55E", "CREATE": "#3B82F6", "CANCEL": "#EF4444",
-                "PAYMENT": "#F59E0B", "DELETE": "#EF4444", "UPDATE": "#8B5CF6",
+                "PAYMENT": "#F59E0B", "DOWN_PAYMENT": "#F59E0B", "DELETE": "#EF4444",
+                "UPDATE": "#8B5CF6", "ADD_CHARGE": "#38BDF8",
             }
             for log in logs:
                 card = QFrame()
@@ -903,6 +1046,93 @@ class SettingsPage(QWidget):
                 self.audit_cards_layout.addWidget(card)
 
         self.audit_cards_layout.addStretch()
+
+    def _build_daily_report_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(14)
+
+        sec_title = QLabel("Daily Activity Report")
+        sec_title.setObjectName("h3")
+        lay.addWidget(sec_title)
+
+        hint = QLabel("Export a report of who did what — orders added, payments recorded, charges added, cancellations — for a specific date or date range.")
+        hint.setObjectName("subtitle")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        row = QHBoxLayout()
+        row.setSpacing(10)
+
+        row.addWidget(QLabel("From:"))
+        self._report_from = QDateEdit(QDate.currentDate())
+        self._report_from.setCalendarPopup(True)
+        self._report_from.setDisplayFormat("MMM d, yyyy")
+        row.addWidget(self._report_from)
+
+        row.addWidget(QLabel("To:"))
+        self._report_to = QDateEdit(QDate.currentDate())
+        self._report_to.setCalendarPopup(True)
+        self._report_to.setDisplayFormat("MMM d, yyyy")
+        row.addWidget(self._report_to)
+
+        row.addStretch()
+
+        export_pdf_btn = QPushButton("  Export PDF")
+        export_pdf_btn.setObjectName("primaryButton")
+        export_pdf_btn.setIcon(btn_icon_primary("export"))
+        export_pdf_btn.setFixedHeight(34)
+        export_pdf_btn.clicked.connect(self._export_daily_report_pdf)
+        row.addWidget(export_pdf_btn)
+
+        export_csv_btn = QPushButton("  Export CSV")
+        export_csv_btn.setObjectName("secondaryButton")
+        export_csv_btn.setFixedHeight(34)
+        export_csv_btn.clicked.connect(self._export_daily_report_csv)
+        row.addWidget(export_csv_btn)
+
+        lay.addLayout(row)
+        return card
+
+    def _gather_daily_report_entries(self):
+        start = self._report_from.date().toString("yyyy-MM-dd")
+        end = self._report_to.date().toString("yyyy-MM-dd")
+        entries = repo.get_audit_log(start_date=start, end_date=end)
+        if self._report_from.date() == self._report_to.date():
+            period_label = self._report_from.date().toString("MMMM d, yyyy")
+        else:
+            period_label = f"{self._report_from.date().toString('MMM d, yyyy')} — {self._report_to.date().toString('MMM d, yyyy')}"
+        return entries, period_label
+
+    def _export_daily_report_pdf(self):
+        entries, period_label = self._gather_daily_report_entries()
+        default_name = f"daily_activity_report_{self._report_from.date().toString('yyyyMMdd')}.pdf"
+        path, _ = QFileDialog.getSaveFileName(self, "Save Daily Activity Report", default_name, "PDF Files (*.pdf)")
+        if not path:
+            return
+        import utils.exporter as exporter
+        business = repo.get_business_info()
+        ok = exporter.export_daily_activity_report_pdf(path, entries, business, period_label)
+        if ok:
+            prompt_file_saved(self, path, title="Report Exported", message="Daily Activity Report exported successfully.")
+        else:
+            QMessageBox.warning(self, "Export Failed", "Could not generate PDF. Make sure reportlab is installed.")
+
+    def _export_daily_report_csv(self):
+        entries, _ = self._gather_daily_report_entries()
+        default_name = f"daily_activity_report_{self._report_from.date().toString('yyyyMMdd')}.csv"
+        path, _ = QFileDialog.getSaveFileName(self, "Save Daily Activity Report", default_name, "CSV Files (*.csv)")
+        if not path:
+            return
+        import csv
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Date", "Time", "User", "Action", "Details"])
+            for e in entries:
+                writer.writerow([e.get("date", ""), e.get("time", ""), e.get("actor", ""), e.get("action", ""), e.get("description", "")])
+        prompt_file_saved(self, path, title="Report Exported", message="Daily Activity Report exported successfully.")
 
     def _save_business(self):
         _BUSINESS_INFO["name"]    = self._name_f.text().strip()

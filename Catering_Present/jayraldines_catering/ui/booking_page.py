@@ -86,6 +86,196 @@ def _action_buttons(status, on_approve, on_decline):
     return widget
 
 
+class AdditionalChargesDialog(QDialog):
+    """View / add / remove Additional Charges & Items for a single order.
+
+    Every charge is a separate, visible line item that adds on top of the
+    order's base total - it must never silently merge into a flat total.
+    """
+
+    def __init__(self, parent=None, booking: dict = None):
+        super().__init__(parent)
+        self._booking = booking or {}
+        self._booking_id = self._booking.get("db_id")
+        self.setWindowTitle("Additional Charges / Additional Items")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(560)
+        self.setModal(True)
+        self.changed = False
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+
+        container = QFrame()
+        container.setObjectName("card")
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(12)
+
+        header = QHBoxLayout()
+        title = QLabel(f"Additional Charges — {self._booking.get('name', '')}")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.accept)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        lay.addWidget(div)
+
+        # Add-charge form
+        form = QHBoxLayout()
+        self._desc_input = QLineEdit()
+        self._desc_input.setPlaceholderText("Description / Reason (e.g. Menu Change, Additional Lechon, or Discount - Loyalty)")
+        self._amount_input = QDoubleSpinBox()
+        self._amount_input.setRange(-10_000_000, 10_000_000)
+        self._amount_input.setToolTip("Positive = additional charge. Negative = discount.")
+        self._amount_input.setDecimals(2)
+        self._amount_input.setPrefix("₱ ")
+        self._amount_input.setFixedWidth(140)
+        add_btn = QPushButton("Add Charge")
+        add_btn.setObjectName("primaryButton")
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.clicked.connect(self._add_charge)
+        form.addWidget(self._desc_input, 3)
+        form.addWidget(self._amount_input, 1)
+        form.addWidget(add_btn)
+        lay.addLayout(form)
+
+        # Scrollable list of existing charges
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setStyleSheet("background: transparent;")
+        self._scroll.setMinimumHeight(220)
+        lay.addWidget(self._scroll)
+
+        self._total_lbl = QLabel()
+        self._total_lbl.setStyleSheet("font-weight: 800; font-size: 14px; color: #F59E0B;")
+        self._total_lbl.setAlignment(Qt.AlignRight)
+        lay.addWidget(self._total_lbl)
+
+        close = QPushButton("Close")
+        close.setObjectName("secondaryButton")
+        close.setCursor(Qt.PointingHandCursor)
+        close.clicked.connect(self.accept)
+        lay.addWidget(close, alignment=Qt.AlignRight)
+
+        outer.addWidget(container)
+        self._reload()
+
+    def _reload(self):
+        charges = repo.get_additional_charges(self._booking_id) if self._booking_id else []
+
+        p_container = QWidget()
+        p_container.setStyleSheet("background: transparent;")
+        p_lay = QVBoxLayout(p_container)
+        p_lay.setContentsMargins(0, 0, 0, 0)
+        p_lay.setSpacing(8)
+
+        if charges:
+            for ch in charges:
+                card = QFrame()
+                card.setObjectName("entryCard")
+                pl = QHBoxLayout(card)
+                pl.setContentsMargins(12, 10, 12, 10)
+                pl.setSpacing(14)
+
+                c1 = QVBoxLayout()
+                c1.setSpacing(2)
+                desc_lbl = QLabel(ch["description"])
+                desc_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
+                sub = f"Added {ch['date_added']}" + (f" by {ch['added_by']}" if ch.get("added_by") else "")
+                sub_lbl = QLabel(sub)
+                sub_lbl.setObjectName("subtitle")
+                c1.addWidget(desc_lbl)
+                c1.addWidget(sub_lbl)
+                pl.addLayout(c1, 3)
+
+                is_discount = ch["amount"] < 0
+                amt_text = f"− ₱ {abs(ch['amount']):,.2f}" if is_discount else f"₱ {ch['amount']:,.2f}"
+                amt_lbl = QLabel(amt_text)
+                amt_lbl.setStyleSheet(f"font-weight: 800; font-size: 14px; color: {'#F59E0B' if is_discount else '#22C55E'};")
+                amt_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                pl.addWidget(amt_lbl, 1)
+
+                del_btn = QPushButton()
+                del_btn.setIcon(get_icon("trash", color="#EF4444", size=QSize(13, 13)))
+                del_btn.setIconSize(QSize(13, 13))
+                del_btn.setFixedSize(28, 28)
+                del_btn.setStyleSheet("background:transparent;border:none;")
+                del_btn.setCursor(Qt.PointingHandCursor)
+                del_btn.setToolTip("Remove this charge")
+                del_btn.clicked.connect(lambda _, cid=ch["id"]: self._delete_charge(cid))
+                pl.addWidget(del_btn)
+
+                p_lay.addWidget(card)
+        else:
+            empty_card = QFrame()
+            empty_card.setObjectName("entryCard")
+            el = QVBoxLayout(empty_card)
+            item = QLabel("No additional charges recorded for this order.")
+            item.setObjectName("subtitle")
+            item.setAlignment(Qt.AlignCenter)
+            el.addWidget(item)
+            p_lay.addWidget(empty_card)
+
+        p_lay.addStretch()
+        self._scroll.setWidget(p_container)
+
+        charges_sum = sum(c["amount"] for c in charges)
+        detail = repo.get_booking_detail(self._booking_id) if self._booking_id else None
+        new_total = float(detail["total"]) if detail else charges_sum
+        self._total_lbl.setText(f"Additional Charges: ₱ {charges_sum:,.2f}   |   Updated Order Total: ₱ {new_total:,.2f}")
+
+    def _add_charge(self):
+        desc = self._desc_input.text().strip()
+        amount = self._amount_input.value()
+        if not desc:
+            QMessageBox.warning(self, "Missing Description", "Please enter a description/reason for this charge.")
+            return
+        if amount == 0:
+            QMessageBox.warning(self, "Invalid Amount", "Please enter a non-zero amount (negative for a discount).")
+            return
+        if not self._booking_id:
+            return
+        repo.add_additional_charge(self._booking_id, desc, amount, get_actor())
+        repo.write_audit_log(
+            get_actor(), "ADD_CHARGE", "bookings", self._booking_id,
+            None, {"description": desc, "amount": amount, "customer": self._booking.get("name")},
+        )
+        repo.push_notification(
+            "info", "Additional Charge Added",
+            f"{get_actor()} added a charge: {desc} — ₱{amount:,.2f} for {self._booking.get('name', '')}",
+        )
+        self._desc_input.clear()
+        self._amount_input.setValue(0)
+        self.changed = True
+        self._reload()
+        app_events().data_changed.emit()
+
+    def _delete_charge(self, charge_id):
+        if not confirm(self, title="Remove Charge", message="Remove this additional charge? This will update the order total.",
+                       confirm_label="Remove", danger=True):
+            return
+        repo.delete_additional_charge(charge_id)
+        self.changed = True
+        self._reload()
+        app_events().data_changed.emit()
+
+
 _OCCASIONS_LIST = [
     "Wedding", "Birthday", "Debut", "Corporate Event", "Anniversary", "Christening", "Graduation", "Holiday Party", "Party"
 ]
@@ -1239,6 +1429,18 @@ class BookingPage(QWidget):
             edit_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
         edit_btn.clicked.connect(lambda _, r=bref: self._edit_booking(r))
 
+        charges_btn = QPushButton()
+        charges_btn.setIcon(get_icon("plus", color="#9CA3AF", size=QSize(13, 13)))
+        charges_btn.setIconSize(QSize(13, 13))
+        charges_btn.setFixedSize(30, 30)
+        charges_btn.setStyleSheet("background:transparent;border:none;")
+        charges_btn.setCursor(Qt.PointingHandCursor)
+        charges_btn.setToolTip("Additional Charges / Additional Items")
+        charges_btn.setEnabled(b.get("status") != "CANCELLED")
+        if b.get("status") == "CANCELLED":
+            charges_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
+        charges_btn.clicked.connect(lambda _, r=bref: self._open_additional_charges(r))
+
         color_btn = QPushButton()
         color_btn.setIcon(get_icon("palette", color="#9CA3AF", size=QSize(13, 13)))
         color_btn.setIconSize(QSize(13, 13))
@@ -1273,6 +1475,7 @@ class BookingPage(QWidget):
         confirm_btn.clicked.connect(lambda _, r=bref: self._send_confirmation(r))
 
         actions_l.addWidget(edit_btn)
+        actions_l.addWidget(charges_btn)
         actions_l.addWidget(color_btn)
         actions_l.addWidget(del_btn)
         actions_l.addWidget(confirm_btn)
@@ -1381,7 +1584,7 @@ class BookingPage(QWidget):
             else:
                 msg = f"Order {b['id']} confirmed successfully!"
             success(self, message=msg)
-            repo.write_audit_log(get_actor(), "APPROVE", "bookings", db_id, None, {"status": "CONFIRMED", "payment_amount": pay_amt})
+            repo.write_audit_log(get_actor(), "APPROVE", "bookings", db_id, None, {"status": "CONFIRMED", "amount": pay_amt, "customer": b.get("name")})
 
             try:
                 repo.push_notification(
@@ -1418,7 +1621,7 @@ class BookingPage(QWidget):
         b["status"] = "CANCELLED"
         if b.get("db_id"):
             repo.update_booking_status(b["db_id"], "CANCELLED", reason.strip() or None)
-            repo.write_audit_log(get_actor(), "CANCEL", "bookings", b["db_id"], None, {"status": "CANCELLED", "reason": reason.strip()})
+            repo.write_audit_log(get_actor(), "CANCEL", "bookings", b["db_id"], None, {"status": "CANCELLED", "reason": reason.strip(), "customer": b.get("name")})
         self._populate_table()
         success(self, message="Booking declined.")
 
@@ -1482,9 +1685,21 @@ class BookingPage(QWidget):
             return
         if b.get("db_id"):
             repo.delete_booking(b["db_id"])
+            repo.write_audit_log(get_actor(), "DELETE", "bookings", b["db_id"], {"customer": b.get("name"), "amount": b.get("total")}, None)
         self._bookings = [x for x in self._bookings if x["id"] != ref]
         self._populate_table()
         success(self, message="Booking deleted successfully.")
+
+    def _open_additional_charges(self, ref):
+        b = next((x for x in self._bookings if x["id"] == ref), None)
+        if not b or not b.get("db_id"):
+            return
+        dlg = AdditionalChargesDialog(self, booking=b)
+        dlg.exec()
+        if dlg.changed:
+            self.reload()
+            app_events().booking_updated.emit()
+            app_events().data_changed.emit()
 
     def _edit_booking(self, ref):
         b = next((x for x in self._bookings if x["id"] == ref), None)
@@ -1502,6 +1717,8 @@ class BookingPage(QWidget):
         db_id = orig.get("db_id") or data.get("db_id")
         if db_id:
             repo.update_booking(db_id, data)
+            repo.write_audit_log(get_actor(), "UPDATE", "bookings", db_id,
+                                 None, {"customer": data.get("name"), "amount": data.get("total")})
         self.reload()
         success(self, message="Order details updated successfully.")
         app_events().booking_updated.emit()
@@ -1518,6 +1735,9 @@ class BookingPage(QWidget):
             return
         bkg_id = result["booking_ref"]
         db_id  = result["booking_id"]
+
+        repo.write_audit_log(get_actor(), "CREATE", "bookings", db_id,
+                             None, {"customer": data.get("name"), "amount": data.get("total")})
 
         self._bookings.append({
             "db_id":  db_id,
@@ -1710,6 +1930,11 @@ class BookingPage(QWidget):
             else:
                 db_ids_or_refs.append(ref)
 
+        for ref in list(self._selected_refs):
+            b = next((x for x in self._bookings if x["id"] == ref), None)
+            if b and b.get("db_id"):
+                repo.write_audit_log(get_actor(), "DELETE", "bookings", b["db_id"], {"customer": b.get("name"), "amount": b.get("total")}, None)
+
         deleted = repo.delete_multiple_bookings(db_ids_or_refs)
         self._selected_refs.clear()
         self.reload()
@@ -1824,6 +2049,7 @@ class BookingPage(QWidget):
             b = next((x for x in self._bookings if x["id"] == ref), None)
             if b and b.get("db_id"):
                 repo.update_booking_status(b["db_id"], "CANCELLED", "Batch cancelled by user")
+                repo.write_audit_log(get_actor(), "CANCEL", "bookings", b["db_id"], None, {"status": "CANCELLED", "reason": "Batch cancelled by user", "customer": b.get("name")})
                 cancelled_cnt += 1
 
         self._selected_refs.clear()
