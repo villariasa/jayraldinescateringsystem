@@ -10,16 +10,21 @@ _logger = None
 
 
 def get_app_data_dir() -> Path:
-    """Safely resolve a writable base directory across platforms including Android."""
-    # 1. Android internal private storage from python-for-android / Qt
-    android_private = os.environ.get("ANDROID_PRIVATE") or os.environ.get("ANDROID_ARGUMENT")
-    if android_private:
-        target = Path(android_private) / "JayraldinesCateringTablet"
-        try:
-            target.mkdir(parents=True, exist_ok=True)
-            return target
-        except Exception:
-            pass
+    """Safely resolve a writable base directory across platforms including Android and Windows."""
+    is_android = hasattr(sys, "getandroidapilevel") or bool(os.environ.get("ANDROID_ARGUMENT") or os.environ.get("ANDROID_PRIVATE")) or (sys.platform.startswith("linux") and Path("/sdcard").exists())
+
+    # 1. Android paths (only if running on Android)
+    if is_android:
+        for cand in (
+            Path("/sdcard/Download/JayraldinesTablet"),
+            Path("/storage/emulated/0/Download/JayraldinesTablet"),
+            Path("/data/data/com.jayraldine.tablet/files"),
+        ):
+            try:
+                cand.mkdir(parents=True, exist_ok=True)
+                return cand
+            except Exception:
+                pass
 
     # 2. Windows LOCALAPPDATA
     local_app_data = os.environ.get("LOCALAPPDATA")

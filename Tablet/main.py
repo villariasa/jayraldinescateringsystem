@@ -14,19 +14,33 @@ from pathlib import Path
 
 
 def _emergency_log(text: str) -> None:
-    """Best-effort crash log that works even if utils.logger itself failed
-    to import, or the crash happened before get_logger() was called (e.g. a
-    missing/broken native recipe on Android) — writes to the same app-data
-    directory logger.py resolves to, plus stderr (which python-for-android's
-    Qt bootstrap pipes into `adb logcat`)."""
+    """Best-effort crash logger writing to console, Android internal app storage,
+    and external /sdcard/Download/ so the tablet owner can easily read crash logs."""
     print(text, file=sys.stderr)
+    import os
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    entry = f"\n==================== [{timestamp}] CRASH / STARTUP EVENT ====================\n{text}\n"
+
+    # 1. Try public Download folder on Android tablets
+    for public_path in (
+        Path("/sdcard/Download/JayraldinesTablet_crash.log"),
+        Path("/storage/emulated/0/Download/JayraldinesTablet_crash.log"),
+    ):
+        try:
+            public_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(public_path, "a", encoding="utf-8") as f:
+                f.write(entry)
+        except Exception:
+            pass
+
+    # 2. Try App Data / Android private storage
     try:
-        import os
         android_private = os.environ.get("ANDROID_PRIVATE") or os.environ.get("ANDROID_ARGUMENT")
-        base = Path(android_private) / "JayraldinesCateringTablet" if android_private else Path.cwd()
+        base = Path(android_private) / "JayraldinesCateringTablet" if android_private else (Path.home() / ".jayraldines_catering_tablet")
         base.mkdir(parents=True, exist_ok=True)
         with open(base / "crash.log", "a", encoding="utf-8") as f:
-            f.write(text + "\n")
+            f.write(entry)
     except Exception:
         pass
 
@@ -34,30 +48,24 @@ def _emergency_log(text: str) -> None:
 try:
     from PySide6.QtWidgets import QApplication, QMessageBox
 except Exception:
-    # If PySide6 itself won't import, there is no way to show anything on
-    # screen — this is the one crash mode that can only be diagnosed via
-    # adb logcat / the crash.log file, since Qt is what would render the
-    # dialog in the first place.
     _emergency_log("FATAL: PySide6 failed to import:\n" + traceback.format_exc())
     raise
 
 # Created immediately so a crash dialog can be shown regardless of where in
-# startup something fails — the whole point is staff on the tablet see the
-# actual error on screen instead of the app just vanishing.
+# startup something fails — staff on the tablet see the error on screen.
 app = QApplication(sys.argv)
 app.setApplicationName("Jayraldine's Catering Tablet")
 
 
 def _show_crash_dialog(title: str, summary: str, details: str) -> None:
-    """Show the error directly on the tablet's screen. This is the primary
-    way staff (with no laptop/adb on hand) find out why the app closed —
-    logcat/crash.log are the fallback for when even this fails."""
+    """Show the error directly on the tablet's screen."""
+    _emergency_log(f"DIALOG [{title}]: {summary}\n{details}")
     try:
         box = QMessageBox()
         box.setIcon(QMessageBox.Critical)
         box.setWindowTitle(title)
         box.setText(summary)
-        box.setInformativeText("Please take a screenshot of this and show it to support.")
+        box.setInformativeText("Check your device's Download folder for 'JayraldinesTablet_crash.log' or take a screenshot.")
         box.setDetailedText(details)
         box.setStandardButtons(QMessageBox.Ok)
         box.exec()
@@ -70,7 +78,7 @@ def _install_excepthook(logger):
         text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
         logger.error("UNCAUGHT EXCEPTION:\n" + text)
         _emergency_log("UNCAUGHT EXCEPTION:\n" + text)
-        _show_crash_dialog("Unexpected Error", "Something went wrong.", text)
+        _show_crash_dialog("Unexpected Error", "The app encountered an error.", text)
     sys.excepthook = _hook
 
 

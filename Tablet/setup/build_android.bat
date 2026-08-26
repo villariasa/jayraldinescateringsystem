@@ -140,19 +140,10 @@ REM reinstall. That's handled separately below by falling back to running
 REM the module directly via `-m`, not treated as corruption.
 for %%I in ("!PY!") do set "ENV_SCRIPTS=%%~dpI"
 for %%I in ("!PY!") do set "ENV_SITEPKGS=%%~dpILib\site-packages"
-set "NEEDS_REPAIR="
-if not exist "!ENV_SITEPKGS!\PySide6\scripts\android_deploy.py" set "NEEDS_REPAIR=1"
-if not exist "!ENV_SITEPKGS!\PySide6\scripts\requirements-android.txt" set "NEEDS_REPAIR=1"
-if defined NEEDS_REPAIR (
-    echo ==^> PySide6 install looks incomplete ^(missing deploy-tool files —
-    echo     often antivirus stripping files during install^). Reinstalling...
-    "!PY!" -m pip install --force-reinstall --no-cache-dir "PySide6==%PYSIDE_VER%"
-    if not exist "!ENV_SITEPKGS!\PySide6\scripts\android_deploy.py" (
-        echo ERROR: still missing PySide6\scripts\android_deploy.py after
-        echo        reinstalling. Temporarily disable your antivirus's real-time
-        echo        protection and re-run this script, then re-enable it after.
-        exit /b 1
-    )
+
+if not exist "!ENV_SITEPKGS!\PySide6" (
+    echo ==^> PySide6 is not installed. Installing...
+    "!PY!" -m pip install "PySide6==%PYSIDE_VER%"
 )
 
 REM Auto-download the two Android target wheels if not already cached —
@@ -199,7 +190,12 @@ set "TMP_OUT=%TEMP%\jc_out_%RANDOM%.txt"
 "!PY!" "%TMP_PY%" > "%TMP_OUT%"
 set /p ANDROID_REQS=<"%TMP_OUT%"
 del "%TMP_PY%" "%TMP_OUT%" >nul 2>&1
-"!PY!" -m pip install -r "!ANDROID_REQS!"
+if exist "!ANDROID_REQS!" (
+    "!PY!" -m pip install -r "!ANDROID_REQS!"
+) else (
+    echo ==^> Installing buildozer and cython fallback dependencies...
+    "!PY!" -m pip install "buildozer>=1.5.0" "cython<3.0.0"
+)
 
 REM pyside6-android-deploy is normally a console-script .exe wrapper in the
 REM env's Scripts\ folder — but Windows PySide6 wheels don't reliably ship
@@ -209,14 +205,11 @@ REM back to running it directly via -m, which works regardless of whether
 REM pip generated the .exe wrapper.
 for %%I in ("!PY!") do set "ENV_SCRIPTS=%%~dpI"
 set "DEPLOY_EXE=!ENV_SCRIPTS!pyside6-android-deploy.exe"
-REM Not wrapped in `set "VAR=..."` here on purpose — that form strips a
-REM matching pair of outer quotes from the value, but we need the literal
-REM quote characters around the exe path to stay in DEPLOY_CMD's value.
+if not exist "!DEPLOY_EXE!" set "DEPLOY_EXE=!ENV_SCRIPTS!pyside6-deploy.exe"
 set DEPLOY_CMD="!DEPLOY_EXE!"
 if not exist "!DEPLOY_EXE!" (
-    echo ==^> pyside6-android-deploy.exe not found ^(known gap in some Windows
-    echo     PySide6 wheels^) — running the module directly instead.
-    set DEPLOY_CMD="!PY!" -m PySide6.scripts.android_deploy
+    echo ==^> pyside6-android-deploy.exe not found — running python deploy module instead.
+    set DEPLOY_CMD="!PY!" -m PySide6.scripts.deploy
 )
 
 echo ==^> Building Android APK (this can take a long time on first run —

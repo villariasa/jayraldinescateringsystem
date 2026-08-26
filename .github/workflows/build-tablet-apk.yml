@@ -60,11 +60,12 @@ jobs:
       - name: Find built APK
         id: find_apk
         run: |
-          APK_PATH="$(find . -maxdepth 1 -iname '*.apk' | head -n 1)"
+          APK_PATH="$(find . -name "*.apk" -type f | head -n 1)"
           if [ -z "$APK_PATH" ]; then
             echo "No .apk produced — check the build step's log above." >&2
             exit 1
           fi
+          echo "Found APK at: $APK_PATH"
           echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK
