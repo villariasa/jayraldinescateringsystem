@@ -1,0 +1,75 @@
+name: Build Tablet Android APK
+
+# Runs on a GitHub-hosted Ubuntu runner — nothing runs on anyone's laptop.
+# Trigger it either automatically (push touching Tablet/) or manually from
+# the Actions tab (Run workflow button) any time you want a fresh build.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Tablet/**"
+      - ".github/workflows/build-tablet-apk.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Tablet
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            openjdk-17-jdk build-essential autoconf automake libtool \
+            pkg-config zlib1g-dev unzip git curl
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create venv + install app requirements
+        run: |
+          python3.11 -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt
+
+      - name: Set up Android SDK + NDK
+        env:
+          NDK_VERSION: "26.1.10909125"
+        run: |
+          mkdir -p "$HOME/Android/Sdk/cmdline-tools"
+          cd "$HOME/Android/Sdk/cmdline-tools"
+          curl -sL -o cmdline-tools.zip "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          unzip -q cmdline-tools.zip
+          mv cmdline-tools latest
+          SDKMGR="$HOME/Android/Sdk/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMGR" --sdk_root="$HOME/Android/Sdk" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" --sdk_root="$HOME/Android/Sdk" "platform-tools" "ndk;$NDK_VERSION"
+          echo "ANDROID_SDK_ROOT=$HOME/Android/Sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$HOME/Android/Sdk/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Build APK
+        run: bash setup/build_android.sh
+
+      - name: Find built APK
+        id: find_apk
+        run: |
+          APK_PATH="$(find . -maxdepth 1 -iname '*.apk' | head -n 1)"
+          if [ -z "$APK_PATH" ]; then
+            echo "No .apk produced — check the build step's log above." >&2
+            exit 1
+          fi
+          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: JayraldinesCateringTablet-apk
+          path: Tablet/${{ steps.find_apk.outputs.apk_path }}
+          retention-days: 30
