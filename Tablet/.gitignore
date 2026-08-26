@@ -6,7 +6,6 @@ __pycache__/
 .venv/
 venv/
 env/
-ENV/
 .env
 
 # Android Build Artifacts & Packaging
@@ -28,6 +27,5 @@ Thumbs.db
 *.swo
 .~lock.*
 
-# Logs and Temp files
+# Logs & Temp files
 *.log
-/tmp/
