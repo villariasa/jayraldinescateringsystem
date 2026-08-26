@@ -96,7 +96,20 @@ REM creates the venv from whatever "python" resolves to on PATH, which on a
 REM fresh Windows machine is often the latest installed version — check
 REM here with a clear error instead of failing deep inside a buildozer stack
 REM trace after the SDK/NDK download has already run.
-for /f "delims=" %%V in ('"!PY!" -c "import sys; print(sys.version_info[0]*100+sys.version_info[1])"') do set "PYVER=%%V"
+REM
+REM NOTE: values are captured via a temp .py file + temp output file, NOT
+REM `for /f ('"!PY!" -c "...")')`. That pattern silently breaks in cmd.exe
+REM whenever the Python one-liner contains parentheses/brackets (which
+REM print(...) and list indexing always do) — cmd's parser mistakes them
+REM for its own command-grouping syntax and truncates the command. Writing
+REM a real .py file sidesteps quoting entirely.
+set "TMP_PY=%TEMP%\jc_check_%RANDOM%.py"
+set "TMP_OUT=%TEMP%\jc_out_%RANDOM%.txt"
+>"%TMP_PY%" echo import sys
+>>"%TMP_PY%" echo print(sys.version_info[0]*100+sys.version_info[1])
+"!PY!" "%TMP_PY%" > "%TMP_OUT%"
+set /p PYVER=<"%TMP_OUT%"
+del "%TMP_PY%" "%TMP_OUT%" >nul 2>&1
 if !PYVER! GTR 311 (
     echo ERROR: this environment's Python is too new for the Android build
     echo        ^(python-for-android requires Python 3.11 or lower^). Install
@@ -106,7 +119,13 @@ if !PYVER! GTR 311 (
     exit /b 1
 )
 
-for /f "delims=" %%P in ('"!PY!" -c "import PySide6; print(PySide6.__version__)"') do set "PYSIDE_VER=%%P"
+set "TMP_PY=%TEMP%\jc_pyside_%RANDOM%.py"
+set "TMP_OUT=%TEMP%\jc_out_%RANDOM%.txt"
+>"%TMP_PY%" echo import PySide6
+>>"%TMP_PY%" echo print(PySide6.__version__)
+"!PY!" "%TMP_PY%" > "%TMP_OUT%"
+set /p PYSIDE_VER=<"%TMP_OUT%"
+del "%TMP_PY%" "%TMP_OUT%" >nul 2>&1
 
 if "%PYSIDE6_ANDROID_WHEEL%"=="" (
     echo ERROR: no PySide6 Android wheel found ^(checked %WHEEL_CACHE_DIR%
@@ -130,7 +149,13 @@ echo ==^> Using PySide6 Android wheel: %PYSIDE6_ANDROID_WHEEL%
 echo ==^> Using shiboken6 Android wheel: %SHIBOKEN6_ANDROID_WHEEL%
 
 echo ==^> Installing Android-deploy Python dependencies
-for /f "delims=" %%R in ('"!PY!" -c "import PySide6, os; print(os.path.join(os.path.dirname(PySide6.__file__), 'scripts', 'requirements-android.txt'))"') do set "ANDROID_REQS=%%R"
+set "TMP_PY=%TEMP%\jc_reqs_%RANDOM%.py"
+set "TMP_OUT=%TEMP%\jc_out_%RANDOM%.txt"
+>"%TMP_PY%" echo import PySide6, os
+>>"%TMP_PY%" echo print(os.path.join(os.path.dirname(PySide6.__file__), "scripts", "requirements-android.txt"))
+"!PY!" "%TMP_PY%" > "%TMP_OUT%"
+set /p ANDROID_REQS=<"%TMP_OUT%"
+del "%TMP_PY%" "%TMP_OUT%" >nul 2>&1
 "!PY!" -m pip install -r "!ANDROID_REQS!"
 
 REM pyside6-android-deploy is a console-script entry point installed into
