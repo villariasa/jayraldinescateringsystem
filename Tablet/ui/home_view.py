@@ -394,20 +394,20 @@ class HomeView(QWidget):
         root.setAlignment(Qt.AlignCenter)
 
         # Outer centered container frame matching the screenshot
-        outer_card = QFrame()
-        outer_card.setObjectName("HomeOuterCard")
-        outer_card.setStyleSheet("""
+        self._outer_card = QFrame()
+        self._outer_card.setObjectName("HomeOuterCard")
+        self._outer_card.setStyleSheet("""
             QFrame#HomeOuterCard {
                 background-color: #0F172A;
                 border: 1px solid #1E293B;
                 border-radius: 20px;
             }
         """)
-        outer_card.setMaximumWidth(980)
+        self._outer_card.setMaximumWidth(980)
 
-        card_lay = QVBoxLayout(outer_card)
-        card_lay.setContentsMargins(36, 32, 36, 32)
-        card_lay.setSpacing(24)
+        self._card_lay = QVBoxLayout(self._outer_card)
+        self._card_lay.setContentsMargins(36, 32, 36, 32)
+        self._card_lay.setSpacing(24)
 
         # ── 1. TOP HEADER ──
         header = QHBoxLayout()
@@ -497,7 +497,7 @@ class HomeView(QWidget):
         right_tools.addWidget(shield_btn)
 
         header.addLayout(right_tools)
-        card_lay.addLayout(header)
+        self._card_lay.addLayout(header)
 
         # ── 2. HERO ORDER CARD (EXACT MATCH) ──
         hero_frame = QFrame()
@@ -533,7 +533,6 @@ class HomeView(QWidget):
             border: 1.5px solid #334155;
             border-radius: 16px;
         """)
-        logo_path = Path(__file__).parent.parent / "assets" / "logo.png"
         if logo_path.exists():
             pix = QPixmap(str(logo_path))
             if not pix.isNull():
@@ -580,11 +579,11 @@ class HomeView(QWidget):
         body_row.addLayout(right_col, 1)
 
         hero_lay.addLayout(body_row)
-        card_lay.addWidget(hero_frame)
+        self._card_lay.addWidget(hero_frame)
 
         # ── 3. BOTTOM CARDS (RECENT ORDERS & SYNCED) ──
-        bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(16)
+        self._bottom_row = QHBoxLayout()
+        self._bottom_row.setSpacing(16)
 
         # Card 1: Recent Orders
         self._recent_card = ClickableCard()
@@ -615,7 +614,7 @@ class HomeView(QWidget):
         r_chev.setPixmap(theme.create_chevron_right_icon("#64748B", 18).pixmap(18, 18))
         r_lay.addWidget(r_chev)
         self._recent_card.clicked.connect(self._open_recent_orders_modal)
-        bottom_row.addWidget(self._recent_card, 1)
+        self._bottom_row.addWidget(self._recent_card, 1)
 
         # Card 2: Synced
         self._sync_card = ClickableCard()
@@ -646,10 +645,24 @@ class HomeView(QWidget):
         s_chev.setPixmap(theme.create_chevron_right_icon("#64748B", 18).pixmap(18, 18))
         s_lay.addWidget(s_chev)
         self._sync_card.clicked.connect(self._open_sync_modal)
-        bottom_row.addWidget(self._sync_card, 1)
+        self._bottom_row.addWidget(self._sync_card, 1)
 
-        card_lay.addLayout(bottom_row)
-        root.addWidget(outer_card, alignment=Qt.AlignCenter)
+        self._card_lay.addLayout(self._bottom_row)
+        root.addWidget(self._outer_card, alignment=Qt.AlignCenter)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        w = self.width()
+        is_portrait = w < 768
+        if hasattr(self, "_outer_card") and hasattr(self, "_bottom_row"):
+            if is_portrait:
+                self._outer_card.setMaximumWidth(16777215)
+                self._card_lay.setContentsMargins(16, 20, 16, 20)
+                self._bottom_row.setDirection(QHBoxLayout.TopToBottom)
+            else:
+                self._outer_card.setMaximumWidth(980)
+                self._card_lay.setContentsMargins(36, 32, 36, 32)
+                self._bottom_row.setDirection(QHBoxLayout.LeftToRight)
 
     def reload(self):
         # Update sync label in card

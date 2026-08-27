@@ -356,6 +356,20 @@ class OrderWizard(QWidget):
         self._nav_container.addWidget(container)
         self._nav_widget = container
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        w = self.width()
+        is_portrait = w < 850
+        if hasattr(self, "_split_lay") and hasattr(self, "_cart_card"):
+            if is_portrait:
+                self._split_lay.setDirection(QHBoxLayout.TopToBottom)
+                self._cart_card.setMaximumWidth(16777215)
+                self._cart_card.setMinimumWidth(0)
+            else:
+                self._split_lay.setDirection(QHBoxLayout.LeftToRight)
+                self._cart_card.setMinimumWidth(290)
+                self._cart_card.setMaximumWidth(340)
+
     def _cancel(self):
         if QMessageBox.question(self, "Cancel Order", "Discard this order? Nothing has been saved yet.",
                                 QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:

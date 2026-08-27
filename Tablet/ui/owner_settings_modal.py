@@ -20,7 +20,7 @@ class OwnerSettingsModal(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Owner Settings — Master Data Management")
         self.resize(1000, 680)
-        self.setMinimumSize(850, 580)
+        self.setMinimumSize(480, 450)
         self._build_ui()
 
     def _build_ui(self):
@@ -44,10 +44,24 @@ class OwnerSettingsModal(QDialog):
         header.addStretch()
 
         close_btn = QPushButton("Close")
-        close_btn.setObjectName("Secondary")
         close_btn.setFixedHeight(38)
-        close_btn.setMinimumWidth(90)
+        close_btn.setMinimumWidth(100)
         close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1E293B;
+                color: #CBD5E1;
+                font-size: 13px;
+                font-weight: 700;
+                border-radius: 8px;
+                border: 1px solid #334155;
+                padding: 6px 18px;
+            }
+            QPushButton:hover {
+                background-color: #334155;
+                color: #FFFFFF;
+            }
+        """)
         close_btn.clicked.connect(self.accept)
         header.addWidget(close_btn)
         root.addLayout(header)
@@ -117,6 +131,12 @@ class OwnerSettingsModal(QDialog):
         self._pkg_table.setColumnCount(5)
         self._pkg_table.setHorizontalHeaderLabels(["ID", "Package Name", "Price / Pax (₱)", "Min Pax", "Actions"])
         self._pkg_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self._pkg_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
+        self._pkg_table.setColumnWidth(0, 50)
+        self._pkg_table.setColumnWidth(2, 130)
+        self._pkg_table.setColumnWidth(3, 80)
+        self._pkg_table.setColumnWidth(4, 170)
+        self._pkg_table.verticalHeader().setDefaultSectionSize(46)
         self._pkg_table.verticalHeader().setVisible(False)
         self._pkg_table.setStyleSheet(f"background: {theme.CARD_ELEVATED}; gridline-color: {theme.BORDER}; font-size: 13px;")
         lay.addWidget(self._pkg_table, 1)
@@ -133,20 +153,44 @@ class OwnerSettingsModal(QDialog):
 
             act_w = QWidget()
             al = QHBoxLayout(act_w)
-            al.setContentsMargins(4, 2, 4, 2)
-            al.setSpacing(6)
+            al.setContentsMargins(4, 4, 4, 4)
+            al.setSpacing(8)
 
             edit_btn = QPushButton("Edit")
-            edit_btn.setObjectName("Secondary")
-            edit_btn.setFixedHeight(28)
             edit_btn.setCursor(Qt.PointingHandCursor)
+            edit_btn.setFixedHeight(30)
+            edit_btn.setMinimumWidth(65)
+            edit_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #1E293B;
+                    color: #CBD5E1;
+                    font-size: 12px;
+                    font-weight: 700;
+                    border: 1px solid #334155;
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                }
+                QPushButton:hover { background-color: #334155; color: #FFFFFF; }
+            """)
             edit_btn.clicked.connect(lambda _, pkg=p: self._edit_package_dialog(pkg))
             al.addWidget(edit_btn)
 
             del_btn = QPushButton("Delete")
-            del_btn.setObjectName("Danger")
-            del_btn.setFixedHeight(28)
             del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.setFixedHeight(30)
+            del_btn.setMinimumWidth(65)
+            del_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(239, 68, 68, 0.15);
+                    color: #F87171;
+                    font-size: 12px;
+                    font-weight: 700;
+                    border: 1px solid #EF4444;
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                }
+                QPushButton:hover { background-color: rgba(239, 68, 68, 0.25); }
+            """)
             del_btn.clicked.connect(lambda _, pkg=p: self._delete_package(pkg))
             al.addWidget(del_btn)
 
@@ -285,6 +329,12 @@ class OwnerSettingsModal(QDialog):
         self._menu_table.setColumnCount(5)
         self._menu_table.setHorizontalHeaderLabels(["ID", "Item / Dish Name", "Category", "Add-on Price (₱)", "Actions"])
         self._menu_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self._menu_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
+        self._menu_table.setColumnWidth(0, 50)
+        self._menu_table.setColumnWidth(2, 140)
+        self._menu_table.setColumnWidth(3, 140)
+        self._menu_table.setColumnWidth(4, 170)
+        self._menu_table.verticalHeader().setDefaultSectionSize(46)
         self._menu_table.verticalHeader().setVisible(False)
         self._menu_table.setStyleSheet(f"background: {theme.CARD_ELEVATED}; gridline-color: {theme.BORDER}; font-size: 13px;")
         lay.addWidget(self._menu_table, 1)
@@ -305,20 +355,44 @@ class OwnerSettingsModal(QDialog):
 
             act_w = QWidget()
             al = QHBoxLayout(act_w)
-            al.setContentsMargins(4, 2, 4, 2)
-            al.setSpacing(6)
+            al.setContentsMargins(4, 4, 4, 4)
+            al.setSpacing(8)
 
             edit_btn = QPushButton("Edit")
-            edit_btn.setObjectName("Secondary")
-            edit_btn.setFixedHeight(28)
             edit_btn.setCursor(Qt.PointingHandCursor)
+            edit_btn.setFixedHeight(30)
+            edit_btn.setMinimumWidth(65)
+            edit_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #1E293B;
+                    color: #CBD5E1;
+                    font-size: 12px;
+                    font-weight: 700;
+                    border: 1px solid #334155;
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                }
+                QPushButton:hover { background-color: #334155; color: #FFFFFF; }
+            """)
             edit_btn.clicked.connect(lambda _, item=it: self._edit_menu_dialog(item))
             al.addWidget(edit_btn)
 
             del_btn = QPushButton("Delete")
-            del_btn.setObjectName("Danger")
-            del_btn.setFixedHeight(28)
             del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.setFixedHeight(30)
+            del_btn.setMinimumWidth(65)
+            del_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(239, 68, 68, 0.15);
+                    color: #F87171;
+                    font-size: 12px;
+                    font-weight: 700;
+                    border: 1px solid #EF4444;
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                }
+                QPushButton:hover { background-color: rgba(239, 68, 68, 0.25); }
+            """)
             del_btn.clicked.connect(lambda _, item=it: self._delete_menu_item(item))
             al.addWidget(del_btn)
 
@@ -443,6 +517,11 @@ class OwnerSettingsModal(QDialog):
         self._cust_table.setHorizontalHeaderLabels(["ID", "Customer Name", "Contact", "Address", "Actions"])
         self._cust_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self._cust_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self._cust_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
+        self._cust_table.setColumnWidth(0, 50)
+        self._cust_table.setColumnWidth(2, 130)
+        self._cust_table.setColumnWidth(4, 170)
+        self._cust_table.verticalHeader().setDefaultSectionSize(46)
         self._cust_table.verticalHeader().setVisible(False)
         self._cust_table.setStyleSheet(f"background: {theme.CARD_ELEVATED}; gridline-color: {theme.BORDER}; font-size: 13px;")
         lay.addWidget(self._cust_table, 1)
@@ -460,20 +539,44 @@ class OwnerSettingsModal(QDialog):
 
             act_w = QWidget()
             al = QHBoxLayout(act_w)
-            al.setContentsMargins(4, 2, 4, 2)
-            al.setSpacing(6)
+            al.setContentsMargins(4, 4, 4, 4)
+            al.setSpacing(8)
 
             edit_btn = QPushButton("Edit")
-            edit_btn.setObjectName("Secondary")
-            edit_btn.setFixedHeight(28)
             edit_btn.setCursor(Qt.PointingHandCursor)
+            edit_btn.setFixedHeight(30)
+            edit_btn.setMinimumWidth(65)
+            edit_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #1E293B;
+                    color: #CBD5E1;
+                    font-size: 12px;
+                    font-weight: 700;
+                    border: 1px solid #334155;
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                }
+                QPushButton:hover { background-color: #334155; color: #FFFFFF; }
+            """)
             edit_btn.clicked.connect(lambda _, cust=c: self._edit_customer_dialog(cust))
             al.addWidget(edit_btn)
 
             del_btn = QPushButton("Delete")
-            del_btn.setObjectName("Danger")
-            del_btn.setFixedHeight(28)
             del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.setFixedHeight(30)
+            del_btn.setMinimumWidth(65)
+            del_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(239, 68, 68, 0.15);
+                    color: #F87171;
+                    font-size: 12px;
+                    font-weight: 700;
+                    border: 1px solid #EF4444;
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                }
+                QPushButton:hover { background-color: rgba(239, 68, 68, 0.25); }
+            """)
             del_btn.clicked.connect(lambda _, cust=c: self._delete_customer(cust))
             al.addWidget(del_btn)
 
