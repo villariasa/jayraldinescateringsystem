@@ -29,7 +29,7 @@ Follow these steps to build the Android `.apk` installer using **Google Colab** 
 
 # 3. Create Python 3.11 Virtual Environment & Install Dependencies
 !rm -rf .venv
-!python3.11 -m venv .venv
+!python3.11 -m venv --system-site-packages .venv
 !.venv/bin/pip install --upgrade pip -q
 !.venv/bin/pip install -r requirements.txt -q
 !.venv/bin/pip install buildozer==1.5.0 cython==0.29.33 -q
@@ -51,6 +51,9 @@ fi
 
 # 5. Set Environment Variables
 import os
+os.environ.pop("PIP_USER", None)
+os.environ.pop("PIP_NO_USER", None)
+os.environ["VIRTUAL_ENV"] = "/content/jayraldinescateringsystem/Tablet/.venv"
 os.environ["ANDROID_SDK_ROOT"] = "/root/Android/Sdk"
 os.environ["ANDROID_NDK_ROOT"] = "/root/Android/Sdk/ndk/26.1.10909125"
 os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-17-openjdk-amd64"
