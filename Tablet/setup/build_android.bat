@@ -221,28 +221,17 @@ REM back to running it directly via -m, which works regardless of whether
 REM pip generated the .exe wrapper.
 for %%I in ("!PY!") do set "ENV_SCRIPTS=%%~dpI"
 set "DEPLOY_EXE=!ENV_SCRIPTS!pyside6-android-deploy.exe"
-if not exist "!DEPLOY_EXE!" set "DEPLOY_EXE=!ENV_SCRIPTS!pyside6-deploy.exe"
 set DEPLOY_CMD="!DEPLOY_EXE!"
 if not exist "!DEPLOY_EXE!" (
-    echo ==^> pyside6-android-deploy.exe not found — running python deploy module instead.
-    set DEPLOY_CMD="!PY!" -m PySide6.scripts.deploy
+    echo ==^> pyside6-android-deploy.exe not found — running python android deploy module instead.
+    set DEPLOY_CMD="!PY!" -m PySide6.scripts.android_deploy
 )
 
 echo ==^> Building Android APK (this can take a long time on first run —
 echo     it downloads/builds a Python-for-Android toolchain)
-REM Deliberately NOT passing -c pysidedeploy.spec here: that file in this
-REM project has been hand-edited with another developer's machine-specific
-REM absolute paths (wheel locations, a conda env path) that don't exist on
-REM this machine. Passing all values explicitly via CLI flags avoids
-REM silently falling back to those stale paths.
-REM --name must NOT contain a space — it becomes the p4a distribution's
-REM directory name, and a space in that path breaks the autotools chain
-REM used to cross-compile libffi ("configure: error: C compiler cannot
-REM create executables" — confirmed by reproducing it with a spaced name).
 !DEPLOY_CMD! ^
     --name "JayraldinesCateringTablet" ^
     -f ^
-    --local-libs="python3.11,plugins_platforms_qtforandroid" ^
     --wheel-pyside="%PYSIDE6_ANDROID_WHEEL%" ^
     --wheel-shiboken="%SHIBOKEN6_ANDROID_WHEEL%" ^
     --ndk-path="%ANDROID_NDK_ROOT%" ^
