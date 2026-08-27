@@ -161,7 +161,6 @@ if [ -z "${SHIBOKEN6_ANDROID_WHEEL:-}" ]; then
 fi
 
 EXTRA_ARGS=("-f" "--keep-deployment-files")
-EXTRA_ARGS+=("--ndk-api=24")
 echo "==> Using PySide6 Android wheel: $PYSIDE6_ANDROID_WHEEL"
 EXTRA_ARGS+=("--wheel-pyside=$PYSIDE6_ANDROID_WHEEL")
 echo "==> Using Shiboken6 Android wheel: $SHIBOKEN6_ANDROID_WHEEL"
