@@ -14,9 +14,10 @@ Follow these steps to build the Android `.apk` installer using **Google Colab** 
 # 📱 JAYRALDINE'S CATERING - GOOGLE COLAB APK BUILD SCRIPT
 # ============================================================
 
-# 1. Clean workspace & clone repository
+# 1. Reset working directory to /content first (crucial!)
+%cd /content
 !rm -rf /content/jayraldinescateringsystem
-!git clone https://github.com/villariasa/jayraldinescateringsystem.git /content/jayraldinescateringsystem
+!git clone https://github.com/villariasa/jayraldinescateringsystem.git
 %cd /content/jayraldinescateringsystem/Tablet
 
 # 2. Install Python 3.11, OpenJDK 17, and build utilities
