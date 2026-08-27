@@ -11,7 +11,7 @@ import utils.repository as repo
 import utils.importer as importer
 import utils.exporter as exporter
 from utils.session import get_actor, set_actor
-from ui import theme
+from ui import theme, icons
 from ui.terms_modal import TermsModal
 
 
@@ -61,21 +61,18 @@ class RecentOrdersModal(QDialog):
         header.addWidget(title)
         header.addStretch()
 
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
+        close_btn.setIcon(icons.icon_x("#94A3B8", 16))
         close_btn.setFixedSize(32, 32)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setStyleSheet("""
             QPushButton {
                 background: #1E293B;
-                color: #94A3B8;
-                font-size: 14px;
-                font-weight: bold;
                 border-radius: 16px;
-                border: none;
+                border: 1px solid #334155;
             }
             QPushButton:hover {
                 background: #334155;
-                color: #FFFFFF;
             }
         """)
         close_btn.clicked.connect(self.accept)
@@ -161,21 +158,18 @@ class DataSyncModal(QDialog):
         header.addWidget(title)
         header.addStretch()
 
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
+        close_btn.setIcon(icons.icon_x("#94A3B8", 16))
         close_btn.setFixedSize(32, 32)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setStyleSheet("""
             QPushButton {
                 background: #1E293B;
-                color: #94A3B8;
-                font-size: 14px;
-                font-weight: bold;
                 border-radius: 16px;
-                border: none;
+                border: 1px solid #334155;
             }
             QPushButton:hover {
                 background: #334155;
-                color: #FFFFFF;
             }
         """)
         close_btn.clicked.connect(self.accept)
@@ -192,7 +186,8 @@ class DataSyncModal(QDialog):
         btn_grid = QVBoxLayout()
         btn_grid.setSpacing(10)
 
-        import_btn = QPushButton("📥  Import Master Data (Packages & Menu)")
+        import_btn = QPushButton("  Import Master Data (Packages & Menu)")
+        import_btn.setIcon(theme.create_download_icon("#38BDF8", 18) if hasattr(theme, "create_download_icon") else icons.icon_download("#38BDF8", 18))
         import_btn.setFixedHeight(44)
         import_btn.setCursor(Qt.PointingHandCursor)
         import_btn.setStyleSheet("""
@@ -210,7 +205,8 @@ class DataSyncModal(QDialog):
         import_btn.clicked.connect(self._import_master_data)
         btn_grid.addWidget(import_btn)
 
-        template_btn = QPushButton("📄  Download Excel Menu Template")
+        template_btn = QPushButton("  Download Excel Menu Template")
+        template_btn.setIcon(icons.icon_download("#F59E0B", 18))
         template_btn.setFixedHeight(44)
         template_btn.setCursor(Qt.PointingHandCursor)
         template_btn.setStyleSheet("""
@@ -228,7 +224,8 @@ class DataSyncModal(QDialog):
         template_btn.clicked.connect(self._download_template)
         btn_grid.addWidget(template_btn)
 
-        export_btn = QPushButton("📤  Export Orders for PC Import (.db)")
+        export_btn = QPushButton("  Export Orders for PC Import (.db)")
+        export_btn.setIcon(icons.icon_upload("#10B981", 18))
         export_btn.setFixedHeight(44)
         export_btn.setCursor(Qt.PointingHandCursor)
         export_btn.setStyleSheet("""
@@ -246,7 +243,8 @@ class DataSyncModal(QDialog):
         export_btn.clicked.connect(self._export_orders)
         btn_grid.addWidget(export_btn)
 
-        archive_btn = QPushButton("📦  Archive & Clear Orders (Excel)")
+        archive_btn = QPushButton("  Archive & Clear Orders (Excel)")
+        archive_btn.setIcon(icons.icon_trash("#EF4444", 18))
         archive_btn.setFixedHeight(44)
         archive_btn.setCursor(Qt.PointingHandCursor)
         archive_btn.setStyleSheet("""

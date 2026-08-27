@@ -22,7 +22,7 @@ import utils.repository as repo
 import utils.exporter as exporter
 import utils.terms as terms
 from utils.session import get_actor
-from ui import theme
+from ui import theme, icons
 from ui.step_progress import StepProgress
 from ui.components.address_search import AddressSearchWidget
 
@@ -178,7 +178,7 @@ class OrderWizard(QWidget):
         # Header with Live status indicator
         cart_head = QHBoxLayout()
         cart_head.setContentsMargins(4, 2, 4, 2)
-        cart_title = QLabel("⚡ Live Event Summary")
+        cart_title = QLabel("Live Event Summary")
         cart_title.setStyleSheet("font-size: 14px; font-weight: 800; color: #FFFFFF;")
         cart_head.addWidget(cart_title)
         cart_head.addStretch()
@@ -280,10 +280,11 @@ class OrderWizard(QWidget):
             ph_lay.setSpacing(10)
             ph_lay.setAlignment(Qt.AlignCenter)
 
-            ph_icon = QLabel("🍴")
-            ph_icon.setStyleSheet("font-size: 24px;")
+            ph_icon = QLabel()
+            ph_icon.setFixedSize(36, 36)
             ph_icon.setAlignment(Qt.AlignCenter)
-            ph_lay.addWidget(ph_icon)
+            ph_icon.setPixmap(icons.icon_utensils("#64748B", 28).pixmap(28, 28))
+            ph_lay.addWidget(ph_icon, alignment=Qt.AlignCenter)
 
             ph_text = QLabel("Menu, add-ons, and\ncharges will fill in here as\nyou go through the steps.")
             ph_text.setStyleSheet("font-size: 11px; color: #64748B; line-height: 1.4;")
@@ -390,8 +391,10 @@ class OrderWizard(QWidget):
 
         mode_row = QHBoxLayout()
         mode_row.setSpacing(12)
-        new_btn = QPushButton("👤+ New Customer")
-        existing_btn = QPushButton("🔍 Search Existing Customer")
+        new_btn = QPushButton("New Customer")
+        new_btn.setIcon(icons.icon_user_plus("#FFFFFF", 18))
+        existing_btn = QPushButton("Search Existing Customer")
+        existing_btn.setIcon(icons.icon_search("#94A3B8", 18))
         for b in (new_btn, existing_btn):
             b.setMinimumHeight(48)
             b.setCursor(Qt.PointingHandCursor)
@@ -425,7 +428,7 @@ class OrderWizard(QWidget):
         new_cust_lay = QVBoxLayout(new_cust_widget)
         new_cust_lay.setContentsMargins(0, 0, 0, 0)
         new_cust_lay.setSpacing(10)
-        new_cust_lay.addWidget(self._field_label("👤 CUSTOMER CONTACT DETAILS"))
+        new_cust_lay.addWidget(self._field_label("CUSTOMER CONTACT DETAILS"))
 
         name_in = QLineEdit(self._draft["customer_name"])
         name_in.setPlaceholderText("Customer Full Name *")
@@ -449,7 +452,7 @@ class OrderWizard(QWidget):
         search_cust_lay = QVBoxLayout(search_cust_widget)
         search_cust_lay.setContentsMargins(0, 0, 0, 0)
         search_cust_lay.setSpacing(10)
-        search_cust_lay.addWidget(self._field_label("🔍 SEARCH CUSTOMER DIRECTORY"))
+        search_cust_lay.addWidget(self._field_label("SEARCH CUSTOMER DIRECTORY"))
 
         search_in = QLineEdit()
         search_in.setPlaceholderText("Type name, phone number, or address...")
@@ -467,8 +470,9 @@ class OrderWizard(QWidget):
         lay.addWidget(form_frame)
         lay.addStretch()
 
-        def highlight(btn, active):
+        def highlight(btn, active, is_new=True):
             if active:
+                icon_color = "#FFFFFF"
                 btn.setStyleSheet("""
                     QPushButton {
                         background-color: #F43F5E;
@@ -477,10 +481,12 @@ class OrderWizard(QWidget):
                         font-weight: 800;
                         border-radius: 10px;
                         border: none;
+                        padding: 8px 16px;
                     }
                     QPushButton:hover { background-color: #FB7185; }
                 """)
             else:
+                icon_color = "#94A3B8"
                 btn.setStyleSheet("""
                     QPushButton {
                         background-color: #132238;
@@ -489,21 +495,23 @@ class OrderWizard(QWidget):
                         font-weight: 700;
                         border-radius: 10px;
                         border: 1px solid #1E293B;
+                        padding: 8px 16px;
                     }
                     QPushButton:hover { background-color: #182B46; color: #FFFFFF; border: 1px solid #334155; }
                 """)
+            btn.setIcon(icons.icon_user_plus(icon_color, 18) if is_new else icons.icon_search(icon_color, 18))
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 
         def show_new_mode():
-            highlight(new_btn, True)
-            highlight(existing_btn, False)
+            highlight(new_btn, True, is_new=True)
+            highlight(existing_btn, False, is_new=False)
             new_cust_widget.setVisible(True)
             search_cust_widget.setVisible(False)
 
         def show_search_mode():
-            highlight(new_btn, False)
-            highlight(existing_btn, True)
+            highlight(new_btn, False, is_new=True)
+            highlight(existing_btn, True, is_new=False)
             new_cust_widget.setVisible(False)
             search_cust_widget.setVisible(True)
             do_search()
@@ -570,7 +578,7 @@ class OrderWizard(QWidget):
             })
             self.goto_event_step()
 
-        row, _ = _nav_row(next_cb=next_step, next_label="Next: Package & Event ->")
+        row, _ = _nav_row(next_cb=next_step, next_label="Next: Package & Event >")
         self._set_nav(row)
         self._set_body(page, "Step 1 — Customer Info", "Enter client contact details", step_index=0)
 
@@ -587,14 +595,14 @@ class OrderWizard(QWidget):
         evt_lay = QVBoxLayout(evt_card)
         evt_lay.setContentsMargins(18, 16, 18, 16)
         evt_lay.setSpacing(10)
-        evt_lay.addWidget(self._field_label("🎉 EVENT DATE & LOCATION"))
+        evt_lay.addWidget(self._field_label("EVENT DATE & LOCATION"))
 
         drow = QHBoxLayout()
         drow.setSpacing(12)
 
         dbox = QVBoxLayout()
         dbox.setSpacing(4)
-        dlbl = QLabel("📅 Event Date:")
+        dlbl = QLabel("Event Date:")
         dlbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
         date_edit = QDateEdit()
         date_edit.setCalendarPopup(True)
@@ -607,7 +615,7 @@ class OrderWizard(QWidget):
 
         tbox = QVBoxLayout()
         tbox.setSpacing(4)
-        tlbl = QLabel("🕒 Event Time:")
+        tlbl = QLabel("Event Time:")
         tlbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
         time_edit = QTimeEdit()
         time_edit.setMinimumHeight(44)
@@ -619,7 +627,7 @@ class OrderWizard(QWidget):
 
         pbox = QVBoxLayout()
         pbox.setSpacing(4)
-        plbl = QLabel("👥 Guest Count (Pax):")
+        plbl = QLabel("Guest Count (Pax):")
         plbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
         pax_in = QSpinBox()
         pax_in.setRange(10, 2000)
@@ -630,13 +638,13 @@ class OrderWizard(QWidget):
         drow.addLayout(pbox, 1)
         evt_lay.addLayout(drow)
 
-        venue_widget = AddressSearchWidget(placeholder="📍 Event Venue / Location (Dropdown)...")
+        venue_widget = AddressSearchWidget(placeholder="Event Venue / Location (Dropdown)...")
         if self._draft["venue"]:
             venue_widget.set_value(self._draft["venue"])
         evt_lay.addWidget(venue_widget)
 
         occasion_in = QLineEdit(self._draft["occasion"])
-        occasion_in.setPlaceholderText("🎈 Occasion (e.g. Wedding, Birthday, Corporate Gala)")
+        occasion_in.setPlaceholderText("Occasion (e.g. Wedding, Birthday, Corporate Gala)")
         occasion_in.setMinimumHeight(44)
         evt_lay.addWidget(occasion_in)
         lay.addWidget(evt_card)
@@ -646,7 +654,7 @@ class OrderWizard(QWidget):
         pkg_lay = QVBoxLayout(pkg_card)
         pkg_lay.setContentsMargins(18, 16, 18, 16)
         pkg_lay.setSpacing(10)
-        pkg_lay.addWidget(self._field_label("📦 SELECT BUFFET PACKAGE"))
+        pkg_lay.addWidget(self._field_label("SELECT BUFFET PACKAGE"))
 
         packages = repo.get_packages()
         selected_pkg = {"id": self._draft.get("package_id"), "name": self._draft.get("package_name"), "price_per_pax": 0.0}
@@ -956,7 +964,7 @@ class OrderWizard(QWidget):
         rlay.setContentsMargins(18, 14, 18, 14)
         rlay.setSpacing(10)
 
-        rtitle = QLabel("✨ POPULAR EVENT ADD-ONS & UPGRADES")
+        rtitle = QLabel("POPULAR EVENT ADD-ONS & UPGRADES")
         rtitle.setStyleSheet("font-size: 13px; font-weight: 800; color: #F59E0B; letter-spacing: 0.5px;")
         rlay.addWidget(rtitle)
 
@@ -981,9 +989,10 @@ class OrderWizard(QWidget):
             prc = QLabel(f"₱{r_price:,.2f}")
             prc.setStyleSheet(f"font-size: 13px; font-weight: 800; color: {theme.GOLD};")
 
-            add_rec_btn = QPushButton("+ Add")
+            add_rec_btn = QPushButton(" Add")
+            add_rec_btn.setIcon(icons.icon_plus("#94A3B8", 14))
             add_rec_btn.setObjectName("Secondary")
-            add_rec_btn.setFixedSize(70, 34)
+            add_rec_btn.setFixedSize(78, 34)
             add_rec_btn.setCursor(Qt.PointingHandCursor)
 
             def make_add_rec(name=r_name, amt=r_price):
@@ -1010,7 +1019,7 @@ class OrderWizard(QWidget):
         cform.setSpacing(8)
 
         desc_in = QLineEdit()
-        desc_in.setPlaceholderText("➕ Custom Add-on or Discount Description")
+        desc_in.setPlaceholderText("Custom Add-on or Discount Description")
         desc_in.setMinimumHeight(44)
         amt_in = QDoubleSpinBox()
         amt_in.setRange(-1_000_000, 1_000_000)
@@ -1019,7 +1028,8 @@ class OrderWizard(QWidget):
         amt_in.setFixedWidth(160)
         amt_in.setMinimumHeight(44)
 
-        add_custom_btn = QPushButton("+ Add Custom")
+        add_custom_btn = QPushButton("  Add Custom")
+        add_custom_btn.setIcon(icons.icon_plus("#FFFFFF", 16))
         add_custom_btn.setObjectName("Primary")
         add_custom_btn.setMinimumHeight(44)
         add_custom_btn.setCursor(Qt.PointingHandCursor)
@@ -1050,7 +1060,8 @@ class OrderWizard(QWidget):
                 is_discount = c["amount"] < 0
                 amt_lbl = QLabel(f"- ₱{abs(c['amount']):,.2f}" if is_discount else f"₱{c['amount']:,.2f}")
                 amt_lbl.setStyleSheet(f"font-size: 13px; font-weight: 800; color: {theme.WARNING if is_discount else theme.SUCCESS};")
-                del_btn = QPushButton("Remove")
+                del_btn = QPushButton(" Remove")
+                del_btn.setIcon(icons.icon_trash("#F87171", 14))
                 del_btn.setObjectName("Danger")
                 del_btn.setCursor(Qt.PointingHandCursor)
 
@@ -1104,7 +1115,7 @@ class OrderWizard(QWidget):
         slay.setContentsMargins(20, 16, 20, 16)
         slay.setSpacing(6)
 
-        stitle = QLabel("💳 BILLING BREAKDOWN")
+        stitle = QLabel("BILLING BREAKDOWN")
         stitle.setStyleSheet(f"font-size: 13px; font-weight: 800; color: {theme.GOLD}; letter-spacing: 0.5px;")
         slay.addWidget(stitle)
 
@@ -1134,11 +1145,13 @@ class OrderWizard(QWidget):
         preset_row.setSpacing(10)
 
         dp_preset_btn = QPushButton(f"50% Downpayment (₱{req_downpayment:,.2f})")
+        dp_preset_btn.setIcon(icons.icon_credit_card("#94A3B8", 16))
         dp_preset_btn.setObjectName("Secondary")
         dp_preset_btn.setMinimumHeight(48)
         dp_preset_btn.setCursor(Qt.PointingHandCursor)
 
         full_preset_btn = QPushButton(f"Fully Paid (₱{total:,.2f})")
+        full_preset_btn.setIcon(icons.icon_check("#10B981", 16))
         full_preset_btn.setObjectName("Secondary")
         full_preset_btn.setMinimumHeight(48)
         full_preset_btn.setCursor(Qt.PointingHandCursor)
@@ -1251,6 +1264,9 @@ class OrderWizard(QWidget):
         lay.addStretch()
 
         row_nav, _ = _nav_row(back_cb=self.goto_billing_step, next_cb=self._confirm_order, next_label="Confirm & Place Order >")
+        confirm_btn = row_nav.itemAt(row_nav.count() - 1).widget()
+        if isinstance(confirm_btn, QPushButton):
+            confirm_btn.setIcon(icons.icon_check("#FFFFFF", 18))
         self._set_nav(row_nav)
         self._set_body(page, "Step 6 — Order Review", "Verify event details and confirm order", step_index=5)
 
@@ -1303,14 +1319,16 @@ class OrderWizard(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
-        print_btn = QPushButton("Print / Save Receipt PDF")
+        print_btn = QPushButton("  Print / Save Receipt PDF")
+        print_btn.setIcon(icons.icon_download("#FFFFFF", 18))
         print_btn.setObjectName("Primary")
         print_btn.setMinimumHeight(54)
         print_btn.setCursor(Qt.PointingHandCursor)
         print_btn.clicked.connect(self._print_receipt)
         btn_row.addWidget(print_btn)
 
-        done_btn = QPushButton("Done — Back to Home")
+        done_btn = QPushButton("  Done — Back to Home")
+        done_btn.setIcon(icons.icon_check("#94A3B8", 18))
         done_btn.setObjectName("Secondary")
         done_btn.setMinimumHeight(54)
         done_btn.setCursor(Qt.PointingHandCursor)

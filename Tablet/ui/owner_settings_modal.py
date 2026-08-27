@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QColor
 
 import utils.repository as repo
-from ui import theme
+from ui import theme, icons
 
 
 class OwnerSettingsModal(QDialog):
@@ -118,7 +118,8 @@ class OwnerSettingsModal(QDialog):
         top_row.addWidget(lbl)
         top_row.addStretch()
 
-        add_btn = QPushButton("+ Add New Package")
+        add_btn = QPushButton("  Add New Package")
+        add_btn.setIcon(icons.icon_plus("#FFFFFF", 16))
         add_btn.setObjectName("Primary")
         add_btn.setFixedHeight(38)
         add_btn.setCursor(Qt.PointingHandCursor)
@@ -156,7 +157,8 @@ class OwnerSettingsModal(QDialog):
             al.setContentsMargins(4, 4, 4, 4)
             al.setSpacing(8)
 
-            edit_btn = QPushButton("Edit")
+            edit_btn = QPushButton(" Edit")
+            edit_btn.setIcon(icons.icon_edit("#94A3B8", 14))
             edit_btn.setCursor(Qt.PointingHandCursor)
             edit_btn.setFixedHeight(30)
             edit_btn.setMinimumWidth(65)
@@ -175,7 +177,8 @@ class OwnerSettingsModal(QDialog):
             edit_btn.clicked.connect(lambda _, pkg=p: self._edit_package_dialog(pkg))
             al.addWidget(edit_btn)
 
-            del_btn = QPushButton("Delete")
+            del_btn = QPushButton(" Delete")
+            del_btn.setIcon(icons.icon_trash("#F87171", 14))
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.setFixedHeight(30)
             del_btn.setMinimumWidth(65)
@@ -316,7 +319,8 @@ class OwnerSettingsModal(QDialog):
         top_row.addWidget(self._cat_combo)
         top_row.addStretch()
 
-        add_btn = QPushButton("+ Add Menu Item")
+        add_btn = QPushButton("  Add Menu Item")
+        add_btn.setIcon(icons.icon_plus("#FFFFFF", 16))
         add_btn.setObjectName("Primary")
         add_btn.setFixedHeight(38)
         add_btn.setCursor(Qt.PointingHandCursor)
@@ -358,7 +362,8 @@ class OwnerSettingsModal(QDialog):
             al.setContentsMargins(4, 4, 4, 4)
             al.setSpacing(8)
 
-            edit_btn = QPushButton("Edit")
+            edit_btn = QPushButton(" Edit")
+            edit_btn.setIcon(icons.icon_edit("#94A3B8", 14))
             edit_btn.setCursor(Qt.PointingHandCursor)
             edit_btn.setFixedHeight(30)
             edit_btn.setMinimumWidth(65)
@@ -377,7 +382,8 @@ class OwnerSettingsModal(QDialog):
             edit_btn.clicked.connect(lambda _, item=it: self._edit_menu_dialog(item))
             al.addWidget(edit_btn)
 
-            del_btn = QPushButton("Delete")
+            del_btn = QPushButton(" Delete")
+            del_btn.setIcon(icons.icon_trash("#F87171", 14))
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.setFixedHeight(30)
             del_btn.setMinimumWidth(65)
@@ -503,7 +509,8 @@ class OwnerSettingsModal(QDialog):
         self._cust_search.textChanged.connect(self._reload_customers)
         top_row.addWidget(self._cust_search, 1)
 
-        add_btn = QPushButton("+ Add Customer")
+        add_btn = QPushButton("  Add Customer")
+        add_btn.setIcon(icons.icon_plus("#FFFFFF", 16))
         add_btn.setObjectName("Primary")
         add_btn.setFixedHeight(38)
         add_btn.setCursor(Qt.PointingHandCursor)
@@ -542,7 +549,8 @@ class OwnerSettingsModal(QDialog):
             al.setContentsMargins(4, 4, 4, 4)
             al.setSpacing(8)
 
-            edit_btn = QPushButton("Edit")
+            edit_btn = QPushButton(" Edit")
+            edit_btn.setIcon(icons.icon_edit("#94A3B8", 14))
             edit_btn.setCursor(Qt.PointingHandCursor)
             edit_btn.setFixedHeight(30)
             edit_btn.setMinimumWidth(65)
@@ -561,7 +569,8 @@ class OwnerSettingsModal(QDialog):
             edit_btn.clicked.connect(lambda _, cust=c: self._edit_customer_dialog(cust))
             al.addWidget(edit_btn)
 
-            del_btn = QPushButton("Delete")
+            del_btn = QPushButton(" Delete")
+            del_btn.setIcon(icons.icon_trash("#F87171", 14))
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.setFixedHeight(30)
             del_btn.setMinimumWidth(65)

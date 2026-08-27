@@ -2,7 +2,7 @@
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QFrame
 from PySide6.QtCore import Qt
 
-from ui import theme
+from ui import theme, icons
 
 STEPS = ["Customer", "Event & Package", "Menu", "Charges", "Billing", "Preview"]
 
@@ -54,9 +54,9 @@ class StepProgress(QWidget):
         for i, (num_lbl, text_lbl) in enumerate(self._labels):
             if i < index:
                 num_lbl.setStyleSheet(
-                    "background: #10B981; color: white; border-radius: 14px; font-weight: 800; font-size: 13px;"
+                    "background: #10B981; color: white; border-radius: 14px;"
                 )
-                num_lbl.setText("✓")
+                num_lbl.setPixmap(icons.icon_check("#FFFFFF", 16).pixmap(16, 16))
                 text_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10B981;")
             elif i == index:
                 num_lbl.setStyleSheet(
