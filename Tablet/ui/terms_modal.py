@@ -6,11 +6,11 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QTextBrowser, QFrame, QGraphicsOpacityEffect, QWidget
 )
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer
 from PySide6.QtGui import QColor
 
 import utils.terms as terms
-from ui import theme
+from ui import theme, icons
 
 
 class TermsModal(QDialog):
@@ -23,6 +23,7 @@ class TermsModal(QDialog):
         self.setModal(True)
         self.resize(880, 680)
 
+        self._has_scrolled_to_bottom = False
         self._build_ui()
         self._setup_animation()
 
@@ -45,7 +46,7 @@ class TermsModal(QDialog):
         
         card_lay = QVBoxLayout(card)
         card_lay.setContentsMargins(32, 28, 32, 28)
-        card_lay.setSpacing(16)
+        card_lay.setSpacing(14)
 
         # Header Badge & Title
         header_lay = QVBoxLayout()
@@ -71,15 +72,15 @@ class TermsModal(QDialog):
         h1.setStyleSheet("font-size: 22px; font-weight: 800; color: #FFFFFF;")
         header_lay.addWidget(h1)
 
-        sub = QLabel("Please review the catering service guidelines below before creating your order.")
+        sub = QLabel("Please review and scroll through the catering service guidelines below before placing your order.")
         sub.setStyleSheet(f"font-size: 13px; color: {theme.TEXT_MUTED};")
         header_lay.addWidget(sub)
         card_lay.addLayout(header_lay)
 
         # Scrollable Terms Content
-        terms_view = QTextBrowser()
-        terms_view.setFrameShape(QFrame.NoFrame)
-        terms_view.setStyleSheet(f"""
+        self._terms_view = QTextBrowser()
+        self._terms_view.setFrameShape(QFrame.NoFrame)
+        self._terms_view.setStyleSheet(f"""
             QTextBrowser {{
                 background-color: {theme.CARD_ELEVATED};
                 border: 1.5px solid {theme.BORDER};
@@ -92,24 +93,33 @@ class TermsModal(QDialog):
         """)
 
         html_body = terms.TERMS_TEXT.strip().replace("\n\n", "</p><p>").replace("\n", "<br>")
-        terms_view.setHtml(
+        self._terms_view.setHtml(
             f"<div style='font-family:Segoe UI, sans-serif; color:#E2E8F0;'>"
             f"<h3 style='color:#F59E0B; margin-top:0;'>{terms.TERMS_TITLE}</h3>"
             f"<p>{html_body}</p>"
             f"<p style='color:{theme.TEXT_FAINT}; font-size:11px; margin-top:14px;'>Terms & Service Information Version {terms.CURRENT_TERMS_VERSION}</p>"
             f"</div>"
         )
-        card_lay.addWidget(terms_view, 1)
+        card_lay.addWidget(self._terms_view, 1)
 
-        # Checkbox Agreement
+        # Scroll helper hint
+        self._hint_lbl = QLabel("Please scroll to the bottom of the terms agreement to enable acceptance.")
+        self._hint_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #F59E0B;")
+        card_lay.addWidget(self._hint_lbl)
+
+        # Checkbox Agreement (Initially disabled until scrolled)
         self._ack_cb = QCheckBox(terms.TERMS_ACKNOWLEDGEMENT_LABEL)
+        self._ack_cb.setEnabled(False)
         self._ack_cb.setStyleSheet("""
             QCheckBox {
                 font-size: 14px;
                 font-weight: 700;
                 color: #FFFFFF;
                 spacing: 12px;
-                padding: 6px 0;
+                padding: 4px 0;
+            }
+            QCheckBox:disabled {
+                color: #64748B;
             }
             QCheckBox::indicator {
                 width: 24px;
@@ -117,6 +127,10 @@ class TermsModal(QDialog):
                 border-radius: 6px;
                 border: 2px solid #F59E0B;
                 background: #1A2438;
+            }
+            QCheckBox::indicator:disabled {
+                border: 2px solid #334155;
+                background: #0F172A;
             }
             QCheckBox::indicator:checked {
                 background: #F59E0B;
@@ -126,11 +140,16 @@ class TermsModal(QDialog):
         self._ack_cb.setCursor(Qt.PointingHandCursor)
         card_lay.addWidget(self._ack_cb)
 
+        # Connect scrollbar to check when bottom is reached
+        vbar = self._terms_view.verticalScrollBar()
+        vbar.valueChanged.connect(self._on_scroll)
+
         # Bottom Button Row
         btn_row = QHBoxLayout()
         btn_row.setSpacing(14)
 
-        cancel_btn = QPushButton("Cancel / Go Back")
+        cancel_btn = QPushButton("  Cancel / Go Back")
+        cancel_btn.setIcon(icons.icon_x("#94A3B8", 16))
         cancel_btn.setObjectName("Secondary")
         cancel_btn.setMinimumHeight(48)
         cancel_btn.setMinimumWidth(160)
@@ -140,7 +159,8 @@ class TermsModal(QDialog):
 
         btn_row.addStretch()
 
-        self._accept_btn = QPushButton("I Agree & Start Order ->")
+        self._accept_btn = QPushButton("  I Agree & Start Order  >")
+        self._accept_btn.setIcon(icons.icon_check("#FFFFFF", 16))
         self._accept_btn.setObjectName("Primary")
         self._accept_btn.setMinimumHeight(50)
         self._accept_btn.setMinimumWidth(240)
@@ -171,6 +191,20 @@ class TermsModal(QDialog):
         card_lay.addLayout(btn_row)
         backdrop.addWidget(card)
 
+    def _on_scroll(self, value: int):
+        if self._has_scrolled_to_bottom:
+            return
+        vbar = self._terms_view.verticalScrollBar()
+        # Enable if at bottom (within 15px margin) or if no scrollbar is required
+        if vbar.maximum() <= 0 or value >= vbar.maximum() - 15:
+            self._unlock_checkbox()
+
+    def _unlock_checkbox(self):
+        self._has_scrolled_to_bottom = True
+        self._ack_cb.setEnabled(True)
+        self._hint_lbl.setText("You have reviewed the full agreement. Please check the box above to continue.")
+        self._hint_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #10B981;")
+
     def _setup_animation(self):
         self._opacity_effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self._opacity_effect)
@@ -183,3 +217,11 @@ class TermsModal(QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         self._anim.start()
+        # Delayed check in case content fits completely without scrollbar
+        QTimer.singleShot(150, self._check_initial_scroll)
+
+    def _check_initial_scroll(self):
+        if not self._has_scrolled_to_bottom:
+            vbar = self._terms_view.verticalScrollBar()
+            if vbar.maximum() <= 0:
+                self._unlock_checkbox()
