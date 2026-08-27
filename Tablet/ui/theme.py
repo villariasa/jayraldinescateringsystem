@@ -171,7 +171,7 @@ STATUS_COLORS = {"Paid": SUCCESS, "Partial": WARNING, "Unpaid": DANGER}
 
 def create_fullscreen_icon(color: str = "#E2E8F0", size: int = 24) -> "QIcon":
     from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QIcon
-    from PySide6.QtCore import Qt, QSize
+    from PySide6.QtCore import Qt
     pix = QPixmap(size, size)
     pix.fill(Qt.transparent)
     painter = QPainter(pix)
@@ -197,5 +197,95 @@ def create_fullscreen_icon(color: str = "#E2E8F0", size: int = 24) -> "QIcon":
 
     painter.end()
     return QIcon(pix)
+
+
+def create_shield_icon(color: str = "#94A3B8", size: int = 24) -> "QIcon":
+    from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QIcon, QPainterPath
+    from PySide6.QtCore import Qt
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(color), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    painter.setPen(pen)
+
+    path = QPainterPath()
+    path.moveTo(size * 0.5, size * 0.15)
+    path.lineTo(size * 0.85, size * 0.28)
+    path.quadTo(size * 0.85, size * 0.65, size * 0.5, size * 0.88)
+    path.quadTo(size * 0.15, size * 0.65, size * 0.15, size * 0.28)
+    path.closeSubpath()
+    painter.drawPath(path)
+    painter.end()
+    return QIcon(pix)
+
+
+def create_clock_icon(color: str = "#94A3B8", size: int = 24) -> "QIcon":
+    from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QIcon
+    from PySide6.QtCore import Qt
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(color), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    painter.setPen(pen)
+
+    m = size * 0.15
+    s = size - 2 * m
+    painter.drawEllipse(m, m, s, s)
+    center = size * 0.5
+    painter.drawLine(center, center, center, size * 0.3)
+    painter.drawLine(center, center, size * 0.68, center)
+    painter.end()
+    return QIcon(pix)
+
+
+def create_sync_icon(color: str = "#10B981", size: int = 24) -> "QIcon":
+    from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QIcon, QPainterPath
+    from PySide6.QtCore import Qt
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(color), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    painter.setPen(pen)
+
+    # Top arc
+    path1 = QPainterPath()
+    path1.arcMoveTo(size * 0.18, size * 0.18, size * 0.64, size * 0.64, 45)
+    path1.arcTo(size * 0.18, size * 0.18, size * 0.64, size * 0.64, 45, 120)
+    painter.drawPath(path1)
+    # Top arrow
+    painter.drawLine(size * 0.72, size * 0.28, size * 0.78, size * 0.40)
+    painter.drawLine(size * 0.72, size * 0.28, size * 0.58, size * 0.32)
+
+    # Bottom arc
+    path2 = QPainterPath()
+    path2.arcMoveTo(size * 0.18, size * 0.18, size * 0.64, size * 0.64, 225)
+    path2.arcTo(size * 0.18, size * 0.18, size * 0.64, size * 0.64, 225, 120)
+    painter.drawPath(path2)
+    # Bottom arrow
+    painter.drawLine(size * 0.28, size * 0.72, size * 0.22, size * 0.60)
+    painter.drawLine(size * 0.28, size * 0.72, size * 0.42, size * 0.68)
+
+    painter.end()
+    return QIcon(pix)
+
+
+def create_chevron_right_icon(color: str = "#64748B", size: int = 20) -> "QIcon":
+    from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QIcon
+    from PySide6.QtCore import Qt
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(color), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    painter.setPen(pen)
+
+    painter.drawLine(size * 0.38, size * 0.25, size * 0.62, size * 0.5)
+    painter.drawLine(size * 0.62, size * 0.5, size * 0.38, size * 0.75)
+    painter.end()
+    return QIcon(pix)
+
 
 
