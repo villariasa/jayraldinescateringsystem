@@ -25,7 +25,7 @@ Follow these steps to build the Android `.apk` installer using **Google Colab** 
 !apt-get install -y -qq software-properties-common
 !add-apt-repository -y ppa:deadsnakes/ppa
 !apt-get update -qq
-!apt-get install -y -qq python3.11 python3.11-venv python3.11-dev openjdk-17-jdk autoconf automake libtool zlib1g-dev rsync unzip curl
+!apt-get install -y -qq build-essential pkg-config libffi-dev cmake git python3.11 python3.11-venv python3.11-dev openjdk-17-jdk autoconf automake libtool zlib1g-dev rsync unzip curl
 
 # 3. Create Python 3.11 Virtual Environment & Install Dependencies
 !rm -rf .venv
@@ -55,11 +55,14 @@ os.environ.pop("PIP_USER", None)
 os.environ.pop("PIP_NO_USER", None)
 os.environ["VIRTUAL_ENV"] = "/content/jayraldinescateringsystem/Tablet/.venv"
 os.environ["ANDROID_SDK_ROOT"] = "/root/Android/Sdk"
+os.environ["ANDROIDSDK"] = "/root/Android/Sdk"
 os.environ["ANDROID_NDK_ROOT"] = "/root/Android/Sdk/ndk/25.2.9519653"
+os.environ["ANDROIDNDK"] = "/root/Android/Sdk/ndk/25.2.9519653"
 os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-17-openjdk-amd64"
 os.environ["PATH"] = f"/root/Android/Sdk/cmdline-tools/latest/bin:/content/jayraldinescateringsystem/Tablet/.venv/bin:/usr/lib/jvm/java-17-openjdk-amd64/bin:{os.environ['PATH']}"
 
-# 6. Build Android APK
+# 6. Clean build cache and build Android APK
+!rm -rf /content/jayraldinescateringsystem/Tablet/.buildozer
 !bash setup/build_android.sh
 
 # 7. Auto-download the finished APK installer
