@@ -220,8 +220,9 @@ REM absolute paths (wheel locations, a conda env path) that don't exist on
 REM this machine. Passing all values explicitly via CLI flags avoids
 REM silently falling back to those stale paths.
 !DEPLOY_CMD! ^
-    --name "JayraldinesCateringTablet" ^
+    --name "Jayraldines Catering" ^
     -f ^
+    --local-libs="python3.11,plugins_platforms_qtforandroid" ^
     --wheel-pyside="%PYSIDE6_ANDROID_WHEEL%" ^
     --wheel-shiboken="%SHIBOKEN6_ANDROID_WHEEL%" ^
     --ndk-path="%ANDROID_NDK_ROOT%" ^

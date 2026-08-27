@@ -148,7 +148,7 @@ if [ -z "${SHIBOKEN6_ANDROID_WHEEL:-}" ]; then
     export SHIBOKEN6_ANDROID_WHEEL
 fi
 
-EXTRA_ARGS=("-f" "--keep-deployment-files")
+EXTRA_ARGS=("-f" "--keep-deployment-files" "--local-libs=python3.11,plugins_platforms_qtforandroid")
 echo "==> Using PySide6 Android wheel: $PYSIDE6_ANDROID_WHEEL"
 EXTRA_ARGS+=("--wheel-pyside=$PYSIDE6_ANDROID_WHEEL")
 echo "==> Using Shiboken6 Android wheel: $SHIBOKEN6_ANDROID_WHEEL"
@@ -253,7 +253,7 @@ fi
 echo "==> Building Android APK (this can take a long time on first run —"
 echo "    it downloads/builds a Python-for-Android toolchain)"
 "$DEPLOY_EXE" \
-    --name "JayraldinesCateringTablet" \
+    --name "Jayraldines Catering" \
     "${EXTRA_ARGS[@]}"
 
 echo "==> Done. Look for the generated .apk under $APP_DIR (path reported above)."

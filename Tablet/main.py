@@ -54,7 +54,7 @@ except Exception:
 # Created immediately so a crash dialog can be shown regardless of where in
 # startup something fails — staff on the tablet see the error on screen.
 app = QApplication(sys.argv)
-app.setApplicationName("Jayraldine's Catering Tablet")
+app.setApplicationName("Jayraldine's Catering")
 
 
 def _show_crash_dialog(title: str, summary: str, details: str) -> None:

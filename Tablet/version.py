@@ -7,8 +7,8 @@ Semantic versioning: MAJOR.MINOR.PATCH
 - PATCH: bug fixes only.
 """
 
-APP_NAME = "Jayraldine's Catering - Tablet"
-APP_ID = "com.jayraldines.catering.tablet"
+APP_NAME = "Jayraldines Catering"
+APP_ID = "com.jayraldines.catering"
 
 VERSION_MAJOR = 0
 VERSION_MINOR = 1

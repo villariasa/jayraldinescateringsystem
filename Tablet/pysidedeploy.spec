@@ -1,7 +1,7 @@
 [app]
 
 # title of your application
-title = JayraldinesCateringTablet
+title = Jayraldines Catering
 
 # project root directory. default = The parent directory of input_file
 project_dir = .
@@ -81,7 +81,7 @@ ndk_path = /home/villarias/.pyside6_android_deploy/android-ndk/android-ndk-r27c
 sdk_path = /home/villarias/.buildozer/android/platform/android-sdk
 
 # other libraries to be loaded at app startup. comma separated.
-local_libs = plugins_platforms_qtforandroid
+local_libs = python3.11,plugins_platforms_qtforandroid
 
 # architecture of deployed platform
 arch = aarch64
