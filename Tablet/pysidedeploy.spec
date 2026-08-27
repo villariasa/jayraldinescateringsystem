@@ -1,7 +1,7 @@
 [app]
 
 # title of your application
-title = Jayraldines Catering
+title = JayraldinesCateringTablet
 
 # project root directory. default = The parent directory of input_file
 project_dir = .
@@ -35,7 +35,7 @@ qml_files =
 excluded_qml_plugins = 
 
 # qt modules used. comma separated
-modules = Gui,Widgets,Core
+modules = Widgets,Core,Gui
 
 # qt plugins used by the application
 plugins = 
@@ -43,10 +43,10 @@ plugins =
 [android]
 
 # path to pyside wheel
-wheel_pyside = 
+wheel_pyside = /home/villarias/.cache/pyside6_wheels/PySide6-6.9.3-6.9.3-cp311-cp311-android_aarch64.whl
 
 # path to shiboken wheel
-wheel_shiboken = 
+wheel_shiboken = /home/villarias/.cache/pyside6_wheels/shiboken6-6.9.3-6.9.3-cp311-cp311-android_aarch64.whl
 
 # plugins to be copied to libs folder of the packaged application. comma separated
 plugins = platforms_qtforandroid
@@ -69,16 +69,16 @@ extra_args = --quiet --noinclude-qt-translations
 mode = debug
 
 # path to pyside6 and shiboken6 recipe dir
-recipe_dir = deployment/recipes
+recipe_dir = /home/villarias/Projects/jayraldinescateringsystem/Tablet/deployment/recipes
 
 # path to extra qt android .jar files to be loaded by the application
-jars_dir = deployment/jar/PySide6/jar
+jars_dir = /home/villarias/Projects/jayraldinescateringsystem/Tablet/deployment/jar/PySide6/jar
 
 # if empty, uses default ndk path downloaded by buildozer
-ndk_path = 
+ndk_path = /home/villarias/.pyside6_android_deploy/android-ndk/android-ndk-r27c
 
 # if empty, uses default sdk path downloaded by buildozer
-sdk_path = 
+sdk_path = /home/villarias/.buildozer/android/platform/android-sdk
 
 # other libraries to be loaded at app startup. comma separated.
 local_libs = python3.11,plugins_platforms_qtforandroid

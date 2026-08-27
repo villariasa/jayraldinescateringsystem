@@ -10,24 +10,12 @@ from pythonforandroid.logger import info
 from pythonforandroid.recipe import PythonRecipe
 
 
-import os
-
 class ShibokenRecipe(PythonRecipe):
     version = '6.9.3'
+    wheel_path = '/home/villarias/.cache/pyside6_wheels/shiboken6-6.9.3-6.9.3-cp311-cp311-android_aarch64.whl'
 
     call_hostpython_via_targetpython = False
     install_in_hostpython = False
-
-    @property
-    def wheel_path(self):
-        env_path = os.environ.get("SHIBOKEN6_ANDROID_WHEEL")
-        if env_path and os.path.exists(env_path):
-            return env_path
-        cache_dir = Path.home() / ".cache" / "pyside6_wheels"
-        wheels = list(cache_dir.glob("shiboken6*.whl"))
-        if wheels:
-            return str(wheels[0])
-        return ""
 
     def build_arch(self, arch):
         ''' Unzip the wheel and copy into site-packages of target'''
