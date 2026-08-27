@@ -160,7 +160,7 @@ if [ -z "${SHIBOKEN6_ANDROID_WHEEL:-}" ]; then
     export SHIBOKEN6_ANDROID_WHEEL
 fi
 
-EXTRA_ARGS=("-f" "--keep-deployment-files" "--local-libs=python3.11,plugins_platforms_qtforandroid")
+EXTRA_ARGS=("-f" "--keep-deployment-files")
 echo "==> Using PySide6 Android wheel: $PYSIDE6_ANDROID_WHEEL"
 EXTRA_ARGS+=("--wheel-pyside=$PYSIDE6_ANDROID_WHEEL")
 echo "==> Using Shiboken6 Android wheel: $SHIBOKEN6_ANDROID_WHEEL"
