@@ -95,15 +95,15 @@ if [ -z "${ANDROID_NDK_ROOT:-}" ]; then
         fi
     fi
     if [ -z "${ANDROID_NDK_ROOT:-}" ]; then
-        echo "==> ANDROID_NDK_ROOT not found. Auto-downloading Android NDK r26b (~600MB)..."
-        NDK_DIR="$HOME/Android/Sdk/ndk/26.1.10909125"
+        echo "==> ANDROID_NDK_ROOT not found. Auto-downloading Android NDK r25b (~600MB)..."
+        NDK_DIR="$HOME/Android/Sdk/ndk/25.2.9519653"
         mkdir -p "$HOME/Android/Sdk/ndk"
-        if curl -sL --fail -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-r26b-linux.zip"; then
+        if curl -sL --fail -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"; then
             unzip -q -o /tmp/ndk.zip -d "$HOME/Android/Sdk/ndk"
-            [ -d "$HOME/Android/Sdk/ndk/android-ndk-r26b" ] && mv "$HOME/Android/Sdk/ndk/android-ndk-r26b" "$NDK_DIR"
+            [ -d "$HOME/Android/Sdk/ndk/android-ndk-r25b" ] && mv "$HOME/Android/Sdk/ndk/android-ndk-r25b" "$NDK_DIR"
             rm -f /tmp/ndk.zip
             export ANDROID_NDK_ROOT="$NDK_DIR"
-            echo "==> Android NDK r26b installed to $NDK_DIR"
+            echo "==> Android NDK r25b installed to $NDK_DIR"
         fi
     fi
 fi

@@ -43,10 +43,10 @@ plugins =
 [android]
 
 # path to pyside wheel
-wheel_pyside = /home/villarias/.cache/pyside6_wheels/PySide6-6.9.3-6.9.3-cp311-cp311-android_aarch64.whl
+wheel_pyside = 
 
 # path to shiboken wheel
-wheel_shiboken = /home/villarias/.cache/pyside6_wheels/shiboken6-6.9.3-6.9.3-cp311-cp311-android_aarch64.whl
+wheel_shiboken = 
 
 # plugins to be copied to libs folder of the packaged application. comma separated
 plugins = platforms_qtforandroid
@@ -69,16 +69,16 @@ extra_args = --quiet --noinclude-qt-translations
 mode = debug
 
 # path to pyside6 and shiboken6 recipe dir
-recipe_dir = /home/villarias/Projects/jayraldinescateringsystem/Tablet/deployment/recipes
+recipe_dir = deployment/recipes
 
 # path to extra qt android .jar files to be loaded by the application
-jars_dir = /home/villarias/Projects/jayraldinescateringsystem/Tablet/deployment/jar/PySide6/jar
+jars_dir = deployment/jar/PySide6/jar
 
 # if empty, uses default ndk path downloaded by buildozer
-ndk_path = /home/villarias/.pyside6_android_deploy/android-ndk/android-ndk-r27c
+ndk_path = 
 
 # if empty, uses default sdk path downloaded by buildozer
-sdk_path = /home/villarias/.buildozer/android/platform/android-sdk
+sdk_path = 
 
 # other libraries to be loaded at app startup. comma separated.
 local_libs = python3.11,plugins_platforms_qtforandroid
