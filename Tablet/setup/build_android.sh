@@ -249,7 +249,22 @@ fi
 P4A_DIR="$APP_DIR/.buildozer/android/platform/python-for-android"
 if [ ! -d "$P4A_DIR" ]; then
     mkdir -p "$APP_DIR/.buildozer/android/platform"
+    git clone -b master --single-branch https://github.com/kivy/python-for-android.git "$P4A_DIR" || \
     git clone -b develop --single-branch https://github.com/kivy/python-for-android.git "$P4A_DIR"
+fi
+
+P4A_PYTHON3_RECIPE="$P4A_DIR/pythonforandroid/recipes/python3/__init__.py"
+if [ -f "$P4A_PYTHON3_RECIPE" ]; then
+    "$PY" -c '
+import re
+path = "'"$P4A_PYTHON3_RECIPE"'"
+with open(path, "r") as f:
+    content = f.read()
+# Force python3 recipe to 3.11.9 so libpython3.11.so is built for PySide6
+content = re.sub(r"version = [^\n]+", "version = '\''3.11.9'\''", content, count=1)
+with open(path, "w") as f:
+    f.write(content)
+'
 fi
 
 P4A_HOSTPYTHON_RECIPE="$P4A_DIR/pythonforandroid/recipes/hostpython3/__init__.py"
