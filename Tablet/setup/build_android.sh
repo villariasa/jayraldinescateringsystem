@@ -161,6 +161,7 @@ if [ -z "${SHIBOKEN6_ANDROID_WHEEL:-}" ]; then
 fi
 
 EXTRA_ARGS=("-f" "--keep-deployment-files")
+EXTRA_ARGS+=("--ndk-api=24")
 echo "==> Using PySide6 Android wheel: $PYSIDE6_ANDROID_WHEEL"
 EXTRA_ARGS+=("--wheel-pyside=$PYSIDE6_ANDROID_WHEEL")
 echo "==> Using Shiboken6 Android wheel: $SHIBOKEN6_ANDROID_WHEEL"
@@ -265,6 +266,21 @@ if modified:
 '
 fi
 
+P4A_LIBFFI_RECIPE="$P4A_DIR/pythonforandroid/recipes/libffi/__init__.py"
+if [ -f "$P4A_LIBFFI_RECIPE" ]; then
+    "$PY" -c '
+path = "'"$P4A_LIBFFI_RECIPE"'"
+with open(path, "r") as f:
+    content = f.read()
+if "-fuse-ld=lld" not in content:
+    target = "return env"
+    replacement = "env[\"LDFLAGS\"] = env.get(\"LDFLAGS\", \"\") + \" -fuse-ld=lld\"\n        return env"
+    content = content.replace(target, replacement, 1)
+    with open(path, "w") as f:
+        f.write(content)
+'
+fi
+
 # Deliberately NOT passing -c pysidedeploy.spec here: that file in this
 # project was hand-edited with another developer's machine-specific
 # absolute paths (wheel locations, a conda env path) that don't exist on
@@ -272,8 +288,13 @@ fi
 # built up above) avoids silently falling back to those stale paths.
 echo "==> Building Android APK (this can take a long time on first run —"
 echo "    it downloads/builds a Python-for-Android toolchain)"
+# --name must NOT contain a space — it becomes the p4a distribution's
+# directory name (dists/<name>/...), and a space in that path breaks the
+# autotools chain used to cross-compile libffi ("configure: error: C
+# compiler cannot create executables" — confirmed by reproducing it with a
+# spaced name here). Keep this in sync with build_android.bat's --name.
 "$DEPLOY_EXE" \
-    --name "Jayraldines Catering" \
+    --name "JayraldinesCateringTablet" \
     "${EXTRA_ARGS[@]}"
 
 echo "==> Done. Look for the generated .apk under $APP_DIR (path reported above)."

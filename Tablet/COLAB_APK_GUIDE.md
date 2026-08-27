@@ -58,10 +58,13 @@ os.environ["ANDROID_SDK_ROOT"] = "/root/Android/Sdk"
 os.environ["ANDROIDSDK"] = "/root/Android/Sdk"
 os.environ["ANDROID_NDK_ROOT"] = "/root/Android/Sdk/ndk/25.2.9519653"
 os.environ["ANDROIDNDK"] = "/root/Android/Sdk/ndk/25.2.9519653"
+os.environ["ANDROIDMINAPI"] = "24"
+os.environ["ANDROID_NDK_API"] = "24"
 os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-17-openjdk-amd64"
 os.environ["PATH"] = f"/root/Android/Sdk/cmdline-tools/latest/bin:/content/jayraldinescateringsystem/Tablet/.venv/bin:/usr/lib/jvm/java-17-openjdk-amd64/bin:{os.environ['PATH']}"
 
 # 6. Clean build cache and build Android APK
+!sed -i 's/--name "Jayraldines Catering"/--name "JayraldinesCateringTablet"/g' setup/build_android.sh
 !rm -rf /content/jayraldinescateringsystem/Tablet/.buildozer
 !bash setup/build_android.sh
 

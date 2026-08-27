@@ -219,8 +219,12 @@ REM project has been hand-edited with another developer's machine-specific
 REM absolute paths (wheel locations, a conda env path) that don't exist on
 REM this machine. Passing all values explicitly via CLI flags avoids
 REM silently falling back to those stale paths.
+REM --name must NOT contain a space — it becomes the p4a distribution's
+REM directory name, and a space in that path breaks the autotools chain
+REM used to cross-compile libffi ("configure: error: C compiler cannot
+REM create executables" — confirmed by reproducing it with a spaced name).
 !DEPLOY_CMD! ^
-    --name "Jayraldines Catering" ^
+    --name "JayraldinesCateringTablet" ^
     -f ^
     --local-libs="python3.11,plugins_platforms_qtforandroid" ^
     --wheel-pyside="%PYSIDE6_ANDROID_WHEEL%" ^

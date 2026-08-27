@@ -38,7 +38,7 @@ export PYTHONPATH="$HOME/tablet-build/vendor"
 export CPATH="$HOME/android-toolchain/zlib-local/include"
 export LIBRARY_PATH="$HOME/android-toolchain/zlib-local/lib"
 export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
-export ANDROID_NDK_ROOT="$HOME/Android/Sdk/ndk/25.2.9519653"
+export ANDROID_NDK_ROOT="$HOME/Android/Sdk/ndk/26.1.10909125"
 export PYSIDE6_ANDROID_WHEEL="$HOME/android-toolchain/wheels/pyside6-android-aarch64.whl"
 export SHIBOKEN6_ANDROID_WHEEL="$HOME/android-toolchain/wheels/shiboken6-android-aarch64.whl"
 
@@ -66,13 +66,23 @@ if [ -d "$WORK_DIR/deployment/.buildozer" ] && [ ! -d "$WORK_DIR/.buildozer" ]; 
     mv "$WORK_DIR/deployment/.buildozer" "$WORK_DIR/.buildozer"
 fi
 
+# pyside6-android-deploy catches its own exceptions internally and does
+# NOT sys.exit(1) on failure — it exits 0 even when the build genuinely
+# failed (confirmed: a bad NDK caused a hard failure here and this still
+# reported success). So exit code alone can't be trusted; also delete any
+# pre-existing .apk first so a stale one from a previous run can't be
+# mistaken for this run's output.
+find "$WORK_DIR" -maxdepth 2 -iname '*.apk' -delete 2>/dev/null || true
+
 echo "==> Building APK (native compile step — can take a while on the first"
 echo "    run after a cache wipe, much faster if .buildozer is still warm)"
 bash setup/build_android.sh
 
 APK_PATH="$(find "$WORK_DIR" -maxdepth 2 -iname '*.apk' | head -n 1)"
 if [ -z "$APK_PATH" ]; then
-    echo "ERROR: build finished but no .apk was found under $WORK_DIR." >&2
+    echo "ERROR: build finished but no .apk was produced under $WORK_DIR — the" >&2
+    echo "       deploy tool exits 0 even on failure, so check the log above for" >&2
+    echo "       the actual error (search for 'Exception occurred' or 'error:')." >&2
     exit 1
 fi
 

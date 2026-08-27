@@ -84,7 +84,12 @@ SECTIONS = [
             "• Digital Terms Acknowledgment: Integrated contract terms wizard with mandatory customer digital signature/acknowledgment and schema versioning (ta_version).",
             "H. System Administration, Security & Auditing:",
             "• Comprehensive Audit Trail: Logs user actions, affected tables, timestamps, and JSON snapshots of pre/post modifications (audit_logs).",
-            "• Single-Click Database Backup & Restore: Built-in utility to export and restore database SQL dumps (pg_dump/psql) for disaster recovery."
+            "• Single-Click Database Backup & Restore: Built-in utility to export and restore database SQL dumps (pg_dump/psql) for disaster recovery.",
+            "I. Built-in Offline AI Assistant (\"Chef Jay AI\"):",
+            "• Natural Language Query Engine: Custom-built offline NLP engine supporting query resolution in both English and Cebuano (Bisaya) for instant business intelligence (revenue, expenses, net profit, booking trends).",
+            "• Actionable Execution Guardrails: Enables staff to perform actions (approve/cancel bookings, log payments, record expenses) via conversational prompts with structured confirm/cancel safety dialogs.",
+            "• Dynamic Visual Analytics: Auto-generates QtCharts comparison graphs (e.g., month-over-month profit, revenue vs. expenses) rendered directly inside the chat interface.",
+            "• Global Floating Mascot Widget: Interactive persistent floating widget (\"Chef Jay\") accessible across all application screens for quick assistance and operational shortcuts."
         ]
     },
     {
@@ -99,6 +104,7 @@ SECTIONS = [
             "• Paper & Printing Cost Reduction: Digital PDF invoice generation, email dispatch, and SMS confirmations significantly reduce physical paperwork costs.",
             "Intangible Value:",
             "• Enhanced Professional Brand Image: Automated instant SMS confirmations, branded PDF receipts, and tablet-based order taking boost customer trust.",
+            "• Instant Conversational Business Intelligence: \"Chef Jay AI\" enables non-technical management to retrieve financial analytics instantly in Cebuano or English without writing queries or building manual spreadsheets.",
             "• Improved Kitchen Coordination & Accuracy: Itemized dish checklists reduce kitchen preparation errors and missing menu items during events.",
             "• Stronger Customer Retention: Automated loyalty tier badges and follow-up reminders encourage repeat client bookings.",
             "• Total Accountability & Data Security: Comprehensive audit logs and single-click DB backup guarantee data integrity and operational oversight."
@@ -109,6 +115,7 @@ SECTIONS = [
         "content": [
             "• Project Context & Scope: Developed as an academic BSIT Capstone Project tailored specifically to the operational workflow of Jayraldine's Catering Services.",
             "• Technical Environment: Hybrid architecture utilizing Python 3.11, PySide6 (Qt for Python), PostgreSQL for the main PC hub, and standalone SQLite for the mobile/tablet client.",
+            "• Zero-Cloud Offline AI Design: \"Chef Jay AI\" is engineered from scratch to operate 100% offline with zero external API calls, zero cloud data transfer, and zero subscription costs.",
             "• Third-Party Dependencies: Automated notifications rely on active SMTP internet connection for email dispatch and Semaphore API credentials for SMS dispatch.",
             "• Hardware Compatibility: Desktop PC management hub runs on standard Windows/Linux PCs; Mobile POS app builds to standalone Android APKs and touch-screen tablets.",
             "• Academic Review: Requires formal evaluation and approval by the Capstone Defense Panel per university academic standards."
@@ -236,7 +243,7 @@ def generate_docx():
                 r_bullet.font.bold = True
                 r_bullet.font.color.rgb = RGBColor(0x1B, 0x36, 0x5D)
                 rc = p_c.add_run(line[2:])
-            elif line.startswith("A.") or line.startswith("B.") or line.startswith("C.") or line.startswith("D.") or line.startswith("E.") or line.startswith("F.") or line.startswith("G.") or line.startswith("H.") or line.startswith("Tangible") or line.startswith("Intangible"):
+            elif line.startswith("A.") or line.startswith("B.") or line.startswith("C.") or line.startswith("D.") or line.startswith("E.") or line.startswith("F.") or line.startswith("G.") or line.startswith("H.") or line.startswith("I.") or line.startswith("Tangible") or line.startswith("Intangible"):
                 p_c.paragraph_format.space_before = Pt(6)
                 rc = p_c.add_run(line)
                 rc.font.bold = True
@@ -433,7 +440,7 @@ def generate_pdf():
         for line in sec['content']:
             if line.startswith("•"):
                 story.append(Paragraph(f"<font color='#1B365D'><b>•</b></font> {line[2:]}", style_bullet))
-            elif line.startswith("A.") or line.startswith("B.") or line.startswith("C.") or line.startswith("D.") or line.startswith("E.") or line.startswith("F.") or line.startswith("G.") or line.startswith("H.") or line.startswith("Tangible") or line.startswith("Intangible"):
+            elif line.startswith("A.") or line.startswith("B.") or line.startswith("C.") or line.startswith("D.") or line.startswith("E.") or line.startswith("F.") or line.startswith("G.") or line.startswith("H.") or line.startswith("I.") or line.startswith("Tangible") or line.startswith("Intangible"):
                 story.append(Paragraph(line, style_subheading))
             else:
                 story.append(Paragraph(line, style_body))
