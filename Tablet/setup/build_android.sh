@@ -94,6 +94,18 @@ if [ -z "${ANDROID_NDK_ROOT:-}" ]; then
             export ANDROID_NDK_ROOT="$CACHE_NDK"
         fi
     fi
+    if [ -z "${ANDROID_NDK_ROOT:-}" ]; then
+        echo "==> ANDROID_NDK_ROOT not found. Auto-downloading Android NDK r26b (~600MB)..."
+        NDK_DIR="$HOME/Android/Sdk/ndk/26.1.10909125"
+        mkdir -p "$HOME/Android/Sdk/ndk"
+        if curl -sL --fail -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-r26b-linux.zip"; then
+            unzip -q -o /tmp/ndk.zip -d "$HOME/Android/Sdk/ndk"
+            [ -d "$HOME/Android/Sdk/ndk/android-ndk-r26b" ] && mv "$HOME/Android/Sdk/ndk/android-ndk-r26b" "$NDK_DIR"
+            rm -f /tmp/ndk.zip
+            export ANDROID_NDK_ROOT="$NDK_DIR"
+            echo "==> Android NDK r26b installed to $NDK_DIR"
+        fi
+    fi
 fi
 
 # Auto-detect PySide6 & Shiboken6 Android wheels if not explicitly set

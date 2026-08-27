@@ -14,34 +14,51 @@ Follow these steps to build the Android `.apk` installer using **Google Colab** 
 # 📱 JAYRALDINE'S CATERING - GOOGLE COLAB APK BUILD SCRIPT
 # ============================================================
 
-# 1. Clone the updated repository
-!rm -rf jayraldinescateringsystem
-!git clone https://github.com/villariasa/jayraldinescateringsystem.git
-%cd jayraldinescateringsystem/Tablet
+# 1. Clean workspace & clone repository
+!rm -rf /content/jayraldinescateringsystem
+!git clone https://github.com/villariasa/jayraldinescateringsystem.git /content/jayraldinescateringsystem
+%cd /content/jayraldinescateringsystem/Tablet
 
 # 2. Install Python 3.11, OpenJDK 17, and build utilities
 !apt-get update -qq
 !apt-get install -y -qq software-properties-common
 !add-apt-repository -y ppa:deadsnakes/ppa
 !apt-get update -qq
-!apt-get install -y -qq python3.11 python3.11-venv python3.11-dev openjdk-17-jdk autoconf automake libtool zlib1g-dev rsync
+!apt-get install -y -qq python3.11 python3.11-venv python3.11-dev openjdk-17-jdk autoconf automake libtool zlib1g-dev rsync unzip curl
 
-# 3. Create Python 3.11 Virtual Environment
+# 3. Create Python 3.11 Virtual Environment & Install Dependencies
 !rm -rf .venv
 !python3.11 -m venv .venv
 !.venv/bin/pip install --upgrade pip -q
 !.venv/bin/pip install -r requirements.txt -q
 !.venv/bin/pip install buildozer==1.5.0 cython==0.29.33 -q
 
-# 4. Set Environment Variables
-import os
-os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-17-openjdk-amd64"
-os.environ["PATH"] = f"/content/jayraldinescateringsystem/Tablet/.venv/bin:/usr/lib/jvm/java-17-openjdk-amd64/bin:{os.environ['PATH']}"
+# 4. Download & Setup Android NDK r26b & SDK Commandline Tools (~15 seconds)
+!mkdir -p /root/Android/Sdk/ndk /root/Android/Sdk/cmdline-tools
+!if [ ! -d "/root/Android/Sdk/ndk/26.1.10909125" ]; then \
+    curl -sL -o /tmp/ndk.zip https://dl.google.com/android/repository/android-ndk-r26b-linux.zip && \
+    unzip -q -o /tmp/ndk.zip -d /root/Android/Sdk/ndk && \
+    mv /root/Android/Sdk/ndk/android-ndk-r26b /root/Android/Sdk/ndk/26.1.10909125 && \
+    rm -f /tmp/ndk.zip; \
+fi
+!if [ ! -d "/root/Android/Sdk/cmdline-tools/latest" ]; then \
+    curl -sL -o /tmp/cmdline.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip && \
+    unzip -q -o /tmp/cmdline.zip -d /tmp/cmdline && \
+    mv /tmp/cmdline/cmdline-tools /root/Android/Sdk/cmdline-tools/latest && \
+    rm -rf /tmp/cmdline /tmp/cmdline.zip; \
+fi
 
-# 5. Build Android APK
+# 5. Set Environment Variables
+import os
+os.environ["ANDROID_SDK_ROOT"] = "/root/Android/Sdk"
+os.environ["ANDROID_NDK_ROOT"] = "/root/Android/Sdk/ndk/26.1.10909125"
+os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-17-openjdk-amd64"
+os.environ["PATH"] = f"/root/Android/Sdk/cmdline-tools/latest/bin:/content/jayraldinescateringsystem/Tablet/.venv/bin:/usr/lib/jvm/java-17-openjdk-amd64/bin:{os.environ['PATH']}"
+
+# 6. Build Android APK
 !bash setup/build_android.sh
 
-# 6. Auto-download the finished APK installer to your device
+# 7. Auto-download the finished APK installer
 import glob
 from google.colab import files
 
