@@ -420,16 +420,23 @@ class HomeView(QWidget):
         brand_group.setSpacing(14)
         brand_group.setAlignment(Qt.AlignVCenter)
 
-        avatar_lbl = QLabel("JC")
-        avatar_lbl.setFixedSize(46, 46)
+        avatar_lbl = QLabel()
+        avatar_lbl.setFixedSize(48, 48)
         avatar_lbl.setAlignment(Qt.AlignCenter)
-        avatar_lbl.setStyleSheet("""
-            background-color: #C2410C;
-            color: #FFFFFF;
-            font-size: 16px;
-            font-weight: 900;
-            border-radius: 23px;
-        """)
+        logo_path = Path(__file__).parent.parent / "assets" / "logo.png"
+        if logo_path.exists():
+            pix = QPixmap(str(logo_path))
+            if not pix.isNull():
+                avatar_lbl.setPixmap(pix.scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        if avatar_lbl.pixmap().isNull() if avatar_lbl.pixmap() else True:
+            avatar_lbl.setText("JC")
+            avatar_lbl.setStyleSheet("""
+                background-color: #C2410C;
+                color: #FFFFFF;
+                font-size: 16px;
+                font-weight: 900;
+                border-radius: 24px;
+            """)
         brand_group.addWidget(avatar_lbl, alignment=Qt.AlignVCenter)
 
         title_box = QVBoxLayout()
