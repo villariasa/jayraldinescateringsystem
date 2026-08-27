@@ -33,26 +33,50 @@ def _card(elevated=False, accent=False):
     return f
 
 
-def _nav_row(back_cb=None, next_cb=None, next_label="Next ->", next_enabled=True):
+def _nav_row(back_cb=None, next_cb=None, next_label="Next >", next_enabled=True):
     row = QHBoxLayout()
     row.setSpacing(14)
     if back_cb:
-        back_btn = QPushButton("<- Back")
-        back_btn.setObjectName("Secondary")
+        back_btn = QPushButton("←  Back")
         back_btn.setCursor(Qt.PointingHandCursor)
-        back_btn.setMinimumHeight(48)
+        back_btn.setMinimumHeight(46)
         back_btn.setMinimumWidth(120)
+        back_btn.setStyleSheet("""
+            QPushButton {
+                background: #132238;
+                color: #CBD5E1;
+                font-size: 14px;
+                font-weight: 700;
+                border-radius: 10px;
+                border: 1px solid #1E293B;
+                padding: 10px 20px;
+            }
+            QPushButton:hover { background: #182B46; color: #FFFFFF; border: 1px solid #334155; }
+        """)
         back_btn.clicked.connect(back_cb)
         row.addWidget(back_btn)
     row.addStretch()
     next_btn = None
     if next_cb:
         next_btn = QPushButton(next_label)
-        next_btn.setObjectName("Primary")
         next_btn.setCursor(Qt.PointingHandCursor)
-        next_btn.setMinimumHeight(48)
-        next_btn.setMinimumWidth(220)
+        next_btn.setMinimumHeight(46)
+        next_btn.setMinimumWidth(210)
         next_btn.setEnabled(next_enabled)
+        next_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #F43F5E;
+                color: #FFFFFF;
+                font-size: 14px;
+                font-weight: 800;
+                border-radius: 10px;
+                border: none;
+                padding: 12px 24px;
+            }
+            QPushButton:hover { background-color: #FB7185; }
+            QPushButton:pressed { background-color: #E11D48; }
+            QPushButton:disabled { background-color: #334155; color: #64748B; }
+        """)
         next_btn.clicked.connect(next_cb)
         row.addWidget(next_btn)
     return row, next_btn
@@ -151,17 +175,19 @@ class OrderWizard(QWidget):
         self._nav_widget = None
 
     def _build_cart_sidebar(self):
-        # Header
+        # Header with Live status indicator
         cart_head = QHBoxLayout()
-        cart_title = QLabel("Live Event Summary")
-        cart_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #FFFFFF;")
+        cart_head.setContentsMargins(4, 2, 4, 2)
+        cart_title = QLabel("⚡ Live Event Summary")
+        cart_title.setStyleSheet("font-size: 14px; font-weight: 800; color: #FFFFFF;")
         cart_head.addWidget(cart_title)
-        self._cart_lay.addLayout(cart_head)
+        cart_head.addStretch()
 
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #334155; margin: 2px 0;")
-        self._cart_lay.addWidget(line)
+        live_dot = QLabel()
+        live_dot.setFixedSize(8, 8)
+        live_dot.setStyleSheet("background-color: #10B981; border-radius: 4px;")
+        cart_head.addWidget(live_dot)
+        self._cart_lay.addLayout(cart_head)
 
         # Scrollable items area in sidebar
         self._cart_items_scroll = QScrollArea()
@@ -169,19 +195,21 @@ class OrderWizard(QWidget):
         self._cart_items_scroll.setFrameShape(QFrame.NoFrame)
         self._cart_items_widget = QWidget()
         self._cart_items_lay = QVBoxLayout(self._cart_items_widget)
-        self._cart_items_lay.setContentsMargins(0, 0, 0, 0)
+        self._cart_items_lay.setContentsMargins(0, 4, 0, 4)
         self._cart_items_lay.setSpacing(8)
         self._cart_items_scroll.setWidget(self._cart_items_widget)
         self._cart_lay.addWidget(self._cart_items_scroll, 1)
 
         # Totals box
         totals_box = QFrame()
-        totals_box.setStyleSheet("background: rgba(11, 18, 32, 0.6); border-radius: 10px; padding: 6px;")
+        totals_box.setStyleSheet("background: #0B1220; border: 1px solid #1E293B; border-radius: 10px; padding: 10px;")
         tlay = QVBoxLayout(totals_box)
-        tlay.setSpacing(4)
+        tlay.setSpacing(6)
 
         r1 = QHBoxLayout()
-        r1.addWidget(QLabel("Subtotal:"))
+        sub_tag = QLabel("Subtotal:")
+        sub_tag.setStyleSheet("color: #94A3B8; font-size: 13px;")
+        r1.addWidget(sub_tag)
         self._cart_subtotal_lbl = QLabel("₱0.00")
         self._cart_subtotal_lbl.setStyleSheet("font-size: 15px; font-weight: 800; color: #FFFFFF;")
         self._cart_subtotal_lbl.setAlignment(Qt.AlignRight)
@@ -190,10 +218,10 @@ class OrderWizard(QWidget):
 
         r2 = QHBoxLayout()
         dp_tag = QLabel("50% Downpayment:")
-        dp_tag.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        dp_tag.setStyleSheet("color: #94A3B8; font-size: 12px;")
         r2.addWidget(dp_tag)
         self._cart_dp_lbl = QLabel("₱0.00")
-        self._cart_dp_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {theme.GOLD};")
+        self._cart_dp_lbl.setStyleSheet("font-size: 14px; font-weight: 800; color: #F59E0B;")
         self._cart_dp_lbl.setAlignment(Qt.AlignRight)
         r2.addWidget(self._cart_dp_lbl)
         tlay.addLayout(r2)
@@ -208,50 +236,83 @@ class OrderWizard(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        # Customer & Package Info
+        # Customer & Package Info Cards
         pkg_name = self._draft.get("package_name") or "No Package Selected"
         pax = int(self._draft.get("pax", 100))
         base_tot = float(self._draft.get("base_total", 0.0))
 
+        # Package Card
         pkg_box = QFrame()
-        pkg_box.setStyleSheet("background: #1E293B; border-radius: 8px; padding: 6px;")
+        pkg_box.setStyleSheet("background: #0B1220; border: 1px solid #1E293B; border-radius: 8px; padding: 10px;")
         play = QVBoxLayout(pkg_box)
         play.setSpacing(2)
-        pname = QLabel(f"Package: {pkg_name}")
-        pname.setStyleSheet("font-size: 13px; font-weight: 700; color: #F8FAFC;")
+        ptag = QLabel("PACKAGE")
+        ptag.setStyleSheet("font-size: 10px; font-weight: 800; color: #94A3B8; letter-spacing: 1.2px;")
+        pname = QLabel(pkg_name)
+        pname.setStyleSheet("font-size: 14px; font-weight: 700; color: #FFFFFF;")
         pname.setWordWrap(True)
-        pdetails = QLabel(f"Guests: {pax} Pax")
-        pdetails.setStyleSheet("font-size: 11px; color: #94A3B8;")
+        play.addWidget(ptag)
         play.addWidget(pname)
-        play.addWidget(pdetails)
         self._cart_items_lay.addWidget(pkg_box)
+
+        # Guests Card
+        guests_box = QFrame()
+        guests_box.setStyleSheet("background: #0B1220; border: 1px solid #1E293B; border-radius: 8px; padding: 10px;")
+        glay = QVBoxLayout(guests_box)
+        glay.setSpacing(2)
+        gtag = QLabel("GUESTS")
+        gtag.setStyleSheet("font-size: 10px; font-weight: 800; color: #94A3B8; letter-spacing: 1.2px;")
+        gpax = QLabel(f"{pax} Pax")
+        gpax.setStyleSheet("font-size: 14px; font-weight: 700; color: #FFFFFF;")
+        glay.addWidget(gtag)
+        glay.addWidget(gpax)
+        self._cart_items_lay.addWidget(guests_box)
 
         # Selected Dishes
         menu_items = self._draft.get("menu_selections", [])
-        if menu_items:
-            dish_hdr = QLabel(f"Included Dishes ({len(menu_items)})")
-            dish_hdr.setStyleSheet("font-size: 11px; font-weight: 700; color: #94A3B8; margin-top: 4px;")
-            self._cart_items_lay.addWidget(dish_hdr)
-            for m in menu_items:
-                dl = QLabel(f"- {m['item_name']}")
-                dl.setStyleSheet("font-size: 11px; color: #E2E8F0;")
-                dl.setWordWrap(True)
-                self._cart_items_lay.addWidget(dl)
-
-        # Additional Charges & Upsells
         charges = self._draft.get("additional_charges", [])
-        if charges:
-            chg_hdr = QLabel(f"Add-ons & Extras ({len(charges)})")
-            chg_hdr.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {theme.GOLD}; margin-top: 4px;")
-            self._cart_items_lay.addWidget(chg_hdr)
-            for c in charges:
-                is_disc = c["amount"] < 0
-                sign = "- " if is_disc else "+ "
-                col = theme.WARNING if is_disc else theme.SUCCESS
-                cl = QLabel(f"- {c['description']} ({sign}₱{abs(c['amount']):,.2f})")
-                cl.setStyleSheet(f"font-size: 11px; color: {col};")
-                cl.setWordWrap(True)
-                self._cart_items_lay.addWidget(cl)
+
+        if not menu_items and not charges:
+            # Empty placeholder matching screenshot
+            ph_box = QFrame()
+            ph_lay = QVBoxLayout(ph_box)
+            ph_lay.setContentsMargins(10, 20, 10, 20)
+            ph_lay.setSpacing(10)
+            ph_lay.setAlignment(Qt.AlignCenter)
+
+            ph_icon = QLabel("🍴")
+            ph_icon.setStyleSheet("font-size: 24px;")
+            ph_icon.setAlignment(Qt.AlignCenter)
+            ph_lay.addWidget(ph_icon)
+
+            ph_text = QLabel("Menu, add-ons, and\ncharges will fill in here as\nyou go through the steps.")
+            ph_text.setStyleSheet("font-size: 11px; color: #64748B; line-height: 1.4;")
+            ph_text.setAlignment(Qt.AlignCenter)
+            ph_lay.addWidget(ph_text)
+            self._cart_items_lay.addWidget(ph_box)
+        else:
+            if menu_items:
+                dish_hdr = QLabel(f"Included Dishes ({len(menu_items)})")
+                dish_hdr.setStyleSheet("font-size: 11px; font-weight: 700; color: #94A3B8; margin-top: 4px;")
+                self._cart_items_lay.addWidget(dish_hdr)
+                for m in menu_items:
+                    dl = QLabel(f"• {m['item_name']}")
+                    dl.setStyleSheet("font-size: 12px; color: #E2E8F0;")
+                    dl.setWordWrap(True)
+                    self._cart_items_lay.addWidget(dl)
+
+            if charges:
+                chg_hdr = QLabel(f"Add-ons & Extras ({len(charges)})")
+                chg_hdr.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {theme.GOLD}; margin-top: 4px;")
+                self._cart_items_lay.addWidget(chg_hdr)
+                for c in charges:
+                    is_disc = c["amount"] < 0
+                    sign = "- " if is_disc else "+ "
+                    col = theme.WARNING if is_disc else theme.SUCCESS
+                    cl = QLabel(f"• {c['description']} ({sign}₱{abs(c['amount']):,.2f})")
+                    cl.setStyleSheet(f"font-size: 11px; color: {col};")
+                    cl.setWordWrap(True)
+                    self._cart_items_lay.addWidget(cl)
 
         self._cart_items_lay.addStretch()
 
@@ -315,11 +376,10 @@ class OrderWizard(QWidget):
 
         mode_row = QHBoxLayout()
         mode_row.setSpacing(12)
-        new_btn = QPushButton("+ New Customer")
-        existing_btn = QPushButton("Search Existing Customer")
+        new_btn = QPushButton("👤+ New Customer")
+        existing_btn = QPushButton("🔍 Search Existing Customer")
         for b in (new_btn, existing_btn):
-            b.setObjectName("Secondary")
-            b.setMinimumHeight(52)
+            b.setMinimumHeight(48)
             b.setCursor(Qt.PointingHandCursor)
         mode_row.addWidget(new_btn)
         mode_row.addWidget(existing_btn)
@@ -351,7 +411,7 @@ class OrderWizard(QWidget):
         new_cust_lay = QVBoxLayout(new_cust_widget)
         new_cust_lay.setContentsMargins(0, 0, 0, 0)
         new_cust_lay.setSpacing(10)
-        new_cust_lay.addWidget(self._field_label("CUSTOMER CONTACT DETAILS"))
+        new_cust_lay.addWidget(self._field_label("👤 CUSTOMER CONTACT DETAILS"))
 
         name_in = QLineEdit(self._draft["customer_name"])
         name_in.setPlaceholderText("Customer Full Name *")
@@ -362,7 +422,7 @@ class OrderWizard(QWidget):
         email_in = QLineEdit(self._draft["email"])
         email_in.setPlaceholderText("Email Address (optional)")
         email_in.setMinimumHeight(46)
-        address_widget = AddressSearchWidget(placeholder="Select Delivery / Billing Address (Dropdown)...")
+        address_widget = AddressSearchWidget(placeholder="Select Delivery / Billing Address...")
         if self._draft["address"]:
             address_widget.set_value(self._draft["address"])
 
@@ -375,7 +435,7 @@ class OrderWizard(QWidget):
         search_cust_lay = QVBoxLayout(search_cust_widget)
         search_cust_lay.setContentsMargins(0, 0, 0, 0)
         search_cust_lay.setSpacing(10)
-        search_cust_lay.addWidget(self._field_label("SEARCH CUSTOMER DIRECTORY"))
+        search_cust_lay.addWidget(self._field_label("🔍 SEARCH CUSTOMER DIRECTORY"))
 
         search_in = QLineEdit()
         search_in.setPlaceholderText("Type name, phone number, or address...")
@@ -394,8 +454,30 @@ class OrderWizard(QWidget):
         lay.addStretch()
 
         def highlight(btn, active):
-            btn.setObjectName("Primary" if active else "Secondary")
-            btn.setStyleSheet("")
+            if active:
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #F43F5E;
+                        color: #FFFFFF;
+                        font-size: 14px;
+                        font-weight: 800;
+                        border-radius: 10px;
+                        border: none;
+                    }
+                    QPushButton:hover { background-color: #FB7185; }
+                """)
+            else:
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #132238;
+                        color: #94A3B8;
+                        font-size: 14px;
+                        font-weight: 700;
+                        border-radius: 10px;
+                        border: 1px solid #1E293B;
+                    }
+                    QPushButton:hover { background-color: #182B46; color: #FFFFFF; border: 1px solid #334155; }
+                """)
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 
@@ -491,14 +573,14 @@ class OrderWizard(QWidget):
         evt_lay = QVBoxLayout(evt_card)
         evt_lay.setContentsMargins(18, 16, 18, 16)
         evt_lay.setSpacing(10)
-        evt_lay.addWidget(self._field_label("EVENT DATE & LOCATION"))
+        evt_lay.addWidget(self._field_label("🎉 EVENT DATE & LOCATION"))
 
         drow = QHBoxLayout()
         drow.setSpacing(12)
 
         dbox = QVBoxLayout()
         dbox.setSpacing(4)
-        dlbl = QLabel("Event Date:")
+        dlbl = QLabel("📅 Event Date:")
         dlbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
         date_edit = QDateEdit()
         date_edit.setCalendarPopup(True)
@@ -511,7 +593,7 @@ class OrderWizard(QWidget):
 
         tbox = QVBoxLayout()
         tbox.setSpacing(4)
-        tlbl = QLabel("Event Time:")
+        tlbl = QLabel("🕒 Event Time:")
         tlbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
         time_edit = QTimeEdit()
         time_edit.setMinimumHeight(44)
@@ -523,7 +605,7 @@ class OrderWizard(QWidget):
 
         pbox = QVBoxLayout()
         pbox.setSpacing(4)
-        plbl = QLabel("Guest Count (Pax):")
+        plbl = QLabel("👥 Guest Count (Pax):")
         plbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
         pax_in = QSpinBox()
         pax_in.setRange(10, 2000)
@@ -534,13 +616,13 @@ class OrderWizard(QWidget):
         drow.addLayout(pbox, 1)
         evt_lay.addLayout(drow)
 
-        venue_widget = AddressSearchWidget(placeholder="Event Venue / Location (Dropdown)...")
+        venue_widget = AddressSearchWidget(placeholder="📍 Event Venue / Location (Dropdown)...")
         if self._draft["venue"]:
             venue_widget.set_value(self._draft["venue"])
         evt_lay.addWidget(venue_widget)
 
         occasion_in = QLineEdit(self._draft["occasion"])
-        occasion_in.setPlaceholderText("Occasion (e.g. Wedding, Birthday, Corporate Gala)")
+        occasion_in.setPlaceholderText("🎈 Occasion (e.g. Wedding, Birthday, Corporate Gala)")
         occasion_in.setMinimumHeight(44)
         evt_lay.addWidget(occasion_in)
         lay.addWidget(evt_card)
@@ -550,7 +632,7 @@ class OrderWizard(QWidget):
         pkg_lay = QVBoxLayout(pkg_card)
         pkg_lay.setContentsMargins(18, 16, 18, 16)
         pkg_lay.setSpacing(10)
-        pkg_lay.addWidget(self._field_label("SELECT BUFFET PACKAGE"))
+        pkg_lay.addWidget(self._field_label("📦 SELECT BUFFET PACKAGE"))
 
         packages = repo.get_packages()
         selected_pkg = {"id": self._draft.get("package_id"), "name": self._draft.get("package_name"), "price_per_pax": 0.0}
@@ -729,7 +811,7 @@ class OrderWizard(QWidget):
             })
             self.goto_menu_step()
 
-        row, _ = _nav_row(back_cb=self.goto_customer_step, next_cb=next_step, next_label="Next: Menu & Add-ons ->")
+        row, _ = _nav_row(back_cb=self.goto_customer_step, next_cb=next_step, next_label="Next: Menu Selection >")
         self._set_nav(row)
         self._set_body(page, "Step 2 — Package & Event", "Choose your buffet tier and guest count", step_index=1)
 
@@ -842,7 +924,7 @@ class OrderWizard(QWidget):
             self._draft["menu_selections"] = list(selected_items_map.values())
             self.goto_charges_step()
 
-        row, _ = _nav_row(back_cb=self.goto_event_step, next_cb=next_step, next_label="Next: Add-ons & Extras ->")
+        row, _ = _nav_row(back_cb=self.goto_event_step, next_cb=next_step, next_label="Next: Add-ons & Extras >")
         self._set_nav(row)
         self._set_body(page, "Step 3 — Menu Dishes & Add-ons", "Select any number of dishes across buffet categories", step_index=2)
 
@@ -860,7 +942,7 @@ class OrderWizard(QWidget):
         rlay.setContentsMargins(18, 14, 18, 14)
         rlay.setSpacing(10)
 
-        rtitle = QLabel("POPULAR EVENT ADD-ONS & UPGRADES")
+        rtitle = QLabel("✨ POPULAR EVENT ADD-ONS & UPGRADES")
         rtitle.setStyleSheet("font-size: 13px; font-weight: 800; color: #F59E0B; letter-spacing: 0.5px;")
         rlay.addWidget(rtitle)
 
@@ -914,7 +996,7 @@ class OrderWizard(QWidget):
         cform.setSpacing(8)
 
         desc_in = QLineEdit()
-        desc_in.setPlaceholderText("Custom Add-on or Discount Description")
+        desc_in.setPlaceholderText("➕ Custom Add-on or Discount Description")
         desc_in.setMinimumHeight(44)
         amt_in = QDoubleSpinBox()
         amt_in.setRange(-1_000_000, 1_000_000)
@@ -987,7 +1069,7 @@ class OrderWizard(QWidget):
         refresh_list()
         lay.addStretch()
 
-        row, _ = _nav_row(back_cb=self.goto_menu_step, next_cb=self.goto_billing_step, next_label="Next: Billing & Payment ->")
+        row, _ = _nav_row(back_cb=self.goto_menu_step, next_cb=self.goto_billing_step, next_label="Next: Billing & Payment >")
         self._set_nav(row)
         self._set_body(page, "Step 4 — Add-ons & Extras", "Enhance your event with lechon, drinks, or decor", step_index=3)
 
@@ -1008,13 +1090,13 @@ class OrderWizard(QWidget):
         slay.setContentsMargins(20, 16, 20, 16)
         slay.setSpacing(6)
 
-        stitle = QLabel("BILLING BREAKDOWN")
+        stitle = QLabel("💳 BILLING BREAKDOWN")
         stitle.setStyleSheet(f"font-size: 13px; font-weight: 800; color: {theme.GOLD}; letter-spacing: 0.5px;")
         slay.addWidget(stitle)
 
         for label, val, big in [
-            ("Base Package Total", self._draft["base_total"], False),
-            ("Add-ons & Adjustments", charges_sum, False),
+            ("Base Buffet Package", self._draft["base_total"], False),
+            ("Additional Charges / Add-ons", charges_sum, False),
             ("Final Event Total", total, True),
         ]:
             row = QHBoxLayout()
@@ -1087,7 +1169,7 @@ class OrderWizard(QWidget):
             })
             self.goto_preview_step()
 
-        row, _ = _nav_row(back_cb=self.goto_charges_step, next_cb=next_step, next_label="Next: Order Preview ->")
+        row, _ = _nav_row(back_cb=self.goto_charges_step, next_cb=next_step, next_label="Next: Order Review >")
         self._set_nav(row)
         self._set_body(page, "Step 5 — Billing & Payment", "Set downpayment amount and payment method", step_index=4)
 
@@ -1154,7 +1236,7 @@ class OrderWizard(QWidget):
         lay.addWidget(totals)
         lay.addStretch()
 
-        row_nav, _ = _nav_row(back_cb=self.goto_billing_step, next_cb=self._confirm_order, next_label="Confirm & Place Order ->")
+        row_nav, _ = _nav_row(back_cb=self.goto_billing_step, next_cb=self._confirm_order, next_label="Confirm & Place Order >")
         self._set_nav(row_nav)
         self._set_body(page, "Step 6 — Order Review", "Verify event details and confirm order", step_index=5)
 

@@ -54,20 +54,19 @@ class StepProgress(QWidget):
         for i, (num_lbl, text_lbl) in enumerate(self._labels):
             if i < index:
                 num_lbl.setStyleSheet(
-                    f"background: {theme.SUCCESS}; color: white; border-radius: 14px; font-weight: 800; font-size: 13px;"
+                    "background: #10B981; color: white; border-radius: 14px; font-weight: 800; font-size: 13px;"
                 )
                 num_lbl.setText("✓")
-                text_lbl.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {theme.SUCCESS};")
+                text_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10B981;")
             elif i == index:
                 num_lbl.setStyleSheet(
-                    f"background: {theme.ACCENT}; color: white; border-radius: 14px; font-weight: 800; font-size: 13px;"
+                    "background: #F43F5E; color: white; border-radius: 14px; font-weight: 800; font-size: 13px;"
                 )
                 num_lbl.setText(str(i + 1))
-                text_lbl.setStyleSheet(f"font-size: 11px; font-weight: 800; color: {theme.TEXT};")
+                text_lbl.setStyleSheet("font-size: 11px; font-weight: 800; color: #FFFFFF;")
             else:
                 num_lbl.setStyleSheet(
-                    f"background: {theme.CARD_ELEVATED}; color: {theme.TEXT_FAINT}; border-radius: 14px; "
-                    f"font-weight: 700; font-size: 13px; border: 1.5px solid {theme.BORDER};"
+                    "background: #132238; color: #64748B; border-radius: 14px; font-weight: 700; font-size: 13px; border: 1.5px solid #1E293B;"
                 )
                 num_lbl.setText(str(i + 1))
-                text_lbl.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {theme.TEXT_FAINT};")
+                text_lbl.setStyleSheet("font-size: 11px; font-weight: 600; color: #64748B;")
