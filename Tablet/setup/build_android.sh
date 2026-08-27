@@ -79,33 +79,59 @@ if [ -z "${ANDROID_SDK_ROOT:-}" ]; then
     done
 fi
 
+# The PySide6/shiboken6 Android wheels downloaded below are Qt's official
+# r27c-built binaries — libc++_shared.so pulled from any other NDK version
+# is ABI-incompatible with them (missing symbols -> UnsatisfiedLinkError at
+# app launch, confirmed via device test logs). So r27c is preferred over any
+# other NDK this machine happens to already have installed, not just
+# "any NDK will do".
 if [ -z "${ANDROID_NDK_ROOT:-}" ]; then
     if [ -n "${ANDROID_SDK_ROOT:-}" ]; then
+        R27C_MATCH=$(find "$ANDROID_SDK_ROOT/ndk" -maxdepth 1 -name "27.2.*" -type d 2>/dev/null | head -n 1 || true)
+        if [ -n "$R27C_MATCH" ]; then
+            export ANDROID_NDK_ROOT="$R27C_MATCH"
+        fi
+    fi
+    if [ -z "${ANDROID_NDK_ROOT:-}" ]; then
+        CACHE_NDK=$(find "$HOME/.pyside6_android_deploy/android-ndk" -maxdepth 2 -name "android-ndk-r27c" -type d 2>/dev/null | head -n 1 || true)
+        if [ -n "$CACHE_NDK" ]; then
+            export ANDROID_NDK_ROOT="$CACHE_NDK"
+        fi
+    fi
+    if [ -z "${ANDROID_NDK_ROOT:-}" ] && [ -n "${ANDROID_SDK_ROOT:-}" ]; then
         for candidate in "$ANDROID_SDK_ROOT/ndk"/* "$ANDROID_SDK_ROOT/ndk-bundle"; do
             if [ -d "$candidate" ]; then
+                echo "WARNING: no r27c NDK found; falling back to $candidate." >&2
+                echo "         This project's PySide6/shiboken6 Android wheels require r27c —" >&2
+                echo "         a different NDK version here WILL cause an UnsatisfiedLinkError" >&2
+                echo "         crash on app launch (missing libc++ symbols)." >&2
                 export ANDROID_NDK_ROOT="$candidate"
                 break
             fi
         done
     fi
     if [ -z "${ANDROID_NDK_ROOT:-}" ]; then
-        CACHE_NDK=$(find "$HOME/.pyside6_android_deploy/android-ndk" -maxdepth 2 -name "android-ndk-r*" -type d 2>/dev/null | head -n 1 || true)
-        if [ -n "$CACHE_NDK" ]; then
-            export ANDROID_NDK_ROOT="$CACHE_NDK"
-        fi
-    fi
-    if [ -z "${ANDROID_NDK_ROOT:-}" ]; then
-        echo "==> ANDROID_NDK_ROOT not found. Auto-downloading Android NDK r25b (~600MB)..."
-        NDK_DIR="$HOME/Android/Sdk/ndk/25.2.9519653"
+        echo "==> ANDROID_NDK_ROOT not found. Auto-downloading Android NDK r27c (~600MB)..."
+        NDK_DIR="$HOME/Android/Sdk/ndk/27.2.12479018"
         mkdir -p "$HOME/Android/Sdk/ndk"
-        if curl -sL --fail -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"; then
+        if curl -sL --fail -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"; then
             unzip -q -o /tmp/ndk.zip -d "$HOME/Android/Sdk/ndk"
-            [ -d "$HOME/Android/Sdk/ndk/android-ndk-r25b" ] && mv "$HOME/Android/Sdk/ndk/android-ndk-r25b" "$NDK_DIR"
+            [ -d "$HOME/Android/Sdk/ndk/android-ndk-r27c" ] && mv "$HOME/Android/Sdk/ndk/android-ndk-r27c" "$NDK_DIR"
             rm -f /tmp/ndk.zip
             export ANDROID_NDK_ROOT="$NDK_DIR"
-            echo "==> Android NDK r25b installed to $NDK_DIR"
+            echo "==> Android NDK r27c installed to $NDK_DIR"
         fi
     fi
+fi
+
+if [ -n "${ANDROID_NDK_ROOT:-}" ]; then
+    case "$ANDROID_NDK_ROOT" in
+        *27.2.12479018*|*android-ndk-r27c*) ;;
+        *) echo "WARNING: using NDK at $ANDROID_NDK_ROOT, which does not look like r27c." >&2
+           echo "         This project's PySide6/shiboken6 Android wheels require r27c —" >&2
+           echo "         expect an UnsatisfiedLinkError crash on app launch otherwise." >&2 ;;
+    esac
+    echo "==> Using NDK: $ANDROID_NDK_ROOT"
 fi
 
 # Auto-detect PySide6 & Shiboken6 Android wheels if not explicitly set

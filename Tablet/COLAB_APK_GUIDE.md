@@ -34,12 +34,12 @@ Follow these steps to build the Android `.apk` installer using **Google Colab** 
 !.venv/bin/pip install -r requirements.txt -q
 !.venv/bin/pip install buildozer==1.5.0 cython==0.29.33 -q
 
-# 4. Download & Setup Android NDK r25b & SDK Commandline Tools (~15 seconds)
+# 4. Download & Setup Android NDK r27c & SDK Commandline Tools (~15 seconds)
 !mkdir -p /root/Android/Sdk/ndk /root/Android/Sdk/cmdline-tools
-!if [ ! -d "/root/Android/Sdk/ndk/25.2.9519653" ]; then \
-    curl -sL -o /tmp/ndk.zip https://dl.google.com/android/repository/android-ndk-r25b-linux.zip && \
+!if [ ! -d "/root/Android/Sdk/ndk/27.2.12479018" ]; then \
+    curl -sL -o /tmp/ndk.zip https://dl.google.com/android/repository/android-ndk-r27c-linux.zip && \
     unzip -q -o /tmp/ndk.zip -d /root/Android/Sdk/ndk && \
-    mv /root/Android/Sdk/ndk/android-ndk-r25b /root/Android/Sdk/ndk/25.2.9519653 && \
+    mv /root/Android/Sdk/ndk/android-ndk-r27c /root/Android/Sdk/ndk/27.2.12479018 && \
     rm -f /tmp/ndk.zip; \
 fi
 !if [ ! -d "/root/Android/Sdk/cmdline-tools/latest" ]; then \
@@ -56,8 +56,8 @@ os.environ.pop("PIP_NO_USER", None)
 os.environ["VIRTUAL_ENV"] = "/content/jayraldinescateringsystem/Tablet/.venv"
 os.environ["ANDROID_SDK_ROOT"] = "/root/Android/Sdk"
 os.environ["ANDROIDSDK"] = "/root/Android/Sdk"
-os.environ["ANDROID_NDK_ROOT"] = "/root/Android/Sdk/ndk/25.2.9519653"
-os.environ["ANDROIDNDK"] = "/root/Android/Sdk/ndk/25.2.9519653"
+os.environ["ANDROID_NDK_ROOT"] = "/root/Android/Sdk/ndk/27.2.12479018"
+os.environ["ANDROIDNDK"] = "/root/Android/Sdk/ndk/27.2.12479018"
 os.environ["ANDROIDMINAPI"] = "24"
 os.environ["ANDROID_NDK_API"] = "24"
 os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-17-openjdk-amd64"

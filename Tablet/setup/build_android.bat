@@ -55,6 +55,15 @@ if "%SHIBOKEN6_ANDROID_WHEEL%"=="" (
 if "%ANDROID_SDK_ROOT%"=="" (
     if exist "%LOCALAPPDATA%\Android\Sdk" set "ANDROID_SDK_ROOT=%LOCALAPPDATA%\Android\Sdk"
 )
+REM Prefer an r27c install specifically: the PySide6/shiboken6 Android
+REM wheels downloaded below are Qt's official r27c-built binaries, and
+REM libc++_shared.so pulled from any other NDK version is ABI-incompatible
+REM with them (missing symbols -> UnsatisfiedLinkError crash on app launch,
+REM confirmed via device test logs). Only fall back to "whatever's there"
+REM if no r27c install is found.
+if "%ANDROID_NDK_ROOT%"=="" if not "%ANDROID_SDK_ROOT%"=="" (
+    if exist "%ANDROID_SDK_ROOT%\ndk\27.2.12479018" set "ANDROID_NDK_ROOT=%ANDROID_SDK_ROOT%\ndk\27.2.12479018"
+)
 if "%ANDROID_NDK_ROOT%"=="" if not "%ANDROID_SDK_ROOT%"=="" (
     for /d %%D in ("%ANDROID_SDK_ROOT%\ndk\*") do set "ANDROID_NDK_ROOT=%%D"
 )
@@ -69,6 +78,13 @@ if "%ANDROID_NDK_ROOT%"=="" (
     echo        block at the top of this script.
     exit /b 1
 )
+echo "%ANDROID_NDK_ROOT%" | findstr /C:"27.2.12479018" /C:"r27c" >nul
+if errorlevel 1 (
+    echo WARNING: using NDK at %ANDROID_NDK_ROOT%, which does not look like r27c.
+    echo          This project's PySide6/shiboken6 Android wheels require r27c --
+    echo          expect an UnsatisfiedLinkError crash on app launch otherwise.
+)
+echo ==^> Using NDK: %ANDROID_NDK_ROOT%
 
 REM Locate the same interpreter setup_windows.bat would have created —
 REM prefer the conda env if present, else the plain venv. Always call the

@@ -58,11 +58,11 @@ export JAVA_HOME
 echo "==> JAVA_HOME=$JAVA_HOME"
 
 # ---------------------------------------------------------------------------
-# 3. Android SDK (cmdline-tools + platform-tools) + NDK r25b.
+# 3. Android SDK (cmdline-tools + platform-tools) + NDK r27c.
 # ---------------------------------------------------------------------------
 ANDROID_SDK_ROOT="$HOME/Android/Sdk"
 export ANDROID_SDK_ROOT
-NDK_VERSION="25.2.9519653"
+NDK_VERSION="27.2.12479018"
 ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
 export ANDROID_NDK_ROOT
 

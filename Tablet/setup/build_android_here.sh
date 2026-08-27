@@ -38,7 +38,7 @@ export PYTHONPATH="$HOME/tablet-build/vendor"
 export CPATH="$HOME/android-toolchain/zlib-local/include"
 export LIBRARY_PATH="$HOME/android-toolchain/zlib-local/lib"
 export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
-export ANDROID_NDK_ROOT="$HOME/Android/Sdk/ndk/26.1.10909125"
+export ANDROID_NDK_ROOT="$HOME/Android/Sdk/ndk/27.2.12479018"
 export PYSIDE6_ANDROID_WHEEL="$HOME/android-toolchain/wheels/pyside6-android-aarch64.whl"
 export SHIBOKEN6_ANDROID_WHEEL="$HOME/android-toolchain/wheels/shiboken6-android-aarch64.whl"
 
