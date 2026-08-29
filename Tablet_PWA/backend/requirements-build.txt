@@ -1,0 +1,5 @@
+# Only needed to build the installer (build_installer.py), not to run the
+# server day-to-day. Install alongside requirements.txt before running
+# build_installer.py:
+#   pip install -r requirements.txt -r requirements-build.txt
+pyinstaller>=6.6.0

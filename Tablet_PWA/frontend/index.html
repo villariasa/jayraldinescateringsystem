@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Jayraldine's Catering Kiosk</title>
+<meta name="theme-color" content="#0B1220">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div id="app-splash" class="app-splash">
+  <div class="splash-content">
+    <div class="splash-logo-wrap">
+      <div class="splash-glow-ring"></div>
+      <img src="icons/logo.png" alt="Jayraldine's Catering" class="splash-logo">
+    </div>
+    <h1 class="splash-title">Jayraldine's Catering</h1>
+    <p class="splash-subtitle">Standalone Offline Kiosk System</p>
+    <div class="splash-loader-bar"><div class="splash-loader-progress"></div></div>
+  </div>
+</div>
+<div id="app"></div>
+<div id="overlay-root"></div>
+<!-- Vendored libraries — the whole point of this app is that it works
+     with zero network access after first install, so these are local
+     files, never a CDN. sqlite.js/exporter.js/importer.js reference them
+     as window.initSqlJs / window.jspdf / window.XLSX. -->
+<script src="vendor/sql-wasm.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

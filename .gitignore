@@ -9,15 +9,46 @@ env/
 ENV/
 .env
 
-# Android Build Artifacts & Packaging
+# Android Build Artifacts, Packaging & Binaries (>100MB)
 *.apk
+**/*.apk
 *.aab
+**/*.aab
 *.dex
 *.keystore
+*.jks
 .buildozer/
 dist/
 bin/
 buildozer.spec
+
+# Gradle & Android Studio Builds
+.gradle/
+**/.gradle/
+build/
+**/build/
+captures/
+*.hprof
+
+# Zip & Large Archive Files (>100MB)
+*.zip
+**/*.zip
+*.tar
+**/*.tar
+*.tar.gz
+**/*.tar.gz
+*.tgz
+**/*.tgz
+*.rar
+**/*.rar
+*.7z
+**/*.7z
+*.iso
+**/*.iso
+
+# Installer & Distribution Output Directories (>100MB)
+installer_output/
+**/installer_output/
 
 # OS & Editor Files
 .DS_Store
