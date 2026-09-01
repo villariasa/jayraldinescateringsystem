@@ -5,12 +5,23 @@ import { mountWizard } from "./wizard.js";
 import { openOwnerSettings } from "./settings.js";
 import { icon } from "./icons.js";
 import { mountLandingSlider } from "./slider.js";
+import { mountLottie, mountHoverLottie, playTapBurst } from "./lottie-helper.js";
 
 const app = document.getElementById("app");
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+  });
+}
+
+// Initial Splash Screen Lottie Animation
+const splashLottieWrap = document.getElementById("splash-lottie-logo");
+if (splashLottieWrap) {
+  mountLottie(splashLottieWrap, "logo-splash", { loop: true }).then((anim) => {
+    if (anim) {
+      document.querySelector(".splash-logo-wrap")?.classList.add("has-lottie");
+    }
   });
 }
 
@@ -23,13 +34,7 @@ export function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   localStorage.setItem("jc_theme", theme);
   document.querySelectorAll(".theme-toggle-btn").forEach((btn) => {
-    const iconEl = btn.querySelector(".nav-action-icon");
     const labelEl = btn.querySelector(".nav-action-label");
-    if (iconEl) {
-      iconEl.innerHTML = theme === "light" ? icon("moon") : icon("sun");
-    } else {
-      btn.innerHTML = theme === "light" ? icon("moon") : icon("sun");
-    }
     if (labelEl) {
       labelEl.textContent = theme === "light" ? "Dark Mode" : "Light Mode";
     }
@@ -43,7 +48,7 @@ export function toggleTheme() {
 
 applyTheme(getTheme());
 
-export function showTransitionLoading(message = "Preparing kiosk for next guest…", duration = 900) {
+export function showTransitionLoading(message = "Preparing kiosk for next guest…", duration = 950) {
   let splash = document.getElementById("transition-splash");
   if (!splash) {
     splash = document.createElement("div");
@@ -53,15 +58,20 @@ export function showTransitionLoading(message = "Preparing kiosk for next guest�
   }
   splash.innerHTML = `
     <div class="splash-content">
-      <div class="splash-logo-wrap">
+      <div class="splash-logo-wrap has-lottie">
         <div class="splash-glow-ring"></div>
-        <img src="icons/logo.png" alt="Jayraldine's Catering" class="splash-logo">
+        <div id="transition-lottie-logo" class="splash-lottie-container"></div>
+        <img src="icons/logo.png" alt="Jayraldine's Catering" class="splash-logo splash-logo-fallback">
       </div>
       <h2 class="splash-title" style="font-size:22px; margin-bottom:6px;">Jayraldine's Catering</h2>
       <p class="splash-subtitle" style="font-size:14px; opacity:0.9;">${escapeHtml(message)}</p>
       <div class="splash-loader-bar"><div class="splash-loader-progress"></div></div>
     </div>
   `;
+  const tWrap = splash.querySelector("#transition-lottie-logo");
+  if (tWrap) {
+    mountLottie(tWrap, "logo-splash", { loop: true });
+  }
   splash.classList.remove("hidden");
   splash.style.opacity = "1";
   splash.style.visibility = "visible";
@@ -118,7 +128,8 @@ async function renderHome() {
     <header class="header kiosk-header-fixed">
       <div class="brand">
         <div class="brand-avatar-wrap">
-          <img src="icons/logo.png" alt="logo" class="brand-logo">
+          <div id="brand-lottie-logo" class="brand-lottie-logo"></div>
+          <img src="icons/logo.png" alt="logo" class="brand-logo" style="display:none;">
         </div>
         <div>
           <h1 class="brand-title">Jayraldine's Catering</h1>
@@ -127,15 +138,15 @@ async function renderHome() {
       </div>
       <div class="header-nav-actions">
         <button class="nav-action-btn theme-toggle-btn" id="theme-btn" title="Toggle Theme">
-          <div class="nav-action-icon">${currentTheme === "light" ? icon("moon") : icon("sun")}</div>
+          <div class="nav-action-icon"><div class="lottie-icon-container" id="lottie-nav-theme"></div></div>
           <span class="nav-action-label">${currentTheme === "light" ? "Dark Mode" : "Light Mode"}</span>
         </button>
         <button class="nav-action-btn" id="fullscreen-btn" title="Toggle Fullscreen">
-          <div class="nav-action-icon">${icon("fullscreen")}</div>
+          <div class="nav-action-icon"><div class="lottie-icon-container" id="lottie-nav-fullscreen"></div></div>
           <span class="nav-action-label">Fullscreen</span>
         </button>
         <button class="nav-action-btn" id="owner-settings-btn" title="Admin Settings">
-          <div class="nav-action-icon">${icon("settings")}</div>
+          <div class="nav-action-icon"><div class="lottie-icon-container" id="lottie-nav-settings"></div></div>
           <span class="nav-action-label">Settings</span>
         </button>
       </div>
@@ -167,7 +178,9 @@ async function renderHome() {
               <div class="kiosk-cloche-cta-wrapper" id="start-order" role="button" tabindex="0" title="Touch to begin ordering">
                 <div class="kiosk-cloche-glow-pulse"></div>
                 <div class="kiosk-cloche-circle">
-                  <div class="kiosk-cloche-icon">${icon("cloche")}</div>
+                  <div class="kiosk-cloche-icon" id="hero-cloche-icon-box">
+                    <div id="cloche-lottie-wrap" class="lottie-icon-container"></div>
+                  </div>
                   <div class="kiosk-cloche-text-group">
                     <div class="kiosk-cloche-text-main">START ORDER</div>
                     <div class="kiosk-cloche-text-sub">Tap to begin booking</div>
@@ -179,9 +192,9 @@ async function renderHome() {
               <!-- Service Highlights (3 in landscape, 2x2 grid in portrait) -->
               <div class="kiosk-pill-highlights">
                 
-                <div class="kiosk-pill-item">
+                <div class="kiosk-pill-item" id="benefit-booking">
                   <div class="kiosk-pill-icon-box">
-                    ${icon("calendar")}
+                    <div class="lottie-icon-container" id="lottie-benefit-booking"></div>
                   </div>
                   <div class="kiosk-pill-text">
                     <span class="kiosk-pill-title">Easy Booking</span>
@@ -191,9 +204,9 @@ async function renderHome() {
 
                 <div class="kiosk-pill-item-divider"></div>
 
-                <div class="kiosk-pill-item">
+                <div class="kiosk-pill-item" id="benefit-quality">
                   <div class="kiosk-pill-icon-box">
-                    ${icon("shieldCheck")}
+                    <div class="lottie-icon-container" id="lottie-benefit-quality"></div>
                   </div>
                   <div class="kiosk-pill-text">
                     <span class="kiosk-pill-title">Fresh &amp; Quality</span>
@@ -203,9 +216,9 @@ async function renderHome() {
 
                 <div class="kiosk-pill-item-divider"></div>
 
-                <div class="kiosk-pill-item">
+                <div class="kiosk-pill-item" id="benefit-service">
                   <div class="kiosk-pill-icon-box">
-                    ${icon("users")}
+                    <div class="lottie-icon-container" id="lottie-benefit-service"></div>
                   </div>
                   <div class="kiosk-pill-text">
                     <span class="kiosk-pill-title">Trusted Service</span>
@@ -215,9 +228,9 @@ async function renderHome() {
 
                 <div class="kiosk-pill-item-divider divider-4"></div>
 
-                <div class="kiosk-pill-item pill-item-4">
+                <div class="kiosk-pill-item pill-item-4" id="benefit-secure">
                   <div class="kiosk-pill-icon-box">
-                    ${icon("lock")}
+                    <div class="lottie-icon-container" id="lottie-benefit-secure"></div>
                   </div>
                   <div class="kiosk-pill-text">
                     <span class="kiosk-pill-title">Secure &amp; Private</span>
@@ -244,7 +257,9 @@ async function renderHome() {
           <div class="quick-options-grid">
             
             <button class="quick-option-card" id="quick-packages-btn">
-              <div class="quick-opt-icon-circle">${icon("package")}</div>
+              <div class="quick-opt-icon-circle">
+                <div class="lottie-icon-container" id="lottie-quick-packages"></div>
+              </div>
               <div class="quick-opt-info">
                 <span class="quick-opt-title">View Packages</span>
                 <span class="quick-opt-desc">Browse all available packages</span>
@@ -253,7 +268,9 @@ async function renderHome() {
             </button>
 
             <button class="quick-option-card" id="quick-events-btn">
-              <div class="quick-opt-icon-circle">${icon("calendar")}</div>
+              <div class="quick-opt-icon-circle">
+                <div class="lottie-icon-container" id="lottie-quick-events"></div>
+              </div>
               <div class="quick-opt-info">
                 <span class="quick-opt-title">Event Types</span>
                 <span class="quick-opt-desc">Choose your event type</span>
@@ -262,7 +279,9 @@ async function renderHome() {
             </button>
 
             <button class="quick-option-card" id="quick-addons-btn">
-              <div class="quick-opt-icon-circle">${icon("utensils")}</div>
+              <div class="quick-opt-icon-circle">
+                <div class="lottie-icon-container" id="lottie-quick-addons"></div>
+              </div>
               <div class="quick-opt-info">
                 <span class="quick-opt-title">Add-ons</span>
                 <span class="quick-opt-desc">Customize your menu with extras</span>
@@ -271,7 +290,9 @@ async function renderHome() {
             </button>
 
             <button class="quick-option-card" id="quick-orders-btn">
-              <div class="quick-opt-icon-circle">${icon("fileText")}</div>
+              <div class="quick-opt-icon-circle">
+                <div class="lottie-icon-container" id="lottie-quick-orders"></div>
+              </div>
               <div class="quick-opt-info">
                 <span class="quick-opt-title">View Orders</span>
                 <span class="quick-opt-desc">Check your order history</span>
@@ -286,13 +307,54 @@ async function renderHome() {
     </main>
   `;
 
+  // Mount Header Brand Logo Lottie
+  const brandLogoWrap = document.getElementById("brand-lottie-logo");
+  if (brandLogoWrap) {
+    mountLottie(brandLogoWrap, "logo-splash", { loop: true, speed: 0.9 }).then((a) => {
+      if (!a) {
+        document.querySelector(".brand-avatar-wrap .brand-logo").style.display = "block";
+      }
+    });
+  }
+
+  // Mount Cloche idle in START ORDER button
+  const clocheWrap = document.getElementById("cloche-lottie-wrap");
+  if (clocheWrap) {
+    mountLottie(clocheWrap, "cloche-idle", { loop: true });
+  }
+
+  // START ORDER tap with particle burst
+  const startOrderBtn = document.getElementById("start-order");
+  startOrderBtn?.addEventListener("click", () => {
+    playTapBurst(document.getElementById("hero-cloche-icon-box") || startOrderBtn, "cloche-tap-burst");
+    setTimeout(() => {
+      openTermsModal();
+    }, 180);
+  });
+
+  // Mount Benefit cards subtle ambient loops
+  mountLottie(document.getElementById("lottie-benefit-booking"), "icon-calendar", { loop: true, speed: 0.75 });
+  mountLottie(document.getElementById("lottie-benefit-quality"), "icon-shield-check", { loop: true, speed: 0.75 });
+  mountLottie(document.getElementById("lottie-benefit-service"), "icon-users", { loop: true, speed: 0.75 });
+  mountLottie(document.getElementById("lottie-benefit-secure"), "icon-lock", { loop: true, speed: 0.75 });
+
+  // Mount Quick Options hover animations
+  mountHoverLottie(document.getElementById("quick-packages-btn"), "icon-package", { speed: 1.2 });
+  mountHoverLottie(document.getElementById("quick-events-btn"), "icon-calendar", { speed: 1.2 });
+  mountHoverLottie(document.getElementById("quick-addons-btn"), "icon-utensils", { speed: 1.2 });
+  mountHoverLottie(document.getElementById("quick-orders-btn"), "icon-filetext", { speed: 1.2 });
+
+  // Mount Header Nav micro-hover animations
+  mountHoverLottie(document.getElementById("theme-btn"), "icon-theme-toggle", { speed: 1.2 });
+  mountHoverLottie(document.getElementById("fullscreen-btn"), "icon-fullscreen", { speed: 1.2 });
+  mountHoverLottie(document.getElementById("owner-settings-btn"), "icon-settings-gear", { speed: 1.2 });
+
   // Mount listeners
   document.getElementById("theme-btn").addEventListener("click", toggleTheme);
   document.getElementById("fullscreen-btn").addEventListener("click", toggleFullscreen);
   document.getElementById("owner-settings-btn").addEventListener("click", () => openOwnerSettings("bookings"));
-  document.getElementById("start-order").addEventListener("click", openTermsModal);
 
-  // Mount Quick Options
+  // Mount Quick Options clicks
   document.getElementById("quick-packages-btn")?.addEventListener("click", openQuickPackagesModal);
   document.getElementById("quick-events-btn")?.addEventListener("click", openQuickEventTypesModal);
   document.getElementById("quick-addons-btn")?.addEventListener("click", openQuickAddonsModal);

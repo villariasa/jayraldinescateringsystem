@@ -1,5 +1,5 @@
 // Cache-first for everything — 100% offline standalone kiosk PWA
-const CACHE_NAME = "jc-kiosk-shell-v48";
+const CACHE_NAME = "jc-kiosk-shell-v49";
 const SHELL_FILES = [
   "/",
   "/index.html",
@@ -7,6 +7,7 @@ const SHELL_FILES = [
   "/js/app.js",
   "/js/api.js",
   "/js/icons.js",
+  "/js/lottie-helper.js",
   "/js/slider.js",
   "/js/state.js",
   "/js/views.js",
@@ -17,6 +18,7 @@ const SHELL_FILES = [
   "/js/importer.js",
   "/js/exporter.js",
   "/js/terms.js",
+  "/vendor/lottie.min.js",
   "/vendor/sql-wasm.js",
   "/vendor/sql-wasm.wasm",
   "/vendor/jspdf.umd.min.js",
@@ -28,6 +30,24 @@ const SHELL_FILES = [
   "/images/hero-buffet-1.jpg",
   "/images/hero-buffet-2.jpg",
   "/images/hero-buffet-3.jpg",
+  "/animations/logo-splash.json",
+  "/animations/cloche-idle.json",
+  "/animations/cloche-tap-burst.json",
+  "/animations/icon-package.json",
+  "/animations/icon-calendar.json",
+  "/animations/icon-utensils.json",
+  "/animations/icon-filetext.json",
+  "/animations/icon-shield-check.json",
+  "/animations/icon-users.json",
+  "/animations/icon-lock.json",
+  "/animations/icon-theme-toggle.json",
+  "/animations/icon-fullscreen.json",
+  "/animations/icon-settings-gear.json",
+  "/animations/booking-success.json",
+  "/animations/empty-plate.json",
+  "/animations/toast-success.json",
+  "/animations/toast-error.json",
+  "/animations/toast-info.json",
 ];
 
 self.addEventListener("install", (event) => {

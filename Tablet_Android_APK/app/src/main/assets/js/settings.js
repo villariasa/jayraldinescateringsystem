@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { openModal, closeModal, toast, escapeHtml, statusPill } from "./views.js";
 import { peso } from "./state.js";
 import { icon } from "./icons.js";
+import { mountLottie } from "./lottie-helper.js";
 import {
   getLandingImages,
   saveLandingImages,
@@ -392,9 +393,19 @@ async function renderBookingsTab(content) {
               </button>
             </div>
           </div>
-        `).join("") || `<div style="grid-column: 1 / -1; padding:36px; text-align:center; color:var(--text-muted);">No bookings matching your search query.</div>`}
+        `).join("") || `
+          <div style="grid-column: 1 / -1; padding:36px; text-align:center; color:var(--text-muted);">
+            <div id="empty-bookings-lottie" style="width:110px; height:110px; margin:0 auto 10px; display:flex; align-items:center; justify-content:center;"></div>
+            <div>No bookings matching your search query.</div>
+          </div>
+        `}
       </div>
     `;
+
+    const emptyLottie = content.querySelector("#empty-bookings-lottie");
+    if (emptyLottie) {
+      mountLottie(emptyLottie, "empty-plate", { loop: true });
+    }
 
     const searchInput = content.querySelector("#search-orders-input");
     if (searchInput) {

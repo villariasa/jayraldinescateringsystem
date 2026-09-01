@@ -17,7 +17,8 @@
   <div class="splash-content">
     <div class="splash-logo-wrap">
       <div class="splash-glow-ring"></div>
-      <img src="icons/logo.png" alt="Jayraldine's Catering" class="splash-logo">
+      <div id="splash-lottie-logo" class="splash-lottie-container"></div>
+      <img src="icons/logo.png" alt="Jayraldine's Catering" class="splash-logo splash-logo-fallback">
     </div>
     <h1 class="splash-title">Jayraldine's Catering</h1>
     <p class="splash-subtitle">Standalone Offline Kiosk System</p>
@@ -30,6 +31,7 @@
      with zero network access after first install, so these are local
      files, never a CDN. sqlite.js/exporter.js/importer.js reference them
      as window.initSqlJs / window.jspdf / window.XLSX. -->
+<script src="vendor/lottie.min.js"></script>
 <script src="vendor/sql-wasm.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="vendor/xlsx.full.min.js"></script>

@@ -3,6 +3,7 @@ import { wizard, chargesTotal, grandTotal, peso } from "./state.js";
 import { toast, escapeHtml, statusPill, openModal, closeModal } from "./views.js";
 import { icon } from "./icons.js";
 import { getTheme, toggleTheme } from "./app.js";
+import { mountLottie } from "./lottie-helper.js";
 
 const STEPS = [
   { step: 1, label: "Customer", title: "Customer Info", subtitle: "Enter client contact details" },
@@ -1404,10 +1405,8 @@ function renderStepPreview(card) {
 function renderReceipt(card) {
   const o = lastCreatedOrder;
   card.innerHTML = `
-    <div style="text-align:center; padding:20px 0;">
-      <div style="width:68px; height:68px; border-radius:50%; background:var(--success-bg); color:var(--success); display:inline-flex; align-items:center; justify-content:center; margin-bottom:16px; box-shadow:0 0 25px var(--success-glow);">
-        ${icon("checkCircle")}
-      </div>
+    <div style="text-align:center; padding:10px 0 20px;">
+      <div id="receipt-success-lottie" style="width:130px; height:130px; margin:0 auto 12px; display:flex; align-items:center; justify-content:center;"></div>
       <h2 style="margin:0 0 8px; font-size:26px;">Thank You for Choosing Jayraldine's!</h2>
       <p style="color:var(--text-muted); font-size:14.5px; line-height:1.5; margin:0 0 24px; max-width:480px; margin-left:auto; margin-right:auto;">
         Your catering booking has been successfully placed. We are thrilled and honored to serve your special event!
@@ -1461,6 +1460,11 @@ function renderReceipt(card) {
       detail: { transition: true, message: "Thank you for booking! Resetting kiosk for the next guest…" }
     }));
   });
+
+  const successLottie = card.querySelector("#receipt-success-lottie");
+  if (successLottie) {
+    mountLottie(successLottie, "booking-success", { loop: false, autoplay: true });
+  }
 }
 
 function openPackageDetailsModal(p, selectCallback) {

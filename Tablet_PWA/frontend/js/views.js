@@ -1,19 +1,43 @@
 // Modern interactive UI helpers (Modals, Toasts, Status Pills) with SVGs and animations.
 import { icon } from "./icons.js";
+import { mountLottie } from "./lottie-helper.js";
 
 export function toast(message, kind = "") {
   const el = document.createElement("div");
   el.className = `toast ${kind}`.trim();
   
+  let animName = "toast-info";
   let iconSvg = icon("info");
-  if (kind === "success") iconSvg = icon("checkCircle");
-  else if (kind === "danger" || kind === "error") iconSvg = icon("alertTriangle");
+  if (kind === "success") {
+    animName = "toast-success";
+    iconSvg = icon("checkCircle");
+  } else if (kind === "danger" || kind === "error") {
+    animName = "toast-error";
+    iconSvg = icon("alertTriangle");
+  }
 
   el.innerHTML = `
-    <span class="toast-icon">${iconSvg}</span>
+    <span class="toast-icon">
+      <span class="lottie-icon-container"></span>
+      <span class="toast-fallback-icon" style="display:none;">${iconSvg}</span>
+    </span>
     <span class="toast-text">${escapeHtml(message)}</span>
   `;
   document.body.appendChild(el);
+
+  const lottieWrap = el.querySelector(".lottie-icon-container");
+  if (lottieWrap) {
+    mountLottie(lottieWrap, animName, { loop: false, autoplay: true }).then((a) => {
+      if (!a) {
+        const fb = el.querySelector(".toast-fallback-icon");
+        if (fb) fb.style.display = "inline-flex";
+      }
+    }).catch(() => {
+      const fb = el.querySelector(".toast-fallback-icon");
+      if (fb) fb.style.display = "inline-flex";
+    });
+  }
+
   setTimeout(() => {
     el.style.opacity = "0";
     el.style.transform = "translateY(12px)";

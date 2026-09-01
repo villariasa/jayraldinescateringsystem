@@ -3568,5 +3568,112 @@ svg {
   }
 }
 
+/* ── Lottie Animations Integration ────────────────────────────────────────── */
+.splash-lottie-container {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
+.splash-logo-wrap.has-lottie .splash-logo-fallback {
+  display: none !important;
+}
 
+.brand-avatar-wrap .brand-lottie-logo {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.lottie-icon-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.lottie-icon-container svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.kiosk-cloche-icon .lottie-icon-container {
+  width: 38px;
+  height: 38px;
+}
+
+.quick-opt-icon-circle .lottie-icon-container {
+  width: 32px;
+  height: 32px;
+}
+
+.kiosk-pill-icon-box .lottie-icon-container {
+  width: 32px;
+  height: 32px;
+}
+
+.nav-action-icon .lottie-icon-container {
+  width: 24px;
+  height: 24px;
+}
+
+.toast-icon .lottie-icon-container {
+  width: 24px;
+  height: 24px;
+}
+
+.wizard-step-lottie {
+  width: 52px;
+  height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.celebration-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(11, 18, 32, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.celebration-lottie-wrap {
+  width: 320px;
+  height: 320px;
+  position: relative;
+}
+
+.celebration-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 28px;
+  font-weight: 800;
+  color: #FFFFFF;
+  margin-top: 14px;
+  text-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+}
+
+.celebration-subtitle {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 6px;
+}
