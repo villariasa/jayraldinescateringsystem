@@ -307,9 +307,7 @@ svg {
   align-items: center;
   justify-content: space-between;
   padding: 16px 32px;
-  background: rgba(10, 16, 36, 0.75);
-  backdrop-filter: blur(24px) saturate(200%);
-  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  background: rgba(10, 16, 36, 0.96);
   border-bottom: 1.5px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   position: sticky;
@@ -379,7 +377,7 @@ svg {
   border: none;
   padding: 4px 8px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: transform var(--transition-fast), opacity var(--transition-fast);
 }
 
 .nav-action-icon {
@@ -392,7 +390,7 @@ svg {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-smooth);
+  transition: background-color var(--transition-smooth), border-color var(--transition-smooth), transform var(--transition-smooth), box-shadow var(--transition-smooth);
   box-shadow: var(--shadow-sm);
 }
 
@@ -439,13 +437,12 @@ svg {
   height: 44px;
   border-radius: var(--radius-md);
   background: var(--card-glass);
-  backdrop-filter: blur(8px);
   border: 1.5px solid var(--border);
   color: var(--text-muted);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-smooth);
+  transition: background-color var(--transition-smooth), border-color var(--transition-smooth), color var(--transition-smooth), transform var(--transition-smooth), box-shadow var(--transition-smooth);
 }
 
 .icon-btn:hover {
@@ -476,7 +473,7 @@ svg {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  transition: all var(--transition-smooth);
+  transition: background-color var(--transition-smooth), border-color var(--transition-smooth), color var(--transition-smooth), transform var(--transition-smooth), box-shadow var(--transition-smooth), opacity var(--transition-smooth);
   position: relative;
   overflow: hidden;
   text-decoration: none;
@@ -598,22 +595,18 @@ svg {
   animation: slideUpFade 0.35s ease-out;
 }
 
-/* ── Cards & Glass Panels (Glassmorphism) ────────────────────────────────── */
+/* ── Cards & Glass Panels (Solid & Composited) ────────────────────────── */
 .card {
   background: var(--card);
-  backdrop-filter: blur(24px) saturate(190%);
-  -webkit-backdrop-filter: blur(24px) saturate(190%);
   border: 1.5px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius);
   padding: 24px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.12);
-  transition: all var(--transition-smooth);
+  transition: transform var(--transition-smooth), box-shadow var(--transition-smooth), border-color var(--transition-smooth);
 }
 
 .card-elevated {
   background: var(--card-elevated);
-  backdrop-filter: blur(28px) saturate(200%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
   border: 1.5px solid rgba(255, 255, 255, 0.16);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), inset 0 1px 2px rgba(255, 255, 255, 0.16);
 }
@@ -621,9 +614,7 @@ svg {
 /* ── Tablet Kiosk Landing Page Modern Layout ─────────────────────────────── */
 .kiosk-header-fixed {
   padding: 14px 32px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(255, 255, 255, 0.96);
   border-bottom: 1px solid rgba(226, 232, 240, 0.7);
   position: sticky;
   top: 0;
@@ -741,9 +732,7 @@ svg {
 
 /* ── Floating Action Pill Container ──────────────────────────────────────── */
 .kiosk-action-pill-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: rgba(255, 255, 255, 0.97);
   border: 1.5px solid rgba(255, 255, 255, 0.95);
   border-radius: 32px;
   padding: 14px 24px 14px 14px;
@@ -754,7 +743,7 @@ svg {
     0 20px 48px rgba(225, 29, 72, 0.07),
     0 4px 16px rgba(15, 23, 42, 0.03);
   position: relative;
-  transition: all var(--transition-smooth);
+  transition: transform var(--transition-smooth), box-shadow var(--transition-smooth), border-color var(--transition-smooth);
 }
 
 [data-theme="dark"] .kiosk-action-pill-card {
@@ -810,7 +799,7 @@ svg {
   z-index: 2;
   padding: 0 10px;
   box-sizing: border-box;
-  transition: all var(--transition-spring);
+  transition: transform var(--transition-spring), box-shadow var(--transition-spring);
 }
 
 .kiosk-cloche-cta-wrapper:hover .kiosk-cloche-circle {
@@ -1043,6 +1032,7 @@ svg {
 .kiosk-slide-img {
   width: 100%;
   height: 100%;
+  aspect-ratio: 1080 / 724;
   object-fit: cover;
   object-position: 78% center;
   display: block;
@@ -1070,7 +1060,7 @@ svg {
   border: none;
   cursor: pointer;
   padding: 0;
-  transition: all 0.26s cubic-bezier(0.2, 0.9, 0.3, 1);
+  transition: width 0.26s cubic-bezier(0.2, 0.9, 0.3, 1), background-color 0.26s cubic-bezier(0.2, 0.9, 0.3, 1), border-radius 0.26s cubic-bezier(0.2, 0.9, 0.3, 1), box-shadow 0.26s cubic-bezier(0.2, 0.9, 0.3, 1);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
@@ -1109,9 +1099,7 @@ svg {
 }
 
 .quick-option-card {
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(255, 255, 255, 0.97);
   border: 1px solid rgba(255, 255, 255, 0.88);
   border-radius: 20px;
   padding: 14px 16px;
@@ -1121,7 +1109,7 @@ svg {
   text-align: left;
   cursor: pointer;
   user-select: none;
-  transition: all var(--transition-smooth);
+  transition: transform var(--transition-smooth), box-shadow var(--transition-smooth), border-color var(--transition-smooth);
   box-shadow: 0 4px 18px rgba(15, 23, 42, 0.03);
   width: 100%;
   color: inherit;
@@ -1153,7 +1141,7 @@ svg {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 [data-theme="dark"] .quick-opt-icon-circle {
@@ -1322,7 +1310,7 @@ svg {
   cursor: pointer;
   z-index: 2;
   position: relative;
-  transition: all var(--transition-spring);
+  transition: transform var(--transition-spring), box-shadow var(--transition-spring);
   user-select: none;
   animation: breathingGlow 3s ease-in-out infinite alternate;
 }
@@ -1521,9 +1509,7 @@ svg {
 }
 
 .modal, .drawer-panel {
-  background: rgba(10, 17, 38, 0.88);
-  backdrop-filter: blur(32px) saturate(220%);
-  -webkit-backdrop-filter: blur(32px) saturate(220%);
+  background: rgba(10, 17, 38, 0.98);
   border-top: 2px solid rgba(255, 255, 255, 0.24);
   border-left: 1.5px solid rgba(255, 255, 255, 0.12);
   border-right: 1.5px solid rgba(255, 255, 255, 0.12);
@@ -1564,7 +1550,7 @@ svg {
   border-radius: 0 !important;
   border: none !important;
   box-shadow: none !important;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 .drawer-panel.drawer-fullscreen .settings-tabs-sticky {
@@ -1601,7 +1587,7 @@ svg {
   height: 5px;
   background: var(--border-light);
   border-radius: 4px;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
 .drawer-grab-bar-wrap:active .drawer-grab-bar,
@@ -1645,8 +1631,6 @@ svg {
   display: flex;
   gap: 8px;
   background: var(--bg-surface);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
   padding: 14px 24px 12px 24px;
   margin: -24px -28px 18px -28px;
   border-bottom: 1.5px solid var(--border);
@@ -1772,7 +1756,7 @@ svg {
   border: 1.5px solid var(--border);
   color: var(--text);
   font-size: 15px;
-  transition: all var(--transition-fast);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .form-control:focus {
@@ -1785,9 +1769,7 @@ svg {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(11, 18, 32, 0.95);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(11, 18, 32, 0.98);
   border-bottom: 1.5px solid var(--border);
   padding: 16px 36px 18px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
@@ -1876,7 +1858,7 @@ svg {
   font-size: 13px;
   font-weight: 700;
   font-family: "Outfit", sans-serif;
-  transition: all var(--transition-smooth);
+  transition: background-color var(--transition-smooth), border-color var(--transition-smooth), color var(--transition-smooth), transform var(--transition-smooth), box-shadow var(--transition-smooth);
 }
 
 .timeline-step.active .timeline-circle {
@@ -1944,7 +1926,7 @@ svg {
   border: 2px solid var(--border);
   background: var(--card);
   padding: 20px;
-  transition: all var(--transition-smooth);
+  transition: transform var(--transition-smooth), border-color var(--transition-smooth), background-color var(--transition-smooth), box-shadow var(--transition-smooth);
   position: relative;
 }
 
@@ -2045,7 +2027,7 @@ svg {
   border: 1.5px solid var(--border);
   border-radius: var(--radius-md);
   padding: 18px 22px;
-  transition: all var(--transition-fast);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
 }
 
 .terms-section:hover {
@@ -2162,8 +2144,6 @@ svg {
   top: 0;
   z-index: 10;
   background: var(--card-elevated);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border-bottom: 2px solid var(--border);
   padding: 12px 14px;
   color: var(--text-muted);
@@ -2276,7 +2256,7 @@ svg {
   display: flex;
   flex-direction: column;
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
@@ -2298,9 +2278,7 @@ svg {
   position: sticky;
   top: var(--wiz-header-h, 132px);
   z-index: 45;
-  background: rgba(10, 16, 36, 0.94);
-  backdrop-filter: blur(28px) saturate(200%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  background: rgba(10, 16, 36, 0.98);
   padding: 16px 20px 14px;
   margin: -24px -24px 20px -24px;
   border-bottom: 1.5px solid var(--border);
@@ -2346,7 +2324,7 @@ svg {
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, border-color 0.2s ease, transform 0.2s ease, background-color 0.2s ease;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2411,14 +2389,13 @@ svg {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.92);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #FFFFFF;
   border: 1.5px solid rgba(255, 255, 255, 0.2);
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .kiosk-food-card.selected .kiosk-card-badge {
@@ -2501,7 +2478,7 @@ svg {
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, border-color 0.2s ease, transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2954,7 +2931,7 @@ svg {
   flex-direction: column;
   gap: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .management-card:hover {
@@ -3104,7 +3081,7 @@ svg {
   flex-direction: column;
   gap: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .order-kiosk-card:hover {
@@ -3149,9 +3126,7 @@ svg {
 @media (orientation: portrait), (max-width: 900px) {
   .kiosk-header-fixed {
     padding: 14px 4.5vw;
-    background: rgba(255, 255, 255, 0.88);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    background: rgba(255, 255, 255, 0.97);
     border-bottom: 1px solid rgba(226, 232, 240, 0.6);
     width: 100%;
     box-sizing: border-box;
@@ -3430,9 +3405,7 @@ svg {
   }
 
   .kiosk-pill-item {
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    background: rgba(255, 255, 255, 0.97);
     border: 1px solid rgba(255, 255, 255, 0.9);
     border-radius: 20px;
     padding: 18px 22px;
@@ -3522,9 +3495,7 @@ svg {
   }
 
   .quick-option-card {
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    background: rgba(255, 255, 255, 0.97);
     border: 1px solid rgba(255, 255, 255, 0.9);
     border-radius: 20px;
     padding: 16px 24px;

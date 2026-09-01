@@ -1,9 +1,28 @@
 // lottie-helper.js — High-performance offline Lottie helper for Jayraldine's Catering Tablet Kiosk
-// Pre-bundled offline vector animations for instantaneous 0ms loading without network fetch
-import { ANIMATIONS } from "./animations-data.js";
+// Pre-bundled offline vector animations loaded dynamically on-demand to eliminate boot jank
 
 const animationDataCache = new Map();
 const activeInstances = new WeakMap();
+
+let animationsModulePromise = null;
+let loadedAnimations = null;
+
+async function getBundledAnimations() {
+  if (loadedAnimations) return loadedAnimations;
+  if (!animationsModulePromise) {
+    animationsModulePromise = import("./animations-data.js")
+      .then((m) => {
+        loadedAnimations = m.ANIMATIONS || {};
+        return loadedAnimations;
+      })
+      .catch((err) => {
+        console.warn("[Lottie] Failed to load animations bundle", err);
+        loadedAnimations = {};
+        return loadedAnimations;
+      });
+  }
+  return animationsModulePromise;
+}
 
 /**
  * Preloads or fetches animation JSON data from the offline animations bundle.
@@ -12,9 +31,10 @@ export async function getAnimationData(name) {
   if (!name) return null;
   const cleanName = String(name).replace(/\.json$/, "").trim();
 
-  // 1. Instantaneous in-memory lookup from bundled offline animations
-  if (ANIMATIONS && ANIMATIONS[cleanName]) {
-    return ANIMATIONS[cleanName];
+  // 1. Instantaneous in-memory lookup from bundled offline animations (lazy loaded on first use)
+  const bundled = await getBundledAnimations();
+  if (bundled && bundled[cleanName]) {
+    return bundled[cleanName];
   }
 
   if (animationDataCache.has(cleanName)) {
@@ -45,7 +65,7 @@ export async function getAnimationData(name) {
 }
 
 /**
- * Mounts a Lottie animation into a container.
+ * Mounts a Lottie animation into a container using GPU-composited Canvas rendering.
  * Destroys any existing Lottie instance on the same container to avoid memory leaks.
  */
 export async function mountLottie(container, name, options = {}) {
@@ -68,11 +88,12 @@ export async function mountLottie(container, name, options = {}) {
 
   const anim = window.lottie.loadAnimation({
     container,
-    renderer: options.renderer || "svg",
+    renderer: options.renderer || "canvas",
     loop: options.loop !== undefined ? options.loop : true,
     autoplay: options.autoplay !== undefined ? options.autoplay : true,
     animationData: animData,
     rendererSettings: {
+      clearCanvas: true,
       preserveAspectRatio: options.preserveAspectRatio || "xMidYMid meet",
       progressiveLoad: true,
       hideOnTransparent: true,
@@ -80,14 +101,13 @@ export async function mountLottie(container, name, options = {}) {
     }
   });
 
-  // lottie-web sets width/height HTML attributes that override CSS — remove them so
-  // the SVG fills the container using CSS rules only.
+  // Ensure rendered canvas or svg fills container according to CSS without hardcoded pixel attributes
   anim.addEventListener("DOMLoaded", () => {
-    const svgEl = container.querySelector("svg");
-    if (svgEl) {
-      svgEl.removeAttribute("width");
-      svgEl.removeAttribute("height");
-      svgEl.style.cssText = "width:100%;height:100%;display:block;";
+    const el = container.querySelector("canvas") || container.querySelector("svg");
+    if (el) {
+      el.removeAttribute("width");
+      el.removeAttribute("height");
+      el.style.cssText = "width:100%;height:100%;display:block;";
     }
   });
 
@@ -176,10 +196,14 @@ export async function playTapBurst(targetEl, name = "cloche-tap-burst") {
 
   const burstAnim = window.lottie.loadAnimation({
     container: burstWrap,
-    renderer: "svg",
+    renderer: "canvas",
     loop: false,
     autoplay: true,
-    animationData: animData
+    animationData: animData,
+    rendererSettings: {
+      clearCanvas: true,
+      preserveAspectRatio: "xMidYMid meet"
+    }
   });
 
   burstAnim.addEventListener("complete", () => {

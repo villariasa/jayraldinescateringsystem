@@ -59,7 +59,7 @@ export function mountLandingSlider(container) {
     container.innerHTML = `
       <div class="kiosk-hero-slider single-image">
         <div class="kiosk-slide-single">
-          <img src="${images[0]}" alt="Jayraldine's Catering Feast" class="kiosk-slide-img" loading="eager">
+          <img src="${images[0]}" alt="Jayraldine's Catering Feast" class="kiosk-slide-img" width="1080" height="724" decoding="async" loading="eager">
         </div>
       </div>
     `;
@@ -76,7 +76,7 @@ export function mountLandingSlider(container) {
       <div class="kiosk-slider-track" id="kiosk-slider-track">
         ${images.map((src, i) => `
           <div class="kiosk-slide ${i === 0 ? "active" : ""}" data-index="${i}">
-            <img src="${src}" alt="Catering Highlight ${i + 1}" class="kiosk-slide-img" loading="${i === 0 ? "eager" : "lazy"}">
+            <img src="${src}" alt="Catering Highlight ${i + 1}" class="kiosk-slide-img" width="1080" height="724" decoding="async" loading="${i === 0 ? "eager" : "lazy"}">
           </div>
         `).join("")}
       </div>
