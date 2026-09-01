@@ -1656,6 +1656,7 @@ svg {
   touch-action: pan-x;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  scroll-behavior: smooth;
 }
 
 .settings-tabs-sticky::-webkit-scrollbar {

@@ -274,45 +274,70 @@ function showOwnerSettingsModal(initialTab = "bookings") {
 }
 
 async function renderTabs(body, active) {
-  body.innerHTML = `
-    <div class="settings-tabs-sticky">
-      <button class="btn ${active === "bookings" ? "btn-primary" : "btn-secondary"}" data-tab="bookings">
-        ${icon("shoppingBag")} Recent Bookings
-      </button>
-      <button class="btn ${active === "packages" ? "btn-primary" : "btn-secondary"}" data-tab="packages">
-        ${icon("package")} Buffet Packages
-      </button>
-      <button class="btn ${active === "menu" ? "btn-primary" : "btn-secondary"}" data-tab="menu">
-        ${icon("utensils")} Menu Dishes &amp; Add-ons
-      </button>
-      <button class="btn ${active === "customers" ? "btn-primary" : "btn-secondary"}" data-tab="customers">
-        ${icon("user")} Customer Directory
-      </button>
-      <button class="btn ${active === "landing" ? "btn-primary" : "btn-secondary"}" data-tab="landing">
-        ${icon("image")} Landing &amp; Slider
-      </button>
-      <button class="btn ${active === "security" ? "btn-primary" : "btn-secondary"}" data-tab="security">
-        ${icon("key")} Passcode Security
-      </button>
-      <button class="btn ${active === "database" ? "btn-primary" : "btn-secondary"}" data-tab="database">
-        ${icon("database")} Database &amp; Sync
-      </button>
-    </div>
-    <div id="tab-content" style="margin-top:4px;"></div>
-  `;
-  body.querySelectorAll("[data-tab]").forEach((t) => {
-    t.addEventListener("click", () => renderTabs(body, t.dataset.tab));
-  });
+  let tabsBar = body.querySelector(".settings-tabs-sticky");
+  let content = body.querySelector("#tab-content");
 
-  // Auto-scroll the active tab button into center view so it is always visible and accessible
-  const activeBtn = body.querySelector(`[data-tab="${active}"]`);
-  if (activeBtn) {
-    setTimeout(() => {
-      activeBtn.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-    }, 40);
+  // Create the persistent tabs header once if not already rendered
+  if (!tabsBar || !content) {
+    body.innerHTML = `
+      <div class="settings-tabs-sticky">
+        <button class="btn btn-secondary" data-tab="bookings">
+          ${icon("shoppingBag")} Recent Bookings
+        </button>
+        <button class="btn btn-secondary" data-tab="packages">
+          ${icon("package")} Buffet Packages
+        </button>
+        <button class="btn btn-secondary" data-tab="menu">
+          ${icon("utensils")} Menu Dishes &amp; Add-ons
+        </button>
+        <button class="btn btn-secondary" data-tab="customers">
+          ${icon("user")} Customer Directory
+        </button>
+        <button class="btn btn-secondary" data-tab="landing">
+          ${icon("image")} Landing &amp; Slider
+        </button>
+        <button class="btn btn-secondary" data-tab="security">
+          ${icon("key")} Passcode Security
+        </button>
+        <button class="btn btn-secondary" data-tab="database">
+          ${icon("database")} Database &amp; Sync
+        </button>
+      </div>
+      <div id="tab-content" style="margin-top:4px;"></div>
+    `;
+
+    tabsBar = body.querySelector(".settings-tabs-sticky");
+    content = body.querySelector("#tab-content");
+
+    tabsBar.querySelectorAll("[data-tab]").forEach((t) => {
+      t.addEventListener("click", () => renderTabs(body, t.dataset.tab));
+    });
   }
 
-  const content = body.querySelector("#tab-content");
+  // Update active button styling WITHOUT destroying the tab bar DOM or resetting scroll position
+  tabsBar.querySelectorAll("[data-tab]").forEach((btn) => {
+    if (btn.dataset.tab === active) {
+      btn.className = "btn btn-primary";
+    } else {
+      btn.className = "btn btn-secondary";
+    }
+  });
+
+  // Directly scroll the tabs container so the active tab is guaranteed to be visible and centered
+  const activeBtn = tabsBar.querySelector(`[data-tab="${active}"]`);
+  if (activeBtn) {
+    requestAnimationFrame(() => {
+      const containerWidth = tabsBar.clientWidth;
+      const btnLeft = activeBtn.offsetLeft;
+      const btnWidth = activeBtn.clientWidth;
+      const targetScroll = btnLeft - (containerWidth / 2) + (btnWidth / 2);
+      tabsBar.scrollTo({
+        left: Math.max(0, targetScroll),
+        behavior: "smooth"
+      });
+    });
+  }
+
   if (active === "bookings") return renderBookingsTab(content);
   if (active === "packages") return renderPackagesTab(content);
   if (active === "menu") return renderMenuTab(content);
