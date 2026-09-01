@@ -66,6 +66,7 @@ public class MainActivity extends AppCompatActivity {
 
         final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+            .addPathHandler("/animations/", new WebViewAssetLoader.AssetsPathHandler(this))
             .build();
 
         WebSettings settings = webView.getSettings();

@@ -1,30 +1,47 @@
 // lottie-helper.js — High-performance offline Lottie helper for Jayraldine's Catering Tablet Kiosk
-// Handles caching, hover interactions, touch gestures, tap bursts, and auto-cleanup.
+// Pre-bundled offline vector animations for instantaneous 0ms loading without network fetch
+import { ANIMATIONS } from "./animations-data.js";
 
 const animationDataCache = new Map();
 const activeInstances = new WeakMap();
 
 /**
- * Preloads or fetches animation JSON data from the offline animations folder.
+ * Preloads or fetches animation JSON data from the offline animations bundle.
  */
 export async function getAnimationData(name) {
-  if (animationDataCache.has(name)) {
-    return animationDataCache.get(name);
+  if (!name) return null;
+  const cleanName = String(name).replace(/\.json$/, "").trim();
+
+  // 1. Instantaneous in-memory lookup from bundled offline animations
+  if (ANIMATIONS && ANIMATIONS[cleanName]) {
+    return ANIMATIONS[cleanName];
   }
 
-  const filename = name.endsWith(".json") ? name : `${name}.json`;
-  const url = `/animations/${filename}`;
-
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
-    const data = await res.json();
-    animationDataCache.set(name, data);
-    return data;
-  } catch (err) {
-    console.warn(`[Lottie] Failed to load animation: ${name}`, err);
-    return null;
+  if (animationDataCache.has(cleanName)) {
+    return animationDataCache.get(cleanName);
   }
+
+  const filename = `${cleanName}.json`;
+  // 2. Relative URLs work in Android WebView assets, standalone PWAs, and file:///
+  const candidateUrls = [
+    `animations/${filename}`,
+    `/animations/${filename}`,
+    `assets/animations/${filename}`
+  ];
+
+  for (const url of candidateUrls) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        animationDataCache.set(cleanName, data);
+        return data;
+      }
+    } catch (_) {}
+  }
+
+  console.warn(`[Lottie] Animation not found: ${name}`);
+  return null;
 }
 
 /**
@@ -34,18 +51,20 @@ export async function getAnimationData(name) {
 export async function mountLottie(container, name, options = {}) {
   if (!container || !window.lottie) return null;
 
+  const animData = await getAnimationData(name);
+  if (!animData) {
+    // If animation data could not be found, preserve any existing icon child
+    return null;
+  }
+
   // Destroy any existing Lottie instance on this element
   const prev = activeInstances.get(container);
   if (prev) {
     try { prev.destroy(); } catch (_) {}
   }
 
-  // Clear any existing content (static fallback SVG icons or previous Lottie frames)
-  // so the new Lottie SVG is the only child — preventing double-icon stacking.
+  // Clear existing content only once the animation data is verified ready
   container.innerHTML = "";
-
-  const animData = await getAnimationData(name);
-  if (!animData) return null;
 
   const anim = window.lottie.loadAnimation({
     container,
