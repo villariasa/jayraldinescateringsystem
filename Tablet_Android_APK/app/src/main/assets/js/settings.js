@@ -395,53 +395,61 @@ async function renderBookingsTab(content) {
         </div>
       </div>
 
-      <!-- Bookings Table -->
-      <div class="table-wrap" style="background:var(--card-elevated); border:1px solid var(--border); border-radius:var(--radius-md); overflow-x:auto;">
-        <table class="table" style="width:100%; border-collapse:collapse; text-align:left; font-size:13.5px;">
-          <thead>
-            <tr style="border-bottom:1.5px solid var(--border); background:rgba(0,0,0,0.03);">
-              <th style="padding:12px 16px;">Ref #</th>
-              <th style="padding:12px 16px;">Customer</th>
-              <th style="padding:12px 16px;">Event Date</th>
-              <th style="padding:12px 16px;">Total</th>
-              <th style="padding:12px 16px;">Paid</th>
-              <th style="padding:12px 16px;">Balance</th>
-              <th style="padding:12px 16px;">Status</th>
-              <th style="padding:12px 16px; text-align:right;">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${filtered.length === 0 ? `
-              <tr>
-                <td colspan="8" style="text-align:center; padding:40px 20px; color:var(--text-muted);">
-                  <div class="lottie-icon-container" id="lottie-empty-bookings" style="width:72px; height:72px; margin:0 auto 12px;"></div>
-                  <div style="font-weight:700; font-size:15px; color:var(--text);">No bookings found</div>
-                  <div style="font-size:13px; margin-top:4px;">No events match your current search or date filter.</div>
-                </td>
-              </tr>
-            ` : filtered.map((o) => `
-              <tr style="border-bottom:1px solid var(--border);">
-                <td style="padding:12px 16px; font-weight:700; font-family:monospace; color:var(--accent);">${escapeHtml(o.booking_ref || `JC-${o.booking_id}`)}</td>
-                <td style="padding:12px 16px; font-weight:600;">${escapeHtml(o.customer || "Walk-in Guest")}</td>
-                <td style="padding:12px 16px; color:var(--text-muted);">${escapeHtml(o.event_date || "—")}</td>
-                <td style="padding:12px 16px; font-weight:700;">${peso(o.total)}</td>
-                <td style="padding:12px 16px; color:var(--success); font-weight:600;">${peso(o.paid)}</td>
-                <td style="padding:12px 16px; color:var(--accent); font-weight:600;">${peso(o.balance)}</td>
-                <td style="padding:12px 16px;">${statusPill(o.status || "Confirmed")}</td>
-                <td style="padding:12px 16px; text-align:right;">
-                  <div style="display:inline-flex; gap:6px;">
-                    <button class="btn btn-sm btn-secondary" data-detail="${o.booking_id}" title="View Details">
-                      ${icon("eye")} Details
-                    </button>
-                    <button class="btn btn-sm btn-secondary" data-receipt="${o.booking_id}" title="Print Receipt">
-                      ${icon("printer")}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
+      <!-- Bookings Cards Grid -->
+      <div class="orders-card-grid">
+        ${filtered.length === 0 ? `
+          <div style="grid-column: 1 / -1; padding:48px 20px; text-align:center; color:var(--text-muted); background:var(--card-elevated); border:1px solid var(--border); border-radius:var(--radius-md);">
+            <div class="lottie-icon-container" id="lottie-empty-bookings" style="width:80px; height:80px; margin:0 auto 14px;"></div>
+            <div style="font-weight:700; font-size:16px; color:var(--text);">No bookings found</div>
+            <div style="font-size:13px; margin-top:4px;">No events match your current search or date filter.</div>
+          </div>
+        ` : filtered.map((o) => `
+          <div class="order-kiosk-card">
+            <div class="order-kiosk-header">
+              <span class="order-ref-pill">${escapeHtml(o.booking_ref || `JC-${o.booking_id}`)}</span>
+              ${statusPill(o.status || "Confirmed")}
+            </div>
+            
+            <div class="order-kiosk-customer" style="margin-top:2px;">
+              ${escapeHtml(o.customer || "Walk-in Guest")}
+            </div>
+
+            ${(o.contact || o.email) ? `
+              <div style="font-size:12px; color:var(--text-muted); display:flex; flex-wrap:wrap; gap:10px; margin-top:4px;">
+                ${o.contact ? `<span style="display:inline-flex; align-items:center; gap:4px;">${icon("phone")} ${escapeHtml(o.contact)}</span>` : ""}
+                ${o.email ? `<span style="display:inline-flex; align-items:center; gap:4px;">${icon("mail")} ${escapeHtml(o.email)}</span>` : ""}
+              </div>
+            ` : ""}
+
+            <div class="order-kiosk-row" style="margin-top:8px; font-size:12.5px; color:var(--text-muted);">
+              <span>${icon("calendar")} ${escapeHtml(o.event_date || "TBD")}</span>
+              <span>${icon("clock")} ${escapeHtml(o.event_time || "6:00 PM")}</span>
+            </div>
+
+            <div class="order-kiosk-row" style="margin-top:4px; font-size:12.5px; color:var(--text-muted);">
+              <span>${icon("package")} ${escapeHtml(o.package_name || "Buffet Package")} (${o.pax || 60} pax)</span>
+            </div>
+
+            <div class="order-kiosk-row" style="margin-top:10px; border-top:1px dashed var(--border); padding-top:8px;">
+              <span style="font-size:12px; color:var(--text-muted);">Total Order Price</span>
+              <span style="font-weight:800; font-size:16px; color:var(--gold);">${peso(o.total)}</span>
+            </div>
+
+            <div class="order-kiosk-row" style="font-size:12px; margin-top:2px;">
+              <span style="color:var(--success); font-weight:600;">Paid: ${peso(o.paid)}</span>
+              <span style="color:var(--accent); font-weight:600;">Bal: ${peso(o.balance)}</span>
+            </div>
+
+            <div style="margin-top:12px; display:flex; gap:8px; border-top:1px solid var(--border); padding-top:10px;">
+              <button class="btn btn-secondary" style="flex:1; padding:8px 12px; font-size:13px;" data-receipt="${o.booking_id}">
+                ${icon("printer")} Receipt
+              </button>
+              <button class="btn btn-primary" style="padding:8px 14px; font-size:13px;" data-detail="${o.booking_id}">
+                ${icon("eye")} Details
+              </button>
+            </div>
+          </div>
+        `).join("")}
       </div>
     `;
 
