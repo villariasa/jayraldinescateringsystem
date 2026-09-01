@@ -1004,41 +1004,7 @@ function openQuickAboutUsModal() {
   });
 }
 
-// ── Recent Orders modal ──────────────────────────────────────────────
 
-async function openRecentOrdersModal() {
-  const orders = await api.getOrders();
-  openModal({
-    id: "recent-orders-modal",
-    title: `${icon("shoppingBag")} Recent Catering Orders (${orders.length})`,
-    large: true,
-    bodyHtml: `
-      <div class="orders-card-grid">
-        ${orders.map((o) => `
-          <div class="order-kiosk-card">
-            <div class="order-kiosk-header">
-              <span class="order-ref-pill">${escapeHtml(o.booking_ref)}</span>
-              ${statusPill(o.status)}
-            </div>
-            <div class="order-kiosk-customer">${escapeHtml(o.customer)}</div>
-            <div class="order-kiosk-row">
-              <span>${icon("calendar")} ${escapeHtml(o.event_date)}</span>
-              <span style="font-weight:800; font-size:16px; color:var(--gold);">${peso(o.total)}</span>
-            </div>
-            <div style="margin-top:auto; border-top:1px solid var(--border); padding-top:10px;">
-              <button class="btn btn-secondary btn-block" data-receipt="${o.booking_id}">
-                ${icon("download")} PDF Receipt
-              </button>
-            </div>
-          </div>
-        `).join("") || `<div style="grid-column: 1 / -1; padding:36px; text-align:center; color:var(--text-muted);">No orders recorded yet.</div>`}
-      </div>
-    `,
-  });
-  document.querySelectorAll("#recent-orders-modal [data-receipt]").forEach((el) => {
-    el.addEventListener("click", () => api.downloadReceipt(Number(el.dataset.receipt)));
-  });
-}
 
 // ── Data Sync modal ──────────────────────────────────────────────────
 
