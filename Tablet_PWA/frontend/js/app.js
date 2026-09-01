@@ -15,12 +15,11 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-// Mount catering cloche animation on splash screen loading area
-const splashLoader = document.getElementById("splash-catering-loader");
-if (splashLoader) {
-  mountLottie(splashLoader, "cloche-idle", { loop: true, speed: 0.7 });
+// Mount official animated catering logo on splash screen
+const splashLottie = document.getElementById("splash-lottie-logo");
+if (splashLottie) {
+  mountLottie(splashLottie, "logo-splash", { loop: true, speed: 0.9 });
 }
-
 
 // Theme management
 export function getTheme() {
@@ -57,19 +56,16 @@ export function showTransitionLoading(message = "Preparing kiosk for next guestâ
     <div class="splash-content">
       <div class="splash-logo-wrap">
         <div class="splash-glow-ring"></div>
-        <img src="icons/logo.png" alt="Jayraldine's Catering" class="splash-logo">
+        <div id="transition-lottie-logo" class="splash-lottie-container"></div>
       </div>
       <h2 class="splash-title" style="font-size:22px; margin-bottom:6px;">Jayraldine's Catering</h2>
       <p class="splash-subtitle" style="font-size:14px; opacity:0.9;">${escapeHtml(message)}</p>
-      <div class="splash-catering-loader" id="transition-catering-loader">
-        <div class="splash-loader-label">Please waitâ€¦</div>
-      </div>
     </div>
   `;
-  // Mount catering cloche animation as the loading indicator
-  const tLoader = splash.querySelector("#transition-catering-loader");
+  // Mount animated official logo on transition splash
+  const tLoader = splash.querySelector("#transition-lottie-logo");
   if (tLoader) {
-    mountLottie(tLoader, "cloche-idle", { loop: true, speed: 0.8 });
+    mountLottie(tLoader, "logo-splash", { loop: true, speed: 0.9 });
   }
   splash.classList.remove("hidden");
   splash.style.opacity = "1";

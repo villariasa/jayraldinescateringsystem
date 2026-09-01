@@ -281,21 +281,71 @@ export function getOrderDetail(bookingId) {
   const payments = inv ? fetchAll("SELECT * FROM payment_records WHERE pr_invoice_id = ?", [inv.inv_id]) : [];
   const terms = fetchOne("SELECT * FROM terms_acknowledgements WHERE ta_booking_id = ? ORDER BY ta_id DESC LIMIT 1", [bookingId]);
 
+  // Lookup customer details (phone, email, full address)
+  let cust = null;
+  if (b.bk_customer_id) {
+    cust = fetchOne("SELECT * FROM customers WHERE cus_id = ?", [b.bk_customer_id]);
+  }
+  if (!cust && b.bk_customer_name) {
+    cust = fetchOne("SELECT * FROM customers WHERE LOWER(cus_name) = LOWER(?) LIMIT 1", [b.bk_customer_name]);
+  }
+
+  // Lookup package name
+  let pkg = null;
+  if (b.bk_package_id) {
+    pkg = fetchOne("SELECT * FROM packages WHERE pkg_id = ?", [b.bk_package_id]);
+  }
+
+  const baseTotal = Number(b.bk_base_total || 0);
+  const addonsTotal = charges.reduce((sum, c) => sum + Number(c.ac_amount || 0), 0);
+  const grandTotal = Number(b.bk_total_amount || (baseTotal + addonsTotal));
+  const paid = inv ? Number(inv.inv_amount_paid) : Number(b.bk_amount_paid || 0);
+  const balance = inv ? Number(inv.inv_balance) : Math.max(0, grandTotal - paid);
+
   return {
-    booking_id: b.bk_id, booking_ref: b.bk_booking_ref, customer_name: b.bk_customer_name,
-    address: b.bk_address, event_date: b.bk_event_date, event_time: b.bk_event_time,
-    venue: b.bk_venue, occasion: b.bk_occasion, pax: b.bk_pax,
-    base_total: Number(b.bk_base_total || 0), total: Number(b.bk_total_amount || 0),
-    paid: inv ? Number(inv.inv_amount_paid) : 0,
-    balance: inv ? Number(inv.inv_balance) : Number(b.bk_total_amount || 0),
-    status: inv ? inv.inv_status : "Unpaid",
-    menu_selections: menuItems.map((m) => ({ item_name: m.bmi_item_name, category: m.bmi_category, price: Number(m.bmi_price || 0), quantity: m.bmi_quantity })),
-    additional_charges: charges.map((c) => ({ description: c.ac_description, amount: Number(c.ac_amount) })),
-    payments: payments.map((p) => ({ amount: Number(p.pr_amount), date: p.pr_payment_date, method: p.pr_payment_method })),
+    booking_id: b.bk_id,
+    booking_ref: b.bk_booking_ref,
+    customer: b.bk_customer_name || (cust ? cust.cus_name : "Walk-in Guest"),
+    customer_name: b.bk_customer_name || (cust ? cust.cus_name : "Walk-in Guest"),
+    customer_id: b.bk_customer_id || (cust ? cust.cus_id : null),
+    contact: (cust ? cust.cus_contact : "") || "",
+    email: (cust ? cust.cus_email : "") || "",
+    customer_address: (cust ? cust.cus_address : "") || b.bk_address || "",
+    address: b.bk_address || (cust ? cust.cus_address : ""),
+    event_date: b.bk_event_date,
+    event_time: b.bk_event_time || "18:00",
+    venue: b.bk_venue || "Catering Venue",
+    occasion: b.bk_occasion || "Special Event",
+    pax: b.bk_pax || 1,
+    package_id: b.bk_package_id,
+    package_name: pkg ? pkg.pkg_name : (b.bk_menu_type || "Catering Package"),
+    package_subtotal: baseTotal || grandTotal,
+    base_total: baseTotal,
+    addons_subtotal: addonsTotal,
+    total: grandTotal,
+    downpayment: Number(b.bk_down_payment || paid),
+    paid: paid,
+    balance: balance,
+    status: inv ? inv.inv_status : (b.bk_status || "Confirmed"),
+    menu_selections: menuItems.map((m) => ({
+      item_name: m.bmi_item_name,
+      category: m.bmi_category,
+      price: Number(m.bmi_price || 0),
+      quantity: m.bmi_quantity || 1
+    })),
+    additional_charges: charges.map((c) => ({
+      description: c.ac_description,
+      amount: Number(c.ac_amount)
+    })),
+    payments: payments.map((p) => ({
+      amount: Number(p.pr_amount),
+      date: p.pr_payment_date,
+      method: p.pr_payment_method
+    })),
     terms_version: terms ? terms.ta_version : null,
     terms_acknowledged_at: terms ? terms.ta_acknowledged_at : null,
-    notes: b.bk_notes,
-    payment_method: b.bk_payment_mode,
+    notes: b.bk_notes || "",
+    payment_method: b.bk_payment_mode || "Cash",
   };
 }
 

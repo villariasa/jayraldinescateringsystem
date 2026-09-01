@@ -303,6 +303,15 @@ async function renderTabs(body, active) {
   body.querySelectorAll("[data-tab]").forEach((t) => {
     t.addEventListener("click", () => renderTabs(body, t.dataset.tab));
   });
+
+  // Auto-scroll the active tab button into center view so it is always visible and accessible
+  const activeBtn = body.querySelector(`[data-tab="${active}"]`);
+  if (activeBtn) {
+    setTimeout(() => {
+      activeBtn.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    }, 40);
+  }
+
   const content = body.querySelector("#tab-content");
   if (active === "bookings") return renderBookingsTab(content);
   if (active === "packages") return renderPackagesTab(content);
@@ -328,90 +337,100 @@ async function renderBookingsTab(content) {
 
     content.innerHTML = `
       <!-- Summary Metrics Row -->
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:12px; margin-bottom:20px;">
-        <div style="background:var(--input-bg); border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px 18px;">
-          <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.03em;">Total Bookings</div>
-          <div style="font-size:22px; font-weight:800; color:var(--text);">${orders.length}</div>
+      <div class="grid-3" style="margin-bottom:20px;">
+        <div class="kpi-card" style="background:var(--card-elevated); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px;">
+          <div class="kpi-label" style="font-size:12px; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Total Bookings Volume</div>
+          <div class="kpi-value" style="font-family:'Outfit',sans-serif; font-size:24px; font-weight:800; color:var(--text); margin-top:4px;">${peso(totalRev)}</div>
+          <div class="kpi-sub" style="font-size:12px; color:var(--text-muted); margin-top:2px;">Across ${filtered.length} recorded events</div>
         </div>
-        <div style="background:var(--input-bg); border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px 18px;">
-          <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.03em;">Gross Revenue</div>
-          <div style="font-size:22px; font-weight:800; color:var(--gold);">${peso(totalRev)}</div>
+        <div class="kpi-card" style="background:var(--card-elevated); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px;">
+          <div class="kpi-label" style="font-size:12px; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Downpayments Collected</div>
+          <div class="kpi-value" style="font-family:'Outfit',sans-serif; font-size:24px; font-weight:800; color:var(--success); margin-top:4px;">${peso(totalDown)}</div>
+          <div class="kpi-sub" style="font-size:12px; color:var(--text-muted); margin-top:2px;">Cash, GCash, Bank Deposits</div>
         </div>
-        <div style="background:var(--input-bg); border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px 18px;">
-          <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.03em;">Collected Downpayment</div>
-          <div style="font-size:22px; font-weight:800; color:var(--success);">${peso(totalDown)}</div>
-        </div>
-        <div style="background:var(--input-bg); border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px 18px;">
-          <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.03em;">Outstanding Balance</div>
-          <div style="font-size:22px; font-weight:800; color:var(--accent);">${peso(totalBal)}</div>
+        <div class="kpi-card" style="background:var(--card-elevated); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px;">
+          <div class="kpi-label" style="font-size:12px; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Pending Balances Due</div>
+          <div class="kpi-value" style="font-family:'Outfit',sans-serif; font-size:24px; font-weight:800; color:var(--accent); margin-top:4px;">${peso(totalBal)}</div>
+          <div class="kpi-sub" style="font-size:12px; color:var(--text-muted); margin-top:2px;">Collectible on event days</div>
         </div>
       </div>
 
-      <!-- Controls Row: Search & Export -->
+      <!-- Action & Search Bar -->
       <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
         <div style="position:relative; flex:1; min-width:240px;">
-          <input type="text" class="form-control" id="search-orders-input" placeholder="Search by customer, ref code, or date…" style="padding-left:36px;">
-          <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none;">${icon("search")}</span>
+          <input type="text" id="search-orders-input" class="form-control" placeholder="Search by customer name, ref code, or date…" style="padding-left:36px;">
+          <div style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none;">
+            ${icon("search")}
+          </div>
         </div>
         <div style="display:flex; gap:8px;">
           <button class="btn btn-secondary" id="export-orders-btn">
-            ${icon("download")} Export Orders (.xlsx)
+            ${icon("download")} Export Excel (.xlsx)
           </button>
         </div>
       </div>
 
-      <!-- Bookings Card Grid -->
-      <div class="orders-card-grid">
-        ${filtered.map((o) => `
-          <div class="order-kiosk-card">
-            <div class="order-kiosk-header">
-              <span class="order-ref-pill">${escapeHtml(o.booking_ref || `JC-${o.booking_id}`)}</span>
-              ${statusPill(o.status || "Confirmed")}
-            </div>
-            <div class="order-kiosk-customer">${escapeHtml(o.customer || "Walk-in Guest")}</div>
-            <div class="order-kiosk-row" style="margin-top:6px; font-size:12.5px; color:var(--text-muted);">
-              <span>${icon("calendar")} ${escapeHtml(o.event_date || "TBD")}</span>
-              <span>${icon("clock")} ${escapeHtml(o.event_time || "12:00 PM")}</span>
-            </div>
-            <div class="order-kiosk-row" style="margin-top:4px; font-size:12.5px; color:var(--text-muted);">
-              <span>${icon("package")} ${escapeHtml(o.package_name || "Buffet")} (${o.pax || 0} pax)</span>
-            </div>
-            <div class="order-kiosk-row" style="margin-top:8px; border-top:1px dashed var(--border); padding-top:8px;">
-              <span style="font-size:12px; color:var(--text-muted);">Total Order Price</span>
-              <span style="font-weight:800; font-size:16px; color:var(--gold);">${peso(o.total)}</span>
-            </div>
-            <div class="order-kiosk-row" style="font-size:12px;">
-              <span style="color:var(--success);">Paid: ${peso(o.downpayment || 0)}</span>
-              <span style="color:var(--accent);">Bal: ${peso(o.balance || 0)}</span>
-            </div>
-            <div style="margin-top:12px; display:flex; gap:8px; border-top:1px solid var(--border); padding-top:10px;">
-              <button class="btn btn-secondary" style="flex:1; padding:8px 12px; font-size:13px;" data-receipt="${o.booking_id}">
-                ${icon("printer")} Receipt PDF
-              </button>
-              <button class="btn btn-ghost" style="padding:8px 12px; font-size:13px;" data-detail="${o.booking_id}">
-                ${icon("info")} Details
-              </button>
-            </div>
-          </div>
-        `).join("") || `
-          <div style="grid-column: 1 / -1; padding:36px; text-align:center; color:var(--text-muted);">
-            <div id="empty-bookings-lottie" style="width:110px; height:110px; margin:0 auto 10px; display:flex; align-items:center; justify-content:center;"></div>
-            <div>No bookings matching your search query.</div>
-          </div>
-        `}
+      <!-- Bookings Table -->
+      <div class="table-wrap" style="background:var(--card-elevated); border:1px solid var(--border); border-radius:var(--radius-md); overflow-x:auto;">
+        <table class="table" style="width:100%; border-collapse:collapse; text-align:left; font-size:13.5px;">
+          <thead>
+            <tr style="border-bottom:1.5px solid var(--border); background:rgba(0,0,0,0.03);">
+              <th style="padding:12px 16px;">Ref #</th>
+              <th style="padding:12px 16px;">Customer</th>
+              <th style="padding:12px 16px;">Event Date</th>
+              <th style="padding:12px 16px;">Total</th>
+              <th style="padding:12px 16px;">Paid</th>
+              <th style="padding:12px 16px;">Balance</th>
+              <th style="padding:12px 16px;">Status</th>
+              <th style="padding:12px 16px; text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.length === 0 ? `
+              <tr>
+                <td colspan="8" style="text-align:center; padding:40px 20px; color:var(--text-muted);">
+                  <div class="lottie-icon-container" id="lottie-empty-bookings" style="width:72px; height:72px; margin:0 auto 12px;"></div>
+                  <div style="font-weight:700; font-size:15px; color:var(--text);">No bookings found</div>
+                  <div style="font-size:13px; margin-top:4px;">No events match your current search or date filter.</div>
+                </td>
+              </tr>
+            ` : filtered.map((o) => `
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:12px 16px; font-weight:700; font-family:monospace; color:var(--accent);">${escapeHtml(o.booking_ref || `JC-${o.booking_id}`)}</td>
+                <td style="padding:12px 16px; font-weight:600;">${escapeHtml(o.customer || "Walk-in Guest")}</td>
+                <td style="padding:12px 16px; color:var(--text-muted);">${escapeHtml(o.event_date || "—")}</td>
+                <td style="padding:12px 16px; font-weight:700;">${peso(o.total)}</td>
+                <td style="padding:12px 16px; color:var(--success); font-weight:600;">${peso(o.paid)}</td>
+                <td style="padding:12px 16px; color:var(--accent); font-weight:600;">${peso(o.balance)}</td>
+                <td style="padding:12px 16px;">${statusPill(o.status || "Confirmed")}</td>
+                <td style="padding:12px 16px; text-align:right;">
+                  <div style="display:inline-flex; gap:6px;">
+                    <button class="btn btn-sm btn-secondary" data-detail="${o.booking_id}" title="View Details">
+                      ${icon("eye")} Details
+                    </button>
+                    <button class="btn btn-sm btn-secondary" data-receipt="${o.booking_id}" title="Print Receipt">
+                      ${icon("printer")}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
       </div>
     `;
 
-    const emptyLottie = content.querySelector("#empty-bookings-lottie");
-    if (emptyLottie) {
-      mountLottie(emptyLottie, "empty-plate", { loop: true });
+    // Mount empty plate animation if no bookings found
+    if (filtered.length === 0) {
+      const emptyEl = content.querySelector("#lottie-empty-bookings");
+      if (emptyEl) mountLottie(emptyEl, "empty-plate", { loop: true, speed: 0.8 });
     }
 
     const searchInput = content.querySelector("#search-orders-input");
     if (searchInput) {
       searchInput.addEventListener("input", (e) => {
         const q = e.target.value.toLowerCase().trim();
-        filtered = orders.filter((o) => 
+        filtered = orders.filter((o) =>
           (o.customer || "").toLowerCase().includes(q) ||
           (o.booking_ref || "").toLowerCase().includes(q) ||
           (o.event_date || "").toLowerCase().includes(q) ||
@@ -447,54 +466,137 @@ function openOrderDetailModal(bookingId) {
       return;
     }
     const modalId = "booking-detail-modal";
+    const custName = order.customer || order.customer_name || "Guest";
+    const custContact = order.contact || "No contact provided";
+    const custEmail = order.email || "No email provided";
+    const custAddress = order.customer_address || order.address || "No address on file";
+    const eventOccasion = order.occasion || "Catering Event";
+    const eventVenue = order.venue || "Location TBD";
+    const hasAddons = Array.isArray(order.additional_charges) && order.additional_charges.length > 0;
+    const hasMenu = Array.isArray(order.menu_selections) && order.menu_selections.length > 0;
+    const hasNotes = Boolean(order.notes && order.notes.trim());
+
     openModal({
       id: modalId,
       title: `${icon("fileText")} Booking Reference: ${escapeHtml(order.booking_ref || `JC-${order.booking_id}`)}`,
+      large: true,
       bodyHtml: `
         <div style="display:flex; flex-direction:column; gap:16px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; background:var(--card-elevated); padding:14px 18px; border-radius:var(--radius-md); border:1px solid var(--border);">
-            <div>
-              <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Customer Name</div>
-              <div style="font-size:17px; font-weight:800;">${escapeHtml(order.customer)}</div>
-              <div style="font-size:12.5px; color:var(--text-muted);">${escapeHtml(order.contact || "No contact")} | ${escapeHtml(order.email || "No email")}</div>
+          <!-- Top Customer Profile Card -->
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; background:var(--card-elevated); padding:16px 20px; border-radius:var(--radius-md); border:1.5px solid var(--border); box-shadow:var(--shadow-sm); flex-wrap:wrap; gap:12px;">
+            <div style="display:flex; gap:14px; align-items:center;">
+              <div style="width:48px; height:48px; border-radius:50%; background:var(--accent-glow); color:var(--accent); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:20px; flex-shrink:0;">
+                ${escapeHtml((custName[0] || "C").toUpperCase())}
+              </div>
+              <div>
+                <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.04em;">Customer Information</div>
+                <div style="font-size:18px; font-weight:800; color:var(--text); margin-top:1px;">${escapeHtml(custName)}</div>
+                <div style="font-size:13px; color:var(--text-muted); margin-top:3px; display:flex; gap:14px; flex-wrap:wrap;">
+                  <span><b>Phone:</b> ${escapeHtml(custContact)}</span>
+                  <span><b>Email:</b> ${escapeHtml(custEmail)}</span>
+                </div>
+                ${custAddress ? `<div style="font-size:12.5px; color:var(--text-muted); margin-top:3px;"><b>Address:</b> ${escapeHtml(custAddress)}</div>` : ""}
+              </div>
             </div>
             <div style="text-align:right;">
               ${statusPill(order.status || "Confirmed")}
+              <div style="font-size:11.5px; color:var(--text-muted); margin-top:6px;">Mode: <b>${escapeHtml(order.payment_method || "Cash")}</b></div>
             </div>
           </div>
 
-          <div class="grid-2">
-            <div style="background:var(--input-bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px 14px;">
-              <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Event Date &amp; Time</div>
-              <div style="font-size:14px; font-weight:700; margin-top:2px;">${escapeHtml(order.event_date)} at ${escapeHtml(order.event_time)}</div>
+          <!-- Event Schedule & Venue Grid -->
+          <div class="grid-2" style="gap:12px;">
+            <div style="background:var(--input-bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px 16px;">
+              <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; display:flex; align-items:center; gap:6px;">
+                ${icon("calendar")} Event Schedule &amp; Occasion
+              </div>
+              <div style="font-size:14.5px; font-weight:700; margin-top:4px; color:var(--text);">
+                ${escapeHtml(eventOccasion)} &bull; ${order.pax} Guests
+              </div>
+              <div style="font-size:13px; color:var(--text-muted); margin-top:2px;">
+                ${escapeHtml(order.event_date || "—")} at ${escapeHtml(order.event_time || "18:00")}
+              </div>
             </div>
-            <div style="background:var(--input-bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px 14px;">
-              <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Venue / Address</div>
-              <div style="font-size:14px; font-weight:700; margin-top:2px;">${escapeHtml(order.venue || "Catering Location")}</div>
+
+            <div style="background:var(--input-bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px 16px;">
+              <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; display:flex; align-items:center; gap:6px;">
+                ${icon("mapPin")} Event Venue &amp; Location
+              </div>
+              <div style="font-size:14.5px; font-weight:700; margin-top:4px; color:var(--text);">
+                ${escapeHtml(eventVenue)}
+              </div>
+              <div style="font-size:13px; color:var(--text-muted); margin-top:2px;">
+                Catering on-site buffet arrangement
+              </div>
             </div>
           </div>
 
+          <!-- Add-ons & Special Equipment Chosen (Itemized) -->
+          ${hasAddons ? `
+            <div style="background:var(--input-bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 18px;">
+              <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+                ${icon("package")} Selected Add-ons &amp; Custom Equipment (${order.additional_charges.length})
+              </div>
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                ${order.additional_charges.map((c) => `
+                  <div style="display:flex; justify-content:space-between; align-items:center; font-size:13.5px; border-bottom:1px dashed var(--border); padding-bottom:6px;">
+                    <span style="font-weight:600; color:var(--text);">&bull; ${escapeHtml(c.description)}</span>
+                    <span style="font-weight:700; color:var(--gold);">${peso(c.amount)}</span>
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+          ` : ""}
+
+          <!-- Special Event Notes / Customer Instructions -->
+          ${hasNotes ? `
+            <div style="background:rgba(245, 158, 11, 0.08); border:1.5px solid rgba(245, 158, 11, 0.35); border-radius:var(--radius-md); padding:14px 18px;">
+              <div style="font-size:11.5px; color:var(--gold); font-weight:800; text-transform:uppercase; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                ${icon("info")} Special Instructions &amp; Setup Notes
+              </div>
+              <div style="font-size:13.5px; color:var(--text); line-height:1.5; white-space:pre-wrap; font-weight:500;">${escapeHtml(order.notes)}</div>
+            </div>
+          ` : ""}
+
+          <!-- Selected Menu Buffet Items -->
+          ${hasMenu ? `
+            <div style="background:var(--input-bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 18px;">
+              <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+                ${icon("utensils")} Buffet Dishes Chosen (${order.menu_selections.length})
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:8px;">
+                ${order.menu_selections.map((m) => `
+                  <div style="background:var(--card-elevated); padding:8px 12px; border-radius:var(--radius-sm); border:1px solid var(--border); font-size:12.5px; display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-weight:600; color:var(--text);">${escapeHtml(m.item_name)}</span>
+                    <span style="font-size:11px; color:var(--text-muted);">${escapeHtml(m.category || "")}</span>
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+          ` : ""}
+
+          <!-- Financial Breakdown -->
           <div style="background:var(--input-bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px;">
-            <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-bottom:8px;">Financial &amp; Pricing Breakdown</div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:13.5px;">
+            <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-bottom:10px;">Financial &amp; Billing Breakdown</div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:13.5px;">
               <span>Package (${escapeHtml(order.package_name || "Buffet")}) &times; ${order.pax} pax</span>
-              <span style="font-weight:700;">${peso(order.package_subtotal || order.total)}</span>
+              <span style="font-weight:700;">${peso(order.package_subtotal || order.base_total || order.total)}</span>
             </div>
             ${(order.addons_subtotal || 0) > 0 ? `
-              <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:13.5px;">
-                <span>Add-ons &amp; Equipment</span>
-                <span style="font-weight:700;">+ ${peso(order.addons_subtotal)}</span>
+              <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:13.5px;">
+                <span>Add-ons &amp; Custom Equipment Subtotal</span>
+                <span style="font-weight:700; color:var(--gold);">+ ${peso(order.addons_subtotal)}</span>
               </div>
             ` : ""}
-            <div style="display:flex; justify-content:space-between; margin-top:8px; padding-top:8px; border-top:1px solid var(--border); font-size:16px; font-weight:800;">
+            <div style="display:flex; justify-content:space-between; margin-top:8px; padding-top:10px; border-top:1.5px solid var(--border); font-size:16px; font-weight:800;">
               <span>Grand Total</span>
-              <span style="color:var(--gold);">${peso(order.total)}</span>
+              <span style="font-family:'Outfit',sans-serif; color:var(--gold); font-size:20px;">${peso(order.total)}</span>
             </div>
-            <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:13px;">
+            <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:13px;">
               <span style="color:var(--success); font-weight:700;">Downpayment Paid (Deposit)</span>
-              <span style="color:var(--success); font-weight:700;">${peso(order.downpayment)}</span>
+              <span style="color:var(--success); font-weight:700;">${peso(order.downpayment || order.paid)}</span>
             </div>
-            <div style="display:flex; justify-content:space-between; margin-top:2px; font-size:13px;">
+            <div style="display:flex; justify-content:space-between; margin-top:3px; font-size:13px;">
               <span style="color:var(--accent); font-weight:700;">Balance Due on Event Day</span>
               <span style="color:var(--accent); font-weight:700;">${peso(order.balance)}</span>
             </div>
