@@ -119,9 +119,18 @@ export function openModal({ id, title, bodyHtml, footerHtml, large = false, allo
 
   if (allowSwipeUpFullscreen) {
     const fsToggleBtn = overlay.querySelector(`#${id}-fullscreen-toggle`);
+    const updateFsIcon = () => {
+      if (!fsToggleBtn) return;
+      const isFs = panel.classList.contains("drawer-fullscreen");
+      fsToggleBtn.innerHTML = isFs ? icon("minimize") : icon("fullscreen");
+      fsToggleBtn.title = isFs ? "Minimize Window (Unstretch)" : "Maximize Window (Stretch Fullscreen)";
+    };
+
     if (fsToggleBtn) {
       fsToggleBtn.addEventListener("click", () => {
+        panel.style.transition = ""; // Ensure CSS stretch/unstretch transition rules take effect
         panel.classList.toggle("drawer-fullscreen");
+        updateFsIcon();
       });
     }
   }
@@ -159,18 +168,30 @@ export function openModal({ id, title, bodyHtml, footerHtml, large = false, allo
     if (!isDraggingTip) return;
     isDraggingTip = false;
     const deltaY = currentY - startY;
-    panel.style.transition = "transform 0.32s cubic-bezier(0.2, 0.9, 0.3, 1), opacity 0.32s ease";
+
+    // Reset inline transition so CSS stylesheet stretch animation executes cleanly
+    panel.style.transition = "";
 
     if (deltaY < -35 && allowSwipeUpFullscreen) {
       // Swipe UP on tip: Expand to Fullscreen
       panel.classList.add("drawer-fullscreen");
       panel.style.transform = "";
       overlay.style.opacity = "1";
+      const fsToggleBtn = overlay.querySelector(`#${id}-fullscreen-toggle`);
+      if (fsToggleBtn) {
+        fsToggleBtn.innerHTML = icon("minimize");
+        fsToggleBtn.title = "Minimize Window (Unstretch)";
+      }
     } else if (deltaY > 60 && panel.classList.contains("drawer-fullscreen")) {
       // Drag DOWN on tip from Fullscreen: Shrink to normal drawer
       panel.classList.remove("drawer-fullscreen");
       panel.style.transform = "";
       overlay.style.opacity = "1";
+      const fsToggleBtn = overlay.querySelector(`#${id}-fullscreen-toggle`);
+      if (fsToggleBtn) {
+        fsToggleBtn.innerHTML = icon("fullscreen");
+        fsToggleBtn.title = "Maximize Window (Stretch Fullscreen)";
+      }
     } else if (deltaY > 75 && !panel.classList.contains("drawer-fullscreen")) {
       // Drag DOWN on tip: Close slider by scrolling down
       handleClose();
