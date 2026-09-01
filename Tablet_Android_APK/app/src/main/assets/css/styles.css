@@ -2621,6 +2621,28 @@ svg {
   100% { transform: translateX(250%); }
 }
 
+/* Catering-themed Lottie loading animation — replaces the old progress bar */
+.splash-catering-loader {
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  margin-top: 8px;
+}
+
+.splash-catering-loader svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+}
+
+.splash-loader-label {
+  display: none; /* hidden — Lottie clears innerHTML before mounting */
+}
+
 /* ── Wizard Grid Layout & Dynamic Mobile/Portrait Rules ─────────────────── */
 .wizard-grid-layout {
   display: grid;

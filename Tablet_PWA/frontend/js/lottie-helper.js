@@ -34,11 +34,15 @@ export async function getAnimationData(name) {
 export async function mountLottie(container, name, options = {}) {
   if (!container || !window.lottie) return null;
 
-  // Clean up any existing instance on this element
+  // Destroy any existing Lottie instance on this element
   const prev = activeInstances.get(container);
   if (prev) {
     try { prev.destroy(); } catch (_) {}
   }
+
+  // Clear any existing content (static fallback SVG icons or previous Lottie frames)
+  // so the new Lottie SVG is the only child — preventing double-icon stacking.
+  container.innerHTML = "";
 
   const animData = await getAnimationData(name);
   if (!animData) return null;

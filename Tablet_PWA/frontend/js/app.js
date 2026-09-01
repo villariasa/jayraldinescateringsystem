@@ -15,7 +15,11 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-
+// Mount catering cloche animation on splash screen loading area
+const splashLoader = document.getElementById("splash-catering-loader");
+if (splashLoader) {
+  mountLottie(splashLoader, "cloche-idle", { loop: true, speed: 0.7 });
+}
 
 
 // Theme management
@@ -53,13 +57,20 @@ export function showTransitionLoading(message = "Preparing kiosk for next guest�
     <div class="splash-content">
       <div class="splash-logo-wrap">
         <div class="splash-glow-ring"></div>
-        <img src="icons/logo.png" alt="Jayraldine's Catering" class="splash-logo animated-logo">
+        <img src="icons/logo.png" alt="Jayraldine's Catering" class="splash-logo">
       </div>
       <h2 class="splash-title" style="font-size:22px; margin-bottom:6px;">Jayraldine's Catering</h2>
       <p class="splash-subtitle" style="font-size:14px; opacity:0.9;">${escapeHtml(message)}</p>
-      <div class="splash-loader-bar"><div class="splash-loader-progress"></div></div>
+      <div class="splash-catering-loader" id="transition-catering-loader">
+        <div class="splash-loader-label">Please wait…</div>
+      </div>
     </div>
   `;
+  // Mount catering cloche animation as the loading indicator
+  const tLoader = splash.querySelector("#transition-catering-loader");
+  if (tLoader) {
+    mountLottie(tLoader, "cloche-idle", { loop: true, speed: 0.8 });
+  }
   splash.classList.remove("hidden");
   splash.style.opacity = "1";
   splash.style.visibility = "visible";
@@ -116,7 +127,7 @@ async function renderHome() {
     <header class="header kiosk-header-fixed">
       <div class="brand">
         <div class="brand-avatar-wrap">
-          <img src="icons/logo.png" alt="Jayraldine's Catering" class="brand-logo animated-logo">
+          <img src="icons/logo.png" alt="Jayraldine's Catering" class="brand-logo">
         </div>
         <div>
           <h1 class="brand-title">Jayraldine's Catering</h1>
@@ -125,15 +136,15 @@ async function renderHome() {
       </div>
       <div class="header-nav-actions">
         <button class="nav-action-btn theme-toggle-btn" id="theme-btn" title="Toggle Theme">
-          <div class="nav-action-icon" id="lottie-nav-theme">${icon("sun")}</div>
+          <div class="nav-action-icon">${icon("sun")}</div>
           <span class="nav-action-label">${currentTheme === "light" ? "Dark Mode" : "Light Mode"}</span>
         </button>
         <button class="nav-action-btn" id="fullscreen-btn" title="Toggle Fullscreen">
-          <div class="nav-action-icon" id="lottie-nav-fullscreen">${icon("fullscreen")}</div>
+          <div class="nav-action-icon" id="fullscreen-icon-wrap">${icon("fullscreen")}</div>
           <span class="nav-action-label">Fullscreen</span>
         </button>
         <button class="nav-action-btn" id="owner-settings-btn" title="Admin Settings">
-          <div class="nav-action-icon" id="lottie-nav-settings">${icon("settings")}</div>
+          <div class="nav-action-icon">${icon("settings")}</div>
           <span class="nav-action-label">Settings</span>
         </button>
       </div>
@@ -181,7 +192,7 @@ async function renderHome() {
                 
                 <div class="kiosk-pill-item" id="benefit-booking">
                   <div class="kiosk-pill-icon-box">
-                    <div class="lottie-icon-container" id="lottie-benefit-booking"></div>
+                    <div class="lottie-icon-container" id="lottie-benefit-booking">${icon("calendar")}</div>
                   </div>
                   <div class="kiosk-pill-text">
                     <span class="kiosk-pill-title">Easy Booking</span>
@@ -193,7 +204,7 @@ async function renderHome() {
 
                 <div class="kiosk-pill-item" id="benefit-quality">
                   <div class="kiosk-pill-icon-box">
-                    <div class="lottie-icon-container" id="lottie-benefit-quality"></div>
+                    <div class="lottie-icon-container" id="lottie-benefit-quality">${icon("shieldCheck")}</div>
                   </div>
                   <div class="kiosk-pill-text">
                     <span class="kiosk-pill-title">Fresh &amp; Quality</span>
@@ -205,7 +216,7 @@ async function renderHome() {
 
                 <div class="kiosk-pill-item" id="benefit-service">
                   <div class="kiosk-pill-icon-box">
-                    <div class="lottie-icon-container" id="lottie-benefit-service"></div>
+                    <div class="lottie-icon-container" id="lottie-benefit-service">${icon("users")}</div>
                   </div>
                   <div class="kiosk-pill-text">
                     <span class="kiosk-pill-title">Trusted Service</span>
@@ -217,7 +228,7 @@ async function renderHome() {
 
                 <div class="kiosk-pill-item pill-item-4" id="benefit-secure">
                   <div class="kiosk-pill-icon-box">
-                    <div class="lottie-icon-container" id="lottie-benefit-secure"></div>
+                    <div class="lottie-icon-container" id="lottie-benefit-secure">${icon("lock")}</div>
                   </div>
                   <div class="kiosk-pill-text">
                     <span class="kiosk-pill-title">Secure &amp; Private</span>
@@ -244,7 +255,9 @@ async function renderHome() {
           <div class="quick-options-grid">
             
             <button class="quick-option-card" id="quick-packages-btn">
-              <div class="quick-opt-icon-circle" id="lottie-quick-packages">${icon("package")}</div>
+              <div class="quick-opt-icon-circle">
+                <div class="lottie-icon-container" id="lottie-quick-packages">${icon("package")}</div>
+              </div>
               <div class="quick-opt-info">
                 <span class="quick-opt-title">View Packages</span>
                 <span class="quick-opt-desc">Browse all available packages</span>
@@ -253,7 +266,9 @@ async function renderHome() {
             </button>
 
             <button class="quick-option-card" id="quick-events-btn">
-              <div class="quick-opt-icon-circle" id="lottie-quick-events">${icon("calendar")}</div>
+              <div class="quick-opt-icon-circle">
+                <div class="lottie-icon-container" id="lottie-quick-events">${icon("calendar")}</div>
+              </div>
               <div class="quick-opt-info">
                 <span class="quick-opt-title">Event Types</span>
                 <span class="quick-opt-desc">Choose your event type</span>
@@ -262,7 +277,9 @@ async function renderHome() {
             </button>
 
             <button class="quick-option-card" id="quick-addons-btn">
-              <div class="quick-opt-icon-circle" id="lottie-quick-addons">${icon("utensils")}</div>
+              <div class="quick-opt-icon-circle">
+                <div class="lottie-icon-container" id="lottie-quick-addons">${icon("utensils")}</div>
+              </div>
               <div class="quick-opt-info">
                 <span class="quick-opt-title">Add-ons</span>
                 <span class="quick-opt-desc">Customize your menu with extras</span>
@@ -271,7 +288,9 @@ async function renderHome() {
             </button>
 
             <button class="quick-option-card" id="quick-orders-btn">
-              <div class="quick-opt-icon-circle" id="lottie-quick-orders">${icon("fileText")}</div>
+              <div class="quick-opt-icon-circle">
+                <div class="lottie-icon-container" id="lottie-quick-orders">${icon("fileText")}</div>
+              </div>
               <div class="quick-opt-info">
                 <span class="quick-opt-title">View Orders</span>
                 <span class="quick-opt-desc">Check your order history</span>
@@ -307,16 +326,13 @@ async function renderHome() {
   mountLottie(document.getElementById("lottie-benefit-service"), "icon-users", { loop: true, speed: 0.75 });
   mountLottie(document.getElementById("lottie-benefit-secure"), "icon-lock", { loop: true, speed: 0.75 });
 
-  // Mount Quick Options hover animations on the icon CIRCLE div, not the button
+  // Mount Quick Options hover Lottie on each inner .lottie-icon-container
+  // (mountHoverLottie clears the static fallback icon before inserting Lottie SVG)
   mountHoverLottie(document.getElementById("lottie-quick-packages"), "icon-package", { speed: 1.2 });
   mountHoverLottie(document.getElementById("lottie-quick-events"), "icon-calendar", { speed: 1.2 });
   mountHoverLottie(document.getElementById("lottie-quick-addons"), "icon-utensils", { speed: 1.2 });
   mountHoverLottie(document.getElementById("lottie-quick-orders"), "icon-filetext", { speed: 1.2 });
-
-  // Mount Header Nav hover Lottie on icon divs, not the buttons
-  mountHoverLottie(document.getElementById("lottie-nav-theme"), "icon-theme-toggle", { speed: 1.2 });
-  mountHoverLottie(document.getElementById("lottie-nav-fullscreen"), "icon-fullscreen", { speed: 1.2 });
-  mountHoverLottie(document.getElementById("lottie-nav-settings"), "icon-settings-gear", { speed: 1.2 });
+  // Nav buttons use static SVG icons only — no Lottie needed there
 
   // Mount listeners
   document.getElementById("theme-btn").addEventListener("click", toggleTheme);
