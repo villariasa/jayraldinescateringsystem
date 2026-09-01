@@ -3736,3 +3736,16 @@ svg {
   color: rgba(255, 255, 255, 0.85);
   margin-top: 6px;
 }
+
+/* ── Discard Modal Lottie sizes ───────────────────────────────────────────── */
+#discard-lottie-icon svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+}
+
+#discard-yes-icon-wrap svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+}

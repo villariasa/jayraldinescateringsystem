@@ -81,22 +81,46 @@ function confirmCancelOrder() {
     title: `${icon("alertTriangle")} Discard Draft Order?`,
     bodyHtml: `
       <div style="text-align:center; padding:16px 8px 10px;">
-        <div style="width:58px; height:58px; border-radius:50%; background:rgba(239, 68, 68, 0.15); color:var(--danger); display:inline-flex; align-items:center; justify-content:center; margin-bottom:16px;">
+        <div id="discard-lottie-icon" style="width:72px; height:72px; border-radius:50%; background:rgba(239,68,68,0.15); color:var(--danger); display:inline-flex; align-items:center; justify-content:center; margin-bottom:16px; overflow:hidden;">
           ${icon("trash")}
         </div>
-        <p style="font-size:16px; font-weight:700; color:var(--text); margin:0 0 8px;">Are you sure you want to discard this order?</p>
-        <p style="font-size:13.5px; color:var(--text-muted); line-height:1.5; margin:0;">
-          All current customer information, package choices, and custom menu dishes will be reset.
-        </p>
+        <div id="discard-lottie-msg" style="margin-bottom:6px;">
+          <p style="font-size:16px; font-weight:700; color:var(--text); margin:0 0 8px;">Are you sure you want to discard this order?</p>
+          <p style="font-size:13.5px; color:var(--text-muted); line-height:1.5; margin:0;">
+            All current customer information, package choices, and custom menu dishes will be reset.
+          </p>
+        </div>
       </div>
     `,
     footerHtml: `
       <button class="btn btn-secondary" data-close>Keep Editing</button>
-      <button class="btn btn-danger" id="modal-confirm-discard">${icon("trash")} Yes, Discard Order</button>
+      <button class="btn btn-danger" id="modal-confirm-discard" style="position:relative; overflow:hidden;">
+        <span id="discard-yes-icon-wrap" style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; vertical-align:middle; margin-right:4px; overflow:hidden;">${icon("trash")}</span>
+        Yes, Discard Order
+      </button>
     `,
   });
 
   const modal = document.getElementById("cancel-order-modal");
+
+  // Lottie animation on the trash icon circle
+  const discardIconEl = modal.querySelector("#discard-lottie-icon");
+  if (discardIconEl) {
+    mountLottie(discardIconEl, "toast-error", { loop: true, speed: 0.7 });
+  }
+
+  // Lottie animation on the "Yes" button icon
+  const yesIconEl = modal.querySelector("#discard-yes-icon-wrap");
+  if (yesIconEl) {
+    mountLottie(yesIconEl, "toast-error", { loop: true, speed: 0.9 });
+  }
+
+  // Entrance animation on the message container
+  const msgEl = modal.querySelector("#discard-lottie-msg");
+  if (msgEl) {
+    msgEl.style.animation = "slideUpFade 0.4s cubic-bezier(0.16,1,0.3,1) both";
+  }
+
   modal.querySelector("#modal-confirm-discard").addEventListener("click", () => {
     closeModal("cancel-order-modal");
     window.dispatchEvent(new CustomEvent("kiosk:home"));
@@ -246,7 +270,38 @@ function renderCart() {
     </button>
   `;
   cart.querySelector("#cart-quick-next")?.addEventListener("click", () => {
-    if (wizard.step < 6) { wizard.step++; render(); }
+    if (wizard.step >= 6) return;
+
+    const d = wizard.draft;
+
+    // ── Per-step validation (mirrors the same rules as each step's footer button) ──
+    if (wizard.step === 1) {
+      if (!d.customer.name?.trim()) {
+        toast("Customer name is required before proceeding.", "error"); return;
+      }
+    }
+
+    if (wizard.step === 2) {
+      if (!d.package.id && !d.package.baseTotal) {
+        toast("Please select a package or set a base total before proceeding.", "error"); return;
+      }
+      if (!d.event.date) {
+        toast("Event date is required before proceeding.", "error"); return;
+      }
+      if (!d.event.venue?.trim()) {
+        toast("Venue address is required before proceeding.", "error"); return;
+      }
+    }
+
+    if (wizard.step === 5) {
+      const total = grandTotal(d);
+      if ((d.downPayment || 0) > total && total > 0) {
+        toast("Down payment cannot exceed the grand total.", "error"); return;
+      }
+    }
+
+    wizard.step++;
+    render();
   });
   cart.querySelector("#cancel-order").addEventListener("click", confirmCancelOrder);
 }
