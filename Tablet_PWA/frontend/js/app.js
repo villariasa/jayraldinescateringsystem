@@ -15,10 +15,10 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-// Mount official animated catering logo on splash screen
-const splashLottie = document.getElementById("splash-lottie-logo");
-if (splashLottie) {
-  mountLottie(splashLottie, "logo-splash", { loop: true, speed: 0.9 });
+// Mount vibrant catering animation on initial loading screen (no static app logo)
+const splashLoader = document.getElementById("splash-lottie-loader");
+if (splashLoader) {
+  mountLottie(splashLoader, "catering-loading", { loop: true, speed: 1.0 });
 }
 
 // Theme management
@@ -54,18 +54,18 @@ export function showTransitionLoading(message = "Preparing kiosk for next guestâ
   }
   splash.innerHTML = `
     <div class="splash-content">
-      <div class="splash-logo-wrap">
-        <div class="splash-glow-ring"></div>
-        <div id="transition-lottie-logo" class="splash-lottie-container"></div>
-      </div>
+      <div id="transition-lottie-loader" class="splash-animation-stage"></div>
       <h2 class="splash-title" style="font-size:22px; margin-bottom:6px;">Jayraldine's Catering</h2>
       <p class="splash-subtitle" style="font-size:14px; opacity:0.9;">${escapeHtml(message)}</p>
+      <div class="splash-loader-progress">
+        <div class="splash-loader-bar"></div>
+      </div>
     </div>
   `;
-  // Mount animated official logo on transition splash
-  const tLoader = splash.querySelector("#transition-lottie-logo");
+  // Mount vibrant catering animation on transition splash
+  const tLoader = splash.querySelector("#transition-lottie-loader");
   if (tLoader) {
-    mountLottie(tLoader, "logo-splash", { loop: true, speed: 0.9 });
+    mountLottie(tLoader, "catering-loading", { loop: true, speed: 1.0 });
   }
   splash.classList.remove("hidden");
   splash.style.opacity = "1";
@@ -430,7 +430,7 @@ function dismissSplash() {
     setTimeout(() => {
       splash.classList.add("hidden");
       setTimeout(() => splash.remove(), 600);
-    }, 400);
+    }, 1100);
   }
 }
 

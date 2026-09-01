@@ -1584,8 +1584,354 @@ function buildWizardStepBadge(label, iconType) {
   return l;
 }
 
+// ── Master Catering Loading Screen Animation (NO LOGO, 100% Culinary Life) ──
+function buildCateringLoading() {
+  const l = baseLottie("Catering Master Loader", 300, 300, 120, 60);
+
+  // 1. Radiant Glowing Aura Base
+  l.layers.push({
+    ddd: 0, ind: 1, ty: 4, nm: "Aura Ring", sr: 1,
+    ks: {
+      o: { a: 1, k: [
+        { t: 0, s: [30], e: [70], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 60, s: [70], e: [30], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 120, s: [30] }
+      ]},
+      r: { a: 0, k: 0 },
+      p: { a: 0, k: [150, 190, 0] },
+      a: { a: 0, k: [0, 0, 0] },
+      s: { a: 1, k: [
+        { t: 0, s: [85, 45, 100], e: [110, 55, 100], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 60, s: [110, 55, 100], e: [85, 45, 100], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 120, s: [85, 45, 100] }
+      ]}
+    },
+    ao: 0,
+    shapes: [{
+      ty: "gr",
+      it: [
+        { ty: "el", d: 1, p: { a: 0, k: [0, 0] }, s: { a: 0, k: [180, 70] }, nm: "Oval" },
+        { ty: "fl", c: { a: 0, k: makeColor("#E11D48") }, o: { a: 0, k: 40 }, nm: "Fill" },
+        { ty: "st", c: { a: 0, k: makeColor("#F59E0B") }, o: { a: 0, k: 70 }, w: { a: 0, k: 3 }, nm: "Stroke" },
+        makeTr()
+      ],
+      nm: "AuraGroup"
+    }],
+    ip: 0, op: 120, st: 0, bm: 0
+  });
+
+  // 2. Rising Swirling Aroma Steam Wisps (4 wisps with lively wavy curves)
+  for (let i = 0; i < 4; i++) {
+    const xOffset = (i - 1.5) * 28;
+    l.layers.push({
+      ddd: 0, ind: 2 + i, ty: 4, nm: "Steam " + i, sr: 1,
+      ks: {
+        o: { a: 1, k: [
+          { t: i * 18, s: [0], e: [85], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+          { t: i * 18 + 35, s: [85], e: [0], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+          { t: 120, s: [0] }
+        ]},
+        r: { a: 0, k: 0 },
+        p: { a: 1, k: [
+          { t: i * 18, s: [150 + xOffset, 145, 0], e: [150 + xOffset + (i % 2 === 0 ? 12 : -12), 75, 0], i: { x: [0.2], y: [1] }, o: { x: [0.1], y: [0] } },
+          { t: i * 18 + 65, s: [150 + xOffset + (i % 2 === 0 ? 12 : -12), 75, 0] }
+        ]},
+        a: { a: 0, k: [0, 0, 0] },
+        s: { a: 1, k: [
+          { t: i * 18, s: [60, 60, 100], e: [130, 130, 100], i: { x: [0.2], y: [1] }, o: { x: [0.1], y: [0] } },
+          { t: i * 18 + 65, s: [130, 130, 100] }
+        ]}
+      },
+      ao: 0,
+      shapes: [{
+        ty: "gr",
+        it: [
+          {
+            ty: "sh", d: 1,
+            ks: {
+              a: 0,
+              k: {
+                c: false,
+                v: [[0, 24], [8, 12], [-6, -6], [2, -24]],
+                i: [[0, 0], [-5, 5], [5, 5], [0, 0]],
+                o: [[0, 0], [5, -5], [-5, -5], [0, 0]]
+              }
+            },
+            nm: "Path"
+          },
+          { ty: "st", c: { a: 0, k: makeColor(i % 2 === 0 ? "#F59E0B" : "#FFFFFF") }, o: { a: 0, k: 85 }, w: { a: 0, k: 3.5 }, lc: 2, lj: 2, nm: "Stroke" },
+          makeTr()
+        ],
+        nm: "SteamGroup"
+      }],
+      ip: 0, op: 120, st: 0, bm: 0
+    });
+  }
+
+  // 3. Delicious Hot Food on the platter
+  l.layers.push({
+    ddd: 0, ind: 6, ty: 4, nm: "Gourmet Dish Food", sr: 1,
+    ks: {
+      o: { a: 0, k: 100 },
+      r: { a: 0, k: 0 },
+      p: { a: 0, k: [150, 166, 0] },
+      a: { a: 0, k: [0, 0, 0] },
+      s: { a: 1, k: [
+        { t: 0, s: [98, 98, 100], e: [102, 102, 100], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 60, s: [102, 102, 100], e: [98, 98, 100], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 120, s: [98, 98, 100] }
+      ]}
+    },
+    ao: 0,
+    shapes: [
+      {
+        ty: "gr",
+        it: [
+          { ty: "el", d: 1, p: { a: 0, k: [0, 0] }, s: { a: 0, k: [76, 26] }, nm: "FoodBase" },
+          { ty: "fl", c: { a: 0, k: makeColor("#F59E0B") }, o: { a: 0, k: 95 }, nm: "BaseFill" },
+          { ty: "el", d: 1, p: { a: 0, k: [-12, -4] }, s: { a: 0, k: [32, 18] }, nm: "Meat1" },
+          { ty: "fl", c: { a: 0, k: makeColor("#B91C1C") }, o: { a: 0, k: 95 }, nm: "Meat1Fill" },
+          { ty: "el", d: 1, p: { a: 0, k: [12, -4] }, s: { a: 0, k: [30, 18] }, nm: "Meat2" },
+          { ty: "fl", c: { a: 0, k: makeColor("#991B1B") }, o: { a: 0, k: 95 }, nm: "Meat2Fill" },
+          { ty: "el", d: 1, p: { a: 0, k: [0, -10] }, s: { a: 0, k: [10, 10] }, nm: "Herb1" },
+          { ty: "fl", c: { a: 0, k: makeColor("#10B981") }, o: { a: 0, k: 100 }, nm: "Herb1Fill" },
+          { ty: "el", d: 1, p: { a: 0, k: [-6, -8] }, s: { a: 0, k: [7, 7] }, nm: "Herb2" },
+          { ty: "fl", c: { a: 0, k: makeColor("#34D399") }, o: { a: 0, k: 100 }, nm: "Herb2Fill" },
+          makeTr()
+        ],
+        nm: "FoodGroup"
+      }
+    ],
+    ip: 0, op: 120, st: 0, bm: 0
+  });
+
+  // 4. Cloche Dome (Lifting, tilting playfully)
+  l.layers.push({
+    ddd: 0, ind: 7, ty: 4, nm: "Cloche Dome Lifting", sr: 1,
+    ks: {
+      o: { a: 0, k: 100 },
+      r: { a: 1, k: [
+        { t: 0, s: [0], e: [-7], i: { x: [0.3], y: [1] }, o: { x: [0.1], y: [0] } },
+        { t: 40, s: [-7], e: [5], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 75, s: [5], e: [0], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 120, s: [0] }
+      ]},
+      p: { a: 1, k: [
+        { t: 0, s: [150, 165, 0], e: [150, 122, 0], i: { x: [0.2], y: [1] }, o: { x: [0.1], y: [0] } },
+        { t: 45, s: [150, 122, 0], e: [150, 130, 0], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 80, s: [150, 130, 0], e: [150, 165, 0], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 120, s: [150, 165, 0] }
+      ]},
+      a: { a: 0, k: [0, 0, 0] },
+      s: { a: 1, k: [
+        { t: 0, s: [100, 100, 100], e: [106, 106, 100], i: { x: [0.2], y: [1] }, o: { x: [0.1], y: [0] } },
+        { t: 45, s: [106, 106, 100], e: [100, 100, 100], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 120, s: [100, 100, 100] }
+      ]}
+    },
+    ao: 0,
+    shapes: [
+      {
+        ty: "gr",
+        it: [
+          { ty: "el", d: 1, p: { a: 0, k: [0, -56] }, s: { a: 0, k: [18, 18] }, nm: "Knob" },
+          { ty: "fl", c: { a: 0, k: makeColor("#F59E0B") }, o: { a: 0, k: 100 }, nm: "KnobFill" },
+          { ty: "st", c: { a: 0, k: makeColor("#FFFFFF") }, o: { a: 0, k: 80 }, w: { a: 0, k: 2.5 }, nm: "KnobStroke" },
+          {
+            ty: "sh", d: 1,
+            ks: {
+              a: 0,
+              k: {
+                c: true,
+                v: [[-62, 0], [62, 0], [60, -6], [0, -50], [-60, -6]],
+                i: [[0, 0], [0, 0], [0, 0], [38, 0], [0, -26]],
+                o: [[0, 0], [0, 0], [0, -26], [-38, 0], [0, 0]]
+              }
+            },
+            nm: "DomePath"
+          },
+          { ty: "fl", c: { a: 0, k: makeColor("#E11D48") }, o: { a: 0, k: 95 }, nm: "DomeFill" },
+          { ty: "st", c: { a: 0, k: makeColor("#FFFFFF") }, o: { a: 0, k: 90 }, w: { a: 0, k: 4 }, lc: 2, lj: 2, nm: "DomeStroke" },
+          {
+            ty: "sh", d: 1,
+            ks: {
+              a: 0,
+              k: {
+                c: false,
+                v: [[-56, -3], [0, -20], [56, -3]],
+                i: [[0, 0], [-25, 0], [0, 0]],
+                o: [[0, 0], [25, 0], [0, 0]]
+              }
+            },
+            nm: "AccentRibbon"
+          },
+          { ty: "st", c: { a: 0, k: makeColor("#F59E0B") }, o: { a: 0, k: 100 }, w: { a: 0, k: 3.5 }, lc: 2, lj: 2, nm: "RibbonStroke" },
+          makeTr()
+        ],
+        nm: "ClocheGroup"
+      }
+    ],
+    ip: 0, op: 120, st: 0, bm: 0
+  });
+
+  // 5. Silver Platter Base Tray
+  l.layers.push({
+    ddd: 0, ind: 8, ty: 4, nm: "Silver Platter Tray", sr: 1,
+    ks: {
+      o: { a: 0, k: 100 },
+      r: { a: 0, k: 0 },
+      p: { a: 0, k: [150, 176, 0] },
+      a: { a: 0, k: [0, 0, 0] },
+      s: { a: 1, k: [
+        { t: 0, s: [100, 100, 100], e: [103, 103, 100], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 60, s: [103, 103, 100], e: [100, 100, 100], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 120, s: [100, 100, 100] }
+      ]}
+    },
+    ao: 0,
+    shapes: [
+      {
+        ty: "gr",
+        it: [
+          { ty: "rc", d: 1, p: { a: 0, k: [0, 0] }, s: { a: 0, k: [154, 12] }, r: { a: 0, k: 6 }, nm: "TrayRim" },
+          { ty: "fl", c: { a: 0, k: makeColor("#F3F4F6") }, o: { a: 0, k: 100 }, nm: "TrayFill" },
+          { ty: "st", c: { a: 0, k: makeColor("#F59E0B") }, o: { a: 0, k: 100 }, w: { a: 0, k: 3 }, lc: 2, lj: 2, nm: "TrayGoldTrim" },
+          { ty: "rc", d: 1, p: { a: 0, k: [0, 7] }, s: { a: 0, k: [120, 6] }, r: { a: 0, k: 3 }, nm: "LowerLip" },
+          { ty: "fl", c: { a: 0, k: makeColor("#9CA3AF") }, o: { a: 0, k: 80 }, nm: "LipFill" },
+          makeTr()
+        ],
+        nm: "TrayGroup"
+      }
+    ],
+    ip: 0, op: 120, st: 0, bm: 0
+  });
+
+  // 6. Dancing Utensils
+  // Fork
+  l.layers.push({
+    ddd: 0, ind: 9, ty: 4, nm: "Dancing Fork", sr: 1,
+    ks: {
+      o: { a: 0, k: 90 },
+      r: { a: 1, k: [
+        { t: 0, s: [-15], e: [-28], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 60, s: [-28], e: [-15], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 120, s: [-15] }
+      ]},
+      p: { a: 1, k: [
+        { t: 0, s: [52, 160, 0], e: [50, 148, 0], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 60, s: [50, 148, 0], e: [52, 160, 0], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 120, s: [52, 160, 0] }
+      ]},
+      a: { a: 0, k: [0, 0, 0] },
+      s: { a: 0, k: [95, 95, 100] }
+    },
+    ao: 0,
+    shapes: [
+      {
+        ty: "gr",
+        it: [
+          { ty: "rc", d: 1, p: { a: 0, k: [0, 15] }, s: { a: 0, k: [5, 45] }, r: { a: 0, k: 2 }, nm: "FHandle" },
+          { ty: "fl", c: { a: 0, k: makeColor("#E5E7EB") }, o: { a: 0, k: 100 }, nm: "FFill" },
+          { ty: "rc", d: 1, p: { a: 0, k: [0, -18] }, s: { a: 0, k: [14, 22] }, r: { a: 0, k: 3 }, nm: "FTines" },
+          { ty: "fl", c: { a: 0, k: makeColor("#F59E0B") }, o: { a: 0, k: 100 }, nm: "TinesFill" },
+          makeTr()
+        ],
+        nm: "ForkGroup"
+      }
+    ],
+    ip: 0, op: 120, st: 0, bm: 0
+  });
+
+  // Spoon
+  l.layers.push({
+    ddd: 0, ind: 10, ty: 4, nm: "Dancing Spoon", sr: 1,
+    ks: {
+      o: { a: 0, k: 90 },
+      r: { a: 1, k: [
+        { t: 0, s: [15], e: [28], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 60, s: [28], e: [15], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 120, s: [15] }
+      ]},
+      p: { a: 1, k: [
+        { t: 0, s: [248, 160, 0], e: [250, 148, 0], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 60, s: [250, 148, 0], e: [248, 160, 0], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+        { t: 120, s: [248, 160, 0] }
+      ]},
+      a: { a: 0, k: [0, 0, 0] },
+      s: { a: 0, k: [95, 95, 100] }
+    },
+    ao: 0,
+    shapes: [
+      {
+        ty: "gr",
+        it: [
+          { ty: "rc", d: 1, p: { a: 0, k: [0, 15] }, s: { a: 0, k: [5, 45] }, r: { a: 0, k: 2 }, nm: "SHandle" },
+          { ty: "fl", c: { a: 0, k: makeColor("#E5E7EB") }, o: { a: 0, k: 100 }, nm: "SFill" },
+          { ty: "el", d: 1, p: { a: 0, k: [0, -18] }, s: { a: 0, k: [16, 24] }, nm: "SBowl" },
+          { ty: "fl", c: { a: 0, k: makeColor("#F59E0B") }, o: { a: 0, k: 100 }, nm: "BowlFill" },
+          makeTr()
+        ],
+        nm: "SpoonGroup"
+      }
+    ],
+    ip: 0, op: 120, st: 0, bm: 0
+  });
+
+  // 7. Sparkle Stars
+  const sparkles = [[80, 105], [220, 100], [150, 52], [105, 65], [195, 68]];
+  sparkles.forEach((pos, idx) => {
+    l.layers.push({
+      ddd: 0, ind: 11 + idx, ty: 4, nm: "Sparkle " + idx, sr: 1,
+      ks: {
+        o: { a: 1, k: [
+          { t: idx * 16, s: [0], e: [100], i: { x: [0.2], y: [1] }, o: { x: [0.1], y: [0] } },
+          { t: idx * 16 + 25, s: [100], e: [0], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+          { t: 120, s: [0] }
+        ]},
+        r: { a: 1, k: [
+          { t: idx * 16, s: [0], e: [90], i: { x: [0.2], y: [1] }, o: { x: [0.1], y: [0] } },
+          { t: 120, s: [90] }
+        ]},
+        p: { a: 0, k: [pos[0], pos[1], 0] },
+        a: { a: 0, k: [0, 0, 0] },
+        s: { a: 1, k: [
+          { t: idx * 16, s: [20, 20, 100], e: [110, 110, 100], i: { x: [0.2], y: [1] }, o: { x: [0.1], y: [0] } },
+          { t: idx * 16 + 25, s: [110, 110, 100], e: [0, 0, 100], i: { x: [0.4], y: [1] }, o: { x: [0.2], y: [0] } },
+          { t: 120, s: [0, 0, 100] }
+        ]}
+      },
+      ao: 0,
+      shapes: [{
+        ty: "gr",
+        it: [
+          {
+            ty: "sh", d: 1,
+            ks: {
+              a: 0,
+              k: {
+                c: true,
+                v: [[0, -9], [3, -3], [9, 0], [3, 3], [0, 9], [-3, 3], [-9, 0], [-3, -3]],
+                i: [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+                o: [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]
+              }
+            },
+            nm: "StarPath"
+          },
+          { ty: "fl", c: { a: 0, k: makeColor("#F59E0B") }, o: { a: 0, k: 100 }, nm: "StarFill" },
+          makeTr()
+        ],
+        nm: "StarGroup"
+      }],
+      ip: 0, op: 120, st: 0, bm: 0
+    });
+  });
+
+  return l;
+}
+
 // Generate files map
 const files = {
+  "catering-loading.json": buildCateringLoading(),
   "logo-splash.json": buildLogoSplash(),
   "cloche-idle.json": buildClocheIdle(),
   "icon-package.json": buildIconPackage(),
