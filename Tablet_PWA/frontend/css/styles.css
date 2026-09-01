@@ -3568,81 +3568,117 @@ svg {
   }
 }
 
+
+/* ── Real Logo Animation ──────────────────────────────────────────────────── */
+@keyframes logoFloat {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50%       { transform: translateY(-8px) scale(1.04); }
+}
+
+@keyframes logoGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 10px rgba(225, 29, 72, 0.45))
+            drop-shadow(0 0 24px rgba(245, 158, 11, 0.20));
+  }
+  50% {
+    filter: drop-shadow(0 0 22px rgba(225, 29, 72, 0.80))
+            drop-shadow(0 0 42px rgba(245, 158, 11, 0.45))
+            drop-shadow(0 0 8px rgba(255, 255, 255, 0.15));
+  }
+}
+
+/* Applied to real logo.png in splash, header, and transition screens */
+.animated-logo {
+  animation:
+    logoFloat 3.6s ease-in-out infinite,
+    logoGlow  2.4s ease-in-out infinite;
+  will-change: transform, filter;
+}
+
+/* Splash screen logo is larger, slower float */
+.splash-logo.animated-logo {
+  animation:
+    logoFloat 4s ease-in-out infinite,
+    logoGlow  2.8s ease-in-out infinite;
+}
+
+/* Header brand logo: keep it subtle */
+.brand-logo.animated-logo {
+  animation:
+    logoGlow 3s ease-in-out infinite;
+}
+
 /* ── Lottie Animations Integration ────────────────────────────────────────── */
-.splash-lottie-container {
-  width: 100%;
-  height: 100%;
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 
-.splash-logo-wrap.has-lottie .splash-logo-fallback {
-  display: none !important;
-}
-
-.brand-avatar-wrap .brand-lottie-logo {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
+/* Base container — must clip the SVG strictly to its own bounds */
+.lottie-icon-container {
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-}
-
-.lottie-icon-container {
+  pointer-events: none;
+  flex-shrink: 0;
+  /* Default sizing — overridden per-context below */
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
 }
 
+/* Critical: lottie-web injects width/height attributes on the SVG element
+   which have higher specificity than class-based CSS. These rules force the
+   SVG to fill its container regardless of the attribute values. */
 .lottie-icon-container svg {
   width: 100% !important;
   height: 100% !important;
-  display: block;
+  display: block !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
 }
 
+/* ── Per-context Lottie sizes ─────────────────────────────────────────────── */
+
+/* Cloche icon inside START ORDER button */
 .kiosk-cloche-icon .lottie-icon-container {
   width: 38px;
   height: 38px;
 }
 
+/* Quick Options icon circle */
 .quick-opt-icon-circle .lottie-icon-container {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
 }
 
+/* Service Highlights pill icon box */
 .kiosk-pill-icon-box .lottie-icon-container {
   width: 32px;
   height: 32px;
 }
 
+/* Header Nav action icon */
 .nav-action-icon .lottie-icon-container {
   width: 24px;
   height: 24px;
 }
 
+/* Toast badge icon */
 .toast-icon .lottie-icon-container {
   width: 24px;
   height: 24px;
 }
 
+/* ── Wizard Step Lottie badge ─────────────────────────────────────────────── */
 .wizard-step-lottie {
   width: 52px;
   height: 52px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
+/* ── Booking Success Celebration Overlay ─────────────────────────────────── */
 .celebration-overlay {
   position: fixed;
   inset: 0;
@@ -3661,6 +3697,7 @@ svg {
   width: 320px;
   height: 320px;
   position: relative;
+  overflow: hidden;
 }
 
 .celebration-title {

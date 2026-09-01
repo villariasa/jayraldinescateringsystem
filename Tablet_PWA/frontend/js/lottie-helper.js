@@ -57,6 +57,17 @@ export async function mountLottie(container, name, options = {}) {
     }
   });
 
+  // lottie-web sets width/height HTML attributes that override CSS — remove them so
+  // the SVG fills the container using CSS rules only.
+  anim.addEventListener("DOMLoaded", () => {
+    const svgEl = container.querySelector("svg");
+    if (svgEl) {
+      svgEl.removeAttribute("width");
+      svgEl.removeAttribute("height");
+      svgEl.style.cssText = "width:100%;height:100%;display:block;";
+    }
+  });
+
   if (options.speed) {
     anim.setSpeed(options.speed);
   }
