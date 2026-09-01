@@ -88,12 +88,11 @@ export async function mountLottie(container, name, options = {}) {
 
   const anim = window.lottie.loadAnimation({
     container,
-    renderer: options.renderer || "canvas",
+    renderer: options.renderer || "svg",
     loop: options.loop !== undefined ? options.loop : true,
     autoplay: options.autoplay !== undefined ? options.autoplay : true,
     animationData: animData,
     rendererSettings: {
-      clearCanvas: true,
       preserveAspectRatio: options.preserveAspectRatio || "xMidYMid meet",
       progressiveLoad: true,
       hideOnTransparent: true,
@@ -101,13 +100,14 @@ export async function mountLottie(container, name, options = {}) {
     }
   });
 
-  // Ensure rendered canvas or svg fills container according to CSS without hardcoded pixel attributes
+  // lottie-web sets width/height HTML attributes that override CSS — remove them so
+  // the SVG fills the container using CSS rules only.
   anim.addEventListener("DOMLoaded", () => {
-    const el = container.querySelector("canvas") || container.querySelector("svg");
-    if (el) {
-      el.removeAttribute("width");
-      el.removeAttribute("height");
-      el.style.cssText = "width:100%;height:100%;display:block;";
+    const svgEl = container.querySelector("svg");
+    if (svgEl) {
+      svgEl.removeAttribute("width");
+      svgEl.removeAttribute("height");
+      svgEl.style.cssText = "width:100%;height:100%;display:block;";
     }
   });
 
@@ -196,14 +196,10 @@ export async function playTapBurst(targetEl, name = "cloche-tap-burst") {
 
   const burstAnim = window.lottie.loadAnimation({
     container: burstWrap,
-    renderer: "canvas",
+    renderer: "svg",
     loop: false,
     autoplay: true,
-    animationData: animData,
-    rendererSettings: {
-      clearCanvas: true,
-      preserveAspectRatio: "xMidYMid meet"
-    }
+    animationData: animData
   });
 
   burstAnim.addEventListener("complete", () => {
