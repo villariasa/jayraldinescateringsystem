@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { openModal, closeModal, toast, escapeHtml, statusPill } from "./views.js";
 import { wizard, peso } from "./state.js";
 import { mountWizard } from "./wizard.js";
-import { openOwnerSettings } from "./settings.js";
+import { openOwnerSettings, openOrderDetailModal } from "./settings.js";
 import { icon } from "./icons.js";
 import { mountLandingSlider } from "./slider.js";
 import { mountLottie, mountHoverLottie, playTapBurst } from "./lottie-helper.js";
@@ -81,6 +81,346 @@ export function showTransitionLoading(message = "Preparing kiosk for next guest�
         resolve();
       }, 400);
     }, duration);
+  });
+}
+
+// ── Screen Rendering ─────────────────────────────────────────────────
+
+export function showScreen(screen) {
+  if (screen === "wizard") {
+    app.innerHTML = "";
+    mountWizard(app, () => showScreen("landing"));
+  } else {
+    mountLanding();
+  }
+}
+
+function mountLanding() {
+  app.innerHTML = `
+    <div class="landing-shell">
+      <!-- Top Brand Navigation Bar -->
+      <header class="landing-header">
+        <div class="landing-brand">
+          <img src="icons/logo.png" alt="Jayraldine Logo" class="brand-logo" id="landing-brand-logo">
+          <div class="brand-text">
+            <span class="brand-title">Jayraldine's Catering</span>
+            <span class="brand-subtitle">Interactive Tablet Booking Kiosk</span>
+          </div>
+        </div>
+
+        <div class="landing-nav-actions">
+          <button class="nav-action-btn theme-toggle-btn" id="landing-theme-toggle" title="Toggle Dark/Light Mode">
+            <div class="nav-icon-container" id="nav-lottie-theme">
+              ${icon("sun")}
+            </div>
+            <span class="nav-action-label">${getTheme() === "light" ? "Dark Mode" : "Light Mode"}</span>
+          </button>
+
+          <button class="nav-action-btn" id="landing-open-orders" title="View Recent Bookings">
+            <div class="nav-icon-container" id="nav-lottie-orders">
+              ${icon("shoppingBag")}
+            </div>
+            <span class="nav-action-label">Bookings</span>
+          </button>
+
+          <button class="nav-action-btn nav-admin-btn" id="landing-open-admin" title="Owner Management &amp; Settings">
+            <div class="nav-icon-container" id="nav-lottie-admin">
+              ${icon("shield")}
+            </div>
+            <span class="nav-action-label">Admin</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Split Interactive Hero Stage -->
+      <main class="landing-stage">
+        <!-- Left: Marketing Showcase & Catering Pitch -->
+        <section class="stage-left">
+          <div class="hero-badge">
+            ${icon("sparkles")} Premium Catering Experience
+          </div>
+          <h1 class="hero-headline">
+            Delightful Bites,<br>
+            <span class="text-gold">Unforgettable Memories.</span>
+          </h1>
+          <p class="hero-lead">
+            Welcome to Cebu's premier catering service. Create your custom event package, choose your favorite dishes, and confirm your booking in minutes.
+          </p>
+
+          <div class="hero-cta-group">
+            <button class="btn btn-cta btn-lg" id="btn-start-order">
+              <div class="lottie-icon-container" id="lottie-cloche-idle"></div>
+              <span>Start Event Booking</span>
+              ${icon("arrowRight")}
+            </button>
+          </div>
+
+          <div class="hero-perks">
+            <div class="perk-pill">
+              ${icon("checkCircle")} 100% Offline Standalone
+            </div>
+            <div class="perk-pill">
+              ${icon("checkCircle")} Instant PDF Receipt
+            </div>
+            <div class="perk-pill">
+              ${icon("checkCircle")} Flexible Downpayment
+            </div>
+          </div>
+        </section>
+
+        <!-- Right: Dynamic Visual Slider Showcase -->
+        <section class="stage-right">
+          <div id="landing-slider-mount" class="slider-viewport"></div>
+        </section>
+      </main>
+
+      <!-- Bottom Quick-Access Bar -->
+      <footer class="landing-quick-bar">
+        <div class="quick-bar-inner">
+          <button class="quick-btn" id="quick-packages">
+            <div class="quick-icon-wrap" id="quick-lottie-package">
+              ${icon("package")}
+            </div>
+            <div class="quick-info">
+              <span class="quick-title">Buffet Packages</span>
+              <span class="quick-sub">Silver, Gold, Platinum &amp; custom pax</span>
+            </div>
+          </button>
+
+          <button class="quick-btn" id="quick-menu">
+            <div class="quick-icon-wrap" id="quick-lottie-menu">
+              ${icon("utensils")}
+            </div>
+            <div class="quick-info">
+              <span class="quick-title">Dish Catalog</span>
+              <span class="quick-sub">Mains, seafood, desserts &amp; drinks</span>
+            </div>
+          </button>
+
+          <button class="quick-btn" id="quick-terms">
+            <div class="quick-icon-wrap" id="quick-lottie-terms">
+              ${icon("fileText")}
+            </div>
+            <div class="quick-info">
+              <span class="quick-title">Catering Terms</span>
+              <span class="quick-sub">Policies, deposits &amp; venue rules</span>
+            </div>
+          </button>
+        </div>
+      </footer>
+    </div>
+  `;
+
+  // Initialize interactive dynamic slider
+  mountLandingSlider("landing-slider-mount");
+
+  // Mount Lottie animations on Interactive Hero & Nav
+  const clocheBtnEl = document.getElementById("lottie-cloche-idle");
+  if (clocheBtnEl) {
+    mountLottie(clocheBtnEl, "cloche-idle", { loop: true, speed: 0.8 });
+  }
+
+  // Setup micro-animations on quick buttons
+  mountHoverLottie(document.getElementById("quick-packages"), document.getElementById("quick-lottie-package"), "box-open");
+  mountHoverLottie(document.getElementById("quick-menu"), document.getElementById("quick-lottie-menu"), "utensils-cross");
+  mountHoverLottie(document.getElementById("quick-terms"), document.getElementById("quick-lottie-terms"), "signature-draw");
+
+  // Wire CTA buttons
+  const startOrderBtn = document.getElementById("btn-start-order");
+  startOrderBtn?.addEventListener("click", (e) => {
+    playTapBurst(e.clientX, e.clientY);
+    wizard.reset();
+    showScreen("wizard");
+  });
+
+  document.getElementById("landing-theme-toggle")?.addEventListener("click", () => {
+    toggleTheme();
+  });
+
+  document.getElementById("landing-open-orders")?.addEventListener("click", () => {
+    openRecentOrdersModal();
+  });
+
+  document.getElementById("landing-open-admin")?.addEventListener("click", () => {
+    openOwnerSettings("bookings");
+  });
+
+  document.getElementById("quick-packages")?.addEventListener("click", () => {
+    openPackagesQuickModal();
+  });
+
+  document.getElementById("quick-menu")?.addEventListener("click", () => {
+    openMenuQuickModal();
+  });
+
+  document.getElementById("quick-terms")?.addEventListener("click", () => {
+    openTermsQuickModal();
+  });
+}
+
+// ── Quick Modals ─────────────────────────────────────────────────────
+
+async function openPackagesQuickModal() {
+  const pkgs = await api.getPackages();
+  openModal({
+    id: "quick-packages-modal",
+    title: `${icon("package")} Catering Buffet Packages`,
+    large: true,
+    bodyHtml: `
+      <div class="packages-showcase-grid">
+        ${pkgs.map((p) => `
+          <div class="pkg-showcase-card">
+            <div class="pkg-badge">Per Guest</div>
+            <h3 class="pkg-name">${escapeHtml(p.name)}</h3>
+            <div class="pkg-rate">${peso(p.price_per_pax)}<span class="pkg-unit"> / pax</span></div>
+            <p class="pkg-desc">${escapeHtml(p.description || "Complete buffet service with setup, tableware and crew.")}</p>
+            <div class="pkg-meta">
+              <span>${icon("user")} Minimum ${p.min_pax || 30} pax</span>
+            </div>
+            <button class="btn btn-primary btn-block select-pkg-start-btn" data-pkg-id="${p.id}" style="margin-top:14px;">
+              Select &amp; Start Booking ${icon("arrowRight")}
+            </button>
+          </div>
+        `).join("")}
+      </div>
+    `,
+  });
+
+  document.querySelectorAll(".select-pkg-start-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pkgId = Number(btn.dataset.pkgId);
+      closeModal("quick-packages-modal");
+      wizard.reset();
+      wizard.draft.package.id = pkgId;
+      showScreen("wizard");
+    });
+  });
+}
+
+async function openMenuQuickModal() {
+  const grouped = await api.getMenuItemsGrouped();
+  const cats = Object.keys(grouped);
+  let activeCat = cats[0] || "";
+
+  const renderContent = (body) => {
+    body.innerHTML = `
+      <div class="modal-category-tabs">
+        ${cats.map((c) => `
+          <button class="btn ${c === activeCat ? "btn-primary" : "btn-secondary"} cat-filter-btn" data-cat="${escapeHtml(c)}">
+            ${escapeHtml(c)} (${grouped[c].length})
+          </button>
+        `).join("")}
+      </div>
+      <div class="menu-preview-grid">
+        ${(grouped[activeCat] || []).map((m) => `
+          <div class="menu-preview-item">
+            <div class="menu-preview-title">${escapeHtml(m.name)}</div>
+            <div class="menu-preview-category">${escapeHtml(m.category)}</div>
+            ${m.price > 0 ? `<div class="menu-preview-price">+ ${peso(m.price)}</div>` : `<div class="menu-preview-included">Included in Package</div>`}
+          </div>
+        `).join("")}
+      </div>
+    `;
+
+    body.querySelectorAll(".cat-filter-btn").forEach((b) => {
+      b.addEventListener("click", () => {
+        activeCat = b.dataset.cat;
+        renderContent(body);
+      });
+    });
+  };
+
+  openModal({
+    id: "quick-menu-modal",
+    title: `${icon("utensils")} Catering Dishes &amp; Specialties`,
+    large: true,
+    bodyHtml: (body) => renderContent(body),
+  });
+}
+
+async function openTermsQuickModal() {
+  const terms = await api.terms();
+  openModal({
+    id: "quick-terms-modal",
+    title: `${icon("fileText")} Catering Terms, Guidelines &amp; Policies`,
+    large: true,
+    bodyHtml: `
+      <div class="terms-preview-body">
+        <div style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
+          Version: <b>${escapeHtml(terms.version)}</b> &bull; Effective for all kiosk bookings
+        </div>
+        <div class="terms-scroll-area">
+          ${terms.html || `<p>${escapeHtml(terms.content)}</p>`}
+        </div>
+      </div>
+    `,
+    footerHtml: `
+      <button class="btn btn-secondary" data-close>Close</button>
+      <button class="btn btn-primary" id="btn-terms-start-order">
+        I Understand &amp; Agree &bull; Start Booking ${icon("arrowRight")}
+      </button>
+    `,
+  });
+
+  document.getElementById("btn-terms-start-order")?.addEventListener("click", () => {
+    closeModal("quick-terms-modal");
+    wizard.reset();
+    showScreen("wizard");
+  });
+}
+
+// ── Recent Orders modal ──────────────────────────────────────────────
+
+async function openRecentOrdersModal() {
+  const orders = await api.getOrders();
+  openModal({
+    id: "recent-orders-modal",
+    title: `${icon("shoppingBag")} Recent Catering Bookings (${orders.length})`,
+    large: true,
+    bodyHtml: `
+      <div class="orders-card-grid">
+        ${orders.map((o) => `
+          <div class="order-kiosk-card">
+            <div class="order-kiosk-header">
+              <span class="order-ref-pill">${escapeHtml(o.booking_ref || `JC-${o.booking_id}`)}</span>
+              ${statusPill(o.status || "Confirmed")}
+            </div>
+            <div class="order-kiosk-customer">${escapeHtml(o.customer || "Walk-in Guest")}</div>
+            <div class="order-kiosk-row" style="margin-top:6px; font-size:12.5px; color:var(--text-muted);">
+              <span>${icon("calendar")} ${escapeHtml(o.event_date || "TBD")}</span>
+              <span>${icon("clock")} ${escapeHtml(o.event_time || "6:00 PM")}</span>
+            </div>
+            <div class="order-kiosk-row" style="margin-top:4px; font-size:12.5px; color:var(--text-muted);">
+              <span>${icon("package")} ${escapeHtml(o.package_name || "Buffet Package")} (${o.pax || 60} pax)</span>
+            </div>
+            <div class="order-kiosk-row" style="margin-top:8px; border-top:1px dashed var(--border); padding-top:8px;">
+              <span style="font-size:12px; color:var(--text-muted);">Total Order Price</span>
+              <span style="font-weight:800; font-size:16px; color:var(--gold);">${peso(o.total)}</span>
+            </div>
+            <div class="order-kiosk-row" style="font-size:12px;">
+              <span style="color:var(--success); font-weight:600;">Paid: ${peso(o.paid)}</span>
+              <span style="color:var(--accent); font-weight:600;">Bal: ${peso(o.balance)}</span>
+            </div>
+            <div style="margin-top:12px; display:flex; gap:8px; border-top:1px solid var(--border); padding-top:10px;">
+              <button class="btn btn-secondary" style="flex:1; padding:8px 12px; font-size:13px;" data-receipt="${o.booking_id}">
+                ${icon("printer")} Receipt PDF
+              </button>
+              <button class="btn btn-primary" style="padding:8px 14px; font-size:13px;" data-detail="${o.booking_id}">
+                ${icon("info")} Details
+              </button>
+            </div>
+          </div>
+        `).join("") || `<div style="grid-column: 1 / -1; padding:36px; text-align:center; color:var(--text-muted);">No orders recorded yet.</div>`}
+      </div>
+    `,
+  });
+
+  document.querySelectorAll("#recent-orders-modal [data-receipt]").forEach((el) => {
+    el.addEventListener("click", () => api.downloadReceipt(Number(el.dataset.receipt)));
+  });
+
+  document.querySelectorAll("#recent-orders-modal [data-detail]").forEach((el) => {
+    el.addEventListener("click", () => openOrderDetailModal(Number(el.dataset.detail)));
   });
 }
 

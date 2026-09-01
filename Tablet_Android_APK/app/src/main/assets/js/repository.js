@@ -40,18 +40,56 @@ export function findPossibleDuplicateCustomer(contact, name) {
   return null;
 }
 
+export function formatEventTime(timeStr) {
+  if (!timeStr) return "12:00 PM";
+  const str = String(timeStr).trim();
+  if (str.includes("AM") || str.includes("PM") || str.includes("am") || str.includes("pm")) {
+    return str;
+  }
+  const parts = str.split(":");
+  if (parts.length >= 2) {
+    let hours = parseInt(parts[0], 10);
+    const minutes = parts[1].padStart(2, "0").slice(0, 2);
+    if (isNaN(hours)) return str;
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12;
+    if (hours === 0) hours = 12;
+    return `${hours}:${minutes} ${ampm}`;
+  }
+  return str;
+}
+
 export function addCustomer(name, contact = "", email = "", address = "") {
   name = (name || "").trim();
   if (!name) throw new Error("Customer name is required.");
   const contactClean = (contact || "").trim();
+  const emailClean = (email || "").trim();
+  const addrClean = (address || "").trim();
+
+  // If contact was given, check by contact
   if (contactClean) {
-    const existing = fetchOne("SELECT cus_id FROM customers WHERE cus_contact = ? AND cus_contact != '' LIMIT 1", [contactClean]);
-    if (existing) return existing.cus_id;
+    const existing = fetchOne("SELECT cus_id, cus_email, cus_address FROM customers WHERE cus_contact = ? AND cus_contact != '' LIMIT 1", [contactClean]);
+    if (existing) {
+      if (emailClean || addrClean) {
+        run("UPDATE customers SET cus_email = COALESCE(NULLIF(?, ''), cus_email), cus_address = COALESCE(NULLIF(?, ''), cus_address) WHERE cus_id = ?",
+          [emailClean, addrClean, existing.cus_id]);
+      }
+      return existing.cus_id;
+    }
   }
-  const existingName = fetchOne("SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(?) LIMIT 1", [name]);
-  if (existingName) return existingName.cus_id;
+
+  // Check by name
+  const existingName = fetchOne("SELECT cus_id, cus_contact, cus_email, cus_address FROM customers WHERE LOWER(TRIM(cus_name)) = LOWER(TRIM(?)) LIMIT 1", [name]);
+  if (existingName) {
+    if (contactClean || emailClean || addrClean) {
+      run("UPDATE customers SET cus_contact = COALESCE(NULLIF(?, ''), cus_contact), cus_email = COALESCE(NULLIF(?, ''), cus_email), cus_address = COALESCE(NULLIF(?, ''), cus_address) WHERE cus_id = ?",
+        [contactClean, emailClean, addrClean, existingName.cus_id]);
+    }
+    return existingName.cus_id;
+  }
+
   return run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status) VALUES (?, ?, ?, ?, 'Active')",
-    [name, contactClean, (email || "").trim(), (address || "").trim()]);
+    [name, contactClean, emailClean, addrClean]);
 }
 
 export function updateCustomer(customerId, name, contact = "", email = "", address = "") {
@@ -273,13 +311,13 @@ export function recordTermsAcknowledgement(bookingId, version, customerName) {
 }
 
 export function getOrderDetail(bookingId) {
-  const b = fetchOne("SELECT * FROM bookings WHERE bk_id = ?", [bookingId]);
+  const b = fetchOne("SELECT * FROM bookings WHERE bk_id = ? OR bk_booking_ref = ?", [bookingId, String(bookingId)]);
   if (!b) return null;
-  const inv = fetchOne("SELECT * FROM invoices WHERE inv_booking_id = ? LIMIT 1", [bookingId]);
-  const menuItems = fetchAll("SELECT * FROM booking_menu_items WHERE bmi_booking_id = ?", [bookingId]);
-  const charges = fetchAll("SELECT * FROM booking_additional_charges WHERE ac_booking_id = ?", [bookingId]);
+  const inv = fetchOne("SELECT * FROM invoices WHERE inv_booking_id = ? LIMIT 1", [b.bk_id]);
+  const menuItems = fetchAll("SELECT * FROM booking_menu_items WHERE bmi_booking_id = ?", [b.bk_id]);
+  const charges = fetchAll("SELECT * FROM booking_additional_charges WHERE ac_booking_id = ?", [b.bk_id]);
   const payments = inv ? fetchAll("SELECT * FROM payment_records WHERE pr_invoice_id = ?", [inv.inv_id]) : [];
-  const terms = fetchOne("SELECT * FROM terms_acknowledgements WHERE ta_booking_id = ? ORDER BY ta_id DESC LIMIT 1", [bookingId]);
+  const terms = fetchOne("SELECT * FROM terms_acknowledgements WHERE ta_booking_id = ? ORDER BY ta_id DESC LIMIT 1", [b.bk_id]);
 
   // Lookup customer details (phone, email, full address)
   let cust = null;
@@ -287,7 +325,7 @@ export function getOrderDetail(bookingId) {
     cust = fetchOne("SELECT * FROM customers WHERE cus_id = ?", [b.bk_customer_id]);
   }
   if (!cust && b.bk_customer_name) {
-    cust = fetchOne("SELECT * FROM customers WHERE LOWER(cus_name) = LOWER(?) LIMIT 1", [b.bk_customer_name]);
+    cust = fetchOne("SELECT * FROM customers WHERE LOWER(TRIM(cus_name)) = LOWER(TRIM(?)) LIMIT 1", [b.bk_customer_name]);
   }
 
   // Lookup package name
@@ -299,34 +337,49 @@ export function getOrderDetail(bookingId) {
   const baseTotal = Number(b.bk_base_total || 0);
   const addonsTotal = charges.reduce((sum, c) => sum + Number(c.ac_amount || 0), 0);
   const grandTotal = Number(b.bk_total_amount || (baseTotal + addonsTotal));
-  const paid = inv ? Number(inv.inv_amount_paid) : Number(b.bk_amount_paid || 0);
-  const balance = inv ? Number(inv.inv_balance) : Math.max(0, grandTotal - paid);
+
+  // Compute actual paid and balance accurately
+  const rawBalance = inv && inv.inv_balance != null ? Number(inv.inv_balance) : null;
+  const paid = Math.max(
+    Number(b.bk_amount_paid || 0),
+    Number(b.bk_down_payment || 0),
+    Number(inv ? inv.inv_amount_paid : 0),
+    Number(inv ? inv.inv_down_payment : 0),
+    rawBalance !== null ? Math.max(0, grandTotal - rawBalance) : 0
+  );
+  const balance = rawBalance !== null ? rawBalance : Math.max(0, grandTotal - paid);
+
+  const customerName = b.bk_customer_name || (cust ? cust.cus_name : "") || "Walk-in Guest";
+  const contact = (cust ? cust.cus_contact : "") || "";
+  const email = (cust ? cust.cus_email : "") || "";
+  const address = b.bk_address || (cust ? cust.cus_address : "") || "";
 
   return {
     booking_id: b.bk_id,
     booking_ref: b.bk_booking_ref,
-    customer: b.bk_customer_name || (cust ? cust.cus_name : "Walk-in Guest"),
-    customer_name: b.bk_customer_name || (cust ? cust.cus_name : "Walk-in Guest"),
-    customer_id: b.bk_customer_id || (cust ? cust.cus_id : null),
-    contact: (cust ? cust.cus_contact : "") || "",
-    email: (cust ? cust.cus_email : "") || "",
-    customer_address: (cust ? cust.cus_address : "") || b.bk_address || "",
-    address: b.bk_address || (cust ? cust.cus_address : ""),
+    customer: customerName,
+    customer_name: customerName,
+    name: customerName,
+    contact: contact,
+    phone: contact,
+    email: email,
+    customer_address: address,
+    address: address,
     event_date: b.bk_event_date,
-    event_time: b.bk_event_time || "18:00",
+    event_time: formatEventTime(b.bk_event_time),
     venue: b.bk_venue || "Catering Venue",
     occasion: b.bk_occasion || "Special Event",
-    pax: b.bk_pax || 1,
+    pax: Number(b.bk_pax || 1),
     package_id: b.bk_package_id,
     package_name: pkg ? pkg.pkg_name : (b.bk_menu_type || "Catering Package"),
-    package_subtotal: baseTotal || grandTotal,
+    package_subtotal: baseTotal || (grandTotal - addonsTotal),
     base_total: baseTotal,
     addons_subtotal: addonsTotal,
     total: grandTotal,
-    downpayment: Number(b.bk_down_payment || paid),
+    downpayment: paid,
     paid: paid,
     balance: balance,
-    status: inv ? inv.inv_status : (b.bk_status || "Confirmed"),
+    status: inv ? inv.inv_status : (b.bk_status || (balance === 0 ? "PAID" : paid > 0 ? "PARTIAL" : "PENDING")),
     menu_selections: menuItems.map((m) => ({
       item_name: m.bmi_item_name,
       category: m.bmi_category,
@@ -351,17 +404,51 @@ export function getOrderDetail(bookingId) {
 
 export function getAllOrders(limit = 200) {
   const rows = fetchAll(`
-    SELECT b.bk_id, b.bk_booking_ref, b.bk_customer_name, b.bk_event_date, b.bk_total_amount, b.bk_status, b.bk_created_at,
-           i.inv_status, i.inv_amount_paid, i.inv_balance
-    FROM bookings b LEFT JOIN invoices i ON i.inv_booking_id = b.bk_id
+    SELECT b.bk_id, b.bk_booking_ref, b.bk_customer_name, b.bk_event_date, b.bk_event_time,
+           b.bk_pax, b.bk_total_amount, b.bk_base_total, b.bk_amount_paid, b.bk_down_payment,
+           b.bk_status, b.bk_created_at, b.bk_venue, b.bk_occasion, b.bk_payment_mode,
+           p.pkg_name,
+           c.cus_contact, c.cus_email, c.cus_address,
+           i.inv_status, i.inv_amount_paid, i.inv_balance, i.inv_down_payment
+    FROM bookings b
+    LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
+    LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
+    LEFT JOIN invoices i ON i.inv_booking_id = b.bk_id
     ORDER BY b.bk_created_at DESC LIMIT ?
   `, [limit]);
-  return rows.map((r) => ({
-    booking_id: r.bk_id, booking_ref: r.bk_booking_ref, customer: r.bk_customer_name,
-    event_date: r.bk_event_date, created_at: r.bk_created_at,
-    total: Number(r.bk_total_amount || 0), paid: Number(r.inv_amount_paid || 0),
-    balance: Number(r.inv_balance || 0), status: r.inv_status || "Unpaid",
-  }));
+
+  return rows.map((r) => {
+    const total = Number(r.bk_total_amount || 0);
+    const rawBalance = r.inv_balance != null ? Number(r.inv_balance) : null;
+    const paid = Math.max(
+      Number(r.bk_amount_paid || 0),
+      Number(r.bk_down_payment || 0),
+      Number(r.inv_amount_paid || 0),
+      Number(r.inv_down_payment || 0),
+      rawBalance !== null ? Math.max(0, total - rawBalance) : 0
+    );
+    const balance = rawBalance !== null ? rawBalance : Math.max(0, total - paid);
+
+    return {
+      booking_id: r.bk_id,
+      booking_ref: r.bk_booking_ref,
+      customer: r.bk_customer_name || "Walk-in Guest",
+      customer_name: r.bk_customer_name || "Walk-in Guest",
+      contact: r.cus_contact || "",
+      email: r.cus_email || "",
+      address: r.cus_address || r.bk_address || "",
+      event_date: r.bk_event_date,
+      event_time: formatEventTime(r.bk_event_time),
+      pax: Number(r.bk_pax || 60),
+      package_name: r.pkg_name || "Buffet Package",
+      created_at: r.bk_created_at,
+      total: total,
+      paid: paid,
+      downpayment: paid,
+      balance: balance,
+      status: r.inv_status || r.bk_status || (balance === 0 ? "PAID" : paid > 0 ? "PARTIAL" : "PENDING"),
+    };
+  });
 }
 
 export function clearAllOrders() {

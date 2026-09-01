@@ -270,38 +270,16 @@ function renderCart() {
     </button>
   `;
   cart.querySelector("#cart-quick-next")?.addEventListener("click", () => {
-    if (wizard.step >= 6) return;
-
-    const d = wizard.draft;
-
-    // ── Per-step validation (mirrors the same rules as each step's footer button) ──
-    if (wizard.step === 1) {
-      if (!d.customer.name?.trim()) {
-        toast("Customer name is required before proceeding.", "error"); return;
-      }
+    // Forward to the current step's primary next button so all form inputs are properly harvested into state and validated!
+    const stepNextBtn = document.getElementById("wiz-next") || document.getElementById("sticky-next-btn-top");
+    if (stepNextBtn) {
+      stepNextBtn.click();
+      return;
     }
-
-    if (wizard.step === 2) {
-      if (!d.package.id && !d.package.baseTotal) {
-        toast("Please select a package or set a base total before proceeding.", "error"); return;
-      }
-      if (!d.event.date) {
-        toast("Event date is required before proceeding.", "error"); return;
-      }
-      if (!d.event.venue?.trim()) {
-        toast("Venue address is required before proceeding.", "error"); return;
-      }
+    if (wizard.step < 6) {
+      wizard.step++;
+      render();
     }
-
-    if (wizard.step === 5) {
-      const total = grandTotal(d);
-      if ((d.downPayment || 0) > total && total > 0) {
-        toast("Down payment cannot exceed the grand total.", "error"); return;
-      }
-    }
-
-    wizard.step++;
-    render();
   });
   cart.querySelector("#cancel-order").addEventListener("click", confirmCancelOrder);
 }

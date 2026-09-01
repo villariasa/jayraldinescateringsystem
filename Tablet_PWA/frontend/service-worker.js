@@ -1,5 +1,5 @@
 // Cache-first for everything — 100% offline standalone kiosk PWA
-const CACHE_NAME = "jc-kiosk-shell-v54";
+const CACHE_NAME = "jc-kiosk-shell-v55";
 const SHELL_FILES = [
   "/",
   "/index.html",

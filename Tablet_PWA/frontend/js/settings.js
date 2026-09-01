@@ -484,7 +484,7 @@ async function renderBookingsTab(content) {
   renderList();
 }
 
-function openOrderDetailModal(bookingId) {
+export function openOrderDetailModal(bookingId) {
   api.getOrder(bookingId).then((order) => {
     if (!order) {
       toast("Booking record details not found.", "error");
