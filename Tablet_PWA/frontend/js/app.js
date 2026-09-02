@@ -23,7 +23,7 @@ if (splashLoader) {
 
 // Theme management
 export function getTheme() {
-  return localStorage.getItem("jc_theme") || "dark";
+  return localStorage.getItem("jc_theme") || "light";
 }
 
 export function applyTheme(theme) {
@@ -495,7 +495,7 @@ async function renderHome() {
     <main class="main kiosk-landing-main" id="home-main">
       <div class="kiosk-landing-wrapper">
         
-        <!-- Hero Split Section (Text & Action on Left, Slider on Right) -->
+        <!-- Hero Split Section (Text & Start Order on Left, Atmospheric Image on Right) -->
         <section class="kiosk-hero-split-section">
           
           <div class="kiosk-hero-content-col">
@@ -509,14 +509,9 @@ async function renderHome() {
               <p class="kiosk-hero-tagline">
                 Choose your package, customize your menu, and we'll take care of the rest.
               </p>
-            </div>
 
-            <!-- Elevated Action Pill Container with Glowing Start Cloche & Highlights -->
-            <div class="kiosk-action-pill-card">
-              
-              <!-- Start Order Circle CTA (Landscape) / Full-width Button (Portrait) -->
+              <!-- Start Order CTA Button directly under hero text -->
               <div class="kiosk-cloche-cta-wrapper" id="start-order" role="button" tabindex="0" title="Touch to begin ordering">
-                <div class="kiosk-cloche-glow-pulse"></div>
                 <div class="kiosk-cloche-circle">
                   <div class="kiosk-cloche-icon" id="hero-cloche-icon-box">
                     <div id="cloche-lottie-wrap" class="lottie-icon-container"></div>
@@ -528,71 +523,75 @@ async function renderHome() {
                   <div class="kiosk-cloche-arrow">${icon("chevronRight")}</div>
                 </div>
               </div>
-
-              <!-- Service Highlights (3 in landscape, 2x2 grid in portrait) -->
-              <div class="kiosk-pill-highlights">
-                
-                <div class="kiosk-pill-item" id="benefit-booking">
-                  <div class="kiosk-pill-icon-box">
-                    <div class="lottie-icon-container" id="lottie-benefit-booking">${icon("calendar")}</div>
-                  </div>
-                  <div class="kiosk-pill-text">
-                    <span class="kiosk-pill-title">Easy Booking</span>
-                    <span class="kiosk-pill-desc">Simple steps to book your catering</span>
-                  </div>
-                </div>
-
-                <div class="kiosk-pill-item-divider"></div>
-
-                <div class="kiosk-pill-item" id="benefit-quality">
-                  <div class="kiosk-pill-icon-box">
-                    <div class="lottie-icon-container" id="lottie-benefit-quality">${icon("shieldCheck")}</div>
-                  </div>
-                  <div class="kiosk-pill-text">
-                    <span class="kiosk-pill-title">Fresh &amp; Quality</span>
-                    <span class="kiosk-pill-desc">We serve only the best for you</span>
-                  </div>
-                </div>
-
-                <div class="kiosk-pill-item-divider"></div>
-
-                <div class="kiosk-pill-item" id="benefit-service">
-                  <div class="kiosk-pill-icon-box">
-                    <div class="lottie-icon-container" id="lottie-benefit-service">${icon("users")}</div>
-                  </div>
-                  <div class="kiosk-pill-text">
-                    <span class="kiosk-pill-title">Trusted Service</span>
-                    <span class="kiosk-pill-desc">Many happy events and customers</span>
-                  </div>
-                </div>
-
-                <div class="kiosk-pill-item-divider divider-4"></div>
-
-                <div class="kiosk-pill-item pill-item-4" id="benefit-secure">
-                  <div class="kiosk-pill-icon-box">
-                    <div class="lottie-icon-container" id="lottie-benefit-secure">${icon("lock")}</div>
-                  </div>
-                  <div class="kiosk-pill-text">
-                    <span class="kiosk-pill-title">Secure &amp; Private</span>
-                    <span class="kiosk-pill-desc">Your data is safe and protected</span>
-                  </div>
-                </div>
-
-              </div>
-
             </div>
           </div>
 
-          <!-- Hero Slider / Cinematic Blended Catering Showcase Right Column -->
+          <!-- Hero Slider / Atmospheric Catering Showcase Right Column -->
           <div class="kiosk-hero-visual-col">
             <div id="landing-hero-slider-container" class="kiosk-slider-outer-frame"></div>
           </div>
 
         </section>
 
+        <!-- ONE Horizontal White Rounded Card for 4 Benefits in ONE ROW -->
+        <section class="kiosk-benefits-card-container">
+          <div class="kiosk-pill-highlights">
+            
+            <div class="kiosk-pill-item" id="benefit-booking">
+              <div class="kiosk-pill-icon-box">
+                <div class="lottie-icon-container" id="lottie-benefit-booking">${icon("calendar")}</div>
+              </div>
+              <div class="kiosk-pill-text">
+                <span class="kiosk-pill-title">Easy Booking</span>
+                <span class="kiosk-pill-desc">Simple steps to book your catering</span>
+              </div>
+            </div>
+
+            <div class="kiosk-pill-item-divider"></div>
+
+            <div class="kiosk-pill-item" id="benefit-quality">
+              <div class="kiosk-pill-icon-box">
+                <div class="lottie-icon-container" id="lottie-benefit-quality">${icon("shieldCheck")}</div>
+              </div>
+              <div class="kiosk-pill-text">
+                <span class="kiosk-pill-title">Fresh &amp; Quality</span>
+                <span class="kiosk-pill-desc">We serve only the best for you</span>
+              </div>
+            </div>
+
+            <div class="kiosk-pill-item-divider"></div>
+
+            <div class="kiosk-pill-item" id="benefit-service">
+              <div class="kiosk-pill-icon-box">
+                <div class="lottie-icon-container" id="lottie-benefit-service">${icon("users")}</div>
+              </div>
+              <div class="kiosk-pill-text">
+                <span class="kiosk-pill-title">Trusted Service</span>
+                <span class="kiosk-pill-desc">Many happy events and customers</span>
+              </div>
+            </div>
+
+            <div class="kiosk-pill-item-divider"></div>
+
+            <div class="kiosk-pill-item" id="benefit-secure">
+              <div class="kiosk-pill-icon-box">
+                <div class="lottie-icon-container" id="lottie-benefit-secure">${icon("lock")}</div>
+              </div>
+              <div class="kiosk-pill-text">
+                <span class="kiosk-pill-title">Secure &amp; Private</span>
+                <span class="kiosk-pill-desc">Your data is safe and protected</span>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
         <!-- Bottom Quick Options Section -->
         <section class="kiosk-quick-options-section">
-          <h3 class="quick-options-heading">Quick Options</h3>
+          <div class="quick-options-header-wrap">
+            <h3 class="quick-options-heading">Quick Options</h3>
+            <div class="quick-options-accent-bar"></div>
+          </div>
           
           <div class="quick-options-grid">
             

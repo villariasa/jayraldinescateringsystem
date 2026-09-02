@@ -3136,452 +3136,497 @@ svg {
 /* ── Full-Width Portrait Tablet Kiosk Architecture ──────────────────────── */
 @media (orientation: portrait), (max-width: 900px) {
   .kiosk-header-fixed {
-    padding: 14px 4.5vw;
-    background: rgba(255, 255, 255, 0.97);
-    border-bottom: 1px solid rgba(226, 232, 240, 0.6);
-    width: 100%;
-    box-sizing: border-box;
+    padding: 16px 4.5vw !important;
+    background: #FFFFFF !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03) !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
   }
 
   [data-theme="dark"] .kiosk-header-fixed {
-    background: rgba(11, 17, 32, 0.88);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(11, 17, 32, 0.95) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
   }
 
-  /* 88% to 92% Usable Screen Width - No Narrow Column */
+  /* Wide Content Container — Generous horizontal margins */
   .kiosk-landing-main {
-    padding: 16px 4.5vw 36px;
+    padding: 20px 4.5vw 40px !important;
     max-width: 100% !important;
-    width: 100%;
-    box-sizing: border-box;
-    margin: 0 auto;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    margin: 0 auto !important;
   }
 
   .kiosk-landing-wrapper {
-    gap: 20px;
-    width: 100%;
-    max-width: 100%;
+    gap: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
 
   /* ── Immersive Layered Hero Area ────────────────────────────────────────── */
   .kiosk-hero-split-section {
-    position: relative;
-    width: 100%;
-    min-height: 480px;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: flex-start;
-    gap: 20px;
-    overflow: visible;
+    position: relative !important;
+    width: 100% !important;
+    min-height: 440px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    overflow: visible !important;
+    margin-bottom: 16px !important;
   }
 
   .kiosk-hero-content-col {
-    order: 1;
-    position: relative;
-    z-index: 4;
-    width: 100%;
-    max-width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
+    position: relative !important;
+    z-index: 4 !important;
+    width: 58% !important;
+    max-width: 520px !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
   /* Upper-Left Welcome Text & Description */
   .kiosk-hero-intro-text {
-    align-items: flex-start;
-    text-align: left;
-    width: 100%;
-    max-width: 62%;
-    z-index: 5;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    text-align: left !important;
+    width: 100% !important;
+    z-index: 5 !important;
   }
 
   .kiosk-hero-title {
-    font-size: 38px;
-    line-height: 1.14;
-    font-weight: 800;
-    text-align: left;
-    letter-spacing: -0.03em;
-    margin: 0;
+    font-family: "Outfit", sans-serif !important;
+    font-size: 42px !important;
+    line-height: 1.15 !important;
+    font-weight: 800 !important;
+    text-align: left !important;
+    letter-spacing: -0.03em !important;
+    color: #0F172A !important;
+    margin: 0 !important;
+  }
+
+  [data-theme="dark"] .kiosk-hero-title {
+    color: #F8FAFC !important;
+  }
+
+  .kiosk-title-highlight {
+    color: #E11D48 !important;
+    background: none !important;
+    -webkit-text-fill-color: #E11D48 !important;
+    display: block !important;
   }
 
   .kiosk-hero-accent-bar {
-    display: none;
+    width: 50px !important;
+    height: 4px !important;
+    border-radius: 2px !important;
+    background: #E11D48 !important;
+    margin: 12px 0 16px !important;
+    display: block !important;
   }
 
   .kiosk-hero-tagline {
-    font-size: 15px;
-    text-align: left;
-    margin: 8px 0 0;
-    max-width: 440px;
-    line-height: 1.45;
-    color: #475569;
-    font-weight: 500;
+    font-size: 15px !important;
+    text-align: left !important;
+    margin: 0 0 24px 0 !important;
+    max-width: 380px !important;
+    line-height: 1.45 !important;
+    color: #475569 !important;
+    font-weight: 500 !important;
   }
 
   [data-theme="dark"] .kiosk-hero-tagline {
-    color: #94A3B8;
+    color: #94A3B8 !important;
   }
 
-  /* Large Catering Food Image: 78% Hero Width with 4-Sided Seamless Feathered Blend */
+  /* Start Order CTA Touch Button */
+  .kiosk-cloche-cta-wrapper {
+    width: 100% !important;
+    max-width: 410px !important;
+    height: 74px !important;
+    border-radius: 24px !important;
+    cursor: pointer !important;
+    display: block !important;
+  }
+
+  .kiosk-cloche-circle {
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: 24px !important;
+    background: linear-gradient(135deg, #FF3366 0%, #E11D48 60%, #BE123C 100%) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.4) !important;
+    box-shadow: 0 12px 30px rgba(225, 29, 72, 0.36) !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 0 24px !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+    box-sizing: border-box !important;
+  }
+
+  .kiosk-cloche-circle:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 16px 36px rgba(225, 29, 72, 0.48) !important;
+  }
+
+  .kiosk-cloche-circle:active {
+    transform: scale(0.98) !important;
+  }
+
+  .kiosk-cloche-icon {
+    width: 50px !important;
+    height: 50px !important;
+    border-radius: 50% !important;
+    background: rgba(255, 255, 255, 0.22) !important;
+    border: 2px solid rgba(255, 255, 255, 0.45) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+    margin-bottom: 0 !important;
+  }
+
+  .kiosk-cloche-icon svg {
+    width: 28px !important;
+    height: 28px !important;
+    color: #FFFFFF !important;
+  }
+
+  .kiosk-cloche-text-group {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    margin-left: 16px !important;
+    margin-right: auto !important;
+    text-align: left !important;
+  }
+
+  .kiosk-cloche-text-main {
+    font-size: 19px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.04em !important;
+    color: #FFFFFF !important;
+    text-transform: uppercase !important;
+  }
+
+  .kiosk-cloche-text-sub {
+    font-size: 13px !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+    margin-top: 2px !important;
+    font-weight: 500 !important;
+  }
+
+  .kiosk-cloche-arrow {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: #FFFFFF !important;
+    flex-shrink: 0 !important;
+  }
+
+  .kiosk-cloche-arrow svg {
+    width: 24px !important;
+    height: 24px !important;
+    stroke-width: 2.5 !important;
+    color: #FFFFFF !important;
+  }
+
+  /* Large Catering Food Image: Extending behind hero & fading naturally */
   .kiosk-hero-visual-col {
-    order: unset;
-    position: absolute;
-    top: -15px;
-    right: -4.5vw;
-    width: 78%;
-    height: 490px;
-    min-height: 490px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    z-index: 1;
+    position: absolute !important;
+    top: -20px !important;
+    right: -4.5vw !important;
+    width: 70% !important;
+    height: 480px !important;
+    min-height: 480px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    z-index: 1 !important;
     overflow: visible !important;
-    pointer-events: none;
+    pointer-events: none !important;
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
   }
 
   .kiosk-slider-outer-frame {
-    width: 100%;
-    height: 100%;
-    position: relative;
+    width: 100% !important;
+    height: 100% !important;
+    position: relative !important;
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
     border-radius: 0 !important;
     overflow: visible !important;
-    pointer-events: auto;
+    pointer-events: auto !important;
   }
 
   .kiosk-hero-slider {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    overflow: hidden;
-    user-select: none;
+    width: 100% !important;
+    height: 100% !important;
+    position: relative !important;
+    overflow: hidden !important;
+    user-select: none !important;
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
     border-radius: 0 !important;
-    /* 4-Sided Seamless Feathered Alpha Mask: Center food sharp, 100% transparent on all 4 sides & corners */
-    -webkit-mask-image: radial-gradient(ellipse 66% 54% at 68% 48%, 
-      #000 18%, 
-      rgba(0, 0, 0, 0.94) 32%, 
-      rgba(0, 0, 0, 0.65) 50%, 
-      rgba(0, 0, 0, 0.25) 68%, 
-      rgba(0, 0, 0, 0.05) 78%, 
-      transparent 85%
-    );
-    mask-image: radial-gradient(ellipse 66% 54% at 68% 48%, 
-      #000 18%, 
-      rgba(0, 0, 0, 0.94) 32%, 
-      rgba(0, 0, 0, 0.65) 50%, 
-      rgba(0, 0, 0, 0.25) 68%, 
-      rgba(0, 0, 0, 0.05) 78%, 
-      transparent 85%
-    );
+    -webkit-mask-image: radial-gradient(ellipse 68% 62% at 72% 46%, 
+      #000 24%, 
+      rgba(0, 0, 0, 0.95) 44%, 
+      rgba(0, 0, 0, 0.6) 64%, 
+      rgba(0, 0, 0, 0.18) 78%, 
+      transparent 88%
+    ) !important;
+    mask-image: radial-gradient(ellipse 68% 62% at 72% 46%, 
+      #000 24%, 
+      rgba(0, 0, 0, 0.95) 44%, 
+      rgba(0, 0, 0, 0.6) 64%, 
+      rgba(0, 0, 0, 0.18) 78%, 
+      transparent 88%
+    ) !important;
   }
 
   .kiosk-slide-img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: 78% center;
-    display: block;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    object-position: 74% center !important;
+    display: block !important;
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
     border-radius: 0 !important;
   }
 
-  /* ── Large Feature & START ORDER Section ─────────────────────────────────── */
-  .kiosk-action-pill-card {
-    width: 100%;
-    position: relative;
-    z-index: 5;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
+  /* ── ONE Horizontal White Rounded Card for 4 Benefits in ONE ROW ────────── */
+  .kiosk-benefits-card-container {
+    width: 100% !important;
+    margin-top: 10px !important;
+    margin-bottom: 24px !important;
+    position: relative !important;
+    z-index: 5 !important;
   }
 
-  /* Large Prominent START ORDER Touch Bar */
-  .kiosk-cloche-cta-wrapper {
-    width: 100%;
-    height: 80px;
-    border-radius: 22px;
-    cursor: pointer;
-  }
-
-  .kiosk-cloche-glow-pulse {
-    display: none;
-  }
-
-  .kiosk-cloche-circle {
-    width: 100%;
-    height: 100%;
-    border-radius: 22px;
-    background: linear-gradient(135deg, #FF4365 0%, #E11D48 50%, #C00F36 100%);
-    border: 1.5px solid rgba(255, 255, 255, 0.45);
-    box-shadow: 0 14px 36px rgba(225, 29, 72, 0.42);
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 26px;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-  }
-
-  .kiosk-cloche-circle:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 18px 42px rgba(225, 29, 72, 0.55);
-  }
-
-  .kiosk-cloche-circle:active {
-    transform: scale(0.98);
-  }
-
-  .kiosk-cloche-icon {
-    width: 52px;
-    height: 52px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.22);
-    border: 2px solid rgba(255, 255, 255, 0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    margin-bottom: 0;
-  }
-
-  .kiosk-cloche-icon svg {
-    width: 30px;
-    height: 30px;
-    color: #FFFFFF;
-  }
-
-  .kiosk-cloche-text-group {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    margin-left: 18px;
-    margin-right: auto;
-  }
-
-  .kiosk-cloche-text-main {
-    font-size: 20px;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    color: #FFFFFF;
-    text-transform: uppercase;
-  }
-
-  .kiosk-cloche-text-sub {
-    font-size: 13.5px;
-    color: rgba(255, 255, 255, 0.92);
-    margin-top: 2px;
-    font-weight: 500;
-  }
-
-  .kiosk-cloche-arrow {
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-    color: #FFFFFF;
-    flex-shrink: 0;
-  }
-
-  .kiosk-cloche-arrow svg {
-    width: 24px;
-    height: 24px;
-    stroke-width: 2.5;
-    color: #FFFFFF;
-  }
-
-  /* ── 2-Column Wide Benefit Cards ────────────────────────────────────────── */
   .kiosk-pill-highlights {
-    width: 100%;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    background: #FFFFFF !important;
+    border: 1px solid rgba(0, 0, 0, 0.04) !important;
+    border-radius: 24px !important;
+    padding: 18px 20px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03) !important;
+    box-sizing: border-box !important;
+    gap: 0 !important;
   }
 
-  .kiosk-pill-item-divider {
-    display: none !important;
+  [data-theme="dark"] .kiosk-pill-highlights {
+    background: rgba(19, 29, 56, 0.92) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35) !important;
   }
 
   .kiosk-pill-item {
-    background: rgba(255, 255, 255, 0.97);
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    border-radius: 20px;
-    padding: 18px 22px;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 0 14px !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    box-sizing: border-box !important;
   }
 
-  [data-theme="dark"] .kiosk-pill-item {
-    background: rgba(19, 29, 56, 0.88);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  .kiosk-pill-item-divider {
+    display: block !important;
+    width: 1px !important;
+    height: 44px !important;
+    background: rgba(226, 232, 240, 0.85) !important;
+    flex-shrink: 0 !important;
+  }
+
+  [data-theme="dark"] .kiosk-pill-item-divider {
+    background: rgba(255, 255, 255, 0.12) !important;
   }
 
   .kiosk-pill-icon-box {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: #FFF1F2;
-    color: #E11D48;
-    border: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 50% !important;
+    background: #FFF1F2 !important;
+    border: 1px solid #FFE4E6 !important;
+    color: #E11D48 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
   }
 
   [data-theme="dark"] .kiosk-pill-icon-box {
-    background: rgba(225, 29, 72, 0.18);
-    color: #FB7185;
+    background: rgba(225, 29, 72, 0.18) !important;
+    border-color: rgba(225, 29, 72, 0.3) !important;
+    color: #FB7185 !important;
   }
 
   .kiosk-pill-icon-box svg {
-    width: 22px;
-    height: 22px;
+    width: 22px !important;
+    height: 22px !important;
   }
 
   .kiosk-pill-title {
-    font-size: 15px;
-    font-weight: 700;
-    color: #1E293B;
-    margin-bottom: 2px;
+    font-size: 14px !important;
+    font-weight: 800 !important;
+    color: #0F172A !important;
+    margin-bottom: 2px !important;
+    white-space: nowrap !important;
   }
 
   [data-theme="dark"] .kiosk-pill-title {
-    color: #F8FAFC;
+    color: #F8FAFC !important;
   }
 
   .kiosk-pill-desc {
-    font-size: 12px;
-    color: #64748B;
-    line-height: 1.35;
+    font-size: 11.5px !important;
+    color: #64748B !important;
+    line-height: 1.35 !important;
   }
 
   [data-theme="dark"] .kiosk-pill-desc {
-    color: #94A3B8;
-  }
-
-  .kiosk-pill-item.pill-item-4 {
-    display: flex !important;
+    color: #94A3B8 !important;
   }
 
   /* ── Wide Full-Span Quick Options Section ────────────────────────────────── */
   .kiosk-quick-options-section {
-    width: 100%;
-    margin-top: 8px;
+    width: 100% !important;
+    margin-top: 6px !important;
+  }
+
+  .quick-options-header-wrap {
+    margin-bottom: 16px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
   }
 
   .quick-options-heading {
-    font-size: 18px;
-    font-weight: 800;
-    color: #1E293B;
-    margin-bottom: 12px;
-    text-align: left;
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    color: #0F172A !important;
+    margin: 0 !important;
+    text-align: left !important;
+    letter-spacing: -0.01em !important;
   }
 
   [data-theme="dark"] .quick-options-heading {
-    color: #F8FAFC;
+    color: #F8FAFC !important;
+  }
+
+  .quick-options-accent-bar {
+    width: 34px !important;
+    height: 3.5px !important;
+    border-radius: 2px !important;
+    background: #E11D48 !important;
+    margin-top: 6px !important;
+    display: block !important;
   }
 
   .quick-options-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    width: 100%;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    width: 100% !important;
   }
 
   .quick-option-card {
-    background: rgba(255, 255, 255, 0.97);
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    border-radius: 20px;
-    padding: 16px 24px;
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.03);
-    cursor: pointer;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-    width: 100%;
-    box-sizing: border-box;
+    background: #FFFFFF !important;
+    border: 1px solid rgba(0, 0, 0, 0.04) !important;
+    border-radius: 22px !important;
+    padding: 16px 26px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 18px !important;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.03) !important;
+    cursor: pointer !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    text-align: left !important;
   }
 
   [data-theme="dark"] .quick-option-card {
-    background: rgba(19, 29, 56, 0.85);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+    background: rgba(19, 29, 56, 0.92) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3) !important;
   }
 
   .quick-option-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(225, 29, 72, 0.12);
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 24px rgba(225, 29, 72, 0.12) !important;
   }
 
   .quick-opt-icon-circle {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: #FFF1F2;
-    color: #E11D48;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
+    width: 48px !important;
+    height: 48px !important;
+    border-radius: 50% !important;
+    background: #FFF1F2 !important;
+    border: 1px solid #FFE4E6 !important;
+    color: #E11D48 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
   }
 
   [data-theme="dark"] .quick-opt-icon-circle {
-    background: rgba(225, 29, 72, 0.18);
-    color: #FB7185;
+    background: rgba(225, 29, 72, 0.18) !important;
+    border-color: rgba(225, 29, 72, 0.3) !important;
+    color: #FB7185 !important;
   }
 
   .quick-opt-title {
-    font-size: 16px;
-    font-weight: 700;
-    color: #1E293B;
-    margin-bottom: 2px;
+    font-size: 16px !important;
+    font-weight: 800 !important;
+    color: #0F172A !important;
+    margin-bottom: 2px !important;
   }
 
   [data-theme="dark"] .quick-opt-title {
-    color: #F8FAFC;
+    color: #F8FAFC !important;
   }
 
   .quick-opt-desc {
-    font-size: 13px;
-    color: #64748B;
+    font-size: 13px !important;
+    color: #64748B !important;
   }
 
   [data-theme="dark"] .quick-opt-desc {
-    color: #94A3B8;
+    color: #94A3B8 !important;
   }
 
   .quick-opt-arrow {
     display: flex !important;
-    align-items: center;
-    justify-content: center;
-    margin-left: auto;
+    align-items: center !important;
+    justify-content: center !important;
+    margin-left: auto !important;
     color: #E11D48 !important;
-    flex-shrink: 0;
+    flex-shrink: 0 !important;
   }
 
   .quick-opt-arrow svg {
-    width: 22px;
-    height: 22px;
-    stroke-width: 2.5;
-    stroke: #E11D48;
+    width: 22px !important;
+    height: 22px !important;
+    stroke-width: 2.5 !important;
+    stroke: #E11D48 !important;
   }
 }
 
