@@ -472,15 +472,21 @@ async function renderHome() {
       </div>
       <div class="header-nav-actions">
         <button class="nav-action-btn theme-toggle-btn" id="theme-btn" title="Toggle Theme">
-          <div class="nav-action-icon">${icon("sun")}</div>
+          <div class="nav-action-icon">
+            <div class="lottie-icon-container" id="lottie-nav-theme">${icon("sun")}</div>
+          </div>
           <span class="nav-action-label">${currentTheme === "light" ? "Dark Mode" : "Light Mode"}</span>
         </button>
         <button class="nav-action-btn" id="fullscreen-btn" title="Toggle Fullscreen">
-          <div class="nav-action-icon" id="fullscreen-icon-wrap">${icon("fullscreen")}</div>
+          <div class="nav-action-icon" id="fullscreen-icon-wrap">
+            <div class="lottie-icon-container" id="lottie-nav-fullscreen">${icon("fullscreen")}</div>
+          </div>
           <span class="nav-action-label">Fullscreen</span>
         </button>
         <button class="nav-action-btn" id="owner-settings-btn" title="Admin Settings">
-          <div class="nav-action-icon">${icon("settings")}</div>
+          <div class="nav-action-icon">
+            <div class="lottie-icon-container" id="lottie-nav-settings">${icon("settings")}</div>
+          </div>
           <span class="nav-action-label">Settings</span>
         </button>
       </div>
@@ -668,12 +674,28 @@ async function renderHome() {
   mountHoverLottie(document.getElementById("lottie-quick-events"), "icon-calendar", { speed: 1.2 });
   mountHoverLottie(document.getElementById("lottie-quick-addons"), "icon-utensils", { speed: 1.2 });
   mountHoverLottie(document.getElementById("lottie-quick-orders"), "icon-filetext", { speed: 1.2 });
-  // Nav buttons use static SVG icons only — no Lottie needed there
+  // Mount Header Nav Lottie animated icons (Dark/Light mode, Fullscreen, Settings)
+  const navThemeAnim = await mountLottie(document.getElementById("lottie-nav-theme"), "icon-theme-toggle", { loop: true, speed: 0.65 });
+  const navFsAnim = await mountLottie(document.getElementById("lottie-nav-fullscreen"), "icon-fullscreen", { loop: true, speed: 0.65 });
+  const navSettingsAnim = await mountLottie(document.getElementById("lottie-nav-settings"), "icon-settings-gear", { loop: true, speed: 0.65 });
+
+  document.getElementById("theme-btn")?.addEventListener("mouseenter", () => navThemeAnim?.setSpeed(1.4));
+  document.getElementById("theme-btn")?.addEventListener("mouseleave", () => navThemeAnim?.setSpeed(0.65));
+  document.getElementById("fullscreen-btn")?.addEventListener("mouseenter", () => navFsAnim?.setSpeed(1.4));
+  document.getElementById("fullscreen-btn")?.addEventListener("mouseleave", () => navFsAnim?.setSpeed(0.65));
+  document.getElementById("owner-settings-btn")?.addEventListener("mouseenter", () => navSettingsAnim?.setSpeed(1.4));
+  document.getElementById("owner-settings-btn")?.addEventListener("mouseleave", () => navSettingsAnim?.setSpeed(0.65));
 
   // Mount listeners
-  document.getElementById("theme-btn").addEventListener("click", toggleTheme);
+  document.getElementById("theme-btn").addEventListener("click", () => {
+    navThemeAnim?.goToAndPlay?.(0, true);
+    toggleTheme();
+  });
   document.getElementById("fullscreen-btn").addEventListener("click", toggleFullscreen);
-  document.getElementById("owner-settings-btn").addEventListener("click", () => openOwnerSettings("bookings"));
+  document.getElementById("owner-settings-btn").addEventListener("click", () => {
+    navSettingsAnim?.goToAndPlay?.(0, true);
+    openOwnerSettings("bookings");
+  });
 
   // Mount Quick Options clicks
   document.getElementById("quick-packages-btn")?.addEventListener("click", openQuickPackagesModal);
@@ -694,11 +716,9 @@ function toggleFullscreen() {
   const btn = document.getElementById("fullscreen-btn");
   const updateFullscreenBtn = (isFullscreen) => {
     if (!btn) return;
-    const iconEl = btn.querySelector(".nav-action-icon");
-    if (iconEl) {
-      iconEl.innerHTML = isFullscreen ? icon("minimize") : icon("fullscreen");
-    } else {
-      btn.innerHTML = isFullscreen ? icon("minimize") : icon("fullscreen");
+    const labelEl = btn.querySelector(".nav-action-label");
+    if (labelEl) {
+      labelEl.textContent = isFullscreen ? "Exit Full" : "Fullscreen";
     }
   };
 
