@@ -97,3 +97,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ## Catering Packages
 - Documented base package pax tiers and add-on rates.
 - Added note on customized dish swapping rules.
+
+## Asset Optimization
+- Converted vector animations to bundled JS objects for zero-latency offline display.
+- Removed unused keyframes in cloche loading animation.
