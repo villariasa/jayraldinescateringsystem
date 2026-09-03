@@ -33,3 +33,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Service worker caching strategies
 - Offline asset manifest verification
 - LocalStorage fallback mechanisms
+
+### Quality Assurance
+- Unit test coverage for core calculation helpers
+- Integration tests for reservation workflows
+- Mobile view verification across devices
