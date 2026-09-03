@@ -117,3 +117,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ## Sync Queue Protocol
 - Exponential backoff retry (5s, 15s, 30s, 60s).
 - Batch synchronization on network status recovery.
+
+## Performance Benchmarks
+- Time to Interactive (TTI) < 1.2s on target tablet.
+- Reduced DOM reflow by eliminating backdrop filter blurs.
