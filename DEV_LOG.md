@@ -101,3 +101,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ## Asset Optimization
 - Converted vector animations to bundled JS objects for zero-latency offline display.
 - Removed unused keyframes in cloche loading animation.
+
+## Order Status Lifecycle
+- Pending -> Confirmed -> In Preparation -> Delivered -> Completed.
+- Cancellation transition locks order from further edits.
