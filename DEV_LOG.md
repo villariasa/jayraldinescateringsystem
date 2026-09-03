@@ -38,3 +38,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Unit test coverage for core calculation helpers
 - Integration tests for reservation workflows
 - Mobile view verification across devices
+
+### Database & Schema
+- SQLite local caching on client devices
+- Backend MySQL/MariaDB sync endpoints
+- Conflict resolution strategies for offline updates
