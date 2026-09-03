@@ -80,3 +80,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ## SQLite Kiosk Schema
 - Documented migration strategy for offline tables.
 - Added version check on kiosk database initialization.
+
+## Service Worker Strategy
+- Network-first for dynamic API routes, cache-first for static assets.
+- Version bump triggers automatic cache clear.
