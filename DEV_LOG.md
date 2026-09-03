@@ -8,3 +8,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Tablet: Tablet application modules
 - Tablet_Android_APK: Android wrapper and APK build
 - Tablet_PWA: PWA packaging and offline assets
+
+### Documentation Checklist
+- [x] Project proposal documentation
+- [x] APK build guidelines
+- [ ] Offline sync optimization notes
