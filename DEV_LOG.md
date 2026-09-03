@@ -43,3 +43,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - SQLite local caching on client devices
 - Backend MySQL/MariaDB sync endpoints
 - Conflict resolution strategies for offline updates
+
+### Styling Guidelines
+- Cohesive color scheme and typography hierarchy
+- Button states, micro-interactions, and accessibility
+- Standardized modal dialogs and alert banners
