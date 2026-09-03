@@ -72,3 +72,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ### Maintenance
 - Daily logs updated and verified
 - Repository documentation in sync with current state
+
+## Colab Build Notes
+- Python 3.11 environment setup steps documented.
+- NDK installation auto-fetch fallback verified.
