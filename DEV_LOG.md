@@ -93,3 +93,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ## Kiosk Display Configuration
 - Touch area padding for 10-inch and 8-inch portrait tablets.
 - Prevent double-tap zoom via viewport meta constraints.
+
+## Catering Packages
+- Documented base package pax tiers and add-on rates.
+- Added note on customized dish swapping rules.
