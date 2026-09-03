@@ -13,3 +13,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - [x] Project proposal documentation
 - [x] APK build guidelines
 - [ ] Offline sync optimization notes
+
+### Catering Modules
+- Reservations and event scheduling
+- Menu and package configurations
+- Inventory tracking and item management
