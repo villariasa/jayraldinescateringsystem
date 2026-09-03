@@ -113,3 +113,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ## WebViewAssetLoader
 - Custom domain handler for local apk assets.
 - Eliminates CORS restrictions on file:// URLs inside Android WebView.
+
+## Sync Queue Protocol
+- Exponential backoff retry (5s, 15s, 30s, 60s).
+- Batch synchronization on network status recovery.
