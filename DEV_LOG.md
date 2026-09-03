@@ -84,3 +84,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ## Service Worker Strategy
 - Network-first for dynamic API routes, cache-first for static assets.
 - Version bump triggers automatic cache clear.
+
+## Offline Mode Checklist
+- Disconnect wifi and test cart persistency.
+- Verify cached Lottie animations load without external fetch.
+- Verify local order creation and pending sync badges.
