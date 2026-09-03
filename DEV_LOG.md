@@ -58,3 +58,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Itemized statements and discount computation
 - Payment tracking (Cash, Card, Digital)
 - Statement generation timestamp tracking
+
+### Network Handling
+- Online/offline event listeners in client scripts
+- Request queuing when connectivity drops
+- Automatic sync retry upon reconnection
