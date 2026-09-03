@@ -48,3 +48,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Cohesive color scheme and typography hierarchy
 - Button states, micro-interactions, and accessibility
 - Standardized modal dialogs and alert banners
+
+### Reporting Engine
+- Export to PDF with customized branding
+- Excel data export for sales and ledger analysis
+- Automated summary logs for daily transactions
