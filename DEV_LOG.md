@@ -63,3 +63,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Online/offline event listeners in client scripts
 - Request queuing when connectivity drops
 - Automatic sync retry upon reconnection
+
+### Release Verification
+- Lint and syntax checks
+- Build artifact size audit
+- Cross-browser and WebView testing
