@@ -121,3 +121,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ## Performance Benchmarks
 - Time to Interactive (TTI) < 1.2s on target tablet.
 - Reduced DOM reflow by eliminating backdrop filter blurs.
+
+## Booking Flow
+- Step 1: Customer details & event date selection.
+- Step 2: Package & menu selection.
+- Step 3: Add-ons & special requests.
+- Step 4: Summary & confirmation.
