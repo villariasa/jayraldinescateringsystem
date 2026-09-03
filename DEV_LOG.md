@@ -105,3 +105,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ## Order Status Lifecycle
 - Pending -> Confirmed -> In Preparation -> Delivered -> Completed.
 - Cancellation transition locks order from further edits.
+
+## PIN Security
+- Admin PIN stored using hash verification.
+- Lockout timeout after 5 consecutive failed attempts.
