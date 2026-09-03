@@ -89,3 +89,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Disconnect wifi and test cart persistency.
 - Verify cached Lottie animations load without external fetch.
 - Verify local order creation and pending sync badges.
+
+## Kiosk Display Configuration
+- Touch area padding for 10-inch and 8-inch portrait tablets.
+- Prevent double-tap zoom via viewport meta constraints.
