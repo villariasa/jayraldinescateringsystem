@@ -76,3 +76,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ## Colab Build Notes
 - Python 3.11 environment setup steps documented.
 - NDK installation auto-fetch fallback verified.
+
+## SQLite Kiosk Schema
+- Documented migration strategy for offline tables.
+- Added version check on kiosk database initialization.
