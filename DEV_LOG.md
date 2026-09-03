@@ -53,3 +53,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Export to PDF with customized branding
 - Excel data export for sales and ledger analysis
 - Automated summary logs for daily transactions
+
+### Billing & Invoicing
+- Itemized statements and discount computation
+- Payment tracking (Cash, Card, Digital)
+- Statement generation timestamp tracking
