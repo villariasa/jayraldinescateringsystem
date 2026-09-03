@@ -127,3 +127,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Step 2: Package & menu selection.
 - Step 3: Add-ons & special requests.
 - Step 4: Summary & confirmation.
+
+## Reporting Engine Config
+- Standardized header logo and currency formatting (PHP).
+- Auto-fit columns for Excel sales export.
