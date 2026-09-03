@@ -109,3 +109,7 @@ Daily tracking and development notes for Jayraldine's Catering System.
 ## PIN Security
 - Admin PIN stored using hash verification.
 - Lockout timeout after 5 consecutive failed attempts.
+
+## WebViewAssetLoader
+- Custom domain handler for local apk assets.
+- Eliminates CORS restrictions on file:// URLs inside Android WebView.
