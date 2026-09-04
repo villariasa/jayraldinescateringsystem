@@ -176,3 +176,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Specified 24V pulse command (`0x1B, 0x70, 0x00, 0x19, 0xFA`) sent through receipt printer RJ12 port.
 - Documented manual key-lock override procedure and audit logging on cash drawer open events.
 - Restricted cash drawer kick command permissions exclusively to Cashier and Admin role tokens.
+
+### Audio Feedback & Chime Notifications
+- Integrated Web Audio API synthesized tones (440Hz / 880Hz soft marimba chime) for item selection and successful checkout.
+- Configured audio volume limiting capped at 65dB to avoid ambient disruption in dining hall environments.
+- Added mute toggle override in kiosk supervisor settings menu.
