@@ -243,3 +243,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized dynamic QR code EMVCo payload format with merchant ID and dynamic amount embedding.
 - Documented webhook listener endpoint for instant payment confirmation dispatch.
 - Configured auto-cancellation timer (5 minutes) for pending QR payment checkout screens.
+
+### Audit Logging for Price Overrides & Manual Discounts
+- All manual item discounts or custom pricing adjustments require supervisor PIN authentication.
+- Detailed audit entry saved: `user_id`, `original_amount`, `discounted_amount`, `reason_code`, `timestamp`.
+- Included daily summary of manual adjustments in end-of-day supervisor report.
