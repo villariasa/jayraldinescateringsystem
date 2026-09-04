@@ -278,3 +278,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented periodic round-trip ping probe (every 30s to lightweight `/health` endpoint).
 - Latency indicator states: Green (<150ms), Orange (150ms–500ms), Red (>500ms or unreachable).
 - Unobtrusive pulsing status dot positioned in kiosk top status bar, accessible for staff diagnostics.
+
+### Android PWA Launcher Icon Adaptive Sizing
+- Configured adaptive icon layers with safe zone padding (108dp canvas with 72dp active viewport).
+- Documented foreground SVG assets and background solid fill (`#800000` catering maroon theme).
+- Verified masking compatibility across circular, squircle, and rounded rectangle Android icon shapes.
