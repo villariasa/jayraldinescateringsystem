@@ -171,3 +171,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Outlined state transitions: `NEW` -> `ACKNOWLEDGED` -> `PREPARING` -> `READY_FOR_PICKUP` -> `COMPLETED`.
 - Defined timeout threshold (15 minutes) for unacknowledged orders to trigger audible supervisory alerts.
 - Added state reconciliation check on app resume to detect remote updates from manager portal.
+
+### Cash Drawer Trigger Specifications
+- Specified 24V pulse command (`0x1B, 0x70, 0x00, 0x19, 0xFA`) sent through receipt printer RJ12 port.
+- Documented manual key-lock override procedure and audit logging on cash drawer open events.
+- Restricted cash drawer kick command permissions exclusively to Cashier and Admin role tokens.
