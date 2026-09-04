@@ -217,3 +217,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Verified `android:hardwareAccelerated="true"` in AndroidManifest.xml for smooth 60fps CSS transitions.
 - Documented layer type `LAYER_TYPE_HARDWARE` configuration for the primary WebView instance.
 - Mitigated GPU memory spikes by recycling off-screen bitmap buffers in the asset pipeline.
+
+### Service Worker Periodic Background Sync
+- Registered periodic sync tag `'sync-menu-catalog'` with minimum interval of 12 hours.
+- Documented cache-first fallback when service worker fails to reach remote API during network drops.
+- Added version checksum verification on cached assets during background sync wakeups.
