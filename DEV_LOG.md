@@ -192,3 +192,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Tier 2: 100–249 pax (discounted per-head tier B pricing + complimentary beverage station).
 - Tier 3: 250+ pax (custom executive package with custom staffing and logistics allowance).
 - Documented automatic recalculation of buffer portions (10% extra buffer allocation).
+
+### Customer Deposit & Installment Payment Schema
+- Added schema notes for multi-stage payment tracking: Downpayment (50%), Progress (30%), Final Settlement (20%).
+- Defined ledger schema capturing transaction reference numbers, verification timestamps, and cashier IDs.
+- Configured auto-generation of official acknowledgment receipts upon partial payment capture.
