@@ -268,3 +268,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented self-hosted WOFF2 web fonts (Outfit, Inter) embedded in local asset directory.
 - Configured `font-display: swap` to prevent Flash of Invisible Text (FOIT) during offline cold boot.
 - Added prefetch links in PWA index.html head for critical font weights (400, 600, 700).
+
+### Catering Equipment Delivery & Pickup Scheduling Tracker
+- Documented equipment dispatch logistics: Chafing dishes, banquet tables, linens, dinnerware sets.
+- Added status workflow: `STAGED` -> `DISPATCHED` -> `DELIVERED_ON_SITE` -> `RETRIEVED` -> `SANITIZED`.
+- Added missing/damaged item report checklist tied to client security deposit deductions.
