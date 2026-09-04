@@ -222,3 +222,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Registered periodic sync tag `'sync-menu-catalog'` with minimum interval of 12 hours.
 - Documented cache-first fallback when service worker fails to reach remote API during network drops.
 - Added version checksum verification on cached assets during background sync wakeups.
+
+### Kiosk Inactivity Timeout & Cart Abandonment Reset
+- Inactivity countdown timer set to 90 seconds of continuous idle time without touch input.
+- Displays 15-second modal warning prompt: "Are you still ordering?" with audible chime.
+- On expiration, clears active cart session securely, logs anonymous abandonment metric, and returns to attract screen.
