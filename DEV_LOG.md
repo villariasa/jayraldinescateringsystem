@@ -156,3 +156,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented standard 80mm ESC/POS command bytes (`0x1B, 0x40` initialize, `0x1D, 0x56, 0x42` paper cut).
 - Structured bilingual receipt template with header logo bit-image rasterization.
 - Defined fallback retry buffer when Bluetooth socket connection drops mid-print.
+
+### Menu Item Allergen Tagging & Dietary Filters
+- Added standard allergen metadata flags (Peanuts, Dairy, Gluten, Shellfish, Eggs).
+- Documented filtering pipeline allowing customers to exclude items matching specific allergen profiles in real time.
+- Integrated dietary badge iconography alongside menu item pricing cards.
