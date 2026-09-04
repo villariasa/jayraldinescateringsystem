@@ -197,3 +197,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added schema notes for multi-stage payment tracking: Downpayment (50%), Progress (30%), Final Settlement (20%).
 - Defined ledger schema capturing transaction reference numbers, verification timestamps, and cashier IDs.
 - Configured auto-generation of official acknowledgment receipts upon partial payment capture.
+
+### Kitchen Display System (KDS) Ticket Formatting
+- Designed high-contrast color coding for order age: Green (<5m), Yellow (5–12m), Red (>12m).
+- Implemented ticket item grouping by food station (Hot Kitchen, Cold Larder, Beverage, Dessert).
+- Documented single-tap order ticket completion and bump bar hardware compatibility.
