@@ -202,3 +202,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Designed high-contrast color coding for order age: Green (<5m), Yellow (5–12m), Red (>12m).
 - Implemented ticket item grouping by food station (Hot Kitchen, Cold Larder, Beverage, Dessert).
 - Documented single-tap order ticket completion and bump bar hardware compatibility.
+
+### Dietary Requirements & Special Instructions
+- Built regex parser for customer custom notes to automatically detect keywords: Halal, Vegetarian, Vegan, Nut-free.
+- Configured visual warning banner on kitchen preparation slips for highlighted allergy requests.
+- Added character limitation rules (max 250 characters) on special instruction textareas.
