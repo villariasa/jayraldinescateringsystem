@@ -273,3 +273,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented equipment dispatch logistics: Chafing dishes, banquet tables, linens, dinnerware sets.
 - Added status workflow: `STAGED` -> `DISPATCHED` -> `DELIVERED_ON_SITE` -> `RETRIEVED` -> `SANITIZED`.
 - Added missing/damaged item report checklist tied to client security deposit deductions.
+
+### Network Latency Monitor & Offline Indicator Badge
+- Implemented periodic round-trip ping probe (every 30s to lightweight `/health` endpoint).
+- Latency indicator states: Green (<150ms), Orange (150ms–500ms), Red (>500ms or unreachable).
+- Unobtrusive pulsing status dot positioned in kiosk top status bar, accessible for staff diagnostics.
