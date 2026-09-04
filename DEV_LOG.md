@@ -258,3 +258,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented aggregate fields: Gross Sales, Net Sales, Total Tax Collected, Service Charges, Discounts Total.
 - Broken down by payment tender: Cash on Hand, Credit/Debit Card, GCash, Maya, Bank Transfer.
 - Serialized closing batch number and locked database records against retroactive modifications.
+
+### Kiosk UI Error Boundary & Automatic Recovery
+- Wrapped top-level view router in global uncaught error boundary (`window.onerror` & unhandled promise rejections).
+- Automatic graceful fallback: Logs error stack trace locally, displays user-friendly recovery banner, reloads clean state in 3s.
+- Suppressed ugly browser error dialogs from displaying to dining customers.
