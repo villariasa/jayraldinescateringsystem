@@ -238,3 +238,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Manager: Order approval, discount overrides, daily sales closing, refund authorization.
 - Staff / Cashier: Order entry, payment collection, receipt re-printing, table assignment.
 - Kiosk Guest: Restricted sandbox order creation with no backend administrative access.
+
+### QR Code Payment Payload Generation (GCash & Maya)
+- Standardized dynamic QR code EMVCo payload format with merchant ID and dynamic amount embedding.
+- Documented webhook listener endpoint for instant payment confirmation dispatch.
+- Configured auto-cancellation timer (5 minutes) for pending QR payment checkout screens.
