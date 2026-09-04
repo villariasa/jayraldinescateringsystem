@@ -134,3 +134,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
 
 ## Summary
 - Dev logs and architecture references synced.
+
+## September 4, 2026 - Daily Development Log
+
+### Offline Storage & IndexedDB Synchronization
+- IndexedDB table `orders_offline_cache` structured to buffer transaction payloads when offline.
+- Added versioning migration for payload schema v2 containing timestamp and device ID.
+- Background sync dispatcher periodically queries pending records and commits them sequentially upon network reconnection.
