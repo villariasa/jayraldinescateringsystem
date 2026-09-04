@@ -248,3 +248,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - All manual item discounts or custom pricing adjustments require supervisor PIN authentication.
 - Detailed audit entry saved: `user_id`, `original_amount`, `discounted_amount`, `reason_code`, `timestamp`.
 - Included daily summary of manual adjustments in end-of-day supervisor report.
+
+### Digital Signature Pad Integration for Booking Agreements
+- Integrated HTML5 canvas touch signature pad capturing smooth Bézier vector strokes.
+- Signatures encoded into compressed PNG data URI and attached to booking PDF contracts.
+- Documented terms of service acceptance timestamp and signer device IP/MAC logging.
