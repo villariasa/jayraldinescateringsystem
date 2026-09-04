@@ -227,3 +227,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Inactivity countdown timer set to 90 seconds of continuous idle time without touch input.
 - Displays 15-second modal warning prompt: "Are you still ordering?" with audible chime.
 - On expiration, clears active cart session securely, logs anonymous abandonment metric, and returns to attract screen.
+
+### Inventory Depletion Tracking Specifications
+- Configured automatic stock deduction for bulk ingredients when catering booking status moves to `CONFIRMED`.
+- Outlined safety threshold alerts when inventory levels fall below minimum reserve quantities (PAR levels).
+- Documented ingredient wastage logging schema for post-event kitchen reconciliation.
