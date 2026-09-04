@@ -212,3 +212,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Defined heartbeat interval (every 25 seconds ping/pong) to keep persistent tablet connections alive through NAT gateways.
 - Implemented randomized exponential backoff strategy with jitter (initial 1.5s, multiplier 2.0, max cap 45s).
 - Documented connection state indicator pill (Green: Connected, Amber: Reconnecting, Red: Disconnected).
+
+### Android WebView Hardware Acceleration Settings
+- Verified `android:hardwareAccelerated="true"` in AndroidManifest.xml for smooth 60fps CSS transitions.
+- Documented layer type `LAYER_TYPE_HARDWARE` configuration for the primary WebView instance.
+- Mitigated GPU memory spikes by recycling off-screen bitmap buffers in the asset pipeline.
