@@ -151,3 +151,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured Lottie canvas renderer with maximum target FPS capped at 45 to preserve tablet battery and thermal profile.
 - Explicitly destroy Lottie instances on modal unmount to prevent detached DOM tree references and memory leakage.
 - Validated heap allocation stability during repeated cart add/remove cycles.
+
+### Thermal Printer ESC/POS Protocol Specifications
+- Documented standard 80mm ESC/POS command bytes (`0x1B, 0x40` initialize, `0x1D, 0x56, 0x42` paper cut).
+- Structured bilingual receipt template with header logo bit-image rasterization.
+- Defined fallback retry buffer when Bluetooth socket connection drops mid-print.
