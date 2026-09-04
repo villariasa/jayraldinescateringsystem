@@ -141,3 +141,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - IndexedDB table `orders_offline_cache` structured to buffer transaction payloads when offline.
 - Added versioning migration for payload schema v2 containing timestamp and device ID.
 - Background sync dispatcher periodically queries pending records and commits them sequentially upon network reconnection.
+
+### Kiosk Touch Responsiveness & Gesture Rejection
+- Disabled iOS/Android elastic scroll overscroll bounce on full screen containers via CSS `overscroll-behavior: none`.
+- Added touch deadzone filtering around edge margins to prevent accidental swipe dismissals during customer order entry.
+- Fine-tuned active tap highlight threshold to 80ms for instant visual tap feedback.
