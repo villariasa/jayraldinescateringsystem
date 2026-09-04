@@ -232,3 +232,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured automatic stock deduction for bulk ingredients when catering booking status moves to `CONFIRMED`.
 - Outlined safety threshold alerts when inventory levels fall below minimum reserve quantities (PAR levels).
 - Documented ingredient wastage logging schema for post-event kitchen reconciliation.
+
+### Staff Authorization Roles & Privilege Matrix
+- Admin: Full system access, price modification, audit log inspection, user provisioning.
+- Manager: Order approval, discount overrides, daily sales closing, refund authorization.
+- Staff / Cashier: Order entry, payment collection, receipt re-printing, table assignment.
+- Kiosk Guest: Restricted sandbox order creation with no backend administrative access.
