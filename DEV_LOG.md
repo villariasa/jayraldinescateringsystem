@@ -161,3 +161,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added standard allergen metadata flags (Peanuts, Dairy, Gluten, Shellfish, Eggs).
 - Documented filtering pipeline allowing customers to exclude items matching specific allergen profiles in real time.
 - Integrated dietary badge iconography alongside menu item pricing cards.
+
+### Order Receipt Layout & Typography Standards
+- Standardized monospace font hierarchy for receipt line items, quantities, and totals.
+- Added explicit column formatting: Description (24 chars), Qty (4 chars), Unit Price (8 chars), Total (10 chars).
+- Configured tax breakdown, service charge calculations, and QR transaction verification footer.
