@@ -146,3 +146,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Disabled iOS/Android elastic scroll overscroll bounce on full screen containers via CSS `overscroll-behavior: none`.
 - Added touch deadzone filtering around edge margins to prevent accidental swipe dismissals during customer order entry.
 - Fine-tuned active tap highlight threshold to 80ms for instant visual tap feedback.
+
+### Lottie Animation Frame Rate Budget & Memory Management
+- Configured Lottie canvas renderer with maximum target FPS capped at 45 to preserve tablet battery and thermal profile.
+- Explicitly destroy Lottie instances on modal unmount to prevent detached DOM tree references and memory leakage.
+- Validated heap allocation stability during repeated cart add/remove cycles.
