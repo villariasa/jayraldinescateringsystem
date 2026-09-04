@@ -166,3 +166,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized monospace font hierarchy for receipt line items, quantities, and totals.
 - Added explicit column formatting: Description (24 chars), Qty (4 chars), Unit Price (8 chars), Total (10 chars).
 - Configured tax breakdown, service charge calculations, and QR transaction verification footer.
+
+### POS Order Queue Status Transitions
+- Outlined state transitions: `NEW` -> `ACKNOWLEDGED` -> `PREPARING` -> `READY_FOR_PICKUP` -> `COMPLETED`.
+- Defined timeout threshold (15 minutes) for unacknowledged orders to trigger audible supervisory alerts.
+- Added state reconciliation check on app resume to detect remote updates from manager portal.
