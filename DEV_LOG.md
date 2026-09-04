@@ -181,3 +181,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated Web Audio API synthesized tones (440Hz / 880Hz soft marimba chime) for item selection and successful checkout.
 - Configured audio volume limiting capped at 65dB to avoid ambient disruption in dining hall environments.
 - Added mute toggle override in kiosk supervisor settings menu.
+
+### Portrait Kiosk Orientation Locking Policies
+- Enforced portrait orientation (`screen.orientation.lock('portrait-primary')`) with manifest `orientation: portrait`.
+- Documented polyfill and fullscreen handler for legacy Android WebViews lacking Screen Orientation API support.
+- Set minimum supported resolution to 800x1280 portrait tablet standards.
