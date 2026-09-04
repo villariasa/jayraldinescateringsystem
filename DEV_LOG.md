@@ -263,3 +263,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Wrapped top-level view router in global uncaught error boundary (`window.onerror` & unhandled promise rejections).
 - Automatic graceful fallback: Logs error stack trace locally, displays user-friendly recovery banner, reloads clean state in 3s.
 - Suppressed ugly browser error dialogs from displaying to dining customers.
+
+### Offline Typography Preloading & Font Display Settings
+- Documented self-hosted WOFF2 web fonts (Outfit, Inter) embedded in local asset directory.
+- Configured `font-display: swap` to prevent Flash of Invisible Text (FOIT) during offline cold boot.
+- Added prefetch links in PWA index.html head for critical font weights (400, 600, 700).
