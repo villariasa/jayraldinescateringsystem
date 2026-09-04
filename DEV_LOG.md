@@ -253,3 +253,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated HTML5 canvas touch signature pad capturing smooth Bézier vector strokes.
 - Signatures encoded into compressed PNG data URI and attached to booking PDF contracts.
 - Documented terms of service acceptance timestamp and signer device IP/MAC logging.
+
+### Daily Sales Closing (Z-Reading) Report Schema
+- Documented aggregate fields: Gross Sales, Net Sales, Total Tax Collected, Service Charges, Discounts Total.
+- Broken down by payment tender: Cash on Hand, Credit/Debit Card, GCash, Maya, Bank Transfer.
+- Serialized closing batch number and locked database records against retroactive modifications.
