@@ -207,3 +207,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Built regex parser for customer custom notes to automatically detect keywords: Halal, Vegetarian, Vegan, Nut-free.
 - Configured visual warning banner on kitchen preparation slips for highlighted allergy requests.
 - Added character limitation rules (max 250 characters) on special instruction textareas.
+
+### WebSocket Reconnection Backoff & Heartbeat
+- Defined heartbeat interval (every 25 seconds ping/pong) to keep persistent tablet connections alive through NAT gateways.
+- Implemented randomized exponential backoff strategy with jitter (initial 1.5s, multiplier 2.0, max cap 45s).
+- Documented connection state indicator pill (Green: Connected, Amber: Reconnecting, Red: Disconnected).
