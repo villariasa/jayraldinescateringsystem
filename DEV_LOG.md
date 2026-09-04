@@ -186,3 +186,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Enforced portrait orientation (`screen.orientation.lock('portrait-primary')`) with manifest `orientation: portrait`.
 - Documented polyfill and fullscreen handler for legacy Android WebViews lacking Screen Orientation API support.
 - Set minimum supported resolution to 800x1280 portrait tablet standards.
+
+### Catering Packages Headcount Computation Rules
+- Tier 1: 50–99 pax (base flat rate + per-head tier A surcharge).
+- Tier 2: 100–249 pax (discounted per-head tier B pricing + complimentary beverage station).
+- Tier 3: 250+ pax (custom executive package with custom staffing and logistics allowance).
+- Documented automatic recalculation of buffer portions (10% extra buffer allocation).
