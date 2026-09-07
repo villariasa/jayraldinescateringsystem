@@ -370,3 +370,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented OpenAI/local LLM tool definitions: `lookup_inventory_stock()`, `suggest_menu_substitutions()`, `calculate_package_margin()`.
 - Added strict JSON Schema input validation for each tool parameter to prevent prompt injection or malformed queries.
 - Tool output formatted as structured markdown cards rendered natively in the catering manager UI.
+
+### Audit Logging for AI Assistant Actions & Manual Overrides
+- Created dedicated audit table `system_audit_logs` tracking timestamp, actor (`USER` or `CHEF_JAY_AI`), action type, and JSON diff.
+- Mandatory supervisor review prompt generated whenever Chef Jay proposes automatic ingredient reallocation.
+- Immutable log retention ensures full transparency for financial audits and management reviews.
