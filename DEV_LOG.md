@@ -385,3 +385,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Upon server reconnection, client queues are replayed in strict chronological sequence using vector clocks.
 - Conflict detection: If an item inventory was depleted while a client was disconnected, order is flagged for cashier review.
 - Automated reconciliation report generated after bulk queue replay is completed.
+
+### Client Setup Wizard & QR Code Pairing
+- Server PC installer generates a dynamic QR code containing encoded LAN connection parameters (`host`, `port`, `token`).
+- Tablet kiosks utilize their built-in camera to scan the pairing QR code during initial onboarding.
+- Eliminates manual typing errors and accelerates multi-tablet kiosk deployment across the event venue.
