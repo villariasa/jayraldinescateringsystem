@@ -380,3 +380,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Defined emergency IndexedDB schema `emergency_transaction_vault` on tablet clients.
 - If LAN connection severs mid-order, order receipt payload is encrypted locally with temporary customer authorization token.
 - Orders in emergency buffer marked as `PENDING_SERVER_ACK` until full server connectivity is restored.
+
+### Reconnection Replay & Conflict Resolution
+- Upon server reconnection, client queues are replayed in strict chronological sequence using vector clocks.
+- Conflict detection: If an item inventory was depleted while a client was disconnected, order is flagged for cashier review.
+- Automated reconciliation report generated after bulk queue replay is completed.
