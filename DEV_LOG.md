@@ -579,3 +579,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Roster scheduling module matching waiter-to-guest ratios: 1 waiter per 15 guests for plated dinner, 1 per 25 for buffet.
 - Real-time calculation of projected labor expense vs total booking revenue.
 - Target labor cost benchmark set at 18–22% of gross contract value.
+
+### Banquet Hall Sanitation & Cleanliness Inspection
+- Pre-event checklist: Floor polishing, linen steaming, air conditioning filter cleanliness, restroom amenity restocking.
+- Post-event teardown checklist: Trash disposal, kitchen degreasing, dishware sanitization, pest prevention inspection.
+- Mandatory supervisor digital signature before releasing facility to the next booking.
