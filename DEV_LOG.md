@@ -574,3 +574,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured webhook receiver for digital payment providers (GCash, PayMaya, Maya Business).
 - Enforces idempotency keys stored in `payment_webhook_events` table to prevent duplicate transaction crediting.
 - Automatic retry handling with exponential backoff on intermittent network timeouts.
+
+### Catering Staff Roster & Labor Cost Percentage
+- Roster scheduling module matching waiter-to-guest ratios: 1 waiter per 15 guests for plated dinner, 1 per 25 for buffet.
+- Real-time calculation of projected labor expense vs total booking revenue.
+- Target labor cost benchmark set at 18–22% of gross contract value.
