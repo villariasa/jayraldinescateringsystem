@@ -355,3 +355,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented event schedule milestones: Banquet Setup, Guest Arrival, Food Service, Toast/Program, Teardown.
 - Updates made from the manager laptop immediately synchronize to kitchen and floor staff tablets.
 - Added visual color badges for real-time schedule adherence (Ahead, On Time, Delayed).
+
+### PostgreSQL LISTEN/NOTIFY Dispatch Architecture
+- Implemented asynchronous event broadcasting using PostgreSQL native channels (`channel_order_events`, `channel_inventory_alerts`).
+- Database triggers emit JSON payloads on order state changes without requiring external message brokers.
+- Lightweight and zero-dependency solution tailored for on-premise local restaurant and catering deployments.
