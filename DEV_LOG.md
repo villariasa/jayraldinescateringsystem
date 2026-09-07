@@ -413,3 +413,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - Station 3: Deep Fryer & Soups.
   - Station 4: Drinks, Barista & Dessert Bar.
 - Kitchen bump bar signals item readiness and notifies expediter station.
+
+### Recipe Breakdown & Ingredient Deduction Engine
+- Linked each menu item and package dish to an itemized Bill of Materials (BOM) ingredient list.
+- Deducts raw ingredients (e.g. beef tenderloin, cream, cooking oil, spices) proportionately to portion counts.
+- Highlights low-stock thresholds to prevent dish commitments during customer order entry.
