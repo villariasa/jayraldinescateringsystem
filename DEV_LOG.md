@@ -340,3 +340,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated lightweight `/api/v1/ping` health check endpoint for browser-based kiosk clients.
 - Configured adaptive polling frequency: 5s during active checkout flows, 30s during idle screens.
 - Added visual Wi-Fi signal quality and LAN latency indicator in the kiosk top status navigation bar.
+
+### Automated Daily Database Backup Protocol
+- Created cron/Task Scheduler specification running automated nightly `pg_dump` with gzip compression.
+- Backup naming convention: `jayraldine_catering_db_YYYYMMDD_HHMMSS.sql.gz`.
+- Documented 14-day rolling retention policy with automatic pruning of older snapshots to preserve disk space.
