@@ -531,3 +531,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Points calculation rule: 1 reward point earned per ₱100 spent on confirmed catering bookings.
 - Points redeemable for future event credit, premium dessert table upgrades, or floral arrangement packages.
 - Configured voucher fraud prevention: Single-use cryptographic tokens with server-side validation.
+
+### Custom Audio Chime Settings by Order Priority
+- Distinct synthesized audio alerts:
+  - Standard Item Order: Pleasant single-chime marimba.
+  - Expedited / Rush Order: Double-beep urgent alert.
+  - Allergy Alert / Special Instruction: Distinctive high-pitch advisory chord.
+- Volume levels configurable independently for dining hall, kitchen line, and cashier station.
