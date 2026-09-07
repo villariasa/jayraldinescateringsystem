@@ -405,3 +405,11 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured direct raw TCP socket communication (`port 9100`) to networked EPSON/Star thermal printers.
 - Bypasses OS print spooler for sub-second printing latency during high-volume checkout rushes.
 - Added printer status query commands to detect paper-out, cover-open, and cutter-jam conditions.
+
+### Kitchen Display System (KDS) Multi-Station Routing
+- Automated order item routing based on preparation station category:
+  - Station 1: Cold Appetizers, Salads & Pastries.
+  - Station 2: Grill, Roasts & Sizzling Dishes.
+  - Station 3: Deep Fryer & Soups.
+  - Station 4: Drinks, Barista & Dessert Bar.
+- Kitchen bump bar signals item readiness and notifies expediter station.
