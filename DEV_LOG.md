@@ -438,3 +438,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented real-time aggregation queries: Average Ticket Size, Gross Revenue per Pax, Labor Cost Percentage.
 - Heatmap metrics: Peak booking months, popular buffet packages, high-margin beverage add-ons.
 - Optimized indexed views and materialized rollups refreshed hourly on the database server.
+
+### Equipment Logistics Dispatch & Retrieval Tracker
+- Comprehensive inventory tracking for non-food rental assets: Chafing dishes, chafing fuel, glassware, chafing tongs.
+- Barcode/QR scanning workflow during warehouse staging, truck loading, on-site check-in, and return sanitization.
+- Automatic penalty fee calculation for lost or broken dining ware items.
