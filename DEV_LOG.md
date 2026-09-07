@@ -423,3 +423,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured Philippine VAT (12%) calculation rules with separate line items for VAT-exempt senior/PWD discounts.
 - Added optional service charge (10%) toggle for banquet dining service.
 - Supported currency presentation formats: PHP (₱ default), USD ($), EUR (€) for international corporate clients.
+
+### Banquet Contract PDF Engine & Signature Archiving
+- Built server-side PDF template renderer producing legally binding event catering contracts.
+- Embedded high-resolution vector logos, breakdown schedules, payment terms, and client signature bitmaps.
+- Automated SHA-256 document hashing to guarantee contract immutability once signed.
