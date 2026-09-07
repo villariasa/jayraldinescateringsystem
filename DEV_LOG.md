@@ -506,3 +506,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Utilized HTML5 Screen Wake Lock API (`navigator.wakeLock.request('screen')`) during business operating hours.
 - Automatic brightness dimming (to 40%) during extended inactivity periods to reduce thermal throttling and save power.
 - Automatic release of wake lock when AC power adapter is disconnected or battery drops below 15%.
+
+### Automated SMS & Email Notification Templates
+- Event booking confirmation template containing date, venue, headcount, and balance reminder.
+- 48-hour pre-event checklist reminder sent to client with final headcount confirmation deadline.
+- Post-event digital thank-you note with direct link to feedback and satisfaction survey.
