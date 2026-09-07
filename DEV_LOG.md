@@ -325,3 +325,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Outlined internal certificate authority (CA) generation script for mutual TLS between server and client terminals.
 - Configured `postgresql.conf` parameters: `ssl = on`, `ssl_cert_file`, `ssl_key_file`, and `ssl_ciphers = 'HIGH:!aNULL'`.
 - Ensured encrypted transport for sensitive financial transactions and customer reservation PII over Wi-Fi.
+
+### Database Encryption at Rest
+- Implemented tablespace-level encryption recommendations for customer contact details and billing ledger entries.
+- Stored sensitive administrative passwords using Argon2id hashing with unique per-user salts.
+- Documented file system permission hardening for the PostgreSQL `PGDATA` directory on the server machine.
