@@ -300,3 +300,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added multicast DNS (mDNS) advertisement specification (`_catering-pos._tcp.local`) for automatic host discovery.
 - Client laptops and tablet kiosks automatically scan the local subnet without requiring manual IP entry during onboarding.
 - Configured UDP fallback broadcast for restrictive routers that filter standard mDNS packets.
+
+### Chef Jay AI Assistant RBAC & Execution Sandboxing
+- Chef Jay AI assistant function calls gated strictly by the authenticated user's assigned role tokens.
+- Write operations (menu modifications, reservation deletions, price overrides) require explicit `ADMIN` or `MANAGER` privilege elevation.
+- Implemented read-only sandbox mode when accessed by standard waitstaff or guest kiosk terminals.
