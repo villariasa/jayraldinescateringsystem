@@ -330,3 +330,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented tablespace-level encryption recommendations for customer contact details and billing ledger entries.
 - Stored sensitive administrative passwords using Argon2id hashing with unique per-user salts.
 - Documented file system permission hardening for the PostgreSQL `PGDATA` directory on the server machine.
+
+### LAN Failover Detection & Graceful Degradation
+- Established heartbeat ping interval (every 10s) between client applications and the centralized database server.
+- Upon 3 consecutive dropped heartbeats, client interface transitions to read-only temporary cache mode.
+- User is presented with a persistent banner: "Operating in Offline Read-Only Mode - Reconnecting to LAN Server...".
