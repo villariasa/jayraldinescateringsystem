@@ -554,3 +554,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Dynamic scaling multiplier based on target headcount and guest demographic (e.g., kids party vs corporate dinner).
 - Adjusts seasoning and spice ratios non-linearly to prevent over-salting in massive bulk cooking batches.
 - Recommends batch cookware sizing (e.g., 50L stockpot vs commercial tilting skillet).
+
+### Backup Server Cold-Standby Replication
+- Configured physical streaming replication to secondary standby laptop on the local network.
+- Asynchronous WAL streaming ensures standby is within seconds of master transaction log.
+- Documented single-command failover script promoting standby to primary in case of hardware catastrophe.
