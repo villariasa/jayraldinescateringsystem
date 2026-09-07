@@ -365,3 +365,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Designed lightweight Node/Python bridge listening to PostgreSQL `NOTIFY` events and relaying them over WebSockets.
 - Enables browser-based tablet kiosks to receive instantaneous kitchen bump alerts without polling overhead.
 - Configured binary frame compression to minimize LAN bandwidth consumption across multiple active tablets.
+
+### Chef Jay AI Function Calling & Tool Definitions
+- Documented OpenAI/local LLM tool definitions: `lookup_inventory_stock()`, `suggest_menu_substitutions()`, `calculate_package_margin()`.
+- Added strict JSON Schema input validation for each tool parameter to prevent prompt injection or malformed queries.
+- Tool output formatted as structured markdown cards rendered natively in the catering manager UI.
