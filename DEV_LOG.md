@@ -428,3 +428,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Built server-side PDF template renderer producing legally binding event catering contracts.
 - Embedded high-resolution vector logos, breakdown schedules, payment terms, and client signature bitmaps.
 - Automated SHA-256 document hashing to guarantee contract immutability once signed.
+
+### Customer CRM Profile Tracking & VIP Loyalty
+- Structured customer master table capturing booking history, preferred dishes, and anniversary/birthday milestones.
+- Dietary restriction tagging: Halal, Kosher, Gluten-Free, Diabetic, Shellfish Allergy.
+- Tiered loyalty scoring (Silver, Gold, Platinum) with automatic perk recommendations during quote generation.
