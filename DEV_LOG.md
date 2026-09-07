@@ -453,3 +453,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized critical control point (CCP) logging: Cold storage (<4°C), Hot holding (>60°C), Reheating (>74°C).
 - Automated digital form prompts kitchen staff every 2 hours to record walk-in freezer and hot table temperatures.
 - Generates HACCP compliance audit trail exportable directly to PDF for local health inspectors.
+
+### Supplier Purchase Orders & Cost History
+- Automated Purchase Order (PO) generation when raw ingredient stocks dip below minimum safety stock levels.
+- Historical cost variance tracking comparing supplier quoted prices vs historical market averages.
+- Vendor rating system evaluating on-time delivery reliability and fresh produce quality scores.
