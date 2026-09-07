@@ -483,3 +483,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured tip distribution engine supporting both individual tip recording and shift-wide point-based pooling.
 - Points weighting: Captain Waiter (1.5 pts), Waitstaff (1.0 pt), Dishwasher/Busser (0.8 pt), Barista (1.0 pt).
 - Automated end-of-shift tip payout sheet with digital receipt acknowledgment.
+
+### Food Tasting Session Scheduling & Feedback Records
+- Dedicated workflow module for prospective wedding and corporate catering clients.
+- Dishes prepared in tasting portion sizes with custom evaluation scorecards (Taste, Presentation, Texture).
+- Approved dish recipes automatically locked and imported into final catering reservation contract.
