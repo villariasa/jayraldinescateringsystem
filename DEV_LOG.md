@@ -443,3 +443,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Comprehensive inventory tracking for non-food rental assets: Chafing dishes, chafing fuel, glassware, chafing tongs.
 - Barcode/QR scanning workflow during warehouse staging, truck loading, on-site check-in, and return sanitization.
 - Automatic penalty fee calculation for lost or broken dining ware items.
+
+### Driver Dispatch & Venue Drop-off Verification
+- Mobile-friendly dispatch schedule capturing driver assignment, van plate number, and estimated arrival time (ETA).
+- On-site drop-off checklist: Food temperature verification upon arrival, client acceptance signature, photo capture.
+- GPS coordinate logging at arrival timestamp for delivery SLA compliance.
