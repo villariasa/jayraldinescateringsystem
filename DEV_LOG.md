@@ -395,3 +395,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Outlined vector-based drag-and-drop floor plan canvas for banquet halls and restaurant seating areas.
 - Supports table shapes: Round (8–10 pax), Rectangular (6–8 pax), Buffet Station, Stage, VIP Head Table.
 - Real-time table occupancy status indicator synced with active catering reservations.
+
+### Staff Shift Management & Cash Handover Workflow
+- Documented cashier opening float declaration, mid-shift drop verification, and closing cash count.
+- Blind closeout policy: Cashier inputs counted physical bills without seeing expected system totals first.
+- Generates shift discrepancy report highlighting overages or shortages with mandatory manager sign-off.
