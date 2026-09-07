@@ -549,3 +549,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - "How many kilos of ribeye do we have for Saturday's wedding?" -> translates to SQL stock aggregation by event date.
   - "Can we cater 150 pax Italian package tomorrow?" -> checks raw ingredients and venue availability in real time.
 - Context-aware conversation memory preserving active event ID across multi-turn assistant dialogues.
+
+### Chef Jay Smart Recipe Portion Scaling
+- Dynamic scaling multiplier based on target headcount and guest demographic (e.g., kids party vs corporate dinner).
+- Adjusts seasoning and spice ratios non-linearly to prevent over-salting in massive bulk cooking batches.
+- Recommends batch cookware sizing (e.g., 50L stockpot vs commercial tilting skillet).
