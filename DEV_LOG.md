@@ -496,3 +496,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - Priority 3: Table status updates and server notes.
   - Priority 4: Historical telemetry and analytics logs.
 - Guarantees financial transactions are re-synchronized first before non-critical state updates.
+
+### Kiosk Visual Accessibility & High-Contrast Mode
+- Implemented WCAG 2.1 AA compliant color contrast themes for visually impaired users.
+- Large touch targets (minimum 48x48 CSS pixels) with prominent focus rings and tactile haptic feedback where supported.
+- Dynamic font scaling allowing customers to increase menu description font sizes up to 150%.
