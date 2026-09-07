@@ -559,3 +559,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured physical streaming replication to secondary standby laptop on the local network.
 - Asynchronous WAL streaming ensures standby is within seconds of master transaction log.
 - Documented single-command failover script promoting standby to primary in case of hardware catastrophe.
+
+### LAN Health Monitor Daemon & Jitter Diagnostics
+- Background daemon running on the server node measures network health to all connected POS tablets.
+- Flags Wi-Fi congestion or access point packet loss before it interrupts customer transactions.
+- Automated alert logged when round-trip latency jitter exceeds 200ms threshold.
