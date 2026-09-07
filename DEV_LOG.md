@@ -538,3 +538,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - Expedited / Rush Order: Double-beep urgent alert.
   - Allergy Alert / Special Instruction: Distinctive high-pitch advisory chord.
 - Volume levels configurable independently for dining hall, kitchen line, and cashier station.
+
+### Barista & Beverage Station Ticket Formatting
+- Specialized ticket format highlighting drink customizers: Ice Level (None, Less, Regular), Sweetness (0%, 50%, 100%), Milk Alternative.
+- Barcode printed on cup labels for quick scanning during drink handout.
+- Grouping orders by drink temperature (Hot vs Iced) to streamline espresso machine batching.
