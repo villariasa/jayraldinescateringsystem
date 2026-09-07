@@ -305,3 +305,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Chef Jay AI assistant function calls gated strictly by the authenticated user's assigned role tokens.
 - Write operations (menu modifications, reservation deletions, price overrides) require explicit `ADMIN` or `MANAGER` privilege elevation.
 - Implemented read-only sandbox mode when accessed by standard waitstaff or guest kiosk terminals.
+
+### Role-Based Access Control (RBAC) Matrix
+- Defined granular permissions across modules: Reservations, Billing, Inventory, Reports, System Settings.
+- Standardized permission flags: `CAN_VIEW_REPORTS`, `CAN_OVERRIDE_PRICE`, `CAN_MANAGE_MENU`, `CAN_DISPATCH_KITCHEN`.
+- Stored role definitions and active user session tokens directly in central PostgreSQL auth tables.
