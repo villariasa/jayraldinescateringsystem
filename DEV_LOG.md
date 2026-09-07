@@ -345,3 +345,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Created cron/Task Scheduler specification running automated nightly `pg_dump` with gzip compression.
 - Backup naming convention: `jayraldine_catering_db_YYYYMMDD_HHMMSS.sql.gz`.
 - Documented 14-day rolling retention policy with automatic pruning of older snapshots to preserve disk space.
+
+### Concurrency & Row-Level Locking for Inventory
+- Implemented `SELECT ... FOR UPDATE` row locking during simultaneous package booking checkout sequences.
+- Prevents double-booking of limited banquet halls, specialty rental equipment, or finite menu ingredients.
+- Added deterministic deadlock resolution timeout capped at 3000ms with automatic transaction retry.
