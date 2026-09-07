@@ -288,3 +288,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Completed 30-part architecture, hardware integration, offline sync, and security documentation batch.
 - Verified zero code file modifications; all updates strictly isolated to documentation markdown files.
 - Development log status verified in sync with current catering and tablet kiosk system capabilities.
+
+## September 7, 2026 - Centralized LAN Server Architecture & Daily Dev Notes
+
+### Centralized PostgreSQL LAN Server Architecture Overview
+- Migrated primary data architecture from localized client databases to a dedicated single-server PostgreSQL instance over LAN.
+- Client PC applications and Tablet PWA kiosks operate against the centralized PostgreSQL host via direct connection pool or REST/WebSocket gateway.
+- Defined high-availability guidelines, network topology layout, and static IP allocation policies for the server host machine.
