@@ -310,3 +310,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Defined granular permissions across modules: Reservations, Billing, Inventory, Reports, System Settings.
 - Standardized permission flags: `CAN_VIEW_REPORTS`, `CAN_OVERRIDE_PRICE`, `CAN_MANAGE_MENU`, `CAN_DISPATCH_KITCHEN`.
 - Stored role definitions and active user session tokens directly in central PostgreSQL auth tables.
+
+### PostgreSQL Connection Pooling with PgBouncer
+- Configured connection pooling parameters to handle concurrent tablet kiosk bursts: default pool size 25, reserve pool 5.
+- Set pool mode to `transaction` to maximize throughput for short-lived REST API and kiosk query cycles.
+- Documented client idle connection timeouts (30s) to prevent resource starvation on the main database host.
