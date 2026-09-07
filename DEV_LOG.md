@@ -350,3 +350,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented `SELECT ... FOR UPDATE` row locking during simultaneous package booking checkout sequences.
 - Prevents double-booking of limited banquet halls, specialty rental equipment, or finite menu ingredients.
 - Added deterministic deadlock resolution timeout capped at 3000ms with automatic transaction retry.
+
+### Event Timeline Synchronization Across Terminals
+- Documented event schedule milestones: Banquet Setup, Guest Arrival, Food Service, Toast/Program, Teardown.
+- Updates made from the manager laptop immediately synchronize to kitchen and floor staff tablets.
+- Added visual color badges for real-time schedule adherence (Ahead, On Time, Delayed).
