@@ -511,3 +511,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Event booking confirmation template containing date, venue, headcount, and balance reminder.
 - 48-hour pre-event checklist reminder sent to client with final headcount confirmation deadline.
 - Post-event digital thank-you note with direct link to feedback and satisfaction survey.
+
+### Food Waste Management & Scrap Reduction Tracking
+- Categorized kitchen waste: Prep Scrap (peels, trims), Spoiled Ingredients, Unserved Buffer, Customer Plate Waste.
+- Daily weight logging (in kilograms) compared against initial batch production quantities.
+- Actionable analytics enabling head chef to optimize raw purchase buffers on recurring catering recipes.
