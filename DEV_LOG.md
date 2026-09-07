@@ -569,3 +569,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Table-specific QR codes embed cryptographic HMAC signatures containing table number, hall ID, and timestamp.
 - Session tokens expire automatically 3 hours after first scan or immediately upon bill settlement.
 - Prevents malicious remote order injection from outside the restaurant premises.
+
+### Payment Gateway Webhook Idempotency Handler
+- Structured webhook receiver for digital payment providers (GCash, PayMaya, Maya Business).
+- Enforces idempotency keys stored in `payment_webhook_events` table to prevent duplicate transaction crediting.
+- Automatic retry handling with exponential backoff on intermittent network timeouts.
