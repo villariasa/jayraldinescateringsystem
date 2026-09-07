@@ -360,3 +360,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented asynchronous event broadcasting using PostgreSQL native channels (`channel_order_events`, `channel_inventory_alerts`).
 - Database triggers emit JSON payloads on order state changes without requiring external message brokers.
 - Lightweight and zero-dependency solution tailored for on-premise local restaurant and catering deployments.
+
+### WebSocket Bridge Daemon for PWA Clients
+- Designed lightweight Node/Python bridge listening to PostgreSQL `NOTIFY` events and relaying them over WebSockets.
+- Enables browser-based tablet kiosks to receive instantaneous kitchen bump alerts without polling overhead.
+- Configured binary frame compression to minimize LAN bandwidth consumption across multiple active tablets.
