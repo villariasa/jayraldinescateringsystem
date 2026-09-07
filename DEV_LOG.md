@@ -375,3 +375,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Created dedicated audit table `system_audit_logs` tracking timestamp, actor (`USER` or `CHEF_JAY_AI`), action type, and JSON diff.
 - Mandatory supervisor review prompt generated whenever Chef Jay proposes automatic ingredient reallocation.
 - Immutable log retention ensures full transparency for financial audits and management reviews.
+
+### Emergency Local Transaction Buffer Schema
+- Defined emergency IndexedDB schema `emergency_transaction_vault` on tablet clients.
+- If LAN connection severs mid-order, order receipt payload is encrypted locally with temporary customer authorization token.
+- Orders in emergency buffer marked as `PENDING_SERVER_ACK` until full server connectivity is restored.
