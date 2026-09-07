@@ -526,3 +526,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Support for date-bounded seasonal menu packages (e.g. Christmas Holiday Banquet, Summer Fiesta).
 - Automatic item availability toggling based on seasonal ingredient supply schedules.
 - Promotional coupon engine supporting percentage discounts, fixed vouchers, and complimentary appetizer upgrades.
+
+### Loyalty Points Accrual & Voucher Redemption
+- Points calculation rule: 1 reward point earned per ₱100 spent on confirmed catering bookings.
+- Points redeemable for future event credit, premium dessert table upgrades, or floral arrangement packages.
+- Configured voucher fraud prevention: Single-use cryptographic tokens with server-side validation.
