@@ -315,3 +315,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured connection pooling parameters to handle concurrent tablet kiosk bursts: default pool size 25, reserve pool 5.
 - Set pool mode to `transaction` to maximize throughput for short-lived REST API and kiosk query cycles.
 - Documented client idle connection timeouts (30s) to prevent resource starvation on the main database host.
+
+### Firewall Auto-Configuration Rules (Windows & Linux)
+- Documented automated Windows firewall rule creation via `netsh advfirewall firewall add rule name="Catering_PG_LAN" dir=in action=allow protocol=TCP localport=5432 profile=private`.
+- Documented Linux `ufw allow from 192.168.0.0/16 to any port 5432 proto tcp` security rules.
+- Restricted ingress traffic strictly to private local subnets, blocking public WAN exposure.
