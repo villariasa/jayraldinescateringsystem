@@ -390,3 +390,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Server PC installer generates a dynamic QR code containing encoded LAN connection parameters (`host`, `port`, `token`).
 - Tablet kiosks utilize their built-in camera to scan the pairing QR code during initial onboarding.
 - Eliminates manual typing errors and accelerates multi-tablet kiosk deployment across the event venue.
+
+### Visual Floor Plan & Table Layout Editor
+- Outlined vector-based drag-and-drop floor plan canvas for banquet halls and restaurant seating areas.
+- Supports table shapes: Round (8–10 pax), Rectangular (6–8 pax), Buffet Station, Stage, VIP Head Table.
+- Real-time table occupancy status indicator synced with active catering reservations.
