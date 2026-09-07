@@ -448,3 +448,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Mobile-friendly dispatch schedule capturing driver assignment, van plate number, and estimated arrival time (ETA).
 - On-site drop-off checklist: Food temperature verification upon arrival, client acceptance signature, photo capture.
 - GPS coordinate logging at arrival timestamp for delivery SLA compliance.
+
+### Food Safety Temperature Logging & HACCP Compliance
+- Standardized critical control point (CCP) logging: Cold storage (<4°C), Hot holding (>60°C), Reheating (>74°C).
+- Automated digital form prompts kitchen staff every 2 hours to record walk-in freezer and hot table temperatures.
+- Generates HACCP compliance audit trail exportable directly to PDF for local health inspectors.
