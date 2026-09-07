@@ -433,3 +433,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured customer master table capturing booking history, preferred dishes, and anniversary/birthday milestones.
 - Dietary restriction tagging: Halal, Kosher, Gluten-Free, Diabetic, Shellfish Allergy.
 - Tiered loyalty scoring (Silver, Gold, Platinum) with automatic perk recommendations during quote generation.
+
+### Sales Analytics Dashboard & KPI Metrics
+- Documented real-time aggregation queries: Average Ticket Size, Gross Revenue per Pax, Labor Cost Percentage.
+- Heatmap metrics: Peak booking months, popular buffet packages, high-margin beverage add-ons.
+- Optimized indexed views and materialized rollups refreshed hourly on the database server.
