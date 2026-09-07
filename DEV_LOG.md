@@ -418,3 +418,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Linked each menu item and package dish to an itemized Bill of Materials (BOM) ingredient list.
 - Deducts raw ingredients (e.g. beef tenderloin, cream, cooking oil, spices) proportionately to portion counts.
 - Highlights low-stock thresholds to prevent dish commitments during customer order entry.
+
+### Tax Calculation & Multi-Currency Engine
+- Configured Philippine VAT (12%) calculation rules with separate line items for VAT-exempt senior/PWD discounts.
+- Added optional service charge (10%) toggle for banquet dining service.
+- Supported currency presentation formats: PHP (₱ default), USD ($), EUR (€) for international corporate clients.
