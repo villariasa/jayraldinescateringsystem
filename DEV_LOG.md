@@ -501,3 +501,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented WCAG 2.1 AA compliant color contrast themes for visually impaired users.
 - Large touch targets (minimum 48x48 CSS pixels) with prominent focus rings and tactile haptic feedback where supported.
 - Dynamic font scaling allowing customers to increase menu description font sizes up to 150%.
+
+### Tablet Battery Saver & Screen Wake Lock
+- Utilized HTML5 Screen Wake Lock API (`navigator.wakeLock.request('screen')`) during business operating hours.
+- Automatic brightness dimming (to 40%) during extended inactivity periods to reduce thermal throttling and save power.
+- Automatic release of wake lock when AC power adapter is disconnected or battery drops below 15%.
