@@ -521,3 +521,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented spatial and temporal overlap detection queries preventing simultaneous bookings of the same venue hall.
 - Added mandatory turnover buffer (minimum 3 hours) between events for room teardown, cleaning, and table resetting.
 - Visual conflict warning presented to sales reps during quotation drafting phase.
+
+### Seasonal Menu Rotation & Promotional Pricing
+- Support for date-bounded seasonal menu packages (e.g. Christmas Holiday Banquet, Summer Fiesta).
+- Automatic item availability toggling based on seasonal ingredient supply schedules.
+- Promotional coupon engine supporting percentage discounts, fixed vouchers, and complimentary appetizer upgrades.
