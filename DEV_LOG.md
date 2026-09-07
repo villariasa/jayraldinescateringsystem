@@ -564,3 +564,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Background daemon running on the server node measures network health to all connected POS tablets.
 - Flags Wi-Fi congestion or access point packet loss before it interrupts customer transactions.
 - Automated alert logged when round-trip latency jitter exceeds 200ms threshold.
+
+### QR Code Self-Ordering Security & Session Expiration
+- Table-specific QR codes embed cryptographic HMAC signatures containing table number, hall ID, and timestamp.
+- Session tokens expire automatically 3 hours after first scan or immediately upon bill settlement.
+- Prevents malicious remote order injection from outside the restaurant premises.
