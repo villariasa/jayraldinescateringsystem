@@ -295,3 +295,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Migrated primary data architecture from localized client databases to a dedicated single-server PostgreSQL instance over LAN.
 - Client PC applications and Tablet PWA kiosks operate against the centralized PostgreSQL host via direct connection pool or REST/WebSocket gateway.
 - Defined high-availability guidelines, network topology layout, and static IP allocation policies for the server host machine.
+
+### mDNS & ZeroConf Automatic Server Discovery
+- Added multicast DNS (mDNS) advertisement specification (`_catering-pos._tcp.local`) for automatic host discovery.
+- Client laptops and tablet kiosks automatically scan the local subnet without requiring manual IP entry during onboarding.
+- Configured UDP fallback broadcast for restrictive routers that filter standard mDNS packets.
