@@ -589,3 +589,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configuration profile for off-site food truck operations using mobile LTE cellular hot-spots.
 - Bandwidth-saving protocol compressing sync payloads and deferring heavy image assets.
 - Automatic fallback to store-and-forward queue when cellular reception drops in remote venues.
+
+### Central DB Server Setup Guide & Troubleshooting
+- Cross-referenced all LAN networking, firewall, and RBAC policies with `Catering_Present/DB-SERVER-SETUP-PLAN.md`.
+- Documented common setup errors: PostgreSQL port 5432 binding to `127.0.0.1` instead of `0.0.0.0` (fixed in `postgresql.conf`).
+- Added step-by-step diagnostic guide for testing connection via `psql -h <server_ip> -U catering_admin -d jayraldinedb`.
