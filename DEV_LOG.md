@@ -488,3 +488,11 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Dedicated workflow module for prospective wedding and corporate catering clients.
 - Dishes prepared in tasting portion sizes with custom evaluation scorecards (Taste, Presentation, Texture).
 - Approved dish recipes automatically locked and imported into final catering reservation contract.
+
+### Mobile POS Queue Priority & Replay Rules
+- Outlined priority weighting for queued offline actions:
+  - Priority 1: Payment captures and completed cash receipts.
+  - Priority 2: New order kitchen submissions.
+  - Priority 3: Table status updates and server notes.
+  - Priority 4: Historical telemetry and analytics logs.
+- Guarantees financial transactions are re-synchronized first before non-critical state updates.
