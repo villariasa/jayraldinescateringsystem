@@ -468,3 +468,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured PostgreSQL Write-Ahead Logging (WAL) archiving for fine-grained Point-in-Time Recovery.
 - Step-by-step restoration playbook covering hardware failure, corrupted tablespace, and accidental table truncation.
 - Target recovery time objective (RTO) < 30 minutes; recovery point objective (RPO) < 5 minutes.
+
+### Database Index Optimization for Order Search
+- Added composite B-Tree indexes on `(event_date, status)` to accelerate live calendar queries.
+- Implemented PostgreSQL trigram indexes (`pg_trgm`) on customer name and phone number for fuzzy search.
+- Analyzed query execution plans (`EXPLAIN ANALYZE`) to eliminate sequential scans across historical archives.
