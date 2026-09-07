@@ -335,3 +335,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established heartbeat ping interval (every 10s) between client applications and the centralized database server.
 - Upon 3 consecutive dropped heartbeats, client interface transitions to read-only temporary cache mode.
 - User is presented with a persistent banner: "Operating in Offline Read-Only Mode - Reconnecting to LAN Server...".
+
+### Tablet PWA Server Reachability Polling
+- Integrated lightweight `/api/v1/ping` health check endpoint for browser-based kiosk clients.
+- Configured adaptive polling frequency: 5s during active checkout flows, 30s during idle screens.
+- Added visual Wi-Fi signal quality and LAN latency indicator in the kiosk top status navigation bar.
