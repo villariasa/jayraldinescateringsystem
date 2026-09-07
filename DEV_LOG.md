@@ -516,3 +516,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Categorized kitchen waste: Prep Scrap (peels, trims), Spoiled Ingredients, Unserved Buffer, Customer Plate Waste.
 - Daily weight logging (in kilograms) compared against initial batch production quantities.
 - Actionable analytics enabling head chef to optimize raw purchase buffers on recurring catering recipes.
+
+### Banquet Hall Booking Conflict Prevention
+- Implemented spatial and temporal overlap detection queries preventing simultaneous bookings of the same venue hall.
+- Added mandatory turnover buffer (minimum 3 hours) between events for room teardown, cleaning, and table resetting.
+- Visual conflict warning presented to sales reps during quotation drafting phase.
