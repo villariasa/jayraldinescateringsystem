@@ -463,3 +463,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized reconciliation procedure comparing POS reported tenders against bank settlement slips.
 - Handles multi-channel payment streams: Cash, Credit Cards (Terminal batch settling), GCash, Maya, Bank Transfer.
 - Automatic journal entry generation ready for export to external accounting software.
+
+### Disaster Recovery & Point-in-Time Recovery (PITR)
+- Configured PostgreSQL Write-Ahead Logging (WAL) archiving for fine-grained Point-in-Time Recovery.
+- Step-by-step restoration playbook covering hardware failure, corrupted tablespace, and accidental table truncation.
+- Target recovery time objective (RTO) < 30 minutes; recovery point objective (RPO) < 5 minutes.
