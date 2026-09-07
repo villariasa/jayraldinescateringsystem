@@ -320,3 +320,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented automated Windows firewall rule creation via `netsh advfirewall firewall add rule name="Catering_PG_LAN" dir=in action=allow protocol=TCP localport=5432 profile=private`.
 - Documented Linux `ufw allow from 192.168.0.0/16 to any port 5432 proto tcp` security rules.
 - Restricted ingress traffic strictly to private local subnets, blocking public WAN exposure.
+
+### PostgreSQL LAN TLS/SSL Encryption
+- Outlined internal certificate authority (CA) generation script for mutual TLS between server and client terminals.
+- Configured `postgresql.conf` parameters: `ssl = on`, `ssl_cert_file`, `ssl_key_file`, and `ssl_ciphers = 'HIGH:!aNULL'`.
+- Ensured encrypted transport for sensitive financial transactions and customer reservation PII over Wi-Fi.
