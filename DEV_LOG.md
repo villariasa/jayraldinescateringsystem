@@ -543,3 +543,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Specialized ticket format highlighting drink customizers: Ice Level (None, Less, Regular), Sweetness (0%, 50%, 100%), Milk Alternative.
 - Barcode printed on cup labels for quick scanning during drink handout.
 - Grouping orders by drink temperature (Hot vs Iced) to streamline espresso machine batching.
+
+### Chef Jay Natural Language Inventory Query Parser
+- Query intent parsing examples:
+  - "How many kilos of ribeye do we have for Saturday's wedding?" -> translates to SQL stock aggregation by event date.
+  - "Can we cater 150 pax Italian package tomorrow?" -> checks raw ingredients and venue availability in real time.
+- Context-aware conversation memory preserving active event ID across multi-turn assistant dialogues.
