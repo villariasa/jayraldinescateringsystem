@@ -458,3 +458,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Automated Purchase Order (PO) generation when raw ingredient stocks dip below minimum safety stock levels.
 - Historical cost variance tracking comparing supplier quoted prices vs historical market averages.
 - Vendor rating system evaluating on-time delivery reliability and fresh produce quality scores.
+
+### End-of-Day (Z-Reading) Ledger Balancing
+- Standardized reconciliation procedure comparing POS reported tenders against bank settlement slips.
+- Handles multi-channel payment streams: Cash, Credit Cards (Terminal batch settling), GCash, Maya, Bank Transfer.
+- Automatic journal entry generation ready for export to external accounting software.
