@@ -473,3 +473,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added composite B-Tree indexes on `(event_date, status)` to accelerate live calendar queries.
 - Implemented PostgreSQL trigram indexes (`pg_trgm`) on customer name and phone number for fuzzy search.
 - Analyzed query execution plans (`EXPLAIN ANALYZE`) to eliminate sequential scans across historical archives.
+
+### Table Service Status Tracking & Staff Assignments
+- Defined table lifecycle states: `RESERVED` -> `SEATED` -> `APPETIZERS_SERVED` -> `MAINS_SERVED` -> `DESSERT` -> `BUSSED`.
+- Waitstaff zone assignment mapping ensuring balanced server workload across banquet dining areas.
+- Tablet visual alert notifies staff when a seated table has not received appetizers within 20 minutes.
