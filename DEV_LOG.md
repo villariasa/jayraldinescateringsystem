@@ -478,3 +478,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Defined table lifecycle states: `RESERVED` -> `SEATED` -> `APPETIZERS_SERVED` -> `MAINS_SERVED` -> `DESSERT` -> `BUSSED`.
 - Waitstaff zone assignment mapping ensuring balanced server workload across banquet dining areas.
 - Tablet visual alert notifies staff when a seated table has not received appetizers within 20 minutes.
+
+### Waitstaff Tip Pooling & Distribution Rules
+- Configured tip distribution engine supporting both individual tip recording and shift-wide point-based pooling.
+- Points weighting: Captain Waiter (1.5 pts), Waitstaff (1.0 pt), Dishwasher/Busser (0.8 pt), Barista (1.0 pt).
+- Automated end-of-shift tip payout sheet with digital receipt acknowledgment.
