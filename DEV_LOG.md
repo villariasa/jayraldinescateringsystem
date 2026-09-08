@@ -842,3 +842,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Evaluated horizontal read replica architecture using PostgreSQL streaming replication for multi-building catering venues.
 - Master node dedicated to write transactions (orders, payments, reservations).
 - Secondary nodes serve read-heavy menu browsing and reporting queries, isolating POS transaction processing from traffic spikes.
+
+### Event Photo Gallery & Memory Package Addon
+- Feature specification allowing clients to upload event photos to a secured cloud gallery link.
+- QR code printed on banquet place cards allowing guests to scan and view event program photos and thank-you notes.
+- Integrated into catering upsell packages as a high-margin digital keepsake service.
