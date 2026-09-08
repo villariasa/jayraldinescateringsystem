@@ -802,3 +802,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Daily digital tip ledger capturing total electronic and cash gratuities accrued.
 - Automatic allocation to waitstaff, bussers, and kitchen crew based on logged shift hours.
 - Requires dual biometric or PIN approval from shift supervisor and head cashier before disbursement.
+
+### Table Turnover Rate & Dining Duration Analytics
+- Analytics dashboard tracking average customer dining duration across different meal periods (Lunch: 45m, Dinner: 75m, Banquets: 3h).
+- Identifies bottleneck stages where tables sit cleared but unpaid, or food service takes longer than standard benchmarks.
+- Helps sales team accurately schedule multiple seatings in restaurant dining areas.
