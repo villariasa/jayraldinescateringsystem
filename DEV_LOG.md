@@ -741,3 +741,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured 24V 250ms electrical pulse signal dispatched to RJ12 port on thermal receipt printer.
 - Support for dual cash drawer configurations (Drawer 1 for primary cash register, Drawer 2 for supervisor float).
 - Added security interlock preventing consecutive drawer kicks within a 5-second cooldown window.
+
+### Barcode & QR Scanner Integration Standards
+- Outlined support for USB/Bluetooth barcode readers operating in HID keyboard wedge mode.
+- Configured prefix (`~`) and suffix (`\n`) delimiters to distinguish scanner input from manual keyboard typing.
+- Supports Code 128 (equipment asset tags) and QR Code (order tracking tokens and digital receipts).
