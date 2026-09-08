@@ -822,3 +822,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured theme tokens via CSS custom properties (`--brand-primary`, `--brand-accent`, `--brand-background`).
 - Supports rapid white-label customization for corporate clients hosting private branded gala dinners.
 - Client branding colors and logo uploaded in manager settings dynamically update all tablet kiosk interfaces.
+
+### Screen Burn-in Prevention for Kiosk Displays
+- Implemented subtle periodic micro-shifting (1–2 pixels every 10 minutes) for static status bars and navigation headers.
+- Automatic ambient dimming during non-business hours or when proximity sensors detect an empty dining hall.
+- Preserves OLED and IPS tablet panel longevity under continuous 24/7 operational conditions.
