@@ -726,3 +726,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented Philippine statutory discount calculation: 20% discount on food consumed by senior/PWD + 12% VAT exemption.
 - Formula: `Gross / 1.12 * 0.80` applied proportionately based on ratio of eligible seniors/PWDs to total banquet headcount.
 - Requires recording senior/PWD booklet ID and customer full name on audit receipts for BIR compliance.
+
+### Electronic Signature Canvas Rasterization
+- Implemented HTML5 signature pad with variable-width Bézier curve smoothing for natural pen strokes.
+- Compresses captured vector paths into monochrome PNG raster format (under 15KB per signature).
+- Automatically embeds signature image into contractual agreement PDFs alongside timestamp and IP address.
