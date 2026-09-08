@@ -832,3 +832,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured autovacuum settings for write-heavy tables (`orders`, `order_items`, `audit_logs`): `autovacuum_vacuum_scale_factor = 0.05`.
 - Scheduled nightly maintenance job running `REINDEX TABLE CONCURRENTLY` during off-peak hours (3:00 AM).
 - Prevents database bloat and ensures consistent sub-50ms query response times.
+
+### PostgreSQL Keepalive & TCP Socket Timeouts
+- Configured TCP keepalive parameters in `postgresql.conf`: `tcp_keepalives_idle = 60`, `tcp_keepalives_interval = 10`, `tcp_keepalives_count = 3`.
+- Automatically terminates stale or half-open TCP connections caused by mobile tablets dropping off Wi-Fi range.
+- Prevents connection exhaustion in high-turnover tablet environments.
