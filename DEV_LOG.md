@@ -671,3 +671,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Outlined socket binding verification ensuring PostgreSQL binds to `0.0.0.0` or specific LAN interface IP.
 - Automated generation of OS-specific firewall rules allowing incoming connections on TCP port 5432.
 - Added port conflict detection with automated fallback to secondary port (e.g. 5433) if default port is occupied.
+
+### Secure Random Password Generation Specification
+- Configured cryptographically secure PRNG (Python `secrets` module) generating 16-character alphanumeric passwords.
+- Excluded visually ambiguous characters (`O`, `0`, `I`, `l`, `1`) to facilitate manual operator verification if necessary.
+- Passwords scoped exclusively to the dedicated `jayraldinedb` service user.
