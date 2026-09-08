@@ -852,3 +852,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Dedicated account billing module for vetted corporate and institutional clients.
 - Generates official BIR-compliant billing statements with Net-15 or Net-30 payment due dates.
 - Automated payment reminder emails dispatched 7 days and 1 day prior to invoice due date.
+
+### Purchase Price Variance (PPV) Reporting
+- Real-time comparison of actual supplier invoice prices against standard budgeted ingredient costs.
+- Flags ingredients where price increased by more than 10% compared to previous month's rolling average.
+- Provides executive chef with early warning to update catering package prices or adjust recipe ingredients.
