@@ -646,3 +646,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented a 300ms debounce guard on "Next" and "Back" wizard navigation buttons to eliminate rapid multi-tap race conditions.
 - Replaced standard click listeners with unified pointer events (`pointerdown`, `pointerup`) for immediate touch response.
 - Disabled pinch-to-zoom and double-tap zoom via CSS touch-action properties on all interactive controls.
+
+### Android Back Button Interceptor
+- Intercepted native Android hardware back button via JS history state management (`popstate` listener).
+- Displays animated confirmation modal: "Discard current booking and return to home screen?".
+- Prevents accidental loss of complex catering booking configurations when customers press the tablet navigation bar.
