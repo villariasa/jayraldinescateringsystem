@@ -766,3 +766,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented standard vegetable prep yields (e.g. onions 88%, bell peppers 82%, potatoes 80% after peeling and trimming).
 - Incorporates yield factor into recipe purchasing formulas to ensure sufficient raw quantities are ordered.
 - Kitchen prep staff log actual yield variance to track kitchen knife skills and reduce ingredient waste.
+
+### Tableware Loss & Damage Billing Workflow
+- Structured standard replacement fee schedule for dining assets: Wine glasses (₱150), Melamine plates (₱120), Silverware (₱60).
+- Post-event count reconciliation recorded by site captain directly on the tablet app.
+- System automatically generates itemized damage statement and deducts charges from client security deposit.
