@@ -599,3 +599,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Successfully finalized 60-part documentation and architectural enhancement series for Jayraldine's Catering System.
 - Comprehensive coverage spanning Centralized PostgreSQL LAN Server, Chef Jay AI RBAC, KDS, Thermal Printers, and Security.
 - All additions strictly restricted to markdown documentation files with zero code modification.
+
+## September 8, 2026 - Android APK Integration, Wizard Architecture & Daily Dev Notes
+
+### Android Native Bridge & WebView Communication Architecture
+- Implemented `@JavascriptInterface` bridge in `MainActivity.java` allowing Tablet PWA to trigger native Android capabilities.
+- Exposed methods for hardware thermal printing, screen brightness adjustment, and kiosk lock-task mode pinning.
+- Added bidirectional message dispatch: Webview sends JSON commands to Android layer; Android broadcasts connectivity and battery status events back into JavaScript.
