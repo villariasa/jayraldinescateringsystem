@@ -626,3 +626,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Refactored `lottie-helper.js` to preload and cache animation definitions in an in-memory dictionary.
 - Switched default renderer from SVG to hardware-accelerated Canvas for complex looping animations.
 - Capped animation framerate to 45 FPS on battery power to avoid thermal throttling during continuous kiosk operation.
+
+### Multi-Step Catering Wizard State Machine
+- Implemented finite state machine (FSM) in `wizard.js` managing transitions: Event Details -> Package Selection -> Menu Customization -> Addons -> Review.
+- Added strict transition guards preventing step advancement when mandatory inputs (guest count, date, contact info) are invalid.
+- Persisted active wizard progress to `sessionStorage` to prevent data loss on accidental view navigation.
