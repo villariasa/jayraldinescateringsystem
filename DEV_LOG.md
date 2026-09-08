@@ -656,3 +656,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated `navigator.storage.estimate()` to dynamically monitor available device storage on the tablet.
 - Tiered data architecture: Ephemeral session state in `sessionStorage`, settings in `localStorage`, large media & offline logs in `IndexedDB`.
 - Automated cleanup routine purging cached images and animation frames when storage usage exceeds 80% threshold.
+
+### Network Status Badge & Reconnection Toasts
+- Built responsive UI badge in top app header reflecting live network connectivity: Online (Green), Connecting (Amber), Offline (Red).
+- Displays subtle non-blocking toast notifications on connectivity state transitions.
+- Automatically triggers background transaction queue synchronization immediately upon network restoration.
