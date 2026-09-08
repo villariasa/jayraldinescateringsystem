@@ -771,3 +771,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured standard replacement fee schedule for dining assets: Wine glasses (₱150), Melamine plates (₱120), Silverware (₱60).
 - Post-event count reconciliation recorded by site captain directly on the tablet app.
 - System automatically generates itemized damage statement and deducts charges from client security deposit.
+
+### Event Teardown Checklist & Captain Sign-off
+- Digital checklist covering post-event site inspection: Chafing fuels extinguished, venue floors swept, rental equipment packed.
+- Venue manager signature captured digitally on tablet confirming the hall is returned in clean condition.
+- Completion of teardown checklist triggers automatic return of venue security deposit to client ledger.
