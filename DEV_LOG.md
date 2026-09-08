@@ -857,3 +857,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Real-time comparison of actual supplier invoice prices against standard budgeted ingredient costs.
 - Flags ingredients where price increased by more than 10% compared to previous month's rolling average.
 - Provides executive chef with early warning to update catering package prices or adjust recipe ingredients.
+
+### Daily Cash Float & Petty Cash Tracking
+- Standardized opening cash float amount (₱5,000 in mixed denominations) verified by head cashier daily.
+- Separate petty cash register for emergency kitchen purchases (e.g. extra herbs or ice from local markets).
+- Mandatory receipt photo capture and supervisor approval before petty cash reimbursement is approved.
