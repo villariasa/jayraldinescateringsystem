@@ -887,3 +887,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured encrypted rsync / S3-compatible cloud backup pipeline running nightly after local `pg_dump` completion.
 - Backups encrypted using AES-256 before transmission over HTTPS.
 - Guarantees disaster recovery capability even in the event of local hardware theft or fire damage at the catering commissary.
+
+### Menu Price Change Audit Trail
+- Structured table `menu_price_audit` capturing `dish_id`, `old_price`, `new_price`, `reason`, `authorized_by`, and `effective_date`.
+- Preserves historical dish price ledger so previously finalized quotes remain unaffected by future price increases.
+- Exportable report for corporate price review meetings and profit margin tracking.
