@@ -661,3 +661,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Built responsive UI badge in top app header reflecting live network connectivity: Online (Green), Connecting (Amber), Offline (Red).
 - Displays subtle non-blocking toast notifications on connectivity state transitions.
 - Automatically triggers background transaction queue synchronization immediately upon network restoration.
+
+### Central DB Server Setup Wizard Flow
+- Documented installer wizard paths: "Set up Server" (host instance) vs "Connect to Server" (client node).
+- Validates prerequisites: Available disk space (min 2GB), RAM (min 4GB), and TCP port 5432 availability.
+- Prevents setup continuation until database connectivity handshake succeeds.
