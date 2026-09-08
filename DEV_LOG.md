@@ -631,3 +631,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented finite state machine (FSM) in `wizard.js` managing transitions: Event Details -> Package Selection -> Menu Customization -> Addons -> Review.
 - Added strict transition guards preventing step advancement when mandatory inputs (guest count, date, contact info) are invalid.
 - Persisted active wizard progress to `sessionStorage` to prevent data loss on accidental view navigation.
+
+### Cart Item Customization Options
+- Structured dish customization schema supporting modifiers: Spiciness Level (Mild, Medium, Hot), Serving Style (Buffet, Plated, Family Style).
+- Added portion multiplier options for heavy-consumption event categories (e.g., sports banquets, teen parties).
+- Formatted item modifier badges inside cart drawer and printed receipts.
