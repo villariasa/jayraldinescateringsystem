@@ -711,3 +711,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized SVG/Canvas coordinate grid (1 pixel = 5cm real-world scale) for banquet hall floor plans.
 - Added bounding-box collision detection preventing overlapping placement of dining tables, stage, or dance floors.
 - Snap-to-grid alignment helpers (0.5m grid intervals) for orderly arrangement of large banquet layouts.
+
+### Kitchen Order Ticket (KOT) Reprint Audit Logging
+- Re-printing kitchen tickets requires cashier supervisor PIN entry and reason selection (Damaged, Lost, Additional Copy).
+- Duplicate tickets watermarked prominently with bold header: `*** REPRINT / DUPLICATE - DO NOT RE-PREPARE ***`.
+- Prevents accidental double preparation of expensive catering dishes during busy kitchen hours.
