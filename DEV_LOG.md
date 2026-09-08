@@ -751,3 +751,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized 8-key bump bar hardware layout: Keys 1–5 (Select Order), Key 6 (Bump/Complete), Key 7 (Recall), Key 8 (Hold).
 - Added order pacing timers highlighting orders that must be started to coordinate simultaneous delivery for banquet courses.
 - Audio beep feedback emitted on successful order bump.
+
+### Inventory FIFO Batch Tracking & Expiry Alerts
+- Structured inventory batch table recording lot number, arrival date, expiration date, and purchase unit cost.
+- Automatically allocates stock according to First-In, First-Out (FIFO) discipline during dish recipe deductions.
+- Generates daily shelf-life alert report highlighting perishable ingredients expiring within 48 hours.
