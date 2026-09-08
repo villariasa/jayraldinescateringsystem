@@ -781,3 +781,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Vehicle profile tracking: Cargo volume (cubic meters), weight limit (kg), and refrigeration capabilities.
 - Staging algorithm assigns catering orders to delivery vans according to geographical delivery routes and event start times.
 - Packing slip generated with loading order: Last drop-off loaded first, first drop-off loaded last.
+
+### Quotation Versioning & Change-Order Tracking
+- Every modification to an active quotation generates a new revision tag (`REV-A`, `REV-B`, `REV-C`).
+- Preserves historical price quotes and headcount variations for client comparison.
+- Client signature locks the final approved revision into the active catering contract.
