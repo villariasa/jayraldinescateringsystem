@@ -892,3 +892,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured table `menu_price_audit` capturing `dish_id`, `old_price`, `new_price`, `reason`, `authorized_by`, and `effective_date`.
 - Preserves historical dish price ledger so previously finalized quotes remain unaffected by future price increases.
 - Exportable report for corporate price review meetings and profit margin tracking.
+
+### Android Kiosk Lock Task Mode & Screen Pinning
+- Configured `startLockTask()` in `MainActivity.java` making the application an unescapable dedicated kiosk device.
+- Disables home button, notifications pull-down drawer, and status bar interactions for guest users.
+- Exit from kiosk mode requires 5 taps on the hidden brand logo and correct entry of the supervisor master PIN.
