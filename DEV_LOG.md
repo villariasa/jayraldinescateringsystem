@@ -651,3 +651,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Intercepted native Android hardware back button via JS history state management (`popstate` listener).
 - Displays animated confirmation modal: "Discard current booking and return to home screen?".
 - Prevents accidental loss of complex catering booking configurations when customers press the tablet navigation bar.
+
+### Storage Quota Monitoring & Tiering
+- Integrated `navigator.storage.estimate()` to dynamically monitor available device storage on the tablet.
+- Tiered data architecture: Ephemeral session state in `sessionStorage`, settings in `localStorage`, large media & offline logs in `IndexedDB`.
+- Automated cleanup routine purging cached images and animation frames when storage usage exceeds 80% threshold.
