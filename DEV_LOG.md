@@ -696,3 +696,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Grounded AI responses strictly in real-time database query results for inventory stock and booking availability.
 - Built pre-prompt validator intercepting ungrounded price assertions or non-existent menu items.
 - If inventory data is unavailable, AI is instructed to acknowledge uncertainty rather than estimate numbers.
+
+### Chef Jay Token Usage & Rate Limiting
+- Tracked prompt and completion token counts per user session in PostgreSQL `ai_usage_ledger`.
+- Implemented sliding-window rate limiter capping requests at 20 queries per minute per workstation terminal.
+- Generates monthly AI cost allocation report broken down by department (Sales, Kitchen, Administration).
