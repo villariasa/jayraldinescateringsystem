@@ -616,3 +616,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added keep rules for JavaScript interface methods to prevent compiler stripping or renaming of native call targets.
 - Configured R8 rules preserving `androidx.webkit.WebViewAssetLoader` classes and internal path handlers.
 - Verified absence of runtime `NoSuchMethodError` exceptions during offline asset retrieval across release builds.
+
+### Android Splash Screen API & PWA Handover
+- Implemented Android 12+ `SplashScreen` API with animated brand vector icon and solid background theme.
+- Configured exit animation listener to keep the splash screen visible until PWA DOM initialization reports readiness.
+- Eliminates unsightly white flashes during cold boot on low-cost tablet devices.
