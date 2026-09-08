@@ -862,3 +862,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized opening cash float amount (₱5,000 in mixed denominations) verified by head cashier daily.
 - Separate petty cash register for emergency kitchen purchases (e.g. extra herbs or ice from local markets).
 - Mandatory receipt photo capture and supervisor approval before petty cash reimbursement is approved.
+
+### Buffet Line Food Temperature Audit Logging
+- Quality assurance policy requiring hourly temperature checks on active buffet chafing dishes.
+- Hot food items must maintain minimum 65°C; cold dessert bars must maintain under 5°C.
+- Site captain logs temperature readings using digital probe thermometer directly into the mobile audit form.
