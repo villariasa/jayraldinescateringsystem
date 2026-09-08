@@ -827,3 +827,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented subtle periodic micro-shifting (1–2 pixels every 10 minutes) for static status bars and navigation headers.
 - Automatic ambient dimming during non-business hours or when proximity sensors detect an empty dining hall.
 - Preserves OLED and IPS tablet panel longevity under continuous 24/7 operational conditions.
+
+### PostgreSQL Autovacuum & Index Defragmentation Tuning
+- Configured autovacuum settings for write-heavy tables (`orders`, `order_items`, `audit_logs`): `autovacuum_vacuum_scale_factor = 0.05`.
+- Scheduled nightly maintenance job running `REINDEX TABLE CONCURRENTLY` during off-peak hours (3:00 AM).
+- Prevents database bloat and ensures consistent sub-50ms query response times.
