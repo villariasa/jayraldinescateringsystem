@@ -606,3 +606,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented `@JavascriptInterface` bridge in `MainActivity.java` allowing Tablet PWA to trigger native Android capabilities.
 - Exposed methods for hardware thermal printing, screen brightness adjustment, and kiosk lock-task mode pinning.
 - Added bidirectional message dispatch: Webview sends JSON commands to Android layer; Android broadcasts connectivity and battery status events back into JavaScript.
+
+### Gradle Build Configuration & APK Size Optimization
+- Configured ABI split filters in `build.gradle` to generate streamlined architecture-specific APKs (`arm64-v8a`, `armeabi-v7a`).
+- Enabled resource shrinking (`shrinkResources true`) and code minification (`minifyEnabled true`) on release build targets.
+- Stripped unused localization resources and bundled font weights, achieving a 34% reduction in overall APK footprint.
