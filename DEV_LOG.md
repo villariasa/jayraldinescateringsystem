@@ -877,3 +877,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Post-event digital survey sent via SMS/Email with 5-star ratings across Food Taste, Presentation, Staff Courteousness, and Punctuality.
 - Sentiment analysis classifier tags feedback: Positive, Neutral, Negative.
 - Any survey rating below 3 stars triggers an immediate high-priority SMS alert to the catering general manager for service recovery.
+
+### Multi-Lingual Menu Support (English & Filipino)
+- Structured localization dictionary supporting bilingual display for menu items and allergen warnings.
+- One-tap language switcher icon in kiosk header allowing seamless toggling between English and Filipino/Tagalog.
+- Default locale automatically selected based on tablet system configuration.
