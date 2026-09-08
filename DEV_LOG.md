@@ -636,3 +636,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured dish customization schema supporting modifiers: Spiciness Level (Mild, Medium, Hot), Serving Style (Buffet, Plated, Family Style).
 - Added portion multiplier options for heavy-consumption event categories (e.g., sports banquets, teen parties).
 - Formatted item modifier badges inside cart drawer and printed receipts.
+
+### Package Dish Substitution Matrix & Differential Pricing
+- Defined substitution rules allowing customers to swap standard buffet mains for premium dishes.
+- Built real-time price differential calculator: `New Price = Base Package + (Premium Dish Surcharge - Standard Dish Credit)`.
+- Enforced category balance constraint (e.g., pork dish must be replaced with another protein category).
