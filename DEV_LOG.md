@@ -776,3 +776,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Digital checklist covering post-event site inspection: Chafing fuels extinguished, venue floors swept, rental equipment packed.
 - Venue manager signature captured digitally on tablet confirming the hall is returned in clean condition.
 - Completion of teardown checklist triggers automatic return of venue security deposit to client ledger.
+
+### Delivery Vehicle Staging & Capacity Optimization
+- Vehicle profile tracking: Cargo volume (cubic meters), weight limit (kg), and refrigeration capabilities.
+- Staging algorithm assigns catering orders to delivery vans according to geographical delivery routes and event start times.
+- Packing slip generated with loading order: Last drop-off loaded first, first drop-off loaded last.
