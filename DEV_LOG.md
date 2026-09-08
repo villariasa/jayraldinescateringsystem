@@ -611,3 +611,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured ABI split filters in `build.gradle` to generate streamlined architecture-specific APKs (`arm64-v8a`, `armeabi-v7a`).
 - Enabled resource shrinking (`shrinkResources true`) and code minification (`minifyEnabled true`) on release build targets.
 - Stripped unused localization resources and bundled font weights, achieving a 34% reduction in overall APK footprint.
+
+### ProGuard & R8 Obfuscation Rules for WebView
+- Added keep rules for JavaScript interface methods to prevent compiler stripping or renaming of native call targets.
+- Configured R8 rules preserving `androidx.webkit.WebViewAssetLoader` classes and internal path handlers.
+- Verified absence of runtime `NoSuchMethodError` exceptions during offline asset retrieval across release builds.
