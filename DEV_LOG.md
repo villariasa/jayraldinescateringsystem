@@ -716,3 +716,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Re-printing kitchen tickets requires cashier supervisor PIN entry and reason selection (Damaged, Lost, Additional Copy).
 - Duplicate tickets watermarked prominently with bold header: `*** REPRINT / DUPLICATE - DO NOT RE-PREPARE ***`.
 - Prevents accidental double preparation of expensive catering dishes during busy kitchen hours.
+
+### Split-Billing & Multi-Tender Payment Settlement
+- Outlined split-payment engine supporting division by exact amount, equal head count split, or specific itemized dishes.
+- Accommodates mixed tender types on a single invoice (e.g. 50% Cash + 50% GCash).
+- Enforces strict ledger balancing ensuring the sum of all tender allocations matches total invoice payable to the cent.
