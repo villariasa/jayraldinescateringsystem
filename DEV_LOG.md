@@ -792,3 +792,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Tier 2 (15–29 days prior): 50% refund of deposit.
 - Tier 3 (Less than 14 days): Deposit non-refundable to cover non-recoverable ingredient purchases.
 - Automatic calculation of refundable balances during booking cancellation workflows.
+
+### Multi-Event Kitchen Prep Scheduling
+- Aggregates dish preparation requirements across multiple simultaneous catering bookings for the same day.
+- Consolidated prep lists generated for kitchen stations (e.g. combine 3 bookings requiring roast beef into a single oven batch).
+- Optimizes commercial kitchen cooking times and fuel efficiency.
