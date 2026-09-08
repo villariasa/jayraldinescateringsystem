@@ -691,3 +691,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Formulated system prompt establishing Chef Jay persona: Professional, knowledgeable culinary advisor and banquet coordinator.
 - Embedded catering business rules: Standard portion allowances, package pricing minimums, allergen safety protocols.
 - Structured response formats to enforce concise bulleted lists and standardized JSON function calls.
+
+### Chef Jay AI Safety Filters & Hallucination Mitigation
+- Grounded AI responses strictly in real-time database query results for inventory stock and booking availability.
+- Built pre-prompt validator intercepting ungrounded price assertions or non-existent menu items.
+- If inventory data is unavailable, AI is instructed to acknowledge uncertainty rather than estimate numbers.
