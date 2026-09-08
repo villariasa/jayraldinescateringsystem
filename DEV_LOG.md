@@ -847,3 +847,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Feature specification allowing clients to upload event photos to a secured cloud gallery link.
 - QR code printed on banquet place cards allowing guests to scan and view event program photos and thank-you notes.
 - Integrated into catering upsell packages as a high-margin digital keepsake service.
+
+### Corporate Credit Terms & Net-30 Invoicing
+- Dedicated account billing module for vetted corporate and institutional clients.
+- Generates official BIR-compliant billing statements with Net-15 or Net-30 payment due dates.
+- Automated payment reminder emails dispatched 7 days and 1 day prior to invoice due date.
