@@ -867,3 +867,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Quality assurance policy requiring hourly temperature checks on active buffet chafing dishes.
 - Hot food items must maintain minimum 65°C; cold dessert bars must maintain under 5°C.
 - Site captain logs temperature readings using digital probe thermometer directly into the mobile audit form.
+
+### Service Staff Hygiene & Grooming Inspection
+- Pre-shift inspection checklist: Clean ironed uniform, hairnet/chef hat, trimmed nails, name tag, non-slip shoes.
+- Staff wellness check confirming absence of flu or food-borne illness symptoms before stepping into the kitchen or dining hall.
+- Digital records archived for health inspection compliance and hospitality standards enforcement.
