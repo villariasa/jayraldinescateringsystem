@@ -761,3 +761,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Mandatory recording of delivery temperature and supplier lot number for all raw meat, poultry, and seafood deliveries.
 - Rejection protocol: Deliveries with surface temperature above 4°C are flagged for immediate vendor return.
 - Full traceability linking final banquet booking orders back to raw meat delivery batches in case of food safety audits.
+
+### Vegetable Prep Yield & Shrinkage Allowance
+- Documented standard vegetable prep yields (e.g. onions 88%, bell peppers 82%, potatoes 80% after peeling and trimming).
+- Incorporates yield factor into recipe purchasing formulas to ensure sufficient raw quantities are ordered.
+- Kitchen prep staff log actual yield variance to track kitchen knife skills and reduce ingredient waste.
