@@ -701,3 +701,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Tracked prompt and completion token counts per user session in PostgreSQL `ai_usage_ledger`.
 - Implemented sliding-window rate limiter capping requests at 20 queries per minute per workstation terminal.
 - Generates monthly AI cost allocation report broken down by department (Sales, Kitchen, Administration).
+
+### Chef Jay Per-Module Permission Gating
+- Verified caller session permissions before executing any AI tool that mutates system state.
+- Unauthorized actions prompt response: "You do not have administrative permission to modify catering prices or menus.".
+- Maintains consistent security boundary regardless of whether user acts via UI buttons or natural language queries.
