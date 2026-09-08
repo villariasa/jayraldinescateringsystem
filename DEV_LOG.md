@@ -872,3 +872,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Pre-shift inspection checklist: Clean ironed uniform, hairnet/chef hat, trimmed nails, name tag, non-slip shoes.
 - Staff wellness check confirming absence of flu or food-borne illness symptoms before stepping into the kitchen or dining hall.
 - Digital records archived for health inspection compliance and hospitality standards enforcement.
+
+### Customer Satisfaction Survey & Sentiment Analysis
+- Post-event digital survey sent via SMS/Email with 5-star ratings across Food Taste, Presentation, Staff Courteousness, and Punctuality.
+- Sentiment analysis classifier tags feedback: Positive, Neutral, Negative.
+- Any survey rating below 3 stars triggers an immediate high-priority SMS alert to the catering general manager for service recovery.
