@@ -837,3 +837,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured TCP keepalive parameters in `postgresql.conf`: `tcp_keepalives_idle = 60`, `tcp_keepalives_interval = 10`, `tcp_keepalives_count = 3`.
 - Automatically terminates stale or half-open TCP connections caused by mobile tablets dropping off Wi-Fi range.
 - Prevents connection exhaustion in high-turnover tablet environments.
+
+### Read Replica Scaling Feasibility Analysis
+- Evaluated horizontal read replica architecture using PostgreSQL streaming replication for multi-building catering venues.
+- Master node dedicated to write transactions (orders, payments, reservations).
+- Secondary nodes serve read-heavy menu browsing and reporting queries, isolating POS transaction processing from traffic spikes.
