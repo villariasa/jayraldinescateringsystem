@@ -756,3 +756,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured inventory batch table recording lot number, arrival date, expiration date, and purchase unit cost.
 - Automatically allocates stock according to First-In, First-Out (FIFO) discipline during dish recipe deductions.
 - Generates daily shelf-life alert report highlighting perishable ingredients expiring within 48 hours.
+
+### Cold Chain Traceability & Supplier Lot Numbers
+- Mandatory recording of delivery temperature and supplier lot number for all raw meat, poultry, and seafood deliveries.
+- Rejection protocol: Deliveries with surface temperature above 4°C are flagged for immediate vendor return.
+- Full traceability linking final banquet booking orders back to raw meat delivery batches in case of food safety audits.
