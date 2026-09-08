@@ -686,3 +686,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented 3-stage connection handshake: TCP socket ping -> SSL negotiation -> Authentication query (`SELECT 1`).
 - Configured timeout limits (2000ms per stage) with 3 exponential backoff retries.
 - Produces actionable error messages for common failure causes (Network Unreachable, Authentication Denied, Firewall Block).
+
+### Chef Jay AI System Instructions & Prompt Engineering
+- Formulated system prompt establishing Chef Jay persona: Professional, knowledgeable culinary advisor and banquet coordinator.
+- Embedded catering business rules: Standard portion allowances, package pricing minimums, allergen safety protocols.
+- Structured response formats to enforce concise bulleted lists and standardized JSON function calls.
