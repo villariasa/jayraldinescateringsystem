@@ -807,3 +807,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Analytics dashboard tracking average customer dining duration across different meal periods (Lunch: 45m, Dinner: 75m, Banquets: 3h).
 - Identifies bottleneck stages where tables sit cleared but unpaid, or food service takes longer than standard benchmarks.
 - Helps sales team accurately schedule multiple seatings in restaurant dining areas.
+
+### Kiosk Attract Loop Playback Lifecycle
+- Configured looping showcase animation displaying signature dishes and promo packages when kiosk is idle for over 2 minutes.
+- Pauses video/canvas rendering immediately upon first user touch to free CPU/GPU resources for the order wizard.
+- Automatically resumes playback after session reset or cart abandonment timeout.
