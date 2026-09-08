@@ -746,3 +746,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Outlined support for USB/Bluetooth barcode readers operating in HID keyboard wedge mode.
 - Configured prefix (`~`) and suffix (`\n`) delimiters to distinguish scanner input from manual keyboard typing.
 - Supports Code 128 (equipment asset tags) and QR Code (order tracking tokens and digital receipts).
+
+### Kitchen Expediter Bump Bar Mappings & Order Pacing
+- Standardized 8-key bump bar hardware layout: Keys 1–5 (Select Order), Key 6 (Bump/Complete), Key 7 (Recall), Key 8 (Hold).
+- Added order pacing timers highlighting orders that must be started to coordinate simultaneous delivery for banquet courses.
+- Audio beep feedback emitted on successful order bump.
