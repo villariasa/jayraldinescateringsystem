@@ -621,3 +621,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented Android 12+ `SplashScreen` API with animated brand vector icon and solid background theme.
 - Configured exit animation listener to keep the splash screen visible until PWA DOM initialization reports readiness.
 - Eliminates unsightly white flashes during cold boot on low-cost tablet devices.
+
+### Lottie Helper Runtime Caching & Path Rendering
+- Refactored `lottie-helper.js` to preload and cache animation definitions in an in-memory dictionary.
+- Switched default renderer from SVG to hardware-accelerated Canvas for complex looping animations.
+- Capped animation framerate to 45 FPS on battery power to avoid thermal throttling during continuous kiosk operation.
