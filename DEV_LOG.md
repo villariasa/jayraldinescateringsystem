@@ -736,3 +736,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Designed automatic reconnection loop retrying dropped Bluetooth serial connections every 3 seconds.
 - Queries printer status bytes (`DLE EOT 1`, `DLE EOT 2`) to identify paper-out, cover-open, or cutter-jam conditions.
 - Displays visual warning icon on kiosk screen when receipt printer requires paper replenishment.
+
+### Dual Cash Drawer Solenoid Pulse Timing
+- Configured 24V 250ms electrical pulse signal dispatched to RJ12 port on thermal receipt printer.
+- Support for dual cash drawer configurations (Drawer 1 for primary cash register, Drawer 2 for supervisor float).
+- Added security interlock preventing consecutive drawer kicks within a 5-second cooldown window.
