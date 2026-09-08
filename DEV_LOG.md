@@ -731,3 +731,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented HTML5 signature pad with variable-width Bézier curve smoothing for natural pen strokes.
 - Compresses captured vector paths into monochrome PNG raster format (under 15KB per signature).
 - Automatically embeds signature image into contractual agreement PDFs alongside timestamp and IP address.
+
+### Bluetooth Thermal Printer Reconnection & Error Handling
+- Designed automatic reconnection loop retrying dropped Bluetooth serial connections every 3 seconds.
+- Queries printer status bytes (`DLE EOT 1`, `DLE EOT 2`) to identify paper-out, cover-open, or cutter-jam conditions.
+- Displays visual warning icon on kiosk screen when receipt printer requires paper replenishment.
