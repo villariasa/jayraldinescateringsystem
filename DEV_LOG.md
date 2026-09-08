@@ -676,3 +676,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured cryptographically secure PRNG (Python `secrets` module) generating 16-character alphanumeric passwords.
 - Excluded visually ambiguous characters (`O`, `0`, `I`, `l`, `1`) to facilitate manual operator verification if necessary.
 - Passwords scoped exclusively to the dedicated `jayraldinedb` service user.
+
+### DB Connection Profile Export & Credentials Card
+- Generates printable single-sheet PDF containing LAN server host IP, port, database name, and service credentials.
+- Encodes connection profile into a compact Base64 encrypted pairing token for fast copy-pasting across network workstations.
+- Displayed once during initial server initialization with clear instructions to archive safely.
