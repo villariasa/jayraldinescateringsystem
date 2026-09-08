@@ -681,3 +681,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Generates printable single-sheet PDF containing LAN server host IP, port, database name, and service credentials.
 - Encodes connection profile into a compact Base64 encrypted pairing token for fast copy-pasting across network workstations.
 - Displayed once during initial server initialization with clear instructions to archive safely.
+
+### Client Connection Test Ping Heuristics
+- Implemented 3-stage connection handshake: TCP socket ping -> SSL negotiation -> Authentication query (`SELECT 1`).
+- Configured timeout limits (2000ms per stage) with 3 exponential backoff retries.
+- Produces actionable error messages for common failure causes (Network Unreachable, Authentication Denied, Firewall Block).
