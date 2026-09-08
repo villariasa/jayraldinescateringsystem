@@ -721,3 +721,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Outlined split-payment engine supporting division by exact amount, equal head count split, or specific itemized dishes.
 - Accommodates mixed tender types on a single invoice (e.g. 50% Cash + 50% GCash).
 - Enforces strict ledger balancing ensuring the sum of all tender allocations matches total invoice payable to the cent.
+
+### Senior Citizen & PWD Statutory Discount Compliance
+- Implemented Philippine statutory discount calculation: 20% discount on food consumed by senior/PWD + 12% VAT exemption.
+- Formula: `Gross / 1.12 * 0.80` applied proportionately based on ratio of eligible seniors/PWDs to total banquet headcount.
+- Requires recording senior/PWD booklet ID and customer full name on audit receipts for BIR compliance.
