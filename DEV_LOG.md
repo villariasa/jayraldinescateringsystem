@@ -786,3 +786,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Every modification to an active quotation generates a new revision tag (`REV-A`, `REV-B`, `REV-C`).
 - Preserves historical price quotes and headcount variations for client comparison.
 - Client signature locks the final approved revision into the active catering contract.
+
+### Deposit Refund Policy & Cancellation Penalty Tiers
+- Tier 1 (30+ days prior to event): 90% refund of deposit (10% administrative processing fee).
+- Tier 2 (15–29 days prior): 50% refund of deposit.
+- Tier 3 (Less than 14 days): Deposit non-refundable to cover non-recoverable ingredient purchases.
+- Automatic calculation of refundable balances during booking cancellation workflows.
