@@ -666,3 +666,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented installer wizard paths: "Set up Server" (host instance) vs "Connect to Server" (client node).
 - Validates prerequisites: Available disk space (min 2GB), RAM (min 4GB), and TCP port 5432 availability.
 - Prevents setup continuation until database connectivity handshake succeeds.
+
+### PostgreSQL LAN Port Verification & Firewall Rules
+- Outlined socket binding verification ensuring PostgreSQL binds to `0.0.0.0` or specific LAN interface IP.
+- Automated generation of OS-specific firewall rules allowing incoming connections on TCP port 5432.
+- Added port conflict detection with automated fallback to secondary port (e.g. 5433) if default port is occupied.
