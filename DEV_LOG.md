@@ -1169,3 +1169,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Immediate booking confirmation dispatch containing event summary, reserved package, headcount, and balance schedule.
 - 48-hour automated reminder prompting client to confirm final guest headcount and review venue setup details.
 - Integrated two-way SMS reply parsing ("CONFIRM" or "ASSISTANCE") notifying the assigned event coordinator.
+
+### Post-Event Feedback Survey & NPS Calculation
+- Automated Net Promoter Score (NPS) survey dispatched morning after event completion.
+- Categorizes respondents: Promoters (Score 9-10), Passives (7-8), Detractors (0-6).
+- Any Detractor response immediately triggers an automated high-priority alert to the General Manager for customer recovery.
