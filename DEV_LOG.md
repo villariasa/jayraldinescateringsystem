@@ -1144,3 +1144,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - UI input requires recording official OSCA Senior Citizen ID number or PWD ID card registration number.
 - Scanned photo or camera capture of the valid government-issued ID stored securely alongside transaction audit log.
 - Enforces strict one-discount-per-beneficiary rule preventing duplicate discount claims on banquet invoices.
+
+### Multi-Tender Split Payment Balance Reconciliation
+- Ledger validator checks running total after each tender entry: `Remaining Balance = Invoice Total - Sum(Tenders)`.
+- Half-up rounding applied strictly at the final balance calculation stage to avoid rounding drift across partial splits.
+- Transaction cannot be finalized or printed until the remaining balance reaches exactly ₱0.00.
