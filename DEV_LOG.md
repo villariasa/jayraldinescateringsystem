@@ -1134,3 +1134,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Tuned hardware debouncing window to 120ms to eliminate false double-triggering on industrial mechanical switches.
 - Key hold guard: Holding down the bump key for more than 1 second triggers "Recall Last Bumped Order" function.
 - Audio click synthesized on cashier/KDS speaker providing tactile audio confirmation.
+
+### Customer CRM Milestone Birthday & Anniversary Auto-Tagging
+- Background cron job scans customer profile database daily for upcoming wedding anniversaries and milestone birthdays.
+- Automatically generates promotional email/SMS voucher offers 60 days prior to the milestone date.
+- Tracks repeat customer conversion rates and customer lifetime value (LTV) metrics.
