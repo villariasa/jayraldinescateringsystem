@@ -992,3 +992,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established dedicated prep stations with color-coded purple cutting boards and utensils for allergen-sensitive orders.
 - Segregated storage for high-risk allergens (crustaceans, peanuts, tree nuts) in sealed airtight bins with prominent warning labels.
 - Standard operating procedure for sanitizing slicers, knives, and prep counters between batch production runs.
+
+### Halal & Vegetarian Prep Segregation Guidelines
+- Dedicated cookware and storage racks clearly demarcated for certified Halal and vegetarian catering bookings.
+- Strict prohibition of pork or non-Halal poultry contact with designated Halal cooking vessels and utensils.
+- Verification checklist signed by executive chef prior to packing segregated dishes into insulated transport carriers.
