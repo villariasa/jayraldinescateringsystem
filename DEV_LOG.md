@@ -1129,3 +1129,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - 10 - 20 minutes: Bright amber warning border.
   - 20+ minutes: Urgent pulsing crimson border with chime alert.
 - Rush order flag causes ticket header to flash continuously until kitchen station acknowledges the ticket.
+
+### Bump Bar Physical Key Debouncing
+- Tuned hardware debouncing window to 120ms to eliminate false double-triggering on industrial mechanical switches.
+- Key hold guard: Holding down the bump key for more than 1 second triggers "Recall Last Bumped Order" function.
+- Audio click synthesized on cashier/KDS speaker providing tactile audio confirmation.
