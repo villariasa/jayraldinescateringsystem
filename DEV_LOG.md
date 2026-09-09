@@ -1194,3 +1194,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Tracks table occupancy cycles from guest seating to bill settlement and bussing.
 - Average turnover benchmark: 60 minutes for casual lunch service; 90 minutes for dinner service.
 - Identifies operational delays in kitchen preparation or cashier payment processing during rush lunch hours.
+
+### Multi-Hall Booking Overlap Detector & Turnover Buffer
+- Automated calendar collision detector preventing overlapping reservations across banquet halls (Grand Ballroom, Garden Pavillion, VIP Room).
+- Enforces mandatory 3-hour sanitization, floor buffing, and linen reset buffer between consecutive bookings in the same hall.
+- Highlights turn-around conflicts during event quote drafting phase.
