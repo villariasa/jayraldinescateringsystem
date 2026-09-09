@@ -1112,3 +1112,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Compact 80mm receipt format using condensed font mode (`ESC ! 1`) for itemized dish descriptions.
 - Code 128 barcode printed at receipt footer encoding the unique invoice number for rapid cashier scanning.
 - Clean separator lines (`--------------------------------`) creating distinct visual hierarchy between items, taxes, and balance.
+
+### Bluetooth Barcode Scanner Sleep State Recovery
+- Configured HID auto-reconnect listener detecting when wireless handheld scanners wake from power-save sleep mode.
+- Buffered scan input to prevent lost keystrokes when cashier triggers a scan while the device is establishing connection.
+- Visual audio indicator confirming successful scanner handshake on the POS display.
