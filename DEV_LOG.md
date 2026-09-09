@@ -919,3 +919,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Modeled food cost percentage (benchmark: 28-32%), direct labor expense (18-22%), and overhead allocation (12%).
 - Built gross margin calculator determining contribution margins per tier (Standard Buffet, Premium Plated, Executive Gala).
 - Configured breakeven guest headcount thresholds preventing sales reps from discounting below cost floor.
+
+### Client Contract Milestone Payments Schedule
+- Standardized milestone installment terms:
+  - 50% Initial Downpayment upon contract signing and date reservation locking.
+  - 30% Pre-Event Progress Payment due 14 calendar days prior to event date.
+  - 20% Final Settlement Balance due on the event day prior to commencement of food service.
+- Automatic milestone due-date calculation based on scheduled banquet event dates.
