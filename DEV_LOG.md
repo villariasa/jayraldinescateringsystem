@@ -1100,3 +1100,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - Plowhorses: High popularity, low margin (Re-engineer recipe or increase price slightly).
   - Puzzles: Low popularity, high margin (Reposition or highlight on kiosk screen).
   - Dogs: Low popularity, low margin (Candidate for retirement from package catalog).
+
+### Chef Jay Dynamic Demographic Portion Scaling
+- Adjusts ingredient purchasing recommendations based on event guest breakdown:
+  - Children (under 10): 0.5 standard adult portion.
+  - Teenagers / Young Adults: 1.25 standard adult portion (higher protein allocation).
+  - Senior Citizens: 0.8 standard portion with lower sodium and fat recommendations.
+- Prevents expensive over-preparation on specialized demographic events like christenings or golden anniversaries.
