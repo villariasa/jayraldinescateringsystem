@@ -1164,3 +1164,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Generates dynamic QR Ph EMVCo compliant payloads embedding exact transaction amount, invoice ID, and merchant sub-code.
 - Real-time webhook listener verifies payment gateway cryptographic signature before marking invoice as paid.
 - Fallback cashier manual verification screen for instances where customer has completed payment but webhook is delayed.
+
+### Booking Confirmation & 48-Hour Event Reminder Templates
+- Immediate booking confirmation dispatch containing event summary, reserved package, headcount, and balance schedule.
+- 48-hour automated reminder prompting client to confirm final guest headcount and review venue setup details.
+- Integrated two-way SMS reply parsing ("CONFIRM" or "ASSISTANCE") notifying the assigned event coordinator.
