@@ -1117,3 +1117,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured HID auto-reconnect listener detecting when wireless handheld scanners wake from power-save sleep mode.
 - Buffered scan input to prevent lost keystrokes when cashier triggers a scan while the device is establishing connection.
 - Visual audio indicator confirming successful scanner handshake on the POS display.
+
+### Cash Drawer Kick Signal Troubleshooting
+- Documented baud rate (9600 bps) and flow control settings for Prolific and FTDI USB-to-serial adapter chips.
+- Standardized pinout diagram for RJ11/RJ12 drawer kick connector (Pin 2 and Pin 4 solenoid trigger lines).
+- Diagnostic testing utility included in supervisor settings tab emitting test pulses to verify drawer operation.
