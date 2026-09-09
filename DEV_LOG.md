@@ -1057,3 +1057,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Linens sorted immediately upon teardown: White tablecloths, colored overlays, napkins, and skirting.
 - Immediate pre-treatment applied to heavy grease, wine, and coffee stains before packing into ventilated canvas laundry hampers.
 - Damp linens hung to dry if immediate laundry dispatch is unavailable to prevent mildew formation.
+
+### Tablet Kiosk Offline Queue Tamper Protection
+- Offline transaction records stored in IndexedDB encrypted using AES-GCM with device-specific key derivation.
+- Checksum validation hashes (`HMAC-SHA256`) appended to each transaction payload to detect tampering.
+- Client clock skew detection: Rejects orders with timestamps deviating more than 15 minutes from server heartbeat time.
