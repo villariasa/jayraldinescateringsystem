@@ -1077,3 +1077,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Server dispatches lightweight ping frame every 15 seconds; client responds with pong frame within 5-second timeout window.
 - If 2 consecutive pong responses are missed, connection is marked dead and automatic socket reconnection is initiated.
 - Mitigates stale socket states caused by aggressive tablet Wi-Fi power-saving sleep modes.
+
+### PostgreSQL Connection Pool Sizing for Peak Operations
+- Sized pool based on formula: `((core_count * 2) + effective_spindle_count)` resulting in 20 dedicated database worker connections.
+- PgBouncer configured in transaction pooling mode handling up to 150 concurrent client connections with sub-millisecond queuing.
+- Set `statement_timeout = '15s'` to terminate runaway analytical queries that could block cashier checkout locks.
