@@ -941,3 +941,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Accommodates creditable withholding tax deductions (1% for purchase of goods, 2% for purchase of services) from corporate clients.
 - Requires upload or digital entry of BIR Form 2307 certificate before deducting withholding tax from receivable balance.
 - Generates periodic tax credit reconciliation report for monthly and quarterly accounting filings.
+
+### Booking Refund Disbursement Workflow
+- Structured multi-stage refund approval process: Sales Agent Request -> Finance Audit -> General Manager Authorization.
+- Direct-to-bank or original-tender refund processing with mandatory proof of deposit attachment.
+- Automatic ledger adjustment reversing recognized revenues and restoring inventory reserve allocations.
