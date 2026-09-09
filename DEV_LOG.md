@@ -1037,3 +1037,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Synchronized course service where dedicated servers place plates simultaneously in front of all head table guests on cue.
 - Service from the guest's right side using the right hand; clearing plates from the right side once all guests have completed the course.
 - Dedicated sommelier/server stationed at head table for continuous wine, water, and champagne service.
+
+### Cocktail Hour Canapé Passing Workflow
+- Butler-style passed hors d'oeuvres circulated continuously during pre-dinner cocktail hour (typically 60-90 minutes).
+- Servers circulate in opposite clockwise and counter-clockwise patterns to ensure even coverage across the cocktail lounge.
+- Replenishment trays staged in satellite pantry with fresh garnishes to maintain visual presentation appeal.
