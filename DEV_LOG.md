@@ -1027,3 +1027,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Attire requirements: Pressed black collared dress shirt, tailored black trousers, polished black non-slip shoes, black apron, name badge.
 - Grooming guidelines: Hair neatly tied in hairnet, trimmed clean nails, minimal jewelry, clean-shaven or neatly trimmed facial hair.
 - Pre-event inspection conducted by banquet supervisor; non-compliant staff reassigned to back-of-house staging duties.
+
+### Banquet Table Setting Geometry & Placement
+- Standard formal cover: Charger plate centered 1 inch from table edge.
+- Silverware layout: Dinner fork and salad fork to the left; dinner knife (blade facing inward) and soup spoon to the right.
+- Glassware alignment: Water goblet positioned directly above the dinner knife, with wine glass to its right at a 45-degree angle.
