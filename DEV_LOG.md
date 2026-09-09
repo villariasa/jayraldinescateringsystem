@@ -1204,3 +1204,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Special holiday menu packages (e.g., Christmas Gala Buffet, New Year's Eve Banquet).
 - Early bird discount structure: 10% discount for bookings finalized and downpaid at least 90 days prior to December holidays.
 - Peak date surcharge applied to high-demand dates (December 15-31) to balance kitchen production capacity.
+
+### Nightly Backup Compression & Cloud Replication Drills
+- Nightly automated `pg_dump` compressed with gzip (`-Z 9`) uploaded to off-site encrypted storage.
+- Monthly scheduled recovery drill restoring latest snapshot to staging sandbox to verify backup data integrity.
+- Disaster recovery playbook verified with documented target recovery time under 30 minutes.
