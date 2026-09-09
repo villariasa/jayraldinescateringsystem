@@ -1007,3 +1007,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Insulated cold buffet display wells packed with commercial gel ice packs maintaining surface temperature under 5°C.
 - Dairy-based pastries, cheesecakes, and fresh fruit salads kept in refrigerated staging van until 15 minutes before buffet opening.
 - Replenishment in smaller frequent batches to prevent ambient temperature degradation in tropical event venues.
+
+### Mobile Cold Storage Van Temperature Telemetry
+- Bluetooth/cellular IoT temperature data loggers installed in all catering delivery vehicles.
+- Real-time alert dispatched to fleet manager if cargo bay temperature rises above 4°C during transit.
+- Continuous temperature log downloaded upon arrival and appended to event food safety compliance archives.
