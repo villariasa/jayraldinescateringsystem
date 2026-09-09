@@ -936,3 +936,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Built electronic receipt generator printing official serial numbers, Tax Identification Number (TIN), and BIR authority to print (ATP).
 - Itemizes VATable sales, VAT amount, zero-rated sales, and VAT-exempt sales conforming to Philippine tax regulations.
 - Digitally signed PDF receipts archived in central database with immutable transaction timestamps.
+
+### Withholding Tax (BIR Form 2307) Processing
+- Accommodates creditable withholding tax deductions (1% for purchase of goods, 2% for purchase of services) from corporate clients.
+- Requires upload or digital entry of BIR Form 2307 certificate before deducting withholding tax from receivable balance.
+- Generates periodic tax credit reconciliation report for monthly and quarterly accounting filings.
