@@ -1032,3 +1032,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standard formal cover: Charger plate centered 1 inch from table edge.
 - Silverware layout: Dinner fork and salad fork to the left; dinner knife (blade facing inward) and soup spoon to the right.
 - Glassware alignment: Water goblet positioned directly above the dinner knife, with wine glass to its right at a 45-degree angle.
+
+### VIP Head Table Synchronized Service Choreography
+- Synchronized course service where dedicated servers place plates simultaneously in front of all head table guests on cue.
+- Service from the guest's right side using the right hand; clearing plates from the right side once all guests have completed the course.
+- Dedicated sommelier/server stationed at head table for continuous wine, water, and champagne service.
