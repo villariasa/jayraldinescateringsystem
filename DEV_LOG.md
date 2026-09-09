@@ -1149,3 +1149,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Ledger validator checks running total after each tender entry: `Remaining Balance = Invoice Total - Sum(Tenders)`.
 - Half-up rounding applied strictly at the final balance calculation stage to avoid rounding drift across partial splits.
 - Transaction cannot be finalized or printed until the remaining balance reaches exactly ₱0.00.
+
+### End-of-Day Z-Reading Cash Balancing
+- Formal closing report summarizing: Gross Sales, Net Sales, Tax, Cash on Hand, Card Slips, E-Wallet Confirmations.
+- Cashier performs blind drop count; system calculates variance: `Variance = Counted Cash - Expected Cash`.
+- Variances exceeding ₱100 require mandatory written explanation and supervisor sign-off before shift closure.
