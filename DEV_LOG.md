@@ -1093,3 +1093,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - "Show outstanding receivables for wedding bookings this weekend." -> maps to SQL aggregation filtering unpaid wedding balances.
   - "What is our gross food cost margin on the Platinum Buffet package?" -> calculates recipe cost against selling price.
 - Outputs clean Markdown tables with formatted currency symbols (₱ PHP).
+
+### Chef Jay Automated Menu Engineering Matrix
+- Classifies menu items into 4 BCG-style culinary quadrants based on popularity (sales volume) and profitability (contribution margin):
+  - Stars: High popularity, high margin (Promote and preserve quality).
+  - Plowhorses: High popularity, low margin (Re-engineer recipe or increase price slightly).
+  - Puzzles: Low popularity, high margin (Reposition or highlight on kiosk screen).
+  - Dogs: Low popularity, low margin (Candidate for retirement from package catalog).
