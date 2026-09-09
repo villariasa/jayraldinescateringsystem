@@ -1062,3 +1062,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Offline transaction records stored in IndexedDB encrypted using AES-GCM with device-specific key derivation.
 - Checksum validation hashes (`HMAC-SHA256`) appended to each transaction payload to detect tampering.
 - Client clock skew detection: Rejects orders with timestamps deviating more than 15 minutes from server heartbeat time.
+
+### Service Worker Background Sync & Retry Backoff
+- Registered `SyncManager` background sync tag `'sync-pending-invoices'` on tablet PWA.
+- Progressive exponential retry backoff: Initial retry at 5s, followed by 15s, 45s, and max cap of 120s upon repeated failures.
+- Fires persistent notification to floor cashier if sync fails continuously for more than 10 minutes.
