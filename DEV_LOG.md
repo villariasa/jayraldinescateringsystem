@@ -1012,3 +1012,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Bluetooth/cellular IoT temperature data loggers installed in all catering delivery vehicles.
 - Real-time alert dispatched to fleet manager if cargo bay temperature rises above 4°C during transit.
 - Continuous temperature log downloaded upon arrival and appended to event food safety compliance archives.
+
+### Driver Dispatch Logistics & Route Planning
+- Transit schedule incorporates dynamic rush hour traffic buffers (minimum 45-minute buffer for cross-city deliveries).
+- Vehicle loading order arranged according to route drop-off sequence: Last event loaded first, first event loaded closest to rear doors.
+- GPS waypoint tracking confirming fleet progress and estimated delivery arrival times (ETA).
