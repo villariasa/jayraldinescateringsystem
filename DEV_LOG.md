@@ -977,3 +977,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented EOQ model balancing inventory holding costs against supplier bulk delivery discounts.
 - Consolidated multi-event procurement lists to negotiate wholesale tier pricing with meat and produce distributors.
 - Automated weekly purchase orders dispatched to verified suppliers based on projected event bookings.
+
+### Meat Yield Tracking & Boning Shrinkage Benchmarks
+- Documented standard yield benchmarks: Whole beef round (72% usable yield after trimming fat and silver skin), Pork belly (85% yield).
+- Trims and bones routed to stockpots for concentrated culinary demi-glace and soup bases.
+- Commissary butcher logs gross vs net weight to identify butchery yield variance and training opportunities.
