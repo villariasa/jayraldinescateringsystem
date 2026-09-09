@@ -1107,3 +1107,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - Teenagers / Young Adults: 1.25 standard adult portion (higher protein allocation).
   - Senior Citizens: 0.8 standard portion with lower sodium and fat recommendations.
 - Prevents expensive over-preparation on specialized demographic events like christenings or golden anniversaries.
+
+### Thermal Receipt Layout & Barcode Footer Formatting
+- Compact 80mm receipt format using condensed font mode (`ESC ! 1`) for itemized dish descriptions.
+- Code 128 barcode printed at receipt footer encoding the unique invoice number for rapid cashier scanning.
+- Clean separator lines (`--------------------------------`) creating distinct visual hierarchy between items, taxes, and balance.
