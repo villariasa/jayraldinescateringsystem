@@ -1184,3 +1184,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Sound level policy: Maximum 85 dB ambient sound during cocktail hour; maximum 95 dB during peak party and band performances.
 - Sound limiter hardware installed in venue power rack automatically cuts outlet power if sound exceeds 100 dB for 10 seconds.
 - Protects neighboring residential communities from noise complaints and ensures local ordinance compliance.
+
+### Event Staff Overtime & Shift Differential Rules
+- Standard shift duration: 8 hours. Overtime calculated at 125% of hourly rate for hours worked beyond 8.
+- Night differential: Additional 10% premium applied for hours worked between 10:00 PM and 6:00 AM.
+- Digital shift clock-in/out records exported directly to payroll system with supervisor authorization stamps.
