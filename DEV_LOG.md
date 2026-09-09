@@ -987,3 +987,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Daily morning inspection routine auditing humidity and temperature in walk-in vegetable crisper rooms (4-6°C).
 - Mandatory color-coded rotation stickers indicating arrival date: Mon (Red), Tue (Blue), Wed (Green), Thu (Yellow), Fri (Orange).
 - Spoilage tracking ledger documenting cull rates and vendor quality feedback.
+
+### Allergen Cross-Contact Mitigation Protocols
+- Established dedicated prep stations with color-coded purple cutting boards and utensils for allergen-sensitive orders.
+- Segregated storage for high-risk allergens (crustaceans, peanuts, tree nuts) in sealed airtight bins with prominent warning labels.
+- Standard operating procedure for sanitizing slicers, knives, and prep counters between batch production runs.
