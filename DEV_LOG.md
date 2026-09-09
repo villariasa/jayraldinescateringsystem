@@ -1159,3 +1159,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Daily batch settlement protocol for external EFTPOS terminals (BDO, Maya, Global Payments).
 - Strict adherence to Philippine DTI regulations prohibiting unauthorized merchant credit card surcharges on card payments.
 - Terminal batch settlement slips stapled to daily cash report and reconciled against system card receipts.
+
+### Dynamic QR Code Payment Integration (GCash & Maya)
+- Generates dynamic QR Ph EMVCo compliant payloads embedding exact transaction amount, invoice ID, and merchant sub-code.
+- Real-time webhook listener verifies payment gateway cryptographic signature before marking invoice as paid.
+- Fallback cashier manual verification screen for instances where customer has completed payment but webhook is delayed.
