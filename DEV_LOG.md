@@ -1087,3 +1087,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Enabled RLS on sensitive financial tables (`orders`, `payments`, `customer_profiles`).
 - Policy `tenant_isolation_policy` enforces filtering: `WHERE branch_id = current_setting('app.current_branch_id')::integer`.
 - Superuser override reserved exclusively for centralized accounting and executive reporting roles.
+
+### Chef Jay Natural Language Billing Query Parser
+- Natural language query capabilities:
+  - "Show outstanding receivables for wedding bookings this weekend." -> maps to SQL aggregation filtering unpaid wedding balances.
+  - "What is our gross food cost margin on the Platinum Buffet package?" -> calculates recipe cost against selling price.
+- Outputs clean Markdown tables with formatted currency symbols (₱ PHP).
