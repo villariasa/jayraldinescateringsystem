@@ -1199,3 +1199,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Automated calendar collision detector preventing overlapping reservations across banquet halls (Grand Ballroom, Garden Pavillion, VIP Room).
 - Enforces mandatory 3-hour sanitization, floor buffing, and linen reset buffer between consecutive bookings in the same hall.
 - Highlights turn-around conflicts during event quote drafting phase.
+
+### Seasonal Holiday Package Tiers & Early Bird Incentives
+- Special holiday menu packages (e.g., Christmas Gala Buffet, New Year's Eve Banquet).
+- Early bird discount structure: 10% discount for bookings finalized and downpaid at least 90 days prior to December holidays.
+- Peak date surcharge applied to high-demand dates (December 15-31) to balance kitchen production capacity.
