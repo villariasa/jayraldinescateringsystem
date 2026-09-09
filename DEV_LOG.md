@@ -997,3 +997,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Dedicated cookware and storage racks clearly demarcated for certified Halal and vegetarian catering bookings.
 - Strict prohibition of pork or non-Halal poultry contact with designated Halal cooking vessels and utensils.
 - Verification checklist signed by executive chef prior to packing segregated dishes into insulated transport carriers.
+
+### Buffet Heat Retention & Chafing Fuel Benchmarks
+- High-grade gel chafing fuel benchmarks: 2-hour burn time for cocktail receptions; 4-hour wick fuel for full banquet dinners.
+- Electric induction chafers specified for indoor air-conditioned banquet halls to eliminate open flame smoke and odors.
+- Temperature monitoring protocol: water pan pre-heated to 85°C before inserting food pans to maintain core food temperature above 65°C.
