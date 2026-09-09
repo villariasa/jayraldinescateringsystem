@@ -1072,3 +1072,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Pinned internal PostgreSQL/web server root CA certificate inside Android APK `network_security_config.xml`.
 - Blocks untrusted certificate authority injection or man-in-the-middle interception across unmanaged venue Wi-Fi networks.
 - Strict cleartext traffic disabled (`android:usesCleartextTraffic="false"`).
+
+### WebSocket Heartbeat Keepalive Protocol
+- Server dispatches lightweight ping frame every 15 seconds; client responds with pong frame within 5-second timeout window.
+- If 2 consecutive pong responses are missed, connection is marked dead and automatic socket reconnection is initiated.
+- Mitigates stale socket states caused by aggressive tablet Wi-Fi power-saving sleep modes.
