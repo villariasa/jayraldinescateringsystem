@@ -909,3 +909,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized billing statement line-item engine supporting itemized catering packages, bar add-ons, and staffing fees.
 - Configured tax breakdown algorithm separating 12% Value Added Tax (VAT), local municipal fees, and service charges.
 - Implemented sub-cent rounding rules to ensure line item sums match aggregate totals exactly across print and digital views.
+
+### Receivables Aging Report & Automated Reminders
+- Structured accounts receivable aging brackets: Current (0-30 days), Overdue Tier 1 (31-60 days), Tier 2 (61-90 days), Default (90+ days).
+- Automated background job querying pending balances and generating upcoming payment reminder dispatches.
+- Color-coded receivables dashboard providing instant visualization of outstanding corporate client accounts.
