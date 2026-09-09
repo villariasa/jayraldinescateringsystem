@@ -982,3 +982,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented standard yield benchmarks: Whole beef round (72% usable yield after trimming fat and silver skin), Pork belly (85% yield).
 - Trims and bones routed to stockpots for concentrated culinary demi-glace and soup bases.
 - Commissary butcher logs gross vs net weight to identify butchery yield variance and training opportunities.
+
+### Fresh Produce Spoilage Monitoring & Cold Storage Rotation
+- Daily morning inspection routine auditing humidity and temperature in walk-in vegetable crisper rooms (4-6°C).
+- Mandatory color-coded rotation stickers indicating arrival date: Mon (Red), Tue (Blue), Wed (Green), Thu (Yellow), Fri (Orange).
+- Spoilage tracking ledger documenting cull rates and vendor quality feedback.
