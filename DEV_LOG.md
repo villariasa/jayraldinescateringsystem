@@ -1017,3 +1017,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Transit schedule incorporates dynamic rush hour traffic buffers (minimum 45-minute buffer for cross-city deliveries).
 - Vehicle loading order arranged according to route drop-off sequence: Last event loaded first, first event loaded closest to rear doors.
 - GPS waypoint tracking confirming fleet progress and estimated delivery arrival times (ETA).
+
+### On-Site Food Delivery Acceptance Checklist
+- Floor captain verifies food pan seal integrity and measures core temperatures upon truck unloading.
+- Acceptance criteria: Cooked hot foods must measure at least 60°C; chilled foods must measure 4°C or below.
+- Formal sign-off protocol between transport driver and banquet floor captain before vehicle departs venue.
