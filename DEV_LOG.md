@@ -1002,3 +1002,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - High-grade gel chafing fuel benchmarks: 2-hour burn time for cocktail receptions; 4-hour wick fuel for full banquet dinners.
 - Electric induction chafers specified for indoor air-conditioned banquet halls to eliminate open flame smoke and odors.
 - Temperature monitoring protocol: water pan pre-heated to 85°C before inserting food pans to maintain core food temperature above 65°C.
+
+### Cold Station & Dessert Refrigerated Staging
+- Insulated cold buffet display wells packed with commercial gel ice packs maintaining surface temperature under 5°C.
+- Dairy-based pastries, cheesecakes, and fresh fruit salads kept in refrigerated staging van until 15 minutes before buffet opening.
+- Replenishment in smaller frequent batches to prevent ambient temperature degradation in tropical event venues.
