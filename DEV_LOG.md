@@ -1082,3 +1082,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Sized pool based on formula: `((core_count * 2) + effective_spindle_count)` resulting in 20 dedicated database worker connections.
 - PgBouncer configured in transaction pooling mode handling up to 150 concurrent client connections with sub-millisecond queuing.
 - Set `statement_timeout = '15s'` to terminate runaway analytical queries that could block cashier checkout locks.
+
+### PostgreSQL Row-Level Security (RLS) Policies
+- Enabled RLS on sensitive financial tables (`orders`, `payments`, `customer_profiles`).
+- Policy `tenant_isolation_policy` enforces filtering: `WHERE branch_id = current_setting('app.current_branch_id')::integer`.
+- Superuser override reserved exclusively for centralized accounting and executive reporting roles.
