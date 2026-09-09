@@ -1052,3 +1052,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - 3-compartment sink protocol: Sink 1 (Wash with detergent at 45°C), Sink 2 (Clean warm water rinse), Sink 3 (Sanitizing soak at 50 ppm chlorine).
 - Pre-scraping station separating food waste into compost bins before dishware enters wash basin.
 - Proper air-drying on wire drying racks; towel drying prohibited to prevent cross-contamination.
+
+### Post-Event Linen Sorting & Stain Management
+- Linens sorted immediately upon teardown: White tablecloths, colored overlays, napkins, and skirting.
+- Immediate pre-treatment applied to heavy grease, wine, and coffee stains before packing into ventilated canvas laundry hampers.
+- Damp linens hung to dry if immediate laundry dispatch is unavailable to prevent mildew formation.
