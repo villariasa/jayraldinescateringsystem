@@ -1139,3 +1139,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Background cron job scans customer profile database daily for upcoming wedding anniversaries and milestone birthdays.
 - Automatically generates promotional email/SMS voucher offers 60 days prior to the milestone date.
 - Tracks repeat customer conversion rates and customer lifetime value (LTV) metrics.
+
+### Senior Citizen & PWD Discount Validation Protocol
+- UI input requires recording official OSCA Senior Citizen ID number or PWD ID card registration number.
+- Scanned photo or camera capture of the valid government-issued ID stored securely alongside transaction audit log.
+- Enforces strict one-discount-per-beneficiary rule preventing duplicate discount claims on banquet invoices.
