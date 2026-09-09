@@ -1189,3 +1189,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standard shift duration: 8 hours. Overtime calculated at 125% of hourly rate for hours worked beyond 8.
 - Night differential: Additional 10% premium applied for hours worked between 10:00 PM and 6:00 AM.
 - Digital shift clock-in/out records exported directly to payroll system with supervisor authorization stamps.
+
+### Table Turnover Rate Analytics for Hybrid Dining
+- Tracks table occupancy cycles from guest seating to bill settlement and bussing.
+- Average turnover benchmark: 60 minutes for casual lunch service; 90 minutes for dinner service.
+- Identifies operational delays in kitchen preparation or cashier payment processing during rush lunch hours.
