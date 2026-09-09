@@ -926,3 +926,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - 30% Pre-Event Progress Payment due 14 calendar days prior to event date.
   - 20% Final Settlement Balance due on the event day prior to commencement of food service.
 - Automatic milestone due-date calculation based on scheduled banquet event dates.
+
+### Overdue Payment Policies & Grace Periods
+- Established a 3-business-day grace period following milestone payment due dates before late penalties apply.
+- Configured 2% monthly compounding interest charge on delinquent corporate billing accounts.
+- Automated system freeze preventing booking confirmation or kitchen prep dispatch for accounts with unresolved defaults.
