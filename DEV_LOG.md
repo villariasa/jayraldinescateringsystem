@@ -1047,3 +1047,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - 50-cup commercial percolators prepped 45 minutes before guest arrival; brew temperature held at 85°C.
 - High-yield fruit punch and iced tea dispensers monitored every 30 minutes for ice and liquid level replenishment.
 - Condiment caddy audit: Granulated sugar, sweetener packets, non-dairy creamer, and stirrers kept constantly stocked.
+
+### On-Site Dishwashing & Sanitizing Station Workflow
+- 3-compartment sink protocol: Sink 1 (Wash with detergent at 45°C), Sink 2 (Clean warm water rinse), Sink 3 (Sanitizing soak at 50 ppm chlorine).
+- Pre-scraping station separating food waste into compost bins before dishware enters wash basin.
+- Proper air-drying on wire drying racks; towel drying prohibited to prevent cross-contamination.
