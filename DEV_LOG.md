@@ -961,3 +961,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured corkage fee schedule: Wine/Champagne (₱350/bottle), Hard Liquor (₱600/bottle), Whole Roast Pig/Lechon (₱1,200/unit).
 - Waiver authorization restricted to executive management for VIP or high-volume booking contracts.
 - Corkage slips printed and attached to event banquet order for floor captain verification.
+
+### Waiter-to-Guest Staffing Ratio Optimization
+- Plated Fine Dining: 1 server per 10-12 guests for synchronized course delivery.
+- Buffet Style: 1 server per 20-25 guests for table bussing, drink refills, and buffet line maintenance.
+- Cocktail / Pass-Around: 1 server per 15-20 guests for continuous tray replenishment.
+- Automated staffing roster calculator deriving required headcount directly from event booking guest numbers.
