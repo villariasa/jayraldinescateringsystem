@@ -1022,3 +1022,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Floor captain verifies food pan seal integrity and measures core temperatures upon truck unloading.
 - Acceptance criteria: Cooked hot foods must measure at least 60°C; chilled foods must measure 4°C or below.
 - Formal sign-off protocol between transport driver and banquet floor captain before vehicle departs venue.
+
+### Waitstaff Uniform Standards & Grooming Checklist
+- Attire requirements: Pressed black collared dress shirt, tailored black trousers, polished black non-slip shoes, black apron, name badge.
+- Grooming guidelines: Hair neatly tied in hairnet, trimmed clean nails, minimal jewelry, clean-shaven or neatly trimmed facial hair.
+- Pre-event inspection conducted by banquet supervisor; non-compliant staff reassigned to back-of-house staging duties.
