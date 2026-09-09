@@ -967,3 +967,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Buffet Style: 1 server per 20-25 guests for table bussing, drink refills, and buffet line maintenance.
 - Cocktail / Pass-Around: 1 server per 15-20 guests for continuous tray replenishment.
 - Automated staffing roster calculator deriving required headcount directly from event booking guest numbers.
+
+### Kitchen Fuel & LPG Consumption Tracking
+- Monitored industrial 50kg LPG cylinder usage across central commissary cooking lines.
+- Estimated fuel consumption rate: approximately 0.15kg LPG per banquet guest headcount.
+- Flags abnormal fuel spikes indicating burner inefficiencies or pipeline maintenance requirements.
