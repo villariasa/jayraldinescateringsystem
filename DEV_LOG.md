@@ -956,3 +956,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established baseline electrical allowance (5 kW) included in standard hall rental packages.
 - Additional heavy equipment surcharges applied for external DJ sound systems, LED wall stages, or mobile photobooths.
 - Pre-event power inspection checklist ensuring external equipment does not trip venue circuit breakers.
+
+### Corkage Fee Assessment Standards
+- Structured corkage fee schedule: Wine/Champagne (₱350/bottle), Hard Liquor (₱600/bottle), Whole Roast Pig/Lechon (₱1,200/unit).
+- Waiver authorization restricted to executive management for VIP or high-volume booking contracts.
+- Corkage slips printed and attached to event banquet order for floor captain verification.
