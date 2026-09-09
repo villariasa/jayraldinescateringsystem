@@ -1067,3 +1067,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Registered `SyncManager` background sync tag `'sync-pending-invoices'` on tablet PWA.
 - Progressive exponential retry backoff: Initial retry at 5s, followed by 15s, 45s, and max cap of 120s upon repeated failures.
 - Fires persistent notification to floor cashier if sync fails continuously for more than 10 minutes.
+
+### Android WebView TLS Certificate Pinning
+- Pinned internal PostgreSQL/web server root CA certificate inside Android APK `network_security_config.xml`.
+- Blocks untrusted certificate authority injection or man-in-the-middle interception across unmanaged venue Wi-Fi networks.
+- Strict cleartext traffic disabled (`android:usesCleartextTraffic="false"`).
