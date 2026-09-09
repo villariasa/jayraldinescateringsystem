@@ -972,3 +972,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Monitored industrial 50kg LPG cylinder usage across central commissary cooking lines.
 - Estimated fuel consumption rate: approximately 0.15kg LPG per banquet guest headcount.
 - Flags abnormal fuel spikes indicating burner inefficiencies or pipeline maintenance requirements.
+
+### Raw Materials Purchasing & Economic Order Quantity (EOQ)
+- Implemented EOQ model balancing inventory holding costs against supplier bulk delivery discounts.
+- Consolidated multi-event procurement lists to negotiate wholesale tier pricing with meat and produce distributors.
+- Automated weekly purchase orders dispatched to verified suppliers based on projected event bookings.
