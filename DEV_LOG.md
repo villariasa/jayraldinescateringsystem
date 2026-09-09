@@ -1122,3 +1122,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented baud rate (9600 bps) and flow control settings for Prolific and FTDI USB-to-serial adapter chips.
 - Standardized pinout diagram for RJ11/RJ12 drawer kick connector (Pin 2 and Pin 4 solenoid trigger lines).
 - Diagnostic testing utility included in supervisor settings tab emitting test pulses to verify drawer operation.
+
+### KDS Color-Coded Aging Timers & Visual Alerts
+- Visual timer milestones:
+  - 0 - 10 minutes: Crisp emerald green background border.
+  - 10 - 20 minutes: Bright amber warning border.
+  - 20+ minutes: Urgent pulsing crimson border with chime alert.
+- Rush order flag causes ticket header to flash continuously until kitchen station acknowledges the ticket.
