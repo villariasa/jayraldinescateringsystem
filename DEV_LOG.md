@@ -1179,3 +1179,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - 2-stage cooling requirement: Hot food cooled from 60°C to 21°C within 2 hours, and from 21°C to 4°C within an additional 4 hours.
 - Reheating standard: Previously chilled catering foods must be reheated rapidly to internal temperature of at least 74°C for 15 seconds.
 - Digital probe thermometer Bluetooth logs auto-captured into food safety compliance register.
+
+### Banquet Hall Acoustic Decibel Monitoring
+- Sound level policy: Maximum 85 dB ambient sound during cocktail hour; maximum 95 dB during peak party and band performances.
+- Sound limiter hardware installed in venue power rack automatically cuts outlet power if sound exceeds 100 dB for 10 seconds.
+- Protects neighboring residential communities from noise complaints and ensures local ordinance compliance.
