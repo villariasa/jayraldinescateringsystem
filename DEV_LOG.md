@@ -1154,3 +1154,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Formal closing report summarizing: Gross Sales, Net Sales, Tax, Cash on Hand, Card Slips, E-Wallet Confirmations.
 - Cashier performs blind drop count; system calculates variance: `Variance = Counted Cash - Expected Cash`.
 - Variances exceeding ₱100 require mandatory written explanation and supervisor sign-off before shift closure.
+
+### Credit Card Settlement Batch Closing
+- Daily batch settlement protocol for external EFTPOS terminals (BDO, Maya, Global Payments).
+- Strict adherence to Philippine DTI regulations prohibiting unauthorized merchant credit card surcharges on card payments.
+- Terminal batch settlement slips stapled to daily cash report and reconciled against system card receipts.
