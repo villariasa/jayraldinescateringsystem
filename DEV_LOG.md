@@ -914,3 +914,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured accounts receivable aging brackets: Current (0-30 days), Overdue Tier 1 (31-60 days), Tier 2 (61-90 days), Default (90+ days).
 - Automated background job querying pending balances and generating upcoming payment reminder dispatches.
 - Color-coded receivables dashboard providing instant visualization of outstanding corporate client accounts.
+
+### Worksheet 5: Catering Package Profitability & Margin Analysis
+- Modeled food cost percentage (benchmark: 28-32%), direct labor expense (18-22%), and overhead allocation (12%).
+- Built gross margin calculator determining contribution margins per tier (Standard Buffet, Premium Plated, Executive Gala).
+- Configured breakeven guest headcount thresholds preventing sales reps from discounting below cost floor.
