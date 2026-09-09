@@ -902,3 +902,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Successfully finalized 60-part daily engineering documentation series for Jayraldine's Catering System.
 - Comprehensive technical documentation covering Android APK native bridge, catering wizard FSM, DB server setup, Chef Jay AI governance, KOT reprint audits, and food safety protocols.
 - Zero code modifications committed; all updates strictly maintained within repository markdown files.
+
+## September 9, 2026 - Billing Statements, Receivables & Daily Engineering Dev Notes
+
+### Billing Statement Itemization & Tax Breakdown Algorithms
+- Standardized billing statement line-item engine supporting itemized catering packages, bar add-ons, and staffing fees.
+- Configured tax breakdown algorithm separating 12% Value Added Tax (VAT), local municipal fees, and service charges.
+- Implemented sub-cent rounding rules to ensure line item sums match aggregate totals exactly across print and digital views.
