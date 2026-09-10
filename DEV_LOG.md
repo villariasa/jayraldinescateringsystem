@@ -1438,3 +1438,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Updated foreground service declarations to include explicit service types (`dataSync`).
 - Configured broadcast receivers with explicit export flags (`RECEIVER_NOT_EXPORTED`).
 - Verified compliance with stricter Android 14 full-screen intent and alarm scheduling guidelines.
+
+### Build Script Environment Variable Validation
+- Script checks `$ANDROID_HOME` pointing to valid SDK root containing `platforms/android-34`.
+- Validates `$JAVA_HOME` points to JDK 17 or higher; throws descriptive remediation message if missing.
+- Prevents confusing downstream build failures caused by misconfigured developer environments.
