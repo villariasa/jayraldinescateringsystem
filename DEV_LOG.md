@@ -1288,3 +1288,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Attached `Intent.FLAG_GRANT_READ_URI_PERMISSION` to external viewer intents.
 - Grants target app (e.g., PDF reader) temporary access strictly scoped to the generated receipt file.
 - Automatic permission revocation once the external viewing activity finishes.
+
+### Android Intent Dispatch for PDF Viewers
+- Formatted `Intent.ACTION_VIEW` with MIME type `application/pdf`.
+- Wrapped in `Intent.createChooser()` to let tablet operators select their preferred viewer (Google Drive PDF, Adobe Acrobat).
+- Added fallback toast notification if no compatible PDF viewing application is installed on the tablet.
