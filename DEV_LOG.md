@@ -1423,3 +1423,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented string hashing on active toast messages; blocks duplicate toasts within 2000ms window.
 - If user repeatedly taps an invalid action, existing toast shakes horizontally rather than spawning redundant stacks.
 - Keeps UI tidy and prevents notification clutter on smaller tablet screens.
+
+### Android Notification Channels for Background Sync
+- Created dedicated notification channel: `CHANNEL_ID_SYNC` with `IMPORTANCE_LOW` for silent background syncing.
+- Configured channel `CHANNEL_ID_ALERTS` with `IMPORTANCE_HIGH` for urgent thermal printer paper jams and network disconnects.
+- Complies with Android 8.0+ (Oreo) notification categorization standards.
