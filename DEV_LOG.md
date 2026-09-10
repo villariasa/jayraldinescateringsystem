@@ -1448,3 +1448,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Build command pipes output to `build_log.txt`: `./gradlew assembleRelease --stacktrace | tee build_log.txt`.
 - On non-zero exit code, extracts top 50 lines of stack trace and saves as `error_summary.txt` for fast inspection.
 - Simplifies debugging compiler or manifest errors during headless remote builds.
+
+### Lottie Memory Reclamation & Layer Cleanup
+- Wrapped Lottie instance destruction: calls `anim.destroy()` and zeroes inner canvas reference.
+- Explicitly detaches event listeners on modal unmount to allow V8/JavaScriptCore garbage collector to free memory.
+- Tested zero memory leak over 200 consecutive modal open/close cycles in Chrome DevTools heap snapshot.
