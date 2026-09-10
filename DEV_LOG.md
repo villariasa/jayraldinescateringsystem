@@ -1499,3 +1499,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured canvas pixel ratio scaling: `canvas.width = rect.width * window.devicePixelRatio`.
 - Prevents blurry vector icons on high-density Retina / 300+ PPI Android tablet screens.
 - Keeps vector animations crisp and razor-sharp across all tablet display densities.
+
+### Custom Confirm Dialog Component
+- Replaced blocking browser `window.confirm()` with asynchronous Promise-based custom modal dialog.
+- Supports custom titles, descriptive explanatory body text, and branded button colors.
+- Solves Android WebView bug where native dialogs occasionally freeze user input on certain tablet ROMs.
