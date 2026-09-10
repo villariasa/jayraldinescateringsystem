@@ -1323,3 +1323,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Compared memory footprint and DOM parsing times of inline SVGs vs SVG symbol sprites (`<svg><use href="#icon-id" /></svg>`).
 - Implemented sprite dictionary in `icons.js` caching 45 common UI icons (cutlery, calendar, alert, print, checkmark).
 - Achieved 28% faster view rendering and significantly reduced DOM element count in card grids.
+
+### Toast Fallback Rendering on WebGL/Canvas Context Loss
+- Added error handling wrapper around `mountLottie()` inside `views.js`.
+- If tablet device experiences GPU context loss (e.g. after waking from sleep), automatically falls back to static SVG icon.
+- Guarantees toast message readability and icon display even under degraded graphic conditions.
