@@ -1474,3 +1474,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - `systemBarsBehavior = BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`.
   - `hide(WindowInsetsCompat.Type.systemBars())`.
 - Prevents Android navigation buttons from encroaching on kiosk touch layout while allowing supervisors to swipe to exit.
+
+### FileProvider Temporary Image Sharing
+- Configured camera intent saving setup inspection photos directly into FileProvider cache.
+- Event floor captains take photo of completed banquet setup and attach to booking record.
+- Images automatically compressed to JPEG 80% quality (under 300KB) before database sync.
