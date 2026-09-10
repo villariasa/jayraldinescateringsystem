@@ -1226,3 +1226,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented focus-trap utility within modal overlays keeping tab navigation confined to interactive dialog elements.
 - Added global `Escape` key listener on document body to dismiss top-level non-blocking modals.
 - Automatically restores input focus to the triggering element upon modal closure.
+
+### Status Pill Color Tokens & Transitions
+- Standardized UI status pills for order lifecycle: `Pending` (amber), `Confirmed` (sky blue), `In Preparation` (indigo), `Completed` (emerald), `Cancelled` (rose).
+- Styled with subtle gradient borders and semi-transparent background tints (`rgba`) conforming to dark and light mode themes.
+- Added smooth opacity and scale micro-transitions when status changes dynamically.
