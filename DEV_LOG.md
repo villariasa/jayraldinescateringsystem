@@ -1242,3 +1242,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Adhered to Android 13+ (API level 33+) granular media permission standards (`READ_MEDIA_IMAGES`).
 - Eliminated legacy `WRITE_EXTERNAL_STORAGE` requirement by writing generated invoices directly into app-specific cache directories.
 - Ensured full compatibility with Google Play target SDK 34 runtime permission policies.
+
+### Google Colab Headless APK Build Pipeline
+- Documented Colab automated environment provisioning script from `Tablet/COLAB_APK_GUIDE.md`.
+- Headless setup installs OpenJDK 17, Android command-line tools, Android SDK platform 34, and build-tools 34.0.0.
+- Clones repository, injects production build properties, and triggers non-interactive Gradle compilation.
