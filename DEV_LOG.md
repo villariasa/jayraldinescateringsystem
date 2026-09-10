@@ -1504,3 +1504,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Replaced blocking browser `window.confirm()` with asynchronous Promise-based custom modal dialog.
 - Supports custom titles, descriptive explanatory body text, and branded button colors.
 - Solves Android WebView bug where native dialogs occasionally freeze user input on certain tablet ROMs.
+
+### Responsive Toast Container Positioning
+- Desktop / Manager PC: Toasts anchored at top-right corner (`top: 24px; right: 24px;`).
+- Tablet Portrait Kiosk: Toasts centered at bottom viewport (`bottom: 32px; left: 50%; transform: translateX(-50%);`).
+- Maximizes visibility without obscuring key checkout and cart action buttons.
