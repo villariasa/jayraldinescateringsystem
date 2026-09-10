@@ -1428,3 +1428,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Created dedicated notification channel: `CHANNEL_ID_SYNC` with `IMPORTANCE_LOW` for silent background syncing.
 - Configured channel `CHANNEL_ID_ALERTS` with `IMPORTANCE_HIGH` for urgent thermal printer paper jams and network disconnects.
 - Complies with Android 8.0+ (Oreo) notification categorization standards.
+
+### FileProvider Shared URI Expiration Protocol
+- External viewing intent launched via `startActivityForResult()`.
+- On `onActivityResult()` return, revokes temporary read URI permissions using `context.revokeUriPermission()`.
+- Prevents external third-party apps from retaining persistent access to customer receipt documents.
