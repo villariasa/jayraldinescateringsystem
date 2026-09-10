@@ -1458,3 +1458,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Styled `.status-pill.in-prep::before` pseudo-element with subtle CSS scale-and-fade animation loop.
 - Provides lively visual indication that the kitchen is actively working on the catering ticket.
 - Pauses CSS animation automatically when the document tab is inactive to conserve tablet battery.
+
+### Multi-Action Toast with Undo Support
+- Added action button slot inside toast structure: `<button class="toast-action-btn">Undo</button>`.
+- Removing an item from cart displays toast with 5-second countdown to undo action and restore item.
+- Prevents customer frustration if an item was accidentally cleared from the order wizard.
