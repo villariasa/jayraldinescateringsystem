@@ -1418,3 +1418,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented robust body scroll locking: sets `overflow: hidden` and compensates for scrollbar layout shift via padding.
 - Saves scroll offset on modal open and restores exact window scroll position upon modal close.
 - Eliminates background rubber-banding and scroll drift on touch tablet screens.
+
+### Toast Queue Deduplication Logic
+- Implemented string hashing on active toast messages; blocks duplicate toasts within 2000ms window.
+- If user repeatedly taps an invalid action, existing toast shakes horizontally rather than spawning redundant stacks.
+- Keeps UI tidy and prevents notification clutter on smaller tablet screens.
