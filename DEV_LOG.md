@@ -1283,3 +1283,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Applied CSS cubic-bezier timing (`cubic-bezier(0.34, 1.56, 0.64, 1)`) for lively spring pop-up effect.
 - Enforced `will-change: transform, opacity` on modal containers to force GPU layer compositing.
 - Guaranteed consistent 60 FPS animation playback across both high-end and budget kiosk hardware.
+
+### FileProvider URI Security & Read Permission Flags
+- Attached `Intent.FLAG_GRANT_READ_URI_PERMISSION` to external viewer intents.
+- Grants target app (e.g., PDF reader) temporary access strictly scoped to the generated receipt file.
+- Automatic permission revocation once the external viewing activity finishes.
