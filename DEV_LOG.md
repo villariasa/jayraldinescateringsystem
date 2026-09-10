@@ -1463,3 +1463,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added action button slot inside toast structure: `<button class="toast-action-btn">Undo</button>`.
 - Removing an item from cart displays toast with 5-second countdown to undo action and restore item.
 - Prevents customer frustration if an item was accidentally cleared from the order wizard.
+
+### Modal Form Validation Auto-Focus
+- On form submit within modal dialogs, validates required fields and scrolls to first invalid input.
+- Automatically applies `.has-error` highlight and sets cursor focus with smooth keyboard pop-up.
+- Displays inline field validation message directly below the problematic input.
