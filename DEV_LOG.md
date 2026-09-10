@@ -1318,3 +1318,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - PWA checks centralized server endpoint `/api/v1/apk/latest-version` during idle periods.
 - If server reports code version greater than installed `BuildConfig.VERSION_CODE`, prompts supervisor with update banner.
 - Downloads update via Android `DownloadManager` and launches package installer intent automatically.
+
+### Vector Icon Sprite vs Inline SVG Analysis
+- Compared memory footprint and DOM parsing times of inline SVGs vs SVG symbol sprites (`<svg><use href="#icon-id" /></svg>`).
+- Implemented sprite dictionary in `icons.js` caching 45 common UI icons (cutlery, calendar, alert, print, checkmark).
+- Achieved 28% faster view rendering and significantly reduced DOM element count in card grids.
