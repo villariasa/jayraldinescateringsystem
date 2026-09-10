@@ -1247,3 +1247,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented Colab automated environment provisioning script from `Tablet/COLAB_APK_GUIDE.md`.
 - Headless setup installs OpenJDK 17, Android command-line tools, Android SDK platform 34, and build-tools 34.0.0.
 - Clones repository, injects production build properties, and triggers non-interactive Gradle compilation.
+
+### Android NDK Toolchain Caching & Build Acceleration
+- Configured caching of NDK r25b binaries in Google Drive / persistent storage to eliminate 1.2GB re-download time per build.
+- Exported `ANDROID_NDK_HOME` environment variables into Colab runtime environment.
+- Reduced cold build duration from 18 minutes down to under 4 minutes.
