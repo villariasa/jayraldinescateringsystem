@@ -1373,3 +1373,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Fixed top banner component displayed when WebSocket or LAN heartbeat connection is severed.
 - Pulsing red indicator with message: "LAN Server Disconnected. Retrying in X seconds...".
 - Disables checkout submission button to prevent out-of-sync local transaction conflicts.
+
+### Swipe-to-Dismiss Gesture on Toasts
+- Implemented touch gesture tracking (`touchstart`, `touchmove`, `touchend`) on toast elements.
+- Swiping toast right by more than 80px triggers rapid exit animation and immediate DOM removal.
+- Provides tactile, responsive feedback for tablet kiosk operators during rapid order taking.
