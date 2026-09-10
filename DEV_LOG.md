@@ -1494,3 +1494,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Enhanced `build_apk.sh` with animated terminal spinner during long Gradle execution stages.
 - Formatted milestone progress bars (Environment Prep -> Dependencies -> Compilation -> Signing -> Packaging).
 - Provides clear visual feedback for developers running builds in local Linux terminals.
+
+### Lottie Canvas Resolution Scaling for High-DPI Displays
+- Configured canvas pixel ratio scaling: `canvas.width = rect.width * window.devicePixelRatio`.
+- Prevents blurry vector icons on high-density Retina / 300+ PPI Android tablet screens.
+- Keeps vector animations crisp and razor-sharp across all tablet display densities.
