@@ -1328,3 +1328,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added error handling wrapper around `mountLottie()` inside `views.js`.
 - If tablet device experiences GPU context loss (e.g. after waking from sleep), automatically falls back to static SVG icon.
 - Guarantees toast message readability and icon display even under degraded graphic conditions.
+
+### Dynamic Modal Confirmation Button Styling
+- Supported action styles: `primary` (theme maroon/gold), `secondary` (outlined), `danger` (crimson red).
+- Destructive actions (e.g., "Cancel Order", "Clear Cart") display red buttons with double-confirmation prompt.
+- Prevents accidental deletion of high-value catering reservations during floor operations.
