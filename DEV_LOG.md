@@ -1453,3 +1453,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Wrapped Lottie instance destruction: calls `anim.destroy()` and zeroes inner canvas reference.
 - Explicitly detaches event listeners on modal unmount to allow V8/JavaScriptCore garbage collector to free memory.
 - Tested zero memory leak over 200 consecutive modal open/close cycles in Chrome DevTools heap snapshot.
+
+### Status Pill Pulsing Dot Animation
+- Styled `.status-pill.in-prep::before` pseudo-element with subtle CSS scale-and-fade animation loop.
+- Provides lively visual indication that the kitchen is actively working on the catering ticket.
+- Pauses CSS animation automatically when the document tab is inactive to conserve tablet battery.
