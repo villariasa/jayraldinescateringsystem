@@ -1231,3 +1231,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized UI status pills for order lifecycle: `Pending` (amber), `Confirmed` (sky blue), `In Preparation` (indigo), `Completed` (emerald), `Cancelled` (rose).
 - Styled with subtle gradient borders and semi-transparent background tints (`rgba`) conforming to dark and light mode themes.
 - Added smooth opacity and scale micro-transitions when status changes dynamically.
+
+### Android FileProvider Configuration in file_paths.xml
+- Defined secure file sharing paths in `Tablet_Android_APK/app/src/main/res/xml/file_paths.xml`:
+  - `<external-files-path name="receipts" path="receipts/" />`
+  - `<cache-path name="temp_docs" path="docs/" />`
+- Generates `content://` URIs instead of deprecated `file://` scheme, preventing `FileUriExposedException` on Android 7.0+.
