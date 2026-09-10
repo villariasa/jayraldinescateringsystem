@@ -1221,3 +1221,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Refactored `toast()` in `Tablet_PWA/frontend/js/views.js` to support animated Lottie feedback icons (`toast-success`, `toast-error`, `toast-info`).
 - Implemented graceful SVG icon fallback in `.toast-fallback-icon` if Lottie animation fails to initialize or canvas context is unavailable.
 - Configured automatic DOM removal after 3.5 seconds with smooth CSS fade-and-slide exit transitions.
+
+### Modal Dialog Focus Trapping & Keyboard Accessibility
+- Implemented focus-trap utility within modal overlays keeping tab navigation confined to interactive dialog elements.
+- Added global `Escape` key listener on document body to dismiss top-level non-blocking modals.
+- Automatically restores input focus to the triggering element upon modal closure.
