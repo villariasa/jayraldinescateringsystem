@@ -1293,3 +1293,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Formatted `Intent.ACTION_VIEW` with MIME type `application/pdf`.
 - Wrapped in `Intent.createChooser()` to let tablet operators select their preferred viewer (Google Drive PDF, Adobe Acrobat).
 - Added fallback toast notification if no compatible PDF viewing application is installed on the tablet.
+
+### Colab Runtime Pre-warming & Platform-Tools
+- Command line snippet ensuring `cmdline-tools` and `platform-tools` are installed into `$ANDROID_HOME`.
+- Verified auto-acceptance of Android SDK licenses using `yes | sdkmanager --licenses`.
+- Stored setup commands in standalone reusable script for quick reproduction in new Colab sessions.
