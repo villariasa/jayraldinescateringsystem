@@ -1468,3 +1468,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - On form submit within modal dialogs, validates required fields and scrolls to first invalid input.
 - Automatically applies `.has-error` highlight and sets cursor focus with smooth keyboard pop-up.
 - Displays inline field validation message directly below the problematic input.
+
+### Android Immersive Sticky Full-Screen Mode
+- Configured window insets in `MainActivity.java` using `WindowInsetsControllerCompat`:
+  - `systemBarsBehavior = BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`.
+  - `hide(WindowInsetsCompat.Type.systemBars())`.
+- Prevents Android navigation buttons from encroaching on kiosk touch layout while allowing supervisors to swipe to exit.
