@@ -1353,3 +1353,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Automated post-build step in Colab archiving signed APK, mapping file, and build report into `release-bundle.zip`.
 - Generates direct Google Drive file share link for immediate download to testing tablets.
 - Logs build completion timestamp and APK SHA-256 fingerprint in Colab notebook output.
+
+### Shell Build Script POSIX Compliance
+- Refactored `build_apk.sh` to strictly use POSIX-compliant syntax compatible with bash, zsh, and dash shells.
+- Replaced bashisms (e.g. `[[` with standard `[`, `source` with `.`).
+- Guarantees seamless execution across Ubuntu, Debian, macOS, and WSL build environments.
