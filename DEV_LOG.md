@@ -1268,3 +1268,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Script reads raw Lottie JSON animation files from `Tablet_PWA/assets/lottie/` and bundles them into an ES module.
 - Minifies JSON payloads, stripping whitespace, comments, and redundant vector precision decimals.
 - Exports a single `animations.bundle.js` allowing zero-latency offline loading inside Android APK WebView.
+
+### Toast Auto-Dismiss Timeout Management & Stacking
+- Built toast dismissal timer queue managing concurrent notification lifecycles.
+- Established z-index layering hierarchy: Base content (1), Fixed headers (100), Dropdowns (200), Modals (500), Toasts (1000).
+- New toasts slide in from the bottom, smoothly pushing existing toasts upward.
