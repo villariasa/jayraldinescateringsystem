@@ -1237,3 +1237,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - `<external-files-path name="receipts" path="receipts/" />`
   - `<cache-path name="temp_docs" path="docs/" />`
 - Generates `content://` URIs instead of deprecated `file://` scheme, preventing `FileUriExposedException` on Android 7.0+.
+
+### Scoped Storage Compliance & Permissions
+- Adhered to Android 13+ (API level 33+) granular media permission standards (`READ_MEDIA_IMAGES`).
+- Eliminated legacy `WRITE_EXTERNAL_STORAGE` requirement by writing generated invoices directly into app-specific cache directories.
+- Ensured full compatibility with Google Play target SDK 34 runtime permission policies.
