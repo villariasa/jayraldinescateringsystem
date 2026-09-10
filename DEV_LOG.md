@@ -1298,3 +1298,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Command line snippet ensuring `cmdline-tools` and `platform-tools` are installed into `$ANDROID_HOME`.
 - Verified auto-acceptance of Android SDK licenses using `yes | sdkmanager --licenses`.
 - Stored setup commands in standalone reusable script for quick reproduction in new Colab sessions.
+
+### AGP Version Compatibility with Java 17
+- Documented configuration compatibility: AGP `8.2.x` paired with Gradle wrapper `8.2` and OpenJDK 17.
+- Configured `sourceCompatibility = JavaVersion.VERSION_17` and `targetCompatibility = JavaVersion.VERSION_17`.
+- Resolves bytecode incompatibility issues during D8 dexing phase.
