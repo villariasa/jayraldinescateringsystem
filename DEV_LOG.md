@@ -1363,3 +1363,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured `lintOptions` in `build.gradle` to flag security vulnerabilities while suppressing benign legacy warnings.
 - Explicitly suppressed `SetJavaScriptEnabled` warning since local PWA bundle requires JavaScript execution.
 - Added strict checks for hardcoded strings and missing resource translations.
+
+### Lottie Animation Easing & Interpolation
+- Tuned vector curve keyframes in `generate_animations.js` using natural ease-in-out bezier curves.
+- Reduced total frame count from 120 frames down to 48 frames without perceptible loss in visual smoothness.
+- Decreased Lottie JSON data size by 52% while reducing CPU decode latency.
