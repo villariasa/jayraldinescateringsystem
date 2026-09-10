@@ -1403,3 +1403,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Included background keepalive shell loop emitting periodic heartbeat dots every 60 seconds during long NDK compilations.
 - Prevents Google Colab from disconnecting browser runtime due to perceived terminal inactivity.
 - Ensures unattended builds complete successfully to artifact generation.
+
+### APK Checksum Generation & Release Checklist
+- Automated generation of `SHA256SUMS.txt` alongside compiled APK output binaries.
+- Release verification checklist: Target SDK verification, clean install test, offline load test, printer test, PIN lock test.
+- Checklists signed by QA lead before distributing APK update to production tablet fleet.
