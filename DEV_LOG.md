@@ -1378,3 +1378,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented touch gesture tracking (`touchstart`, `touchmove`, `touchend`) on toast elements.
 - Swiping toast right by more than 80px triggers rapid exit animation and immediate DOM removal.
 - Provides tactile, responsive feedback for tablet kiosk operators during rapid order taking.
+
+### ARIA Live Regions for Screen Reader Accessibility
+- Added `aria-live="polite"` and `role="status"` attributes to toast container element.
+- Automatically announces incoming alerts, error messages, and order confirmations to accessibility services.
+- Complies with Section 508 and WCAG 2.1 accessibility recommendations.
