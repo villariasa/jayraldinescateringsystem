@@ -1484,3 +1484,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Outlined secure Git clone in Colab using temporary environment token: `git clone https://$GITHUB_TOKEN@github.com/...`.
 - Script cleans git credentials from shell history and environment after checkout.
 - Enables seamless continuous integration builds on private enterprise repositories.
+
+### APK Split ABI vs Universal Binary Trade-offs
+- Universal APK: Single 28MB binary containing all ABIs (`arm64-v8a`, `armeabi-v7a`, `x86_64`). Simpler distribution.
+- Split APKs: Targeted 16MB binaries per architecture. Faster download and smaller storage footprint on tablets.
+- Documented build flag toggling between universal build (for offline sideloading) and split builds (for automated deploys).
