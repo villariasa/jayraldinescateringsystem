@@ -1509,3 +1509,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Desktop / Manager PC: Toasts anchored at top-right corner (`top: 24px; right: 24px;`).
 - Tablet Portrait Kiosk: Toasts centered at bottom viewport (`bottom: 32px; left: 50%; transform: translateX(-50%);`).
 - Maximizes visibility without obscuring key checkout and cart action buttons.
+
+### WebView Crash Recovery (onRenderProcessGone)
+- Overrode `onRenderProcessGone()` in `MainActivity.java` WebViewClient.
+- If Android kills the WebView rendering process due to extreme system memory pressure, app cleanly recreates WebView.
+- Prevents whole-app crash and restarts kiosk gracefully at the landing screen.
