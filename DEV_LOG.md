@@ -1489,3 +1489,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Universal APK: Single 28MB binary containing all ABIs (`arm64-v8a`, `armeabi-v7a`, `x86_64`). Simpler distribution.
 - Split APKs: Targeted 16MB binaries per architecture. Faster download and smaller storage footprint on tablets.
 - Documented build flag toggling between universal build (for offline sideloading) and split builds (for automated deploys).
+
+### Build Script Progress Indicator & ANSI Formatting
+- Enhanced `build_apk.sh` with animated terminal spinner during long Gradle execution stages.
+- Formatted milestone progress bars (Environment Prep -> Dependencies -> Compilation -> Signing -> Packaging).
+- Provides clear visual feedback for developers running builds in local Linux terminals.
