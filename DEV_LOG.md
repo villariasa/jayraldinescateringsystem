@@ -1252,3 +1252,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured caching of NDK r25b binaries in Google Drive / persistent storage to eliminate 1.2GB re-download time per build.
 - Exported `ANDROID_NDK_HOME` environment variables into Colab runtime environment.
 - Reduced cold build duration from 18 minutes down to under 4 minutes.
+
+### Gradle Release Signing Configuration
+- Structured `signingConfigs.release` in `build.gradle` reading keystore path, alias, and passwords from environment variables:
+  - `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
+- Configured automatic fallback to debug signing certificate for local developer test builds.
+- Ensured sensitive signing credentials are never checked into version control.
