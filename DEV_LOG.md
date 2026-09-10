@@ -1408,3 +1408,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Automated generation of `SHA256SUMS.txt` alongside compiled APK output binaries.
 - Release verification checklist: Target SDK verification, clean install test, offline load test, printer test, PIN lock test.
 - Checklists signed by QA lead before distributing APK update to production tablet fleet.
+
+### Lottie Bundle Size Audit & Minification
+- Ran size audit on bundled animations: `cloche-loading.json` (18KB), `success-burst.json` (12KB), `alert-pulse.json` (9KB).
+- Total animation asset payload kept under 60KB uncompressed.
+- Validated instant load time with zero network requests when tablet boots in airplane mode.
