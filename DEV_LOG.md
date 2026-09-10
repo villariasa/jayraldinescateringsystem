@@ -1263,3 +1263,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added strict sanity checks verifying existence of `sdkmanager`, `javac`, and Gradle wrapper before starting compilation.
 - Included automated memory check ensuring host system has at least 4GB of available RAM to prevent compiler OOM crashes.
 - Color-coded ANSI terminal outputs for clear error reporting (`[INFO]`, `[WARN]`, `[ERROR]`).
+
+### Lottie Animation Asset Compilation (generate_animations.js)
+- Script reads raw Lottie JSON animation files from `Tablet_PWA/assets/lottie/` and bundles them into an ES module.
+- Minifies JSON payloads, stripping whitespace, comments, and redundant vector precision decimals.
+- Exports a single `animations.bundle.js` allowing zero-latency offline loading inside Android APK WebView.
