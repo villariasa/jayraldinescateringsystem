@@ -1368,3 +1368,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Tuned vector curve keyframes in `generate_animations.js` using natural ease-in-out bezier curves.
 - Reduced total frame count from 120 frames down to 48 frames without perceptible loss in visual smoothness.
 - Decreased Lottie JSON data size by 52% while reducing CPU decode latency.
+
+### Custom Alert Banner Component
+- Fixed top banner component displayed when WebSocket or LAN heartbeat connection is severed.
+- Pulsing red indicator with message: "LAN Server Disconnected. Retrying in X seconds...".
+- Disables checkout submission button to prevent out-of-sync local transaction conflicts.
