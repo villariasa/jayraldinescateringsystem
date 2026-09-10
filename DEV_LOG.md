@@ -1443,3 +1443,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Script checks `$ANDROID_HOME` pointing to valid SDK root containing `platforms/android-34`.
 - Validates `$JAVA_HOME` points to JDK 17 or higher; throws descriptive remediation message if missing.
 - Prevents confusing downstream build failures caused by misconfigured developer environments.
+
+### Colab Build Error Reporting & Stack Trace Capture
+- Build command pipes output to `build_log.txt`: `./gradlew assembleRelease --stacktrace | tee build_log.txt`.
+- On non-zero exit code, extracts top 50 lines of stack trace and saves as `error_summary.txt` for fast inspection.
+- Simplifies debugging compiler or manifest errors during headless remote builds.
