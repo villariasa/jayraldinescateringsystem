@@ -1433,3 +1433,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - External viewing intent launched via `startActivityForResult()`.
 - On `onActivityResult()` return, revokes temporary read URI permissions using `context.revokeUriPermission()`.
 - Prevents external third-party apps from retaining persistent access to customer receipt documents.
+
+### Target SDK 34 (Android 14) Migration Notes
+- Updated foreground service declarations to include explicit service types (`dataSync`).
+- Configured broadcast receivers with explicit export flags (`RECEIVER_NOT_EXPORTED`).
+- Verified compliance with stricter Android 14 full-screen intent and alarm scheduling guidelines.
