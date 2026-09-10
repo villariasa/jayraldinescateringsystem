@@ -1333,3 +1333,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Supported action styles: `primary` (theme maroon/gold), `secondary` (outlined), `danger` (crimson red).
 - Destructive actions (e.g., "Cancel Order", "Clear Cart") display red buttons with double-confirmation prompt.
 - Prevents accidental deletion of high-value catering reservations during floor operations.
+
+### Action Sheet Drawer for Portrait Tablet View
+- Designed slide-up bottom sheet component optimized for thumb-reach ergonomics on portrait tablets.
+- Used for quick selection menus: Change Table, Re-assign Waiter, Print Bill, Mark VIP.
+- Draggable touch handle supporting swipe-down gesture to dismiss.
