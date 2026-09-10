@@ -1358,3 +1358,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Refactored `build_apk.sh` to strictly use POSIX-compliant syntax compatible with bash, zsh, and dash shells.
 - Replaced bashisms (e.g. `[[` with standard `[`, `source` with `.`).
 - Guarantees seamless execution across Ubuntu, Debian, macOS, and WSL build environments.
+
+### Android Lint Rules & WebView Suppressions
+- Configured `lintOptions` in `build.gradle` to flag security vulnerabilities while suppressing benign legacy warnings.
+- Explicitly suppressed `SetJavaScriptEnabled` warning since local PWA bundle requires JavaScript execution.
+- Added strict checks for hardcoded strings and missing resource translations.
