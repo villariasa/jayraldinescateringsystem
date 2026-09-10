@@ -1313,3 +1313,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Protocol for deploying APK updates to venue tablets in locations without internet or LAN connection.
 - Signed production APK copied to FAT32/exFAT USB flash drive; connected via USB-C OTG adapter.
 - Documented Android "Install Unknown Apps" permission enablement steps for venue supervisors.
+
+### In-App APK Update Checker Architecture
+- PWA checks centralized server endpoint `/api/v1/apk/latest-version` during idle periods.
+- If server reports code version greater than installed `BuildConfig.VERSION_CODE`, prompts supervisor with update banner.
+- Downloads update via Android `DownloadManager` and launches package installer intent automatically.
