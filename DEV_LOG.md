@@ -1343,3 +1343,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added `<queries>` block in `AndroidManifest.xml` targeting PDF viewer packages and thermal printer Bluetooth services.
 - Complies with Android 11+ package visibility filtering requirements.
 - Ensures `resolveActivity()` accurately detects installed helper apps before intent dispatch.
+
+### FileProvider Cache Pruning Routine
+- Background cleanup worker executing at app startup auditing `context.getCacheDir() / docs/`.
+- Deletes generated receipt and contract PDFs older than 48 hours.
+- Prevents gradual storage accumulation and disk exhaustion on fixed 32GB kiosk tablets.
