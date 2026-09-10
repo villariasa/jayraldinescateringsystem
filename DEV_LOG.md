@@ -1413,3 +1413,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Ran size audit on bundled animations: `cloche-loading.json` (18KB), `success-burst.json` (12KB), `alert-pulse.json` (9KB).
 - Total animation asset payload kept under 60KB uncompressed.
 - Validated instant load time with zero network requests when tablet boots in airplane mode.
+
+### Modal Scroll-Locking Technique
+- Implemented robust body scroll locking: sets `overflow: hidden` and compensates for scrollbar layout shift via padding.
+- Saves scroll offset on modal open and restores exact window scroll position upon modal close.
+- Eliminates background rubber-banding and scroll drift on touch tablet screens.
