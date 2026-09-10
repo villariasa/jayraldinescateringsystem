@@ -1303,3 +1303,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented configuration compatibility: AGP `8.2.x` paired with Gradle wrapper `8.2` and OpenJDK 17.
 - Configured `sourceCompatibility = JavaVersion.VERSION_17` and `targetCompatibility = JavaVersion.VERSION_17`.
 - Resolves bytecode incompatibility issues during D8 dexing phase.
+
+### R8 Full Mode Optimization for Android APK
+- Enabled `android.enableR8.fullMode=true` in `gradle.properties`.
+- Configured custom proguard rules retaining reflection-based JSON serializers and JavaScript interfaces.
+- Strips unused transitive classes from AndroidX dependencies, reducing compiled classes.dex size by 1.4MB.
