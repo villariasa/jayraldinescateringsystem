@@ -1258,3 +1258,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
 - Configured automatic fallback to debug signing certificate for local developer test builds.
 - Ensured sensitive signing credentials are never checked into version control.
+
+### Standalone build_apk.sh Execution Guards
+- Added strict sanity checks verifying existence of `sdkmanager`, `javac`, and Gradle wrapper before starting compilation.
+- Included automated memory check ensuring host system has at least 4GB of available RAM to prevent compiler OOM crashes.
+- Color-coded ANSI terminal outputs for clear error reporting (`[INFO]`, `[WARN]`, `[ERROR]`).
