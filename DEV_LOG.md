@@ -1338,3 +1338,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Designed slide-up bottom sheet component optimized for thumb-reach ergonomics on portrait tablets.
 - Used for quick selection menus: Change Table, Re-assign Waiter, Print Bill, Mark VIP.
 - Draggable touch handle supporting swipe-down gesture to dismiss.
+
+### Package Visibility Declarations (<queries>)
+- Added `<queries>` block in `AndroidManifest.xml` targeting PDF viewer packages and thermal printer Bluetooth services.
+- Complies with Android 11+ package visibility filtering requirements.
+- Ensures `resolveActivity()` accurately detects installed helper apps before intent dispatch.
