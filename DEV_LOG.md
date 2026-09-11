@@ -1601,3 +1601,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured asynchronous network requests utilizing Kivy's built-in `UrlRequest` module.
 - Configured custom CA certificate bundle verification for encrypted LAN HTTPS/WSS communication.
 - Implemented request timeout handlers (capped at 5000ms) with automated exponential backoff retry callbacks.
+
+### Cross-Platform Font Bundling Architecture
+- Bundled complete typography font files (`Outfit-Regular.ttf`, `Outfit-SemiBold.ttf`, `Inter-Bold.ttf`) inside installer assets.
+- Inno Setup installs fonts into Windows font directory (`FontInstall: "Outfit"`) or loads dynamically via private font API.
+- Guarantees 100% typography consistency regardless of whether client machines have internet access to Google Fonts.
