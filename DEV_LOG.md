@@ -1711,3 +1711,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated diagnostic calibration utility in supervisor tools for 4-wire and 5-wire resistive touch monitors.
 - Presents 5-point calibration targets (top-left, top-right, center, bottom-left, bottom-right) mapping touch coordinates.
 - Stores calibration matrix in local configuration file, correcting touch drift on older restaurant hardware.
+
+### Multi-Language Installer Wizard (English & Filipino)
+- Structured Inno Setup language files (`en.isl` and custom `fil.isl`) translating installer dialogs into Filipino.
+- Language selection dialog presented at installer launch allowing franchise operators to choose their preferred language.
+- Creates localized desktop shortcut names ("Sistema ng Katering ni Jayraldine").
