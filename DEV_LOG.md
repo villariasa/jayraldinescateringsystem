@@ -1762,3 +1762,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated schema version check running on every desktop application startup against local SQLite database.
 - Applies incremental SQL migration files sequentially (`001_initial_schema.sql`, `002_add_discount_fields.sql`).
 - Wraps migrations in database transactions ensuring rollback if a schema update encounters an error.
+
+### Inno Setup Asset Download Plugin Integration
+- Configured Inno Setup `IDP` (Inno Download Plugin) allowing optional downloading of high-res video loops during installation.
+- Keeps core installer compact (under 30MB) while offering automated download of full 200MB catering video showcase package.
+- Displays download progress bar and gracefully skips optional assets if internet connection is unavailable.
