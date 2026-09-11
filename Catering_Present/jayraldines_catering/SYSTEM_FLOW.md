@@ -439,3 +439,9 @@ Actor defaults to "staff" — changeable via utils/session.py set_actor()
 ---
 
 *Updated: 2026-04-27 — Reflects all implemented features. Inventory module removed; system does not track raw ingredient stock.*
+
+
+## Multi-Terminal Central Checkout Flow
+1. Client stations connect to Central Server via LAN IP (`192.168.x.x:5432`).
+2. Transactions are committed instantly across all active terminals.
+3. Real-time updates propagate across the dashboard and calendar.
