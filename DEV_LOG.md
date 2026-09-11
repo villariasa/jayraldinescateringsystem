@@ -1576,3 +1576,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Supported CLI flags for IT administrators: `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="C:\JayraldinesCatering"`.
 - Enables rapid automated deployment across multiple venue terminals via PowerShell remote deployment scripts.
 - Logs installation progress and error codes to `%TEMP%\JayraldinesInstaller.log`.
+
+### Desktop Shortcuts & Shell Registration
+- Configured Inno Setup `[Icons]` section creating desktop shortcut, Start Menu program group, and quick launch icons.
+- Attached high-resolution multi-size `.ico` bundle (16x16, 32x32, 48x48, 256x256) ensuring crisp rendering on 4K displays.
+- Registers formal entry in Windows "Installed Apps" control panel with publisher, version, and clean uninstaller routine.
