@@ -1752,3 +1752,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated Windows Multimedia API (`PlaySound` / DirectSound) playing low-latency order submission chimes.
 - Selects primary communication audio device, ensuring notifications are audible even when external HDMI displays are connected.
 - Volume level managed programmatically without affecting Windows master volume settings.
+
+### Kiosk Remote Management & Diagnostics
+- Documented secure configuration for remote administrative assistance using UltraVNC / TightVNC over local LAN.
+- Restricted remote connections to authorized administrator IP subnet with mandatory strong password authentication.
+- Allows technical support personnel to diagnose printer or network issues without disrupting floor operations.
