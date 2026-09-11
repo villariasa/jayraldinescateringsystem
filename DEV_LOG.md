@@ -1616,3 +1616,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Evaluated deployment trade-offs between embedded Python virtual environment distribution vs monolithic PyInstaller EXE.
 - Selected PyInstaller directory mode (`--onedir`) bundled inside Inno Setup installer for 4x faster cold startup time.
 - Avoids temporary directory extraction overhead (`_MEIxxxxxx`) associated with `--onefile` packaging.
+
+### PyInstaller Spec File Optimization
+- Refactored `kivy_build.spec` excluding unneeded heavy Python standard libraries (`tkinter`, `test`, `unittest`, `distutils`).
+- Stripped unused Pygame and SDL2 audio codecs, retaining only WAV/OGG playback modules for notification chimes.
+- Decreased uncompressed application folder footprint from 185MB down to 62MB.
