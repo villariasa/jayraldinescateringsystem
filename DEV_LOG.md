@@ -1742,3 +1742,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured network client settings to explicitly bypass system HTTP proxy for private intranet IP ranges (`192.168.*`, `10.*`).
 - Prevents client-server database synchronization requests from failing when venues have corporate web proxies installed.
 - Verified direct socket connection latency under 5ms on standard Gigabit local area networks.
+
+### High-DPI Scaling & PerMonitorV2 Manifest
+- Embedded application manifest configuring `<dpiAwareness>PerMonitorV2, unaware</dpiAwareness>`.
+- Prevents blurry text, fuzzy icons, and misaligned touch coordinate offsets when kiosk is connected to high-resolution 4K touch displays.
+- All UI vector icons and fonts render at native pixel sharpness across arbitrary Windows display scaling factors (125%, 150%, 200%).
