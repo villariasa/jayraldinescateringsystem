@@ -1596,3 +1596,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Separated long-running network synchronization and printing tasks into dedicated Python daemon threads (`threading.Thread`).
 - Results dispatched back to main UI thread using `kivy.clock.Clock.schedule_once()` to avoid OpenGL rendering lockups.
 - Keeps kiosk animations and touch responsiveness fluid at steady 60 FPS even during heavy LAN synchronization bursts.
+
+### Asynchronous HTTP Requests with Kivy UrlRequest
+- Configured asynchronous network requests utilizing Kivy's built-in `UrlRequest` module.
+- Configured custom CA certificate bundle verification for encrypted LAN HTTPS/WSS communication.
+- Implemented request timeout handlers (capped at 5000ms) with automated exponential backoff retry callbacks.
