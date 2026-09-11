@@ -1541,3 +1541,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented configuration steps for Windows 10/11 Assigned Access locking the terminal into a single interactive app.
 - Suppresses default Windows desktop shell, file explorer, taskbar notifications, and lock-screen cortana popups.
 - Configured automatic dedicated kiosk local user account (`CateringKioskUser`) with auto-login privileges.
+
+### Python Kivy Desktop App Lifecycle (Tablet/main.py)
+- Outlined Kivy application initialization in `Tablet/main.py` configuring window properties and rendering backend.
+- Enforced OpenGL ES 2.0 rendering backend for smooth hardware-accelerated vector drawing across budget desktop POS hardware.
+- Configured application lifecycle hooks: `on_start()`, `on_pause()`, `on_resume()`, and `on_stop()` for robust state management.
