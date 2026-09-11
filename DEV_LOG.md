@@ -1767,3 +1767,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured Inno Setup `IDP` (Inno Download Plugin) allowing optional downloading of high-res video loops during installation.
 - Keeps core installer compact (under 30MB) while offering automated download of full 200MB catering video showcase package.
 - Displays download progress bar and gracefully skips optional assets if internet connection is unavailable.
+
+### Windows Taskbar Hiding & Shell Suppression
+- Programmatically calls `ShowWindow(FindWindow("Shell_TrayWnd", NULL), SW_HIDE)` upon entering full kiosk mode.
+- Restores taskbar visibility (`SW_SHOW`) when the authorized supervisor exits the kiosk application.
+- Guarantees a fully immersive, distraction-free ordering environment for dining customers.
