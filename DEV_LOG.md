@@ -1561,3 +1561,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented automated scanning of active COM ports (`COM1` through `COM16`) using Windows API and Python `pyserial`.
 - Automatically identifies attached hardware peripherals by querying standard peripheral identification strings.
 - Configured baud rate (9600 bps), 8 data bits, no parity, 1 stop bit (8-N-1) communication parameters.
+
+### Local SQLite Database Synchronization Protocol
+- Implemented local client SQLite caching layer mirroring active catering menu items, packages, and table layouts.
+- Background synchronization thread queries central PostgreSQL server every 60 seconds for updated catalog timestamps.
+- Employs incremental change detection updating only modified records rather than full catalog re-downloads.
