@@ -110,3 +110,9 @@
 * **Offline Capability**: 100% self-contained database engine; zero internet connection required for ordering, querying, or receipt printing.
 * **Image Engine**: Full HD $1920 	imes 1440$ bicubic image processor with WebP/JPEG compression.
 * **Data Security & Privacy**: Stored locally on physical business hardware; zero third-party cloud data leaks or monthly subscription fees.
+
+
+## Demonstration Script Update (v4.1.15)
+1. Show Server Setup: Show auto-detection of previous SQLite data and instant migration.
+2. Show Connected Devices Panel: Demonstrate live terminal status detection.
+3. Show Fluid Theme Switching: Demonstrate buttery smooth theme loading overlay.
