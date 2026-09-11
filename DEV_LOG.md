@@ -1789,3 +1789,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - Cash Drawer Kick: Sends test solenoid pulse.
   - Barcode Reader Test: Displays scanned data with ASCII byte breakdown.
 - Accelerates on-site hardware troubleshooting during event venue setup.
+
+### Windows Event Log Integration
+- Configured Windows Event Logger writing critical POS events to `Application` event log source `JayraldinesPOS`.
+- Events logged: Cash drawer manual key openings, supervisor price overrides, unexpected application shutdowns.
+- Provides tamper-resistant system logs accessible to corporate IT security auditors.
