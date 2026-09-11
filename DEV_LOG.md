@@ -1621,3 +1621,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Refactored `kivy_build.spec` excluding unneeded heavy Python standard libraries (`tkinter`, `test`, `unittest`, `distutils`).
 - Stripped unused Pygame and SDL2 audio codecs, retaining only WAV/OGG playback modules for notification chimes.
 - Decreased uncompressed application folder footprint from 185MB down to 62MB.
+
+### Windows Crash Dump Generation & Error Reporting
+- Configured unhandled exception hook (`sys.excepthook`) in Python and `window.onerror` in WebView2 wrapper.
+- Writes detailed crash diagnostics including stack trace, active view name, and memory stats to `%LOCALAPPDATA%\CrashReports\`.
+- Automatically dispatches crash report to central server during next successful network synchronization cycle.
