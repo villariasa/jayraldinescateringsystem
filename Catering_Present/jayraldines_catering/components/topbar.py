@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QLineEdit, QWidget, QMessageBox, QFileDialog
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QLineEdit, QWidget, QMessageBox, QFileDialog, QSizePolicy
 from PySide6.QtCore import Qt, QSize, Signal, QTimer, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QFont
 import sys
@@ -30,7 +30,7 @@ _TOP_NAV_ITEMS = [
     ("Orders",       "orders",    1),
     ("Calendar",     "calendar",  4),
     ("Billing",      "billing",   6),
-    ("AI Assistant", "search",    9),
+    ("AI Assist",    "search",    9),
 ]
 
 
@@ -41,7 +41,7 @@ class AnimatedTopNav(QWidget):
     def __init__(self, theme_mgr, parent=None):
         super().__init__(parent)
         self._theme = theme_mgr
-        self.setFixedHeight(38)
+        self.setFixedHeight(36)
         self.setObjectName("topNavCapsule")
 
         self._active_index = 0
@@ -53,7 +53,7 @@ class AnimatedTopNav(QWidget):
         self._indicator.setStyleSheet("""
             QFrame#navPillIndicator {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #E11D48, stop:1 #FB7185);
-                border-radius: 8px;
+                border-radius: 7px;
             }
         """)
         self._indicator.hide()
@@ -63,23 +63,48 @@ class AnimatedTopNav(QWidget):
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
 
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(4, 3, 4, 3)
+        self._layout.setContentsMargins(4, 2, 4, 2)
         self._layout.setSpacing(4)
 
+        from PySide6.QtGui import QFontMetrics
+        measure_font = QFont("Segoe UI", 12)
+        measure_font.setBold(True)
+        fm = QFontMetrics(measure_font)
+
+        total_btn_w = 0
         for text, icon_name, index in _TOP_NAV_ITEMS:
             btn = QPushButton(f" {text}", self)
             btn.setObjectName("topNavTabClean")
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(32)
+            btn.setFixedHeight(30)
             btn.setIconSize(QSize(15, 15))
+            btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+            # Generous width calculation: bold text width + icon (15) + padding (20) + safety margin (9) = 44px
+            text_w = fm.horizontalAdvance(f" {text}")
+            btn_w = max(text_w + 44, 90)
+            btn.setFixedWidth(btn_w)
+            total_btn_w += btn_w
+
             btn.setProperty("icon_name", icon_name)
             btn.setProperty("tab_index", index)
             btn.clicked.connect(lambda _, idx=index: self.tab_selected.emit(idx))
             self._layout.addWidget(btn)
             self._buttons[index] = btn
 
+        capsule_w = total_btn_w + (len(_TOP_NAV_ITEMS) - 1) * 4 + 10
+        self.setFixedWidth(capsule_w)
+        self.setMinimumWidth(capsule_w)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
         self._apply_theme()
         QTimer.singleShot(60, lambda: self.set_active_page(0, animate=False))
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(self.width(), 36)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSizeHint()
 
     def _apply_theme(self):
         dark = self._theme.is_dark()
@@ -88,7 +113,7 @@ class AnimatedTopNav(QWidget):
                 QWidget#topNavCapsule {
                     background-color: rgba(255, 255, 255, 0.04);
                     border: 1px solid rgba(255, 255, 255, 0.08);
-                    border-radius: 10px;
+                    border-radius: 9px;
                 }
             """)
         else:
@@ -96,16 +121,38 @@ class AnimatedTopNav(QWidget):
                 QWidget#topNavCapsule {
                     background-color: rgba(0, 0, 0, 0.04);
                     border: 1px solid rgba(0, 0, 0, 0.08);
-                    border-radius: 10px;
+                    border-radius: 9px;
                 }
             """)
+
+    def refresh_permissions(self):
+        from utils.auth import SessionManager
+        perm_map = {
+            0: "dashboard",
+            1: "bookings",
+            4: "bookings",
+            6: "cashflow",
+            9: "ai_chef_jay",
+        }
+        visible_w = 0
+        visible_cnt = 0
+        for idx, btn in self._buttons.items():
+            mod = perm_map.get(idx, "dashboard")
+            is_vis = (mod == "dashboard") or SessionManager.has_permission(mod, "view")
+            btn.setVisible(is_vis)
+            if is_vis:
+                visible_w += btn.width()
+                visible_cnt += 1
+        capsule_w = visible_w + max(0, visible_cnt - 1) * 4 + 8
+        self.setFixedWidth(capsule_w)
+        self.updateGeometry()
 
     def set_active_page(self, index: int, animate: bool = True):
         self._active_index = index
         dark = self._theme.is_dark()
         target_btn = self._buttons.get(index)
 
-        if target_btn:
+        if target_btn and target_btn.isVisible():
             self._indicator.show()
             self._indicator.raise_()
             for btn in self._buttons.values():
@@ -124,19 +171,19 @@ class AnimatedTopNav(QWidget):
             for idx, btn in self._buttons.items():
                 icon_name = btn.property("icon_name")
                 if idx == index:
-                    btn.setStyleSheet("QPushButton { background: transparent; color: #FFFFFF; font-weight: 700; border: none; padding: 0 12px; font-size: 13px; }")
+                    btn.setStyleSheet("QPushButton { background: transparent; color: #FFFFFF; font-weight: 700; border: none; padding: 0 10px; font-size: 12px; }")
                     btn.setIcon(get_icon(icon_name, color="#FFFFFF", size=QSize(15, 15)))
                 else:
                     color_muted = "#94A3B8" if dark else "#64748B"
                     hover_color = "#F9FAFB" if dark else "#0F172A"
-                    btn.setStyleSheet(f"QPushButton {{ background: transparent; color: {color_muted}; font-weight: 600; border: none; padding: 0 12px; font-size: 13px; }} QPushButton:hover {{ color: {hover_color}; }}")
+                    btn.setStyleSheet(f"QPushButton {{ background: transparent; color: {color_muted}; font-weight: 600; border: none; padding: 0 10px; font-size: 12px; }} QPushButton:hover {{ color: {hover_color}; }}")
                     btn.setIcon(get_icon(icon_name, color=color_muted, size=QSize(15, 15)))
         else:
             self._indicator.hide()
             for idx, btn in self._buttons.items():
                 icon_name = btn.property("icon_name")
                 color_muted = "#94A3B8" if dark else "#64748B"
-                btn.setStyleSheet(f"QPushButton {{ background: transparent; color: {color_muted}; font-weight: 600; border: none; padding: 0 12px; font-size: 13px; }}")
+                btn.setStyleSheet(f"QPushButton {{ background: transparent; color: {color_muted}; font-weight: 600; border: none; padding: 0 10px; font-size: 12px; }}")
                 btn.setIcon(get_icon(icon_name, color=color_muted, size=QSize(15, 15)))
 
     def resizeEvent(self, event):
@@ -157,8 +204,8 @@ class TopBar(QFrame):
         self._theme = ThemeManager()
 
         self.main_layout = QHBoxLayout(self)
-        self.main_layout.setContentsMargins(16, 0, 16, 0)
-        self.main_layout.setSpacing(12)
+        self.main_layout.setContentsMargins(12, 0, 12, 0)
+        self.main_layout.setSpacing(8)
 
         self.page_title = QLabel("Dashboard", self)
         self.page_title.setObjectName("h2")
@@ -173,10 +220,10 @@ class TopBar(QFrame):
 
         self.main_layout.addStretch()
 
-        # ✅ Responsive search bar
+        # ✅ Responsive search bar (compact to leave ample room for tabs)
         self.search_wrap = QWidget(self)
-        self.search_wrap.setMinimumWidth(100)
-        self.search_wrap.setMaximumWidth(200)
+        self.search_wrap.setMinimumWidth(80)
+        self.search_wrap.setMaximumWidth(130)
         self.search_inner = QHBoxLayout(self.search_wrap)
         self.search_inner.setContentsMargins(0, 0, 0, 0)
         self.search_inner.setSpacing(0)
@@ -277,8 +324,27 @@ class TopBar(QFrame):
 
         self._current_page_index = 0
         self._apply_theme_styles()
+        self.refresh_permissions()
         self._theme.theme_changed.connect(self._on_theme_changed)
         AccentManager().accent_changed.connect(self._on_accent_changed)
+
+    def update_user_display(self):
+        from utils.auth import SessionManager
+        user = SessionManager.current_user() or {}
+        name = user.get("display_name") or user.get("username", "Admin")
+        # Keep name compact so it doesn't push or compress the navigation tabs
+        if "admin" in name.lower():
+            display_name = "Admin"
+        else:
+            parts = name.split()
+            display_name = parts[0] if parts else name
+        self.owner_lbl.setText(display_name)
+        initial = name[0].upper() if name else "A"
+        self.avatar.setText(initial)
+
+    def refresh_permissions(self):
+        self.top_nav.refresh_permissions()
+        self.update_user_display()
 
     def _minimize_window(self):
         w = self.window()
@@ -356,13 +422,10 @@ class TopBar(QFrame):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         w = self.width()
-        is_compact = w < 1080
-        self.owner_lbl.setVisible(not is_compact)
-        self.divider.setVisible(not is_compact)
-        if w < 880:
-            self.clock_lbl.setVisible(False)
-        else:
-            self.clock_lbl.setVisible(True)
+        # Protect top nav tabs from being squeezed: hide clock & owner on lower resolutions
+        self.clock_lbl.setVisible(w >= 1180)
+        self.owner_lbl.setVisible(w >= 1050)
+        self.divider.setVisible(w >= 1050)
 
     def _confirm_close(self):
         reply = QMessageBox.question(

@@ -276,6 +276,12 @@ def init_db(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         pass
 
+    for table in ["bookings", "customers"]:
+        try:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN sync_status TEXT DEFAULT 'pending'")
+        except sqlite3.OperationalError:
+            pass
+
     cur.execute("SELECT COUNT(*) FROM address_provinces")
     if cur.fetchone()[0] == 0:
         cur.execute("INSERT OR IGNORE INTO address_provinces (ap_name) VALUES ('Cebu')")

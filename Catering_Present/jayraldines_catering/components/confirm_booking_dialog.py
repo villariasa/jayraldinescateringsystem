@@ -7,7 +7,7 @@ ConfirmBookingDialog — Booking Approval modal with flexible payment options:
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QCheckBox, QComboBox, QLineEdit, QRadioButton, QButtonGroup,
-    QDoubleSpinBox, QWidget
+    QDoubleSpinBox, QWidget, QScrollArea, QApplication
 )
 from PySide6.QtCore import Qt, QSize
 from utils.icons import get_icon, btn_icon_primary, btn_icon_secondary
@@ -37,6 +37,10 @@ class ConfirmBookingDialog(QDialog):
         self.setMinimumWidth(540)
         self.setModal(True)
 
+        screen = QApplication.primaryScreen()
+        screen_h = screen.availableGeometry().height() if screen else 768
+        self.setMaximumHeight(min(640, max(420, int(screen_h * 0.88))))
+
         self._booking = booking_info
         self._tot_val = _parse_amount(self._booking.get("total") or self._booking.get("total_amount") or 0.0)
         self._paid_val = _parse_amount(self._booking.get("amount_paid") or self._booking.get("down_payment") or 0.0)
@@ -50,16 +54,16 @@ class ConfirmBookingDialog(QDialog):
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 20, 20, 20)
+        outer.setContentsMargins(16, 16, 16, 16)
 
         container = QFrame()
         container.setObjectName("modalCard")
         create_soft_shadow(container, radius=32, y_offset=8, opacity=45)
         inner = QVBoxLayout(container)
-        inner.setContentsMargins(24, 24, 24, 20)
-        inner.setSpacing(14)
+        inner.setContentsMargins(24, 20, 24, 20)
+        inner.setSpacing(12)
 
-        # Header Row
+        # ── 1. PINNED HEADER ─────────────────────────────────────────────────
         head_row = QHBoxLayout()
         icon_lbl = QLabel("✅")
         icon_lbl.setStyleSheet("font-size: 24px;")
@@ -84,9 +88,22 @@ class ConfirmBookingDialog(QDialog):
         head_row.addWidget(close_btn, alignment=Qt.AlignTop)
         inner.addLayout(head_row)
 
-        div = QFrame()
-        div.setObjectName("divider")
-        inner.addWidget(div)
+        div_top = QFrame()
+        div_top.setObjectName("divider")
+        inner.addWidget(div_top)
+
+        # ── 2. SCROLLABLE MIDDLE BODY ────────────────────────────────────────
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setStyleSheet("background: transparent; border: none;")
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
+        body_lay = QVBoxLayout(scroll_content)
+        body_lay.setContentsMargins(0, 4, 6, 4)
+        body_lay.setSpacing(12)
 
         # Summary Box (Total, Paid, Remaining Balance)
         summary_box = QFrame()
@@ -126,12 +143,12 @@ class ConfirmBookingDialog(QDialog):
                 lbl_addons_bk.setStyleSheet("font-size: 11.5px; color: #D97706; background: rgba(245, 158, 11, 0.08); border-radius: 4px; padding: 4px 6px; margin-top: 2px;")
                 s_lay.addWidget(lbl_addons_bk)
 
-        inner.addWidget(summary_box)
+        body_lay.addWidget(summary_box)
 
         # Mode Selector (Radio Group)
         lbl_select = QLabel("Payment Action on Approval:")
         lbl_select.setStyleSheet("font-weight: 700; font-size: 13px;")
-        inner.addWidget(lbl_select)
+        body_lay.addWidget(lbl_select)
 
         self.btn_group = QButtonGroup(self)
 
@@ -149,9 +166,9 @@ class ConfirmBookingDialog(QDialog):
         self.btn_group.addButton(self.rb_custom, 1)
         self.btn_group.addButton(self.rb_full, 2)
 
-        inner.addWidget(self.rb_none)
-        inner.addWidget(self.rb_custom)
-        inner.addWidget(self.rb_full)
+        body_lay.addWidget(self.rb_none)
+        body_lay.addWidget(self.rb_custom)
+        body_lay.addWidget(self.rb_full)
 
         # Payment options frame
         self._pay_options_frame = QFrame()
@@ -228,7 +245,7 @@ class ConfirmBookingDialog(QDialog):
         row_remarks.addWidget(self.txt_remarks, 1)
         p_lay.addLayout(row_remarks)
 
-        inner.addWidget(self._pay_options_frame)
+        body_lay.addWidget(self._pay_options_frame)
         self._pay_options_frame.hide()
 
         # Wire Signals
@@ -237,17 +254,24 @@ class ConfirmBookingDialog(QDialog):
         # ── Color Theme Picker ───────────────────────────────────────────────
         div2 = QFrame()
         div2.setObjectName("divider")
-        inner.addWidget(div2)
+        body_lay.addWidget(div2)
 
         lbl_theme = QLabel("🎨  Assign Event Color Theme")
         lbl_theme.setStyleSheet("font-weight: 700; font-size: 13px;")
-        inner.addWidget(lbl_theme)
+        body_lay.addWidget(lbl_theme)
 
         initial_color = str(self._booking.get("color_theme") or self._booking.get("color") or "#2563EB")
         self._color_picker = ColorThemeSelector(initial_color=initial_color)
-        inner.addWidget(self._color_picker)
+        body_lay.addWidget(self._color_picker)
 
-        # Action Buttons
+        scroll_area.setWidget(scroll_content)
+        inner.addWidget(scroll_area, 1)
+
+        # ── 3. PINNED BOTTOM FOOTER (FIXED & ALWAYS VISIBLE) ─────────────────
+        div_footer = QFrame()
+        div_footer.setObjectName("divider")
+        inner.addWidget(div_footer)
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
         btn_row.addStretch()
@@ -290,6 +314,14 @@ class ConfirmBookingDialog(QDialog):
         self.num_amount.setValue(val)
         if self.btn_group.checkedId() == 0:
             self.rb_custom.setChecked(True)
+
+    def get_action_mode(self) -> str:
+        mode = self.btn_group.checkedId()
+        if mode == 1:
+            return "downpayment"
+        elif mode == 2:
+            return "full"
+        return "none"
 
     def get_payment_amount(self) -> float:
         mode = self.btn_group.checkedId()
@@ -337,6 +369,10 @@ class BatchConfirmBookingDialog(QDialog):
         self.setMinimumWidth(560)
         self.setModal(True)
 
+        screen = QApplication.primaryScreen()
+        screen_h = screen.availableGeometry().height() if screen else 768
+        self.setMaximumHeight(min(640, max(420, int(screen_h * 0.88))))
+
         self._bookings = pending_bookings
         self._count = len(pending_bookings)
 
@@ -352,16 +388,16 @@ class BatchConfirmBookingDialog(QDialog):
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 20, 20, 20)
+        outer.setContentsMargins(16, 16, 16, 16)
 
         container = QFrame()
         container.setObjectName("modalCard")
         create_soft_shadow(container, radius=32, y_offset=8, opacity=45)
         inner = QVBoxLayout(container)
-        inner.setContentsMargins(24, 24, 24, 20)
-        inner.setSpacing(14)
+        inner.setContentsMargins(24, 20, 24, 20)
+        inner.setSpacing(12)
 
-        # Header Row
+        # ── 1. PINNED HEADER ─────────────────────────────────────────────────
         head_row = QHBoxLayout()
         icon_lbl = QLabel("✅")
         icon_lbl.setStyleSheet("font-size: 24px;")
@@ -386,9 +422,31 @@ class BatchConfirmBookingDialog(QDialog):
         head_row.addWidget(close_btn, alignment=Qt.AlignTop)
         inner.addLayout(head_row)
 
-        div = QFrame()
-        div.setObjectName("divider")
-        inner.addWidget(div)
+        div_top = QFrame()
+        div_top.setObjectName("divider")
+        inner.addWidget(div_top)
+
+        # ── 2. SCROLLABLE BODY ───────────────────────────────────────────────
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+            }
+        """)
+
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
+        body_lay = QVBoxLayout(scroll_content)
+        body_lay.setContentsMargins(0, 4, 8, 4)
+        body_lay.setSpacing(14)
 
         # Summary Box
         summary_box = QFrame()
@@ -415,12 +473,12 @@ class BatchConfirmBookingDialog(QDialog):
         r_amounts.addWidget(lbl_paid)
         r_amounts.addWidget(lbl_rem)
         s_lay.addLayout(r_amounts)
-        inner.addWidget(summary_box)
+        body_lay.addWidget(summary_box)
 
         # Payment Action Selector
         lbl_select = QLabel("Payment Action on Batch Approval:")
         lbl_select.setStyleSheet("font-weight: 700; font-size: 13px;")
-        inner.addWidget(lbl_select)
+        body_lay.addWidget(lbl_select)
 
         self.btn_group = QButtonGroup(self)
 
@@ -438,9 +496,9 @@ class BatchConfirmBookingDialog(QDialog):
         self.btn_group.addButton(self.rb_custom, 1)
         self.btn_group.addButton(self.rb_full, 2)
 
-        inner.addWidget(self.rb_none)
-        inner.addWidget(self.rb_custom)
-        inner.addWidget(self.rb_full)
+        body_lay.addWidget(self.rb_none)
+        body_lay.addWidget(self.rb_custom)
+        body_lay.addWidget(self.rb_full)
 
         # Payment Options Frame (Amount, Method, Remarks)
         self._pay_options_frame = QFrame()
@@ -511,7 +569,7 @@ class BatchConfirmBookingDialog(QDialog):
         row_remarks.addWidget(self.txt_remarks, 1)
         p_lay.addLayout(row_remarks)
 
-        inner.addWidget(self._pay_options_frame)
+        body_lay.addWidget(self._pay_options_frame)
         self._pay_options_frame.hide()
 
         # Wire Signals
@@ -520,16 +578,23 @@ class BatchConfirmBookingDialog(QDialog):
         # ── Color Theme Picker ───────────────────────────────────────────────
         div2 = QFrame()
         div2.setObjectName("divider")
-        inner.addWidget(div2)
+        body_lay.addWidget(div2)
 
         lbl_theme = QLabel("🎨  Assign Color Theme (applied to all selected bookings)")
         lbl_theme.setStyleSheet("font-weight: 700; font-size: 13px;")
-        inner.addWidget(lbl_theme)
+        body_lay.addWidget(lbl_theme)
 
         self._color_picker = ColorThemeSelector(initial_color="#2563EB")
-        inner.addWidget(self._color_picker)
+        body_lay.addWidget(self._color_picker)
 
-        # Action Buttons
+        scroll_area.setWidget(scroll_content)
+        inner.addWidget(scroll_area, 1)
+
+        # ── 3. PINNED BOTTOM FOOTER (FIXED & ALWAYS VISIBLE) ─────────────────
+        div_footer = QFrame()
+        div_footer.setObjectName("divider")
+        inner.addWidget(div_footer)
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
         btn_row.addStretch()

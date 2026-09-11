@@ -1030,9 +1030,10 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str,
     headers = []
     rows = []
     sheets = {}
+    ent_lower = str(entity_name or "").lower().strip()
 
-    if "Bookings" in entity_name:
-        headers = ["Booking Ref", "Customer Name", "Contact Number", "Email Address", "Event Date", "Event Time", "Venue / Location", "Occasion", "Guest Count (Pax)", "Total Amount (₱)", "Down Paid (₱)", "Balance (₱)", "Status", "Payment Mode", "Notes / Theme"]
+    if "booking" in ent_lower or "order" in ent_lower:
+        headers = ["Booking Ref", "Customer Name", "Contact Number", "Email Address", "Address", "Occasion", "Venue / Location", "Event Date", "Event Time", "Guest Count (Pax)", "Total Amount (₱)", "Down Paid (₱)", "Balance (₱)", "Status", "Payment Mode", "Special Notes / Theme"]
         b_list = _filter_by_month(repo.get_all_bookings_for_export() or [], "event_date", year, month)
         for b in b_list:
             try:
@@ -1044,10 +1045,11 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str,
                     b.get("name") or b.get("customer_name") or "",
                     b.get("contact") or b.get("phone") or "",
                     b.get("email") or "",
+                    b.get("address") or b.get("imported_address") or "",
+                    b.get("occasion") or "",
+                    b.get("venue") or "",
                     b.get("date") or b.get("event_date") or "",
                     b.get("time") or b.get("event_time") or "",
-                    b.get("venue") or "",
-                    b.get("occasion") or "",
                     str(b.get("pax") or 0),
                     f"₱{tot:,.2f}",
                     f"₱{paid:,.2f}",
@@ -1060,51 +1062,104 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str,
                 print(f"[exporter] Bookings row error (skipping): {row_exc}")
         sheets["Bookings"] = (headers, rows)
 
-    elif "Customers" in entity_name:
-        headers = ["Customer ID", "Customer Name", "Contact Number", "Email Address", "Address", "Notes / History"]
+    elif "customer" in ent_lower or "client" in ent_lower:
+        headers = ["Customer ID", "Customer Name", "Contact Number", "Email Address", "Address", "Status", "Notes / History"]
         c_list = repo.get_all_customers() or []
         for c in c_list:
             rows.append([
                 c.get("id", ""), c.get("name", ""), c.get("contact", ""),
                 c.get("email", ""), c.get("address", "") or c.get("imported_address", ""),
+                c.get("status", "Active"),
                 c.get("notes", "")
             ])
         sheets["Customers"] = (headers, rows)
 
-    elif "Expenses" in entity_name:
-        headers = ["Expense ID", "Expense Date", "Category", "Description", "Amount (₱)"]
+    elif "expense" in ent_lower or "cost" in ent_lower:
+        headers = ["Expense ID", "Expense Date", "Category", "Description", "Amount (₱)", "Notes / Remarks"]
         e_list = _filter_by_month(repo.get_all_expenses() or [], "date", year, month)
         for e in e_list:
             rows.append([
                 e.get("id", ""), e.get("date", ""), e.get("category", ""),
-                e.get("description", ""), f"₱{_parse_amount(e.get('amount', 0)):,.2f}"
+                e.get("description", ""), f"₱{_parse_amount(e.get('amount', 0)):,.2f}",
+                e.get("notes", "")
             ])
         sheets["Expenses"] = (headers, rows)
 
-    elif "Menu" in entity_name:
-        headers = ["Item ID", "Item / Package Name", "Category", "Price / Rate (₱)", "Description / Inclusions"]
-        m_list = repo.get_all_menu_items() or []
-        for m in m_list:
-            rows.append([
-                m.get("id", ""), m.get("name", "") or m.get("item", ""), m.get("category", ""),
-                f"₱{_parse_amount(m.get('price', 0)):,.2f}", m.get("description", "")
+    elif "package" in ent_lower and "menu" not in ent_lower:
+        p_hdrs = ["Package ID", "Package Name", "Price Per Pax (₱)", "Minimum Pax", "Description / Inclusions"]
+        p_rows = []
+        for p in (repo.get_all_packages() or []):
+            p_rows.append([
+                p.get("id", ""), p.get("name", ""),
+                f"₱{_parse_amount(p.get('price_per_pax', 0)):,.2f}",
+                str(p.get("min_pax", 1)),
+                p.get("description", "")
             ])
-        sheets["Menu Items"] = (headers, rows)
+        sheets["Catering Packages"] = (p_hdrs, p_rows)
+        headers = p_hdrs
+        rows = p_rows
 
-    elif "Billing" in entity_name:
-        headers = ["Invoice Ref", "Booking Ref", "Customer Name", "Event Date", "Total Amount (₱)", "Paid Amount (₱)", "Balance Due (₱)", "Payment Status"]
+    elif "menu" in ent_lower and "package" not in ent_lower:
+        m_hdrs = ["Item ID", "Item Name", "Category", "Package Tier", "Price / Rate (₱)", "Status", "Description / Inclusions"]
+        m_rows = []
+        for m in (repo.get_all_menu_items() or []):
+            m_rows.append([
+                m.get("id", ""), m.get("name", "") or m.get("item", ""), m.get("category", ""),
+                m.get("package", "Standard"),
+                f"₱{_parse_amount(m.get('price', 0)):,.2f}",
+                m.get("status", "Available"),
+                m.get("description", "")
+            ])
+        sheets["Menu Items"] = (m_hdrs, m_rows)
+        headers = m_hdrs
+        rows = m_rows
+
+    elif "menu" in ent_lower or "package" in ent_lower:
+        m_hdrs = ["Item ID", "Item Name", "Category", "Package Tier", "Price / Rate (₱)", "Status", "Description / Inclusions"]
+        m_rows = []
+        for m in (repo.get_all_menu_items() or []):
+            m_rows.append([
+                m.get("id", ""), m.get("name", "") or m.get("item", ""), m.get("category", ""),
+                m.get("package", "Standard"),
+                f"₱{_parse_amount(m.get('price', 0)):,.2f}",
+                m.get("status", "Available"),
+                m.get("description", "")
+            ])
+        sheets["Menu Items"] = (m_hdrs, m_rows)
+
+        p_hdrs = ["Package ID", "Package Name", "Price Per Pax (₱)", "Minimum Pax", "Description / Inclusions"]
+        p_rows = []
+        for p in (repo.get_all_packages() or []):
+            p_rows.append([
+                p.get("id", ""), p.get("name", ""),
+                f"₱{_parse_amount(p.get('price_per_pax', 0)):,.2f}",
+                str(p.get("min_pax", 1)),
+                p.get("description", "")
+            ])
+        sheets["Catering Packages"] = (p_hdrs, p_rows)
+        headers = m_hdrs
+        rows = m_rows
+
+    elif "billing" in ent_lower or "invoice" in ent_lower:
+        headers = ["Invoice Ref", "Booking Ref", "Customer Name", "Contact Number", "Email Address", "Event Date", "Total Amount (₱)", "Paid Amount (₱)", "Balance Due (₱)", "Payment Status", "Payment Mode", "Notes / Remarks"]
         i_list = _filter_by_month(repo.get_all_invoices() or [], "event_date", year, month)
         for inv in i_list:
             rows.append([
                 inv.get("invoice", ""), inv.get("booking_ref", ""), inv.get("customer", ""),
-                inv.get("event_date", ""), f"₱{_parse_amount(inv.get('amount', 0)):,.2f}",
-                f"₱{_parse_amount(inv.get('paid', 0)):,.2f}", f"₱{_parse_amount(inv.get('balance', 0)):,.2f}",
-                inv.get("status", "")
+                inv.get("contact", "") or inv.get("phone", ""),
+                inv.get("email", "") or inv.get("customer_email", ""),
+                inv.get("event_date", ""),
+                f"₱{_parse_amount(inv.get('amount', 0)):,.2f}",
+                f"₱{_parse_amount(inv.get('paid', 0)):,.2f}",
+                f"₱{_parse_amount(inv.get('balance', 0)):,.2f}",
+                inv.get("status", ""),
+                inv.get("payment_mode", "Cash"),
+                inv.get("notes", "")
             ])
-        sheets["Invoices"] = (headers, rows)
+        sheets["Billing & Invoices"] = (headers, rows)
 
-    elif "Cash" in entity_name or "Flow" in entity_name:
-        headers = ["Date", "Check #", "Particulars (Account / Detail)", "Deposit (₱)", "Withdrawal (₱)", "Running Balance (₱)", "Actual Sales (₱)", "Variance / Difference (₱)", "Remarks / Notes"]
+    elif "cash" in ent_lower or "flow" in ent_lower:
+        headers = ["Transaction ID", "Date", "Check #", "Particulars (Account / Detail)", "Deposit (₱)", "Withdrawal (₱)", "Running Balance (₱)", "Actual Sales (₱)", "Variance / Difference (₱)", "Remarks / Notes"]
         tx_list = _filter_by_month(repo.get_cash_flow_transactions() or [], "date", year, month)
         for tx in tx_list:
             dep = float(tx.get("deposit") or 0.0)
@@ -1114,6 +1169,7 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str,
             diff = bal - act_sales
             diff_str = f"₱{diff:,.2f}" if diff >= 0 else f"(₱{abs(diff):,.2f})"
             rows.append([
+                str(tx.get("id", "") or tx.get("cft_id", "")),
                 str(tx.get("date", "")),
                 str(tx.get("check_no", "")),
                 str(tx.get("particulars", "")),
@@ -1126,8 +1182,8 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str,
             ])
         sheets["Cash Flow Ledger"] = (headers, rows)
 
-    else: # Master Export
-        b_hdrs = ["Booking Ref", "Customer Name", "Contact Number", "Email Address", "Event Date", "Event Time", "Venue", "Occasion", "Pax", "Total Amount (₱)", "Down Paid (₱)", "Balance (₱)", "Status", "Payment Mode", "Notes / Theme"]
+    else: # Master Export (All System Data)
+        b_hdrs = ["Booking Ref", "Customer Name", "Contact Number", "Email Address", "Address", "Occasion", "Venue / Location", "Event Date", "Event Time", "Guest Count (Pax)", "Total Amount (₱)", "Down Paid (₱)", "Balance (₱)", "Status", "Payment Mode", "Special Notes / Theme"]
         b_rows = []
         for b in _filter_by_month(repo.get_all_bookings_for_export() or [], "event_date", year, month):
             try:
@@ -1139,10 +1195,11 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str,
                     b.get("name") or b.get("customer_name") or "",
                     b.get("contact") or b.get("phone") or "",
                     b.get("email") or "",
+                    b.get("address") or b.get("imported_address") or "",
+                    b.get("occasion") or "",
+                    b.get("venue") or "",
                     b.get("date") or b.get("event_date") or "",
                     b.get("time") or b.get("event_time") or "",
-                    b.get("venue") or "",
-                    b.get("occasion") or "",
                     str(b.get("pax") or 0),
                     f"₱{tot:,.2f}",
                     f"₱{paid:,.2f}",
@@ -1155,20 +1212,25 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str,
                 print(f"[exporter] Master Bookings row error (skipping): {row_exc}")
         sheets["Bookings"] = (b_hdrs, b_rows)
 
-        c_hdrs = ["Customer ID", "Customer Name", "Contact Number", "Email Address", "Address", "Notes / History"]
-        c_rows = [[c.get("id", ""), c.get("name", ""), c.get("contact", ""), c.get("email", ""), c.get("address", "") or c.get("imported_address", ""), c.get("notes", "")] for c in (repo.get_all_customers() or [])]
+        c_hdrs = ["Customer ID", "Customer Name", "Contact Number", "Email Address", "Address", "Status", "Notes / History"]
+        c_rows = [[c.get("id", ""), c.get("name", ""), c.get("contact", ""), c.get("email", ""), c.get("address", "") or c.get("imported_address", ""), c.get("status", "Active"), c.get("notes", "")] for c in (repo.get_all_customers() or [])]
         sheets["Customers"] = (c_hdrs, c_rows)
 
-        e_hdrs = ["Expense ID", "Expense Date", "Category", "Description", "Amount (₱)"]
-        e_rows = [[e.get("id", ""), e.get("date", ""), e.get("category", ""), e.get("description", ""), f"₱{_parse_amount(e.get('amount', 0)):,.2f}"] for e in _filter_by_month(repo.get_all_expenses() or [], "date", year, month)]
+        e_hdrs = ["Expense ID", "Expense Date", "Category", "Description", "Amount (₱)", "Notes / Remarks"]
+        e_rows = [[e.get("id", ""), e.get("date", ""), e.get("category", ""), e.get("description", ""), f"₱{_parse_amount(e.get('amount', 0)):,.2f}", e.get("notes", "")] for e in _filter_by_month(repo.get_all_expenses() or [], "date", year, month)]
         sheets["Expenses"] = (e_hdrs, e_rows)
 
-        m_hdrs = ["Item ID", "Item / Package Name", "Category", "Price / Rate (₱)", "Description / Inclusions"]
-        m_rows = [[m.get("id", ""), m.get("name", "") or m.get("item", ""), m.get("category", ""), f"₱{_parse_amount(m.get('price', 0)):,.2f}", m.get("description", "")] for m in (repo.get_all_menu_items() or [])]
+        m_hdrs = ["Item ID", "Item Name", "Category", "Package Tier", "Price / Rate (₱)", "Status", "Description / Inclusions"]
+        m_rows = [[m.get("id", ""), m.get("name", "") or m.get("item", ""), m.get("category", ""), m.get("package", "Standard"), f"₱{_parse_amount(m.get('price', 0)):,.2f}", m.get("status", "Available"), m.get("description", "")] for m in (repo.get_all_menu_items() or [])]
         sheets["Menu Items"] = (m_hdrs, m_rows)
 
-        cf_hdrs = ["Date", "Check #", "Particulars (Account / Detail)", "Deposit (₱)", "Withdrawal (₱)", "Running Balance (₱)", "Actual Sales (₱)", "Variance / Difference (₱)", "Remarks / Notes"]
+        p_hdrs = ["Package ID", "Package Name", "Price Per Pax (₱)", "Minimum Pax", "Description / Inclusions"]
+        p_rows = [[p.get("id", ""), p.get("name", ""), f"₱{_parse_amount(p.get('price_per_pax', 0)):,.2f}", str(p.get("min_pax", 1)), p.get("description", "")] for p in (repo.get_all_packages() or [])]
+        sheets["Catering Packages"] = (p_hdrs, p_rows)
+
+        cf_hdrs = ["Transaction ID", "Date", "Check #", "Particulars (Account / Detail)", "Deposit (₱)", "Withdrawal (₱)", "Running Balance (₱)", "Actual Sales (₱)", "Variance / Difference (₱)", "Remarks / Notes"]
         cf_rows = [[
+            str(tx.get("id", "") or tx.get("cft_id", "")),
             str(tx.get("date", "")),
             str(tx.get("check_no", "")),
             str(tx.get("particulars", "")),
@@ -1181,9 +1243,9 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str,
         ] for tx in _filter_by_month(repo.get_cash_flow_transactions() or [], "date", year, month)]
         sheets["Cash Flow Ledger"] = (cf_hdrs, cf_rows)
 
-        i_hdrs = ["Invoice Ref", "Booking Ref", "Customer Name", "Event Date", "Total Amount (₱)", "Paid Amount (₱)", "Balance Due (₱)", "Payment Status"]
-        i_rows = [[inv.get("invoice", ""), inv.get("booking_ref", ""), inv.get("customer", ""), inv.get("event_date", ""), f"₱{_parse_amount(inv.get('amount', 0)):,.2f}", f"₱{_parse_amount(inv.get('paid', 0)):,.2f}", f"₱{_parse_amount(inv.get('balance', 0)):,.2f}", inv.get("status", "")] for inv in _filter_by_month(repo.get_all_invoices() or [], "event_date", year, month)]
-        sheets["Invoices & Payments"] = (i_hdrs, i_rows)
+        i_hdrs = ["Invoice Ref", "Booking Ref", "Customer Name", "Contact Number", "Email Address", "Event Date", "Total Amount (₱)", "Paid Amount (₱)", "Balance Due (₱)", "Payment Status", "Payment Mode", "Notes / Remarks"]
+        i_rows = [[inv.get("invoice", ""), inv.get("booking_ref", ""), inv.get("customer", ""), inv.get("contact", "") or inv.get("phone", ""), inv.get("email", "") or inv.get("customer_email", ""), inv.get("event_date", ""), f"₱{_parse_amount(inv.get('amount', 0)):,.2f}", f"₱{_parse_amount(inv.get('paid', 0)):,.2f}", f"₱{_parse_amount(inv.get('balance', 0)):,.2f}", inv.get("status", ""), inv.get("payment_mode", "Cash"), inv.get("notes", "")] for inv in _filter_by_month(repo.get_all_invoices() or [], "event_date", year, month)]
+        sheets["Billing & Invoices"] = (i_hdrs, i_rows)
 
     if not is_excel:
         try:

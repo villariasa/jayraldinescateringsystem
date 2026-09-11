@@ -83,16 +83,24 @@ def _back_btn_style():
 
 
 class KitchenPage(QWidget):
-    def __init__(self):
-        super().__init__()
-        repo.sync_kitchen_from_bookings()
-        db_rows = repo.get_all_orders()
-        self._orders = db_rows if db_rows else []
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._dirty = True  # Async load on first show
+        self._orders = []   # Will be populated by first reload()
         self._build_ui()
         self._refresh_columns()
         ThemeManager().theme_changed.connect(self._on_theme_changed)
 
+    def _mark_dirty(self):
+        self._dirty = True
+
+    def _mark_dirty_and_reload(self):
+        self._dirty = True
+        if self.isVisible():
+            self.reload()
+
     def reload(self):
+        self._dirty = False
         prev = getattr(self, "_kitchen_loader", None)
         if prev is not None and prev.isRunning():
             return
@@ -142,6 +150,8 @@ class KitchenPage(QWidget):
         super().showEvent(event)
         self._sync_heights()
         self._reset_column_widths()
+        if getattr(self, "_dirty", True):
+            self.reload()
 
     def _on_theme_changed(self, _theme: str):
         self._apply_column_styles()

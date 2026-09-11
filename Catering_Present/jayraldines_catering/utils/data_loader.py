@@ -64,12 +64,21 @@ class DataLoader(QThread):
 def run_async(page, fn, on_success, on_error=None, *args, **kwargs):
     """
     Convenience helper. Starts a DataLoader on *page* for the callable *fn*.
-    Supports multiple concurrent workers on the same page.
+    Automatically tracks request generations so rapid tab switching or repeated
+    nav clicks discard stale background results and avoid redundant UI repaints.
     """
     if not hasattr(page, "_active_loaders"):
         page._active_loaders = set()
+    if not hasattr(page, "_async_generations"):
+        page._async_generations = {}
 
-    def _safe_success(data):
+    fn_key = getattr(fn, "__name__", str(fn))
+    current_gen = page._async_generations.get(fn_key, 0) + 1
+    page._async_generations[fn_key] = current_gen
+
+    def _safe_success(data, gen=current_gen):
+        if getattr(page, "_async_generations", {}).get(fn_key) != gen:
+            return  # Superseded by newer fetch — ignore stale result
         try:
             from shiboken6 import isValid
             if hasattr(page, "isVisible") and not isValid(page):
@@ -82,7 +91,9 @@ def run_async(page, fn, on_success, on_error=None, *args, **kwargs):
             import traceback
             print(f"[run_async] Error in callback {getattr(on_success, '__name__', str(on_success))}: {exc}\n{traceback.format_exc()}")
 
-    def _safe_error(msg):
+    def _safe_error(msg, gen=current_gen):
+        if getattr(page, "_async_generations", {}).get(fn_key) != gen:
+            return  # Superseded
         try:
             from shiboken6 import isValid
             if hasattr(page, "isVisible") and not isValid(page):

@@ -62,3 +62,8 @@ Thumbs.db
 # Logs and Temp files
 *.log
 /tmp/
+*.mp4
+scratch/
+local.properties
+OUTPUT_APK
+OUTPUT_APK/

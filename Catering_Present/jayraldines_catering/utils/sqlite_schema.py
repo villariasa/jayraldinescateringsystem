@@ -27,6 +27,21 @@ CREATE TABLE IF NOT EXISTS business_info (
     bi_updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Device & Terminal Session Monitoring
+CREATE TABLE IF NOT EXISTS device_sessions (
+    device_id TEXT PRIMARY KEY,
+    hostname TEXT NOT NULL,
+    ip_address TEXT,
+    os_info TEXT,
+    app_version TEXT,
+    username TEXT,
+    user_role TEXT,
+    active_module TEXT DEFAULT 'Dashboard',
+    status TEXT DEFAULT 'online',
+    first_connected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_heartbeat DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Occasions Master Table
 CREATE TABLE IF NOT EXISTS occasions (
     occ_id INTEGER PRIMARY KEY AUTOINCREMENT,

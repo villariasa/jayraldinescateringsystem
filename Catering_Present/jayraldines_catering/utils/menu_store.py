@@ -11,7 +11,10 @@ def _sync_from_db():
         if not db.is_available():
             return
         rows = db.fetchall(
-            "SELECT name, category::TEXT, package_tier::TEXT AS package, price, status::TEXT FROM menu_items ORDER BY category, name"
+            "SELECT mi_name AS name, mi_category::TEXT AS category, "
+            "COALESCE(mi_package_tier::TEXT, 'Standard') AS package, "
+            "COALESCE(mi_price, 0.0) AS price, COALESCE(mi_status::TEXT, 'Available') AS status "
+            "FROM menu_items ORDER BY 2, 1"
         )
         if rows:
             _MENU_ITEMS.clear()

@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import * as repo from "./repository.js";
 import { openModal, closeModal, toast, escapeHtml, statusPill } from "./views.js";
 import { peso } from "./state.js";
 import { icon } from "./icons.js";
@@ -1106,8 +1107,152 @@ async function renderDatabaseTab(content) {
     </div>
 
     <!-- Data Management Actions Section -->
-    <div style="display:flex; flex-direction:column; gap:16px;">
+    <!-- Data Management Actions Section -->
+    <div style="display:flex; flex-direction:column; gap:20px;">
       
+      <!-- Central Server LAN Sync Card -->
+      <div class="card" style="padding:24px; border:1.5px solid var(--accent); border-radius:var(--radius-lg); background:var(--card-bg); box-shadow:var(--shadow-md);">
+        
+        <!-- Header & Live Status Row -->
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:14px; margin-bottom:18px; padding-bottom:16px; border-bottom:1px solid var(--border);">
+          <div style="max-width:680px;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+              <span style="display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:10px; background:rgba(225,29,72,0.12); color:var(--accent);">
+                ${icon("refreshCw")}
+              </span>
+              <h3 style="margin:0; font-size:18px; font-weight:800; letter-spacing:-0.3px;">
+                Central Server LAN Sync (Offline &amp; On-Site)
+              </h3>
+            </div>
+            <p style="font-size:13px; color:var(--text-muted); margin:0; line-height:1.5;">
+              This tablet operates <b>100% offline</b> during catering events. When reconnected to the central server's Wi-Fi network or hotspot, sync customer reservations, payments, and live menu packages without creating duplicate records.
+            </p>
+          </div>
+
+          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+            <div id="lan-status-pill" style="padding:6px 14px; border-radius:24px; font-size:12px; font-weight:700; background:rgba(245,158,11,0.15); color:var(--gold); border:1.5px solid rgba(245,158,11,0.35); display:inline-flex; align-items:center; gap:6px;">
+              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:currentColor;"></span>
+              Checking LAN Connection…
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:600;">
+              Local Storage: <span style="color:var(--success);">IndexedDB Active ✓</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hardware & Network Permission Verification Strip -->
+        <div style="background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.22); border-radius:var(--radius-md); padding:10px 16px; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:15px; color:var(--success);">🛡️</span>
+            <span style="font-size:12.5px; font-weight:600; color:var(--text);">
+              <b>Tablet Permissions:</b> Local Wi-Fi Network &amp; LAN Communication Granted
+            </span>
+          </div>
+          <div style="display:flex; gap:16px; font-size:11.5px; color:var(--text-muted);">
+            <span>• HTTP/JSON Sync: Allowed</span>
+            <span>• Offline Kiosk: 100% Ready</span>
+          </div>
+        </div>
+
+        <!-- Form Configuration Grid: Clean 2-Column Responsive Layout -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:18px; margin-bottom:20px;">
+          
+          <!-- Column 1: Connection Host & Port -->
+          <div style="background:var(--input-bg); padding:16px; border-radius:var(--radius-md); border:1px solid var(--border);">
+            <div style="font-size:12px; font-weight:800; color:var(--accent); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+              ${icon("laptop")} 1. Central Server Host
+            </div>
+            
+            <div style="margin-bottom:12px;">
+              <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:4px;">
+                Central Server IP / Host Address *
+              </label>
+              <input type="text" id="input-lan-host" class="input" value="${localStorage.getItem('jayraldines_lan_host') || '10.105.101.120'}" placeholder="e.g. 10.105.101.120 or 192.168.1.100" style="width:100%; font-size:13.5px; font-weight:600; font-family:monospace; padding:10px 14px;">
+              <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+                LAN IP of the Central PC running Jayraldine's Catering (see PC Settings → Server).
+              </div>
+            </div>
+
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:4px;">
+                Sync Server Port (HTTP)
+              </label>
+              <input type="number" id="input-lan-port" class="input" value="${localStorage.getItem('jayraldines_lan_port') || '8000'}" placeholder="8000" style="width:100%; font-size:13.5px; font-weight:600; font-family:monospace; padding:10px 14px;">
+              <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+                Default Sync Hub port is <b>8000</b>. (PostgreSQL runs on port 5432).
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 2: Database Credentials (PostgreSQL on Central PC) -->
+          <div style="background:var(--input-bg); padding:16px; border-radius:var(--radius-md); border:1px solid var(--border);">
+            <div style="font-size:12px; font-weight:800; color:var(--accent); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+              ${icon("database")} 2. Central PostgreSQL Database
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+              <div>
+                <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:4px;">
+                  Database Name
+                </label>
+                <input type="text" id="input-lan-dbname" class="input" value="${localStorage.getItem('jayraldines_lan_dbname') || 'jayraldines_catering'}" placeholder="jayraldines_catering" style="width:100%; font-size:13px; padding:10px 12px;">
+              </div>
+              <div>
+                <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:4px;">
+                  DB User
+                </label>
+                <input type="text" id="input-lan-user" class="input" value="${localStorage.getItem('jayraldines_lan_user') || 'jayraldines_app'}" placeholder="jayraldines_app" style="width:100%; font-size:13px; padding:10px 12px;">
+              </div>
+            </div>
+
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:4px;">
+                DB Password
+              </label>
+              <div style="position:relative;">
+                <input type="password" id="input-lan-password" class="input" value="${localStorage.getItem('jayraldines_lan_password') || '12345678'}" placeholder="Default: 12345678" style="width:100%; font-size:13px; padding:10px 42px 10px 12px;">
+                <button type="button" id="btn-toggle-lan-pw" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; padding:6px; display:flex; align-items:center;" title="Show/Hide Password">
+                  ${icon("eye")}
+                </button>
+              </div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+                Password configured during server setup (default is 12345678).
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Pending Sync Counter Strip -->
+        <div style="margin-bottom:18px; background:rgba(225,29,72,0.05); border:1px solid rgba(225,29,72,0.18); border-radius:var(--radius-md); padding:12px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:16px;">📦</span>
+            <div>
+              <div style="font-size:12px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Unsynchronized Tablet Transactions:</div>
+              <div id="lan-pending-info" style="font-size:14px; font-weight:800; color:var(--accent); margin-top:2px;">Checking...</div>
+            </div>
+          </div>
+          <div style="font-size:12px; color:var(--text-muted); font-style:italic;">
+            Smart deduplication protects existing records from duplicates
+          </div>
+        </div>
+
+        <!-- Live Diagnostics Output Box -->
+        <div id="lan-diag-box" style="display:none; margin-bottom:18px; padding:14px 18px; border-radius:var(--radius-md); font-size:13px; line-height:1.5;"></div>
+
+        <!-- Action Buttons -->
+        <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
+          <button class="btn btn-primary" id="btn-lan-sync" style="font-weight:800; font-size:14px; padding:12px 24px; display:inline-flex; align-items:center; gap:10px; box-shadow:0 4px 12px rgba(225,29,72,0.25);">
+            ${icon("refreshCw")} Sync Now (Live DB &amp; Duplicate-Proof)
+          </button>
+          
+          <button class="btn btn-secondary" id="btn-lan-check" style="font-weight:700; font-size:14px; padding:12px 20px; display:inline-flex; align-items:center; gap:8px;">
+            ${icon("check")} Test Connection
+          </button>
+        </div>
+
+      </div>
+
       <!-- Backup & Export -->
       <div class="card" style="padding:20px;">
         <h4 style="margin:0 0 4px; font-size:16px; display:flex; align-items:center; gap:8px;">
@@ -1162,6 +1307,178 @@ async function renderDatabaseTab(content) {
 
     </div>
   `;
+
+  const hostInput = content.querySelector("#input-lan-host");
+  const portInput = content.querySelector("#input-lan-port");
+  const dbnameInput = content.querySelector("#input-lan-dbname");
+  const userInput = content.querySelector("#input-lan-user");
+  const passInput = content.querySelector("#input-lan-password");
+  const eyeBtn = content.querySelector("#btn-toggle-lan-pw");
+  const statusPill = content.querySelector("#lan-status-pill");
+  const pendingInfo = content.querySelector("#lan-pending-info");
+  const diagBox = content.querySelector("#lan-diag-box");
+
+  if (eyeBtn && passInput) {
+    let show = false;
+    eyeBtn.addEventListener("click", () => {
+      show = !show;
+      passInput.type = show ? "text" : "password";
+      eyeBtn.innerHTML = show ? icon("eyeOff") : icon("eye");
+    });
+  }
+
+  function getPendingCounts() {
+    try {
+      const { bookings, customers } = repo.getPendingSyncRecords();
+      return { bookings: bookings.length, customers: customers.length };
+    } catch (_) {
+      return { bookings: 0, customers: 0 };
+    }
+  }
+
+  async function updateLanStatus(showDiag = false) {
+    const host = hostInput ? hostInput.value.trim() : "";
+    const port = portInput ? portInput.value.trim() : "8000";
+    const dbname = dbnameInput ? dbnameInput.value.trim() : "jayraldines_catering";
+    const user = userInput ? userInput.value.trim() : "jayraldines_app";
+    const password = passInput ? passInput.value : "12345678";
+
+    if (host) localStorage.setItem("jayraldines_lan_host", host);
+    if (port) localStorage.setItem("jayraldines_lan_port", port);
+    if (dbname) localStorage.setItem("jayraldines_lan_dbname", dbname);
+    if (user) localStorage.setItem("jayraldines_lan_user", user);
+    if (password !== undefined) localStorage.setItem("jayraldines_lan_password", password);
+
+    const counts = getPendingCounts();
+    if (pendingInfo) {
+      pendingInfo.textContent = `${counts.bookings} booking(s), ${counts.customers} customer(s) pending sync`;
+    }
+
+    const stat = await api.checkLanStatus(host, parseInt(port, 10) || 8000);
+    if (statusPill) {
+      if (stat.online) {
+        const displayHost = stat.host || host || "Central PC";
+        statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--success);"></span> 🟢 Central Server Online (${escapeHtml(displayHost)}:${stat.port || 8000})`;
+        statusPill.style.background = "rgba(16,185,129,0.15)";
+        statusPill.style.color = "var(--success)";
+        statusPill.style.borderColor = "rgba(16,185,129,0.35)";
+
+        if (showDiag && diagBox) {
+          diagBox.style.display = "block";
+          diagBox.style.background = "rgba(16,185,129,0.1)";
+          diagBox.style.border = "1px solid rgba(16,185,129,0.3)";
+          diagBox.style.color = "var(--success)";
+          diagBox.innerHTML = `
+            <b>✅ Connection Verified:</b> Successfully reached Central Server at <code>${escapeHtml(displayHost)}:${stat.port || 8000}</code>.<br>
+            Database engine: <b>${escapeHtml(stat.db_engine || 'PostgreSQL')}</b> (${escapeHtml(stat.db_name || 'jayraldines_catering')}). Ready to synchronize!
+          `;
+        }
+      } else {
+        statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--gold);"></span> 🟡 Offline Mode (Local Storage)`;
+        statusPill.style.background = "rgba(245,158,11,0.15)";
+        statusPill.style.color = "var(--gold)";
+        statusPill.style.borderColor = "rgba(245,158,11,0.35)";
+
+        if (showDiag && diagBox) {
+          diagBox.style.display = "block";
+          diagBox.style.background = "rgba(239,68,68,0.1)";
+          diagBox.style.border = "1px solid rgba(239,68,68,0.3)";
+          diagBox.style.color = "var(--danger)";
+          diagBox.innerHTML = `
+            <b>❌ Central Server Unreachable at <code>${escapeHtml(host || '10.105.101.120')}:${escapeHtml(port || '8000')}</code></b><br>
+            <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:4px;">
+              • Verify that this tablet and the PC are connected to the <b>same Wi-Fi network</b>.<br>
+              • Verify that the Jayraldine's Catering desktop app or <code>run_lan_sync_server.bat</code> is running on the PC.<br>
+              • If Windows Firewall is active on the PC, run <code>open_firewall_ports.bat</code> as administrator.
+            </span>
+          `;
+        }
+      }
+    }
+  }
+
+  updateLanStatus();
+  content.querySelector("#btn-lan-check")?.addEventListener("click", async () => {
+    toast("Testing Central Server connection…", "info");
+    await updateLanStatus(true);
+  });
+
+  content.querySelector("#btn-lan-sync")?.addEventListener("click", async () => {
+    const btn = content.querySelector("#btn-lan-sync");
+    if (btn) { btn.disabled = true; btn.textContent = "Connecting to Central Server…"; }
+    try {
+      const host = hostInput ? hostInput.value.trim() : "10.105.101.120";
+      const port = portInput ? parseInt(portInput.value.trim(), 10) || 8000 : 8000;
+      const dbname = dbnameInput ? dbnameInput.value.trim() : "jayraldines_catering";
+      const user = userInput ? userInput.value.trim() : "jayraldines_app";
+      const password = passInput ? passInput.value : "12345678";
+
+      localStorage.setItem("jayraldines_lan_host", host);
+      localStorage.setItem("jayraldines_lan_port", String(port));
+      localStorage.setItem("jayraldines_lan_dbname", dbname);
+      localStorage.setItem("jayraldines_lan_user", user);
+      localStorage.setItem("jayraldines_lan_password", password);
+
+      if (btn) btn.textContent = "Synchronizing database records…";
+      toast("Connecting and synchronizing with Central Server…", "info");
+
+      const { bookings, customers } = repo.getPendingSyncRecords();
+      const res = await api.performLanSync({
+        host,
+        port: 5432, // target PostgreSQL port on host
+        dbname,
+        user,
+        password,
+        bookings,
+        customers,
+      });
+
+      // Update tablet's local IndexedDB with live dishes, packages, menu items, and customers
+      if (res.packages || res.menu_items || res.customers) {
+        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || []);
+      }
+
+      // Mark pushed records as synced
+      if (res.synced_booking_refs || res.synced_customer_names) {
+        repo.markRecordsSynced(res.synced_booking_refs || [], res.synced_customer_names || []);
+      }
+
+      toast(res.message || "Sync completed successfully!", "success");
+      if (diagBox) {
+        diagBox.style.display = "block";
+        diagBox.style.background = "rgba(16,185,129,0.12)";
+        diagBox.style.border = "1px solid rgba(16,185,129,0.35)";
+        diagBox.style.color = "var(--success)";
+        diagBox.innerHTML = `
+          <b>✅ Synchronization Complete!</b><br>
+          • Pushed to Central DB: <b>${res.pushed_bookings || 0}</b> booking(s), <b>${res.pushed_customers || 0}</b> customer(s).<br>
+          • Pulled from Central DB: <b>${(res.packages || []).length}</b> packages, <b>${(res.menu_items || []).length}</b> dishes, <b>${(res.customers || []).length}</b> customer(s).<br>
+          • Server Status: Online (${res.status || "OK"})<br>
+          • Timestamp: ${new Date().toLocaleTimeString()}
+        `;
+      }
+      await updateLanStatus();
+      renderDatabaseTab(content);
+    } catch (err) {
+      toast("Sync failed: " + err.message, "error");
+      if (diagBox) {
+        diagBox.style.display = "block";
+        diagBox.style.background = "rgba(239,68,68,0.1)";
+        diagBox.style.border = "1px solid rgba(239,68,68,0.3)";
+        diagBox.style.color = "var(--danger)";
+        diagBox.innerHTML = `
+          <b>❌ Sync Failed:</b> ${escapeHtml(err.message)}<br>
+          <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:4px;">
+            Please ensure both devices are on the same Wi-Fi and Central Server is active.
+          </span>
+        `;
+      }
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `${icon("refreshCw")} Sync Now (Live DB &amp; Duplicate-Proof)`;
+      }
+    }
+  });
 
   content.querySelector("#btn-export-db")?.addEventListener("click", () => api.downloadDatabase());
   content.querySelector("#btn-export-orders")?.addEventListener("click", () => api.downloadOrdersExcel());

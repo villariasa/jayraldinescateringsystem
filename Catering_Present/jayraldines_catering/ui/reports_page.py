@@ -16,6 +16,7 @@ from utils.theme import ThemeManager
 from utils.accent import AccentManager
 from components.dialogs import prompt_file_saved
 import utils.repository as repo
+from utils.data_loader import DataLoader
 
 try:
     from PySide6.QtCharts import (QChart, QChartView, QLineSeries, QAreaSeries,
@@ -713,10 +714,11 @@ _PERIOD_LABELS = ["Today", "This Week", "This Month", "This Year", "Last Year", 
 
 
 class ReportsPage(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.setObjectName("mainBackground")
         self._period = "All Time"
+        self._dirty = False
 
         self.root_layout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
@@ -731,8 +733,8 @@ class ReportsPage(QWidget):
         self.scroll_content.setStyleSheet("background: transparent;")
 
         self.main_layout = QVBoxLayout(self.scroll_content)
-        self.main_layout.setContentsMargins(40, 40, 40, 40)
-        self.main_layout.setSpacing(32)
+        self.main_layout.setContentsMargins(32, 28, 32, 28)
+        self.main_layout.setSpacing(24)
 
         # ── HEADER ──────────────────────────────────────────────────────────
         self._header_row = QHBoxLayout()
@@ -761,7 +763,7 @@ class ReportsPage(QWidget):
         self._period_row = QHBoxLayout()
         self._period_row.setSpacing(8)
         self._period_btns = []
-        from PySide6.QtWidgets import QButtonGroup
+        from PySide6.QtWidgets import QButtonGroup, QGridLayout
         self._period_group = QButtonGroup(self)
         self._period_group.setExclusive(True)
         for lbl in _PERIOD_LABELS:
@@ -785,34 +787,24 @@ class ReportsPage(QWidget):
         self._period_row.addStretch()
         self.main_layout.addLayout(self._period_row)
 
-        # ── KPI CARDS ────────────────────────────────────────────────────────
-        self._kpi_layout = QHBoxLayout()
-        self._kpi_layout.setSpacing(16)
+        # ── KPI CARDS (3x2 Grid: fits smoothly on all screen widths) ─────────
+        self._kpi_grid = QGridLayout()
+        self._kpi_grid.setSpacing(16)
 
-        kpis = repo.get_report_kpis()
-        total_bk   = kpis.get("total_bookings", 0)
-        total_pax  = kpis.get("total_pax", 0)
-        revenue    = kpis.get("total_revenue", 0.0)
-        expenses   = kpis.get("total_expenses", 0.0)
-        profit     = kpis.get("net_profit", 0.0)
-        unpaid     = kpis.get("unpaid_amount", 0.0)
-        today_bk   = kpis.get("today_bookings", 0)
-        week_bk    = kpis.get("week_bookings", 0)
-        month_bk   = kpis.get("month_bookings", 0)
-
-        profit_color = "#22C55E" if profit >= 0 else "#EF4444"
-
+        # Placeholder values — async load fills these in after first show
         self._kpi_cards = [
-            self._kpi("Total Bookings",   str(total_bk),            f"{today_bk} Today • {week_bk} Week • {month_bk} Month"),
-            self._kpi("Total Revenue",    f"PHP {revenue:,.0f}",     "Confirmed income", "#22C55E"),
-            self._kpi("Total Expenses",   f"PHP {expenses:,.0f}",    "All operational costs", "#F97316"),
-            self._kpi("Net Profit",       f"PHP {profit:,.0f}",      "Revenue − Expenses", profit_color),
-            self._kpi("Total Pax Booked", f"{total_pax:,}",          "All confirmed bookings", "#3B82F6"),
-            self._kpi("Unpaid Invoices",  f"PHP {unpaid:,.0f}",      "Outstanding balance", "#EF4444"),
+            self._kpi("Total Bookings",   "—", "Loading..."),
+            self._kpi("Total Revenue",    "—", "Loading...", "#22C55E"),
+            self._kpi("Total Expenses",   "—", "Loading...", "#F97316"),
+            self._kpi("Net Profit",       "—", "Loading..."),
+            self._kpi("Total Pax Booked", "—", "Loading...", "#3B82F6"),
+            self._kpi("Unpaid Invoices",  "—", "Loading...", "#EF4444"),
         ]
-        for card in self._kpi_cards:
-            self._kpi_layout.addWidget(card)
-        self.main_layout.addLayout(self._kpi_layout)
+        for idx, card in enumerate(self._kpi_cards):
+            r = idx // 3
+            c = idx % 3
+            self._kpi_grid.addWidget(card, r, c)
+        self.main_layout.addLayout(self._kpi_grid)
 
         # ── ROW 1: Income Area + Payment Donut ───────────────────────────────
         self._row1 = QHBoxLayout()
@@ -942,20 +934,33 @@ class ReportsPage(QWidget):
         exp_lay.addWidget(self._profit_lbl)
 
         self.main_layout.addWidget(self._expense_card)
-        self._reload_table()
-        self._load_expenses()
+        # NOTE: _reload_table() and _load_expenses() are NOT called here.
+        # They will be called asynchronously via reload() on first showEvent.
         self.main_layout.addStretch(1)
 
         # ── Data Change Listeners ─────────────────────────────────────────────
         try:
             from utils.signals import app_events
             ev = app_events()
-            ev.expense_saved.connect(self.reload)
-            ev.booking_saved.connect(self.reload)
-            ev.payment_saved.connect(self.reload)
-            ev.data_changed.connect(self.reload)
+            ev.expense_saved.connect(self._mark_dirty_and_reload)
+            ev.booking_saved.connect(self._mark_dirty_and_reload)
+            ev.payment_saved.connect(self._mark_dirty_and_reload)
+            ev.data_changed.connect(self._mark_dirty)
         except Exception:
             pass
+
+    def _mark_dirty(self):
+        self._dirty = True
+
+    def _mark_dirty_and_reload(self):
+        self._dirty = True
+        if self.isVisible():
+            self.reload()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, "_dirty", False):
+            self.reload()
 
         # ── Final assembly ────────────────────────────────────────────────────
         self.scroll_area.setWidget(self.scroll_content)
@@ -999,12 +1004,68 @@ class ReportsPage(QWidget):
         return ""
 
     def reload(self):
-        self._reload_kpis()
-        self._reload_table()
-        self._load_expenses()
-        self._locations_chart_layout.reload()
-        if hasattr(self, "_reload_sales_evaluation"):
-            self._reload_sales_evaluation()
+        """Kick off a background fetch of ALL reports data — never blocks the GUI."""
+        self._dirty = False
+        prev = getattr(self, "_reports_loader", None)
+        if prev is not None and prev.isRunning():
+            return  # already refreshing
+        loader = DataLoader(self._fetch_all_reports_data)
+        loader.data_ready.connect(self._on_reports_data_ready)
+        loader.load_error.connect(lambda msg: print(f"[Reports] Load error: {msg}"))
+        self._reports_loader = loader
+        loader.start()
+
+    def _fetch_all_reports_data(self):
+        """Runs entirely in a background thread — fetches all data in one batch."""
+        try:
+            yr = int(getattr(self, "_eval_year_combo", None) and self._eval_year_combo.currentText() or datetime.now().year)
+        except Exception:
+            yr = datetime.now().year
+        return {
+            "bookings":     repo.get_all_bookings() or [],
+            "expenses":     repo.get_all_expenses() or [],
+            "profit":       repo.get_profit_summary() or [],
+            "kpis":         repo.get_report_kpis() or {},
+            "sales_eval":   repo.get_monthly_sales_evaluation_report(yr) or {},
+            "locations":    repo.get_top_locations(limit=10) or [],
+            "period":       getattr(self, "_period", "All Time"),
+            "eval_year":    yr,
+        }
+
+    def _on_reports_data_ready(self, data: dict):
+        """Called on the GUI thread — dispatches pre-fetched data to each renderer."""
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        self._reload_kpis(data)
+        self._reload_table(data.get("bookings", []))
+        self._load_expenses(data.get("expenses", []), data.get("profit", []))
+        self._reload_locations(data.get("locations", []))
+        self._reload_sales_evaluation_from_data(data.get("sales_eval", {}), data.get("eval_year", datetime.now().year))
+
+    def _reload_locations(self, db_data):
+        """Update the locations chart with pre-fetched data (GUI thread safe)."""
+        if not _CHARTS_AVAILABLE or not hasattr(self._locations_chart_layout, "_bar_set"):
+            return
+        _MAX = 30
+        if db_data:
+            venues = [(r["venue"][:_MAX] + "…") if len(r["venue"]) > _MAX else r["venue"] for r in db_data]
+            counts = [r["count"] for r in db_data]
+        else:
+            venues = ["No Data"]
+            counts = [0]
+        chart = self._locations_chart_layout
+        chart._venues = venues
+        chart._counts = counts
+        chart._bar_set.remove(0, chart._bar_set.count())
+        for v in counts:
+            chart._bar_set.append(v)
+        chart._ax.clear()
+        chart._ax.append(venues)
+        chart._ay.setRange(0, max(counts) * 1.2 if max(counts) > 0 else 10)
 
     def _build_sales_evaluation_card(self):
         card = HoverCard(self.scroll_content)
@@ -1066,14 +1127,26 @@ class ReportsPage(QWidget):
         return card
 
     def _reload_sales_evaluation(self):
+        """Re-fetch sales eval data and update table (triggered by year combo change)."""
         if not hasattr(self, "_eval_table"):
             return
         try:
             yr = int(self._eval_year_combo.currentText())
         except Exception:
             yr = datetime.now().year
+        # Run in background since it's a DB call
+        def _fetch():
+            return repo.get_monthly_sales_evaluation_report(yr)
+        loader = DataLoader(_fetch)
+        loader.data_ready.connect(lambda d: self._reload_sales_evaluation_from_data(d, yr))
+        loader.load_error.connect(lambda msg: print(f"[Reports] Sales eval error: {msg}"))
+        self._eval_yr_loader = loader
+        loader.start()
 
-        data = repo.get_monthly_sales_evaluation_report(yr)
+    def _reload_sales_evaluation_from_data(self, data: dict, yr: int = None):
+        """Populate the sales evaluation table from pre-fetched data (GUI thread safe)."""
+        if not hasattr(self, "_eval_table"):
+            return
         months = data.get("months", [])
 
         self._eval_table.setRowCount(len(months) + 1)
@@ -1169,13 +1242,16 @@ class ReportsPage(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Export Error", str(e))
 
-    def _reload_kpis(self):
-        p = getattr(self, "_period", "All Time")
+    def _reload_kpis(self, data: dict = None):
+        """Update KPI cards from pre-fetched data dict (safe to call on GUI thread)."""
+        if data is None:
+            return  # No data yet; wait for async load
+        p = data.get("period", getattr(self, "_period", "All Time"))
+        all_bookings = data.get("bookings", [])
+        all_expenses = data.get("expenses", [])
+
         from datetime import datetime, date, timedelta
         today = date.today()
-
-        all_bookings = repo.get_all_bookings() or []
-        all_expenses = repo.get_all_expenses() or []
 
         def _get_date(d_str):
             if not d_str:
@@ -1282,13 +1358,16 @@ class ReportsPage(QWidget):
                 if w and w.objectName() == "subtitle":
                     w.setText(sub)
 
-    def _reload_table(self):
+    def _reload_table(self, all_bookings: list = None):
+        """Rebuild booking table cards from pre-fetched list (safe to call on GUI thread)."""
         while self.table_cards_layout.count():
             item = self.table_cards_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        all_bookings = repo.get_all_bookings() or []
+        if all_bookings is None:
+            return  # Async data not ready yet
+
         p = getattr(self, "_period", "All Time")
         from datetime import datetime, date, timedelta
         today = date.today()
@@ -1401,13 +1480,15 @@ class ReportsPage(QWidget):
         lay.addStretch()
         return card
 
-    def _load_expenses(self):
+    def _load_expenses(self, all_exp: list = None, profit_data: list = None):
+        """Rebuild expense cards from pre-fetched data (safe to call on GUI thread)."""
         while self.exp_cards_layout.count():
             item = self.exp_cards_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        all_exp = repo.get_all_expenses() or []
+        if all_exp is None:
+            return  # Async data not ready yet
 
         p = getattr(self, "_period", "All Time")
         from datetime import datetime, date, timedelta
@@ -1493,8 +1574,9 @@ class ReportsPage(QWidget):
                 self.exp_cards_layout.addWidget(card)
                 total_exp += exp["amount"]
 
-        profit_data = repo.get_profit_summary()
-        total_rev = sum(r["revenue"] for r in profit_data)
+        # Use pre-fetched profit_data if available, else fall back to synchronous call
+        _profit_data = profit_data if profit_data is not None else []
+        total_rev = sum(r["revenue"] for r in _profit_data)
         net = total_rev - total_exp
         color = "#22C55E" if net >= 0 else "#EF4444"
         self._profit_lbl.setStyleSheet(f"font-size:14px;font-weight:700;color:{color};")
@@ -1576,6 +1658,13 @@ class ReportsPage(QWidget):
         menu.addAction(xlsx_act)
         menu.addSeparator()
         menu.addAction(csv_act)
+        menu.addSeparator()
+        audit_pdf_act = QAction("Export Activity / Audit Log (PDF)", self)
+        audit_pdf_act.triggered.connect(self._export_activity_log_pdf)
+        menu.addAction(audit_pdf_act)
+        audit_csv_act = QAction("Export Activity / Audit Log (CSV)", self)
+        audit_csv_act.triggered.connect(self._export_activity_log_csv)
+        menu.addAction(audit_csv_act)
         return menu
 
     def _get_export_data(self):
@@ -1678,3 +1767,31 @@ class ReportsPage(QWidget):
                     b.get("pax"), b.get("total"), b.get("status"),
                 ])
         prompt_file_saved(self, path, title="Report CSV Exported", message="Report bookings CSV exported successfully.")
+
+    def _export_activity_log_pdf(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Activity Log PDF", "activity_audit_report.pdf", "PDF Files (*.pdf)"
+        )
+        if not path:
+            return
+        entries = repo.get_audit_log(limit=500)
+        business = repo.get_business_info()
+        ok = _exporter.export_daily_activity_report_pdf(path, entries, business, period_label=self._period or "All Time")
+        if ok:
+            prompt_file_saved(self, path, title="Activity Report Exported", message="Activity / Audit log report PDF exported successfully.")
+        else:
+            QMessageBox.warning(self, "Export Failed", "PDF export failed. Make sure reportlab is installed:\npip install reportlab")
+
+    def _export_activity_log_csv(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Activity Log CSV", "activity_audit_report.csv", "CSV Files (*.csv)"
+        )
+        if not path:
+            return
+        entries = repo.get_audit_log(limit=500)
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Date", "Time", "User", "Action", "Details"])
+            for e in entries:
+                writer.writerow([e.get("date", ""), e.get("time", ""), e.get("actor", ""), e.get("action", ""), e.get("description", "")])
+        prompt_file_saved(self, path, title="Activity Report Exported", message="Activity / Audit log CSV exported successfully.")

@@ -1097,3 +1097,17 @@ async function openDataSyncModal() {
     }
   });
 }
+
+// Background auto-discovery and auto-sync on tablet startup
+setTimeout(() => {
+  api.autoDiscoverAndSync().then((res) => {
+    if (res) {
+      console.log("[AutoSync] Initial sync completed successfully:", res);
+    }
+  }).catch(() => {});
+}, 1500);
+
+// Periodically sync in the background every 60 seconds if connected
+setInterval(() => {
+  api.autoSyncPendingRecords().catch(() => {});
+}, 60000);

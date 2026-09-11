@@ -410,8 +410,32 @@ class ImportWizardDialog(QDialog):
 
             self._master_dict = master_dict
             total_records = sum(len(rows) for _, (_, rows) in master_dict.items())
-            breakdown = ", ".join([f"{len(rows)} {k.title()}" for k, (_, rows) in master_dict.items()])
+            breakdown = ", ".join([f"{len(rows)} {k.replace('_', ' ').title()}" for k, (_, rows) in master_dict.items()])
             filename = os.path.basename(self._file_path)
+
+            # If master file only has 1 single entity detected, adapt entity type
+            if len(master_dict) == 1:
+                single_ent = next(iter(master_dict.keys()))
+                idx = self._entity_combo.findData(single_ent)
+                if idx >= 0:
+                    self._entity_combo.blockSignals(True)
+                    self._entity_combo.setCurrentIndex(idx)
+                    self._entity_combo.blockSignals(False)
+                    self._entity_type = single_ent
+                    schema = importer.ENTITY_SCHEMAS.get(single_ent, {})
+                    self._title_lbl.setText(f"Import {schema.get('title', 'Data')}")
+                    self._headers, self._data_rows = master_dict[single_ent]
+                    self._mapping = importer.auto_map_headers(self._headers, self._entity_type)
+                    self._lbl_file_stats.setText(
+                        f"✅ File Loaded: <b>{filename}</b>\n\n"
+                        f"• Target Module: <b>{schema.get('title', 'Records')}</b> (Auto-Detected)\n"
+                        f"• Detected Columns: {len(self._headers)} columns\n"
+                        f"• Data Rows: {len(self._data_rows)} records\n\n"
+                        f"Ready to import into Jayraldine's Catering System."
+                    )
+                    self._btn_fast_import.setVisible(len(self._data_rows) > 0)
+                    return
+
             self._lbl_file_stats.setText(
                 f"✅ Master File Loaded: <b>{filename}</b>\n\n"
                 f"🎯 <b>Detected Records</b> ({total_records} total): {breakdown}\n\n"
@@ -433,11 +457,26 @@ class ImportWizardDialog(QDialog):
             self._btn_fast_import.setVisible(False)
             return
 
+        # Check if the file's headers actually belong to a different entity type
+        detected = importer.detect_file_entity_type(headers)
+        if detected and detected != self._entity_type:
+            idx = self._entity_combo.findData(detected)
+            if idx >= 0:
+                self._entity_combo.blockSignals(True)
+                self._entity_combo.setCurrentIndex(idx)
+                self._entity_combo.blockSignals(False)
+                self._entity_type = detected
+                schema = importer.ENTITY_SCHEMAS.get(detected, {})
+                self._title_lbl.setText(f"Import {schema.get('title', 'Data')}")
+
         self._headers = headers
         self._data_rows = rows
         filename = os.path.basename(self._file_path)
+        schema = importer.ENTITY_SCHEMAS.get(self._entity_type, {})
+        ent_title = schema.get("title", "Records")
         self._lbl_file_stats.setText(
             f"✅ File Loaded: <b>{filename}</b>\n\n"
+            f"• Target Module: <b>{ent_title}</b>\n"
             f"• Detected Columns: {len(headers)} columns\n"
             f"• Data Rows: {len(rows)} records\n\n"
             f"Ready to import into Jayraldine's Catering System."
@@ -681,8 +720,12 @@ class ImportWizardDialog(QDialog):
         curr = self.stack.currentIndex()
 
         if curr == 0:
-            if not self._file_path or not self._data_rows:
+            if not self._file_path or (not self._data_rows and not self._master_dict):
                 QMessageBox.warning(self, "No File Selected", "Please select a valid CSV or Excel file first.")
+                return
+            if self._entity_type == "all_in_one" and len(getattr(self, "_master_dict", {})) > 1:
+                self._update_step_ui(3)
+                self._execute_import()
                 return
             self._populate_step2_mapping_table()
             self._update_step_ui(1)

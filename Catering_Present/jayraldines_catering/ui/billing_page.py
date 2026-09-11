@@ -626,18 +626,37 @@ class PaymentHistoryDialog(QDialog):
 
 
 class BillingPage(QWidget):
-    def __init__(self):
-        super().__init__()
-        db_rows = repo.get_all_invoices()
-        self._invoices = db_rows if db_rows else []
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._dirty = True  # Load on first show
+        self._invoices = []
         self._build_ui()
-        self._populate_table()
-        app_events().payment_recorded.connect(self.reload)
-        app_events().booking_updated.connect(self.reload)
-        app_events().booking_created.connect(self.reload)
+        app_events().payment_recorded.connect(self._mark_dirty_and_reload)
+        app_events().booking_updated.connect(self._mark_dirty_and_reload)
+        app_events().booking_created.connect(self._mark_dirty_and_reload)
+
+    def _mark_dirty(self):
+        self._dirty = True
+
+    def _mark_dirty_and_reload(self):
+        self._dirty = True
+        if self.isVisible():
+            self.reload()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_permissions()
+        if getattr(self, "_dirty", True):
+            self.reload()
 
     def reload(self):
+        self._dirty = False
+        self.refresh_permissions()
         run_async(self, repo.get_all_invoices, self._on_invoices_loaded)
+
+    def refresh_permissions(self):
+        if self._invoices:
+            self._populate_table()
 
     def _on_invoices_loaded(self, data):
         try:
@@ -908,6 +927,10 @@ class BillingPage(QWidget):
 
         lay.addLayout(col_status)
 
+        from utils.auth import SessionManager
+        can_edit = SessionManager.has_permission("expenses", "edit") or SessionManager.has_permission("bookings", "edit")
+        can_delete = SessionManager.has_permission("expenses", "delete") or SessionManager.has_permission("bookings", "delete")
+
         # Col 4: Action Buttons
         actions_w = QFrame()
         actions_w.setStyleSheet("background: transparent;")
@@ -916,7 +939,7 @@ class BillingPage(QWidget):
         actions_l.setSpacing(6)
 
         # Manual Verify Payment Action Button
-        if not is_verified and paid > 0:
+        if can_edit and not is_verified and paid > 0:
             verify_btn = QPushButton("  Accept Payment")
             verify_btn.setObjectName("primaryButton")
             verify_btn.setIcon(btn_icon_primary("check"))
@@ -932,9 +955,9 @@ class BillingPage(QWidget):
         pay_btn.setIconSize(QSize(14, 14))
         pay_btn.setFixedSize(32, 32)
         pay_btn.setStyleSheet("background: transparent; border: none;")
-        pay_btn.setCursor(Qt.PointingHandCursor)
-        pay_btn.setToolTip("Record Payment")
-        pay_btn.setEnabled(bal > 0.005 and bool(inv.get("booking_id")))
+        pay_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
+        pay_btn.setToolTip("Record Payment" if can_edit else "Permission required")
+        pay_btn.setEnabled(can_edit and bal > 0.005 and bool(inv.get("booking_id")))
         pay_btn.clicked.connect(lambda _, invoice=inv: self._record_payment_dict(invoice))
 
         hist_btn = QPushButton()
@@ -951,9 +974,9 @@ class BillingPage(QWidget):
         charges_btn.setIconSize(QSize(14, 14))
         charges_btn.setFixedSize(32, 32)
         charges_btn.setStyleSheet("background: transparent; border: none;")
-        charges_btn.setCursor(Qt.PointingHandCursor)
-        charges_btn.setToolTip("Additional Charges / Additional Items")
-        charges_btn.setEnabled(bool(inv.get("booking_id")))
+        charges_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
+        charges_btn.setToolTip("Additional Charges / Additional Items" if can_edit else "Permission required")
+        charges_btn.setEnabled(can_edit and bool(inv.get("booking_id")))
         charges_btn.clicked.connect(lambda _, invoice=inv: self._open_additional_charges(invoice))
 
         print_btn = QPushButton()
@@ -970,25 +993,31 @@ class BillingPage(QWidget):
         edit_btn.setIconSize(QSize(14, 14))
         edit_btn.setFixedSize(32, 32)
         edit_btn.setStyleSheet("background: transparent; border: none;")
-        edit_btn.setCursor(Qt.PointingHandCursor)
-        edit_btn.setToolTip("Edit Payment / Balance")
+        edit_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
+        edit_btn.setToolTip("Edit Payment / Balance" if can_edit else "Permission required")
+        edit_btn.setEnabled(can_edit)
         edit_btn.clicked.connect(lambda _, invoice=inv: self._edit_billing_dict(invoice))
 
         del_btn = QPushButton()
-        del_btn.setIcon(btn_icon_red("trash"))
+        del_btn.setIcon(btn_icon_red("trash") if can_delete else get_icon("trash", color="#4B5563", size=QSize(14, 14)))
         del_btn.setIconSize(QSize(14, 14))
         del_btn.setFixedSize(32, 32)
         del_btn.setStyleSheet("background: transparent; border: none;")
-        del_btn.setCursor(Qt.PointingHandCursor)
-        del_btn.setToolTip("Delete invoice")
+        del_btn.setCursor(Qt.PointingHandCursor if can_delete else Qt.ForbiddenCursor)
+        del_btn.setEnabled(can_delete)
+        del_btn.setToolTip("Delete invoice" if can_delete else "Permission required to delete")
         del_btn.clicked.connect(lambda _, invoice=inv: self._delete_invoice_dict(invoice))
 
-        actions_l.addWidget(pay_btn)
+        if can_edit:
+            actions_l.addWidget(pay_btn)
         actions_l.addWidget(hist_btn)
-        actions_l.addWidget(charges_btn)
+        if can_edit:
+            actions_l.addWidget(charges_btn)
         actions_l.addWidget(print_btn)
-        actions_l.addWidget(edit_btn)
-        actions_l.addWidget(del_btn)
+        if can_edit:
+            actions_l.addWidget(edit_btn)
+        if can_delete:
+            actions_l.addWidget(del_btn)
 
         lay.addWidget(actions_w)
 

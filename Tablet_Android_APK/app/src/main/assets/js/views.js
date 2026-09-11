@@ -2,7 +2,29 @@
 import { icon } from "./icons.js";
 import { mountLottie } from "./lottie-helper.js";
 
-export function toast(message, kind = "") {
+function getToastContainer() {
+  let container = document.getElementById("toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "toast-container";
+    container.className = "toast-container";
+    document.body.appendChild(container);
+  }
+  return container;
+}
+
+export function toast(message, kind = "", duration = 0) {
+  const container = getToastContainer();
+
+  // If this is an error or danger toast, dismiss any in-flight info / connecting toasts
+  if (kind === "danger" || kind === "error") {
+    container.querySelectorAll(".toast:not(.danger):not(.error)").forEach((prior) => {
+      prior.style.opacity = "0";
+      prior.style.transform = "translateY(-8px)";
+      setTimeout(() => prior.remove(), 180);
+    });
+  }
+
   const el = document.createElement("div");
   el.className = `toast ${kind}`.trim();
   
@@ -21,9 +43,22 @@ export function toast(message, kind = "") {
       <span class="lottie-icon-container"></span>
       <span class="toast-fallback-icon" style="display:none;">${iconSvg}</span>
     </span>
-    <span class="toast-text">${escapeHtml(message)}</span>
+    <span class="toast-text" style="flex:1; word-break:break-word;">${escapeHtml(message)}</span>
+    <button class="toast-close-btn" type="button" aria-label="Close" title="Dismiss">&times;</button>
   `;
-  document.body.appendChild(el);
+
+  const closeBtn = el.querySelector(".toast-close-btn");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      el.style.opacity = "0";
+      el.style.transform = "translateY(-8px)";
+      el.style.transition = "all 0.2s ease-in";
+      setTimeout(() => el.remove(), 200);
+    });
+  }
+
+  container.appendChild(el);
 
   const lottieWrap = el.querySelector(".lottie-icon-container");
   if (lottieWrap) {
@@ -38,12 +73,16 @@ export function toast(message, kind = "") {
     });
   }
 
+  const timeoutMs = duration || ((kind === "danger" || kind === "error") ? 7500 : 3500);
+
   setTimeout(() => {
-    el.style.opacity = "0";
-    el.style.transform = "translateY(12px)";
-    el.style.transition = "all 0.25s ease-in";
-    setTimeout(() => el.remove(), 250);
-  }, 3200);
+    if (el.parentNode) {
+      el.style.opacity = "0";
+      el.style.transform = "translateY(-8px)";
+      el.style.transition = "all 0.25s ease-in";
+      setTimeout(() => el.remove(), 250);
+    }
+  }, timeoutMs);
 }
 
 export function statusPill(status) {

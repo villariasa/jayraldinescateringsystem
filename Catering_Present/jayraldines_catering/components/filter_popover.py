@@ -22,8 +22,8 @@ def _section_label_style():
 
 
 class FilterChip(QPushButton):
-    def __init__(self, label, value):
-        super().__init__(label)
+    def __init__(self, label, value, parent=None):
+        super().__init__(label, parent)
         self.value = value
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
@@ -68,8 +68,9 @@ class FilterPopover(QFrame):
     filter_applied = Signal(dict)
 
     def __init__(self, parent=None, statuses=None, categories=None):
-        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        super().__init__(parent, Qt.SubWindow | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self._statuses   = statuses or []
         self._categories = categories or []

@@ -8,13 +8,15 @@ from utils.theme import ThemeManager
 from utils.accent import AccentManager
 from utils.paths import resource_path
 
+from utils.auth import SessionManager
+
 _NAV_ITEMS = [
-    ("Customers", "customers", 2),
-    ("Menu",      "menu",      3),
-    ("Cash Flow", "trending-up", 5),
-    ("Expenses",  "billing",   8),
-    ("Reports",   "reports",   7),
-    ("Settings",  "settings",  10),
+    ("Customers", "customers", 2, "customers"),
+    ("Menu",      "menu",      3, "menu"),
+    ("Cash Flow", "trending-up", 5, "cashflow"),
+    ("Expenses",  "billing",   8, "expenses"),
+    ("Reports",   "reports",   7, "reports"),
+    ("Settings",  "settings",  10, "settings"),
 ]
 
 EXPANDED_WIDTH  = 250
@@ -23,6 +25,8 @@ COLLAPSED_WIDTH = 68
 
 class Sidebar(QFrame):
     page_changed = Signal(int)
+    logout_requested = Signal()
+    change_password_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -58,20 +62,19 @@ class Sidebar(QFrame):
         from version import __version__
         self.logo_text = QLabel(
             f"<div style='line-height:1.15;'>"
-            f"<span style='font-size:13px; font-weight:800;'>Jayraldine's</span><br>"
-            f"<span style='font-size:9.5px; color:#9CA3AF; font-weight:700; letter-spacing:0.8px;'>CATERING v{__version__}</span>"
+            f"<span style='font-size:12px;font-weight:700;color:#FFFFFF;'>Jayraldine's</span><br/>"
+            f"<span style='font-size:10px;color:#9CA3AF;'>Catering v{__version__}</span>"
             f"</div>",
             self.logo_frame
         )
         self.logo_text.setTextFormat(Qt.RichText)
-        self.logo_text.setObjectName("logoText")
-        self.logo_layout.addWidget(self.logo_text, 1)
+        self.logo_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.logo_layout.addWidget(self.logo_text)
 
-        self.collapse_btn = QPushButton(self.logo_frame)
+        self.collapse_btn = QPushButton("◀", self.logo_frame)
         self.collapse_btn.setObjectName("collapseBtn")
-        self.collapse_btn.setFixedSize(28, 28)
+        self.collapse_btn.setFixedSize(20, 20)
         self.collapse_btn.setCursor(Qt.PointingHandCursor)
-        self.collapse_btn.setToolTip("Collapse Sidebar")
         self.collapse_btn.clicked.connect(self.toggle_collapse)
         self.logo_layout.addWidget(self.collapse_btn)
 
@@ -81,7 +84,12 @@ class Sidebar(QFrame):
         self.buttons = []
         self.root_layout.addSpacing(8)
 
-        for text, icon_name, index in _NAV_ITEMS:
+        for item in _NAV_ITEMS:
+            text = item[0]
+            icon_name = item[1]
+            index = item[2]
+            mod_key = item[3] if len(item) > 3 else text.lower()
+
             btn = QPushButton(f"   {text}", self)
             btn.setCheckable(True)
             btn.setIconSize(QSize(18, 18))
@@ -89,6 +97,7 @@ class Sidebar(QFrame):
             btn.setProperty("icon_name", icon_name)
             btn.setProperty("nav_label", text)
             btn.setProperty("page_index", index)
+            btn.setProperty("perm_key", mod_key)
 
             if index == 0:
                 btn.setChecked(True)
@@ -103,11 +112,12 @@ class Sidebar(QFrame):
         # User Profile Footer
         self.user_frame = QFrame(self)
         self.user_frame.setObjectName("userProfileArea")
+        self.user_frame.setCursor(Qt.PointingHandCursor)
         self.user_layout = QHBoxLayout(self.user_frame)
         self.user_layout.setContentsMargins(14, 12, 14, 12)
         self.user_layout.setSpacing(10)
 
-        self.avatar = QLabel("O", self.user_frame)
+        self.avatar = QLabel("U", self.user_frame)
         self.avatar.setObjectName("userAvatar")
         self.avatar.setFixedSize(36, 36)
         self.avatar.setAlignment(Qt.AlignCenter)
@@ -115,17 +125,27 @@ class Sidebar(QFrame):
 
         self.user_info = QVBoxLayout()
         self.user_info.setSpacing(0)
-        self.name_lbl  = QLabel("Owner", self.user_frame)
-        self.email_lbl = QLabel("admin@jayraldines.com", self.user_frame)
+        self.name_lbl  = QLabel("User", self.user_frame)
+        self.name_lbl.setStyleSheet("font-weight: 700; color: #F8FAFC;")
+        self.email_lbl = QLabel("Staff", self.user_frame)
+        self.email_lbl.setStyleSheet("font-size: 10px; color: #94A3B8;")
         self.user_info.addWidget(self.name_lbl)
         self.user_info.addWidget(self.email_lbl)
         self.user_layout.addLayout(self.user_info)
         self.user_layout.addStretch()
 
         self.logout_lbl = QLabel(self.user_frame)
+        self.logout_lbl.setCursor(Qt.PointingHandCursor)
+        self.logout_lbl.setToolTip("Sign Out / Switch User")
         self.logout_lbl.setPixmap(
-            get_icon("log-out", color="#6B7280", size=QSize(15, 15)).pixmap(QSize(15, 15))
+            get_icon("log-out", color="#F43F5E", size=QSize(16, 16)).pixmap(QSize(16, 16))
         )
+        def _handle_logout_click(event):
+            event.accept()
+            self.logout_requested.emit()
+
+        self.logout_lbl.mousePressEvent = _handle_logout_click
+        self.user_frame.mousePressEvent = lambda e: self._on_profile_clicked()
         self.user_layout.addWidget(self.logout_lbl)
 
         self.root_layout.addWidget(self.user_frame)
@@ -140,6 +160,7 @@ class Sidebar(QFrame):
         self._anim2.setEasingCurve(QEasingCurve.OutCubic)
 
         self._apply_theme_styles()
+        self.refresh_permissions()
         ThemeManager().theme_changed.connect(self._on_theme_changed)
         QTimer.singleShot(0, self._mark_ready)
 
@@ -254,3 +275,30 @@ class Sidebar(QFrame):
             for btn in self.buttons:
                 btn.setText("   " + btn.property("nav_label"))
                 btn.setToolTip("")
+
+    def update_user_display(self):
+        user = SessionManager.current_user() or {}
+        name = user.get("display_name") or user.get("username", "Administrator")
+        raw_role = user.get("role", "admin" if name.lower() == "admin" else "staff")
+        if raw_role.lower() == "admin":
+            role_text = "ADMINISTRATOR"
+        else:
+            role_text = raw_role.upper()
+        self.name_lbl.setText(name)
+        self.email_lbl.setText(f"Role: {role_text}")
+        initial = name[0].upper() if name else "A"
+        self.avatar.setText(initial)
+
+    def refresh_permissions(self):
+        for btn in self.buttons:
+            perm_key = btn.property("perm_key")
+            if perm_key:
+                btn.setVisible(SessionManager.has_permission(perm_key, "view"))
+            else:
+                btn.setVisible(True)
+        self.update_user_display()
+
+    def _on_profile_clicked(self):
+        from components.user_management_panel import ChangeOwnPasswordDialog
+        dlg = ChangeOwnPasswordDialog(self)
+        dlg.exec()

@@ -12,19 +12,20 @@ from components.dialogs import confirm, success, prompt_file_saved
 import utils.repository as repo
 import utils.exporter as _exporter
 import utils.importer as _importer
+from utils.data_loader import run_async
 
 
 class AnimatedCard(QFrame):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.setObjectName("card")
 
 # --- HELPER: Clickable Day Cell ---
 class DayCell(QFrame):
     clicked = Signal(int) 
 
-    def __init__(self, day_num, is_current_month=True):
-        super().__init__()
+    def __init__(self, day_num, is_current_month=True, parent=None):
+        super().__init__(parent)
         self.day_num = day_num
         self.is_current_month = is_current_month
         
@@ -176,8 +177,8 @@ class DayCell(QFrame):
 # --- HELPER: Schedule Item Card ---
 class ScheduleCard(AnimatedCard):
     def __init__(self, event_name, pax, time, location, source="manual", ref=None, status=None,
-                 theme_notes=None, balance=0.0, total_amount=0.0, amount_paid=0.0, color_theme=None):
-        super().__init__()
+                 theme_notes=None, balance=0.0, total_amount=0.0, amount_paid=0.0, color_theme=None, parent=None):
+        super().__init__(parent)
         border_color = color_theme if color_theme else ("#3B82F6" if source == "booking" else "#E11D48")
         self.setStyleSheet(f"QFrame#card {{ border-left: 4px solid {border_color}; border-radius: 8px; }}")
 
@@ -398,8 +399,8 @@ class ManageScheduleDialog(QDialog):
 
 # --- MAIN PAGE ---
 class CalendarPage(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(40, 40, 40, 40)
         main_layout.setSpacing(32)
@@ -617,7 +618,7 @@ class CalendarPage(QWidget):
         self._selected_day = None
 
         self.cells = []
-        self._load_month_data()
+        self._dirty = True
         self.render_calendar()
 
         try:
@@ -635,49 +636,64 @@ class CalendarPage(QWidget):
         if self.isVisible():
             self.reload()
 
+    def refresh_permissions(self):
+        from utils.auth import SessionManager
+        can_manage = SessionManager.has_permission("bookings", "create") or SessionManager.has_permission("bookings", "edit")
+        if hasattr(self, "_btn_manage"):
+            self._btn_manage.setVisible(can_manage)
+
     def showEvent(self, event):
         super().showEvent(event)
+        self.refresh_permissions()
         if getattr(self, "_dirty", True):
             self.reload()
 
-    def reload(self):
+    def reload(self, sync: bool = False):
         self._dirty = False
-        self._load_month_data()
+        self.refresh_permissions()
+        year = self.current_year
+        month = self.current_month
+        if sync:
+            month_events = repo.get_calendar_events_for_month(year, month)
+            self._on_month_data_loaded(month_events)
+            return
+        run_async(self, lambda: repo.get_calendar_events_for_month(year, month), self._on_month_data_loaded)
+
+    def _on_month_data_loaded(self, month_events):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        self._db_cache.clear()
+        self._db_cache.update(month_events or {})
         self.render_calendar()
+        if self._selected_day is not None:
+            self.on_day_clicked(self._selected_day)
 
     # ==========================================
     # CALENDAR LOGIC
     # ==========================================
-    def _load_month_data(self):
-        self._db_cache.clear()
-        try:
-            month_events = repo.get_calendar_events_for_month(self.current_year, self.current_month)
-            self._db_cache.update(month_events or {})
-        except Exception as exc:
-            print(f"[CalendarPage] Error loading month data: {exc}")
-
     def go_prev_month(self):
         self.current_month -= 1
         if self.current_month < 1:
             self.current_month = 12
             self.current_year -= 1
-        self._load_month_data()
-        self.render_calendar()
+        self.reload()
 
     def go_next_month(self):
         self.current_month += 1
         if self.current_month > 12:
             self.current_month = 1
             self.current_year += 1
-        self._load_month_data()
-        self.render_calendar()
+        self.reload()
 
     def go_today(self):
         today = datetime.now()
         self.current_year = today.year
         self.current_month = today.month
-        self._load_month_data()
-        self.render_calendar()
+        self.reload()
 
     def render_calendar(self):
         # Update Header Label & Stats
@@ -749,9 +765,7 @@ class CalendarPage(QWidget):
                     repo.save_calendar_day(event_date, manual_only)
                 except Exception:
                     pass
-                self._load_month_data()
-                self.render_calendar()
-                self.on_day_clicked(self._selected_day)
+                self.reload()
                 success(self, message=f"Schedule for {date_str} updated successfully.")
 
     def on_day_clicked(self, day_num):
@@ -804,8 +818,9 @@ class CalendarPage(QWidget):
             empty_lbl = QLabel("No events scheduled for this day.")
             empty_lbl.setStyleSheet("color: #94A3B8; font-style: italic; font-size: 13px;")
             self.cards_container.addWidget(empty_lbl)
-        self._selected_day = day_num
-        self._btn_manage.setVisible(True)
+        from utils.auth import SessionManager
+        can_manage = SessionManager.has_permission("bookings", "create") or SessionManager.has_permission("bookings", "edit")
+        self._btn_manage.setVisible(can_manage)
         self.side_panel.setVisible(True)
 
     def _download_template(self):

@@ -16,7 +16,8 @@ from PySide6.QtGui import QColor, QPainter
 from utils.theme import ThemeManager
 from utils.icons import btn_icon_secondary, btn_icon_red, get_icon
 import utils.repository as repo
-from components.dialogs import confirm, success
+from components.dialogs import confirm, success, error
+from utils.session import SessionManager
 from utils.data_loader import run_async
 
 EXPENSE_CATEGORIES = [
@@ -64,8 +65,8 @@ class _KpiCard(QFrame):
 
 
 class ExpensesPage(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.setObjectName("mainBackground")
 
         root = QVBoxLayout(self)
@@ -92,22 +93,22 @@ class ExpensesPage(QWidget):
         v.addWidget(sub)
         head.addLayout(v)
         head.addStretch()
-        btn_add = QPushButton("  Add Expense")
-        btn_add.setObjectName("primaryButton")
-        btn_add.setIcon(btn_icon_secondary("plus"))
-        btn_add.setIconSize(QSize(15, 15))
-        btn_add.setCursor(Qt.PointingHandCursor)
-        btn_add.setStyleSheet("QPushButton#primaryButton { background-color: #E11D48; color: #FFFFFF; border: none; font-weight: 700; border-radius: 8px; padding: 8px 16px; } QPushButton#primaryButton:hover { background-color: #BE123C; }")
-        btn_add.clicked.connect(self._open_add_expense)
-        head.addWidget(btn_add)
+        self.btn_add = QPushButton("  + Add Expense")
+        self.btn_add.setObjectName("primaryButton")
+        self.btn_add.setIcon(btn_icon_secondary("add"))
+        self.btn_add.setIconSize(QSize(15, 15))
+        self.btn_add.setCursor(Qt.PointingHandCursor)
+        self.btn_add.setStyleSheet("QPushButton#primaryButton { background-color: #E11D48; color: #FFFFFF; border: none; font-weight: 700; border-radius: 8px; padding: 8px 16px; } QPushButton#primaryButton:hover { background-color: #BE123C; }")
+        self.btn_add.clicked.connect(self._open_add_expense)
+        head.addWidget(self.btn_add)
 
-        btn_import = QPushButton("  Import")
-        btn_import.setObjectName("secondaryButton")
-        btn_import.setIcon(btn_icon_secondary("export"))
-        btn_import.setIconSize(QSize(15, 15))
-        btn_import.setCursor(Qt.PointingHandCursor)
-        btn_import.clicked.connect(self._open_import_expenses)
-        head.addWidget(btn_import)
+        self.btn_import = QPushButton("  Import")
+        self.btn_import.setObjectName("secondaryButton")
+        self.btn_import.setIcon(btn_icon_secondary("export"))
+        self.btn_import.setIconSize(QSize(15, 15))
+        self.btn_import.setCursor(Qt.PointingHandCursor)
+        self.btn_import.clicked.connect(self._open_import_expenses)
+        head.addWidget(self.btn_import)
         self.lay.addLayout(head)
 
         # ── KPI row ─────────────────────────────────────────────────────────
@@ -248,10 +249,6 @@ class ExpensesPage(QWidget):
         if self.isVisible():
             self.reload()
 
-    def showEvent(self, event):
-        super().showEvent(event)
-        if getattr(self, "_dirty", True):
-            self.reload()
 
     # ── Data loading ────────────────────────────────────────────────────────
 
@@ -304,9 +301,24 @@ class ExpensesPage(QWidget):
                 if d_start <= exp_d <= d_end:
                     filtered.append(exp)
 
-        return filtered
+    def refresh_permissions(self):
+        can_create = SessionManager.has_permission("expenses", "create")
+        if hasattr(self, "btn_add"):
+            self.btn_add.setEnabled(can_create)
+            self.btn_add.setVisible(can_create)
+        if hasattr(self, "btn_import"):
+            self.btn_import.setEnabled(can_create)
+            self.btn_import.setVisible(can_create)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_permissions()
+        if getattr(self, "_dirty", True):
+            self.reload()
 
     def reload(self):
+        self._dirty = False
+        self.refresh_permissions()
         run_async(self, repo.get_all_expenses, self._on_expenses_loaded)
 
     def _on_expenses_loaded(self, data):
@@ -393,15 +405,17 @@ class ExpensesPage(QWidget):
         lay.addWidget(amt_lbl, 2)
 
         # Col 4: Delete Action Button
-        del_btn = QPushButton()
-        del_btn.setIcon(btn_icon_red("trash"))
-        del_btn.setIconSize(QSize(14, 14))
-        del_btn.setFixedSize(32, 32)
-        del_btn.setStyleSheet("background: transparent; border: none;")
-        del_btn.setCursor(Qt.PointingHandCursor)
-        del_btn.setToolTip("Delete expense")
-        del_btn.clicked.connect(lambda _, e=exp: self._delete_expense(e))
-        lay.addWidget(del_btn, alignment=Qt.AlignVCenter)
+        can_del = SessionManager.has_permission("expenses", "delete")
+        if can_del:
+            del_btn = QPushButton()
+            del_btn.setIcon(btn_icon_red("trash"))
+            del_btn.setIconSize(QSize(14, 14))
+            del_btn.setFixedSize(32, 32)
+            del_btn.setStyleSheet("background: transparent; border: none;")
+            del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.setToolTip("Delete expense")
+            del_btn.clicked.connect(lambda _, e=exp: self._delete_expense(e))
+            lay.addWidget(del_btn, alignment=Qt.AlignVCenter)
 
         return card
 
@@ -514,6 +528,9 @@ class ExpensesPage(QWidget):
     # ── Add / delete ─────────────────────────────────────────────────────────
 
     def _open_add_expense(self):
+        if not SessionManager.has_permission("expenses", "create"):
+            error(self, title="Access Denied", message="You do not have permission to record expenses.")
+            return
         from PySide6.QtWidgets import (
             QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox, QDateEdit
         )
@@ -571,6 +588,9 @@ class ExpensesPage(QWidget):
         success(self, message="Expense recorded.")
 
     def _delete_expense(self, exp: dict):
+        if not SessionManager.has_permission("expenses", "delete"):
+            error(self, title="Access Denied", message="You do not have permission to delete expenses.")
+            return
         if not confirm(self, title="Delete Expense",
                        message=f"Delete \"{exp['description']}\" (₱ {exp['amount']:,.2f})?",
                        confirm_label="Delete", danger=True):
@@ -585,6 +605,9 @@ class ExpensesPage(QWidget):
             pass
 
     def _open_import_expenses(self):
+        if not SessionManager.has_permission("expenses", "create"):
+            error(self, title="Access Denied", message="You do not have permission to import expenses.")
+            return
         from components.import_dialog import ImportWizardDialog
         dlg = ImportWizardDialog(default_entity="expenses", parent=self)
         if dlg.exec():

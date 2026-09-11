@@ -3,6 +3,7 @@ import os
 import traceback
 import time
 
+
 if sys.platform == "win32":
     try:
         if hasattr(sys.stdout, "reconfigure"):
@@ -38,12 +39,10 @@ if getattr(sys, "frozen", False):
             os.environ.setdefault("QT_QPA_PLATFORM_PLUGIN_PATH", os.path.join(_qt_plugin_root, "platforms"))
             break
 
-# Configure Rendering & GPU Driver Fallbacks for older hardware (Intel HD Graphics, legacy Windows 10)
+# Hardware GPU acceleration on Windows (DirectX 11 / D3D11)
 os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
-os.environ.setdefault("QT_QUICK_BACKEND", "software")
-# Try d3d11 (Windows), fall back to opengl for older Intel HD / AMD hardware
-# This env var controls the RHI rendering backend — opengl works on far more machines
-os.environ.setdefault("QSG_RHI_BACKEND", "opengl")
+if sys.platform == "win32":
+    os.environ.setdefault("QSG_RHI_BACKEND", "d3d11")
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt, QCoreApplication
@@ -57,6 +56,7 @@ if hasattr(Qt, "HighDpiScaleFactorRoundingPolicy"):
     )
 
 _MUTEX_HANDLE = None
+_IN_EXCEPTION_HOOK = False
 
 
 def _acquire_single_instance():
@@ -68,12 +68,60 @@ def _acquire_single_instance():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("jayraldines.catering.system.v1")
     except Exception:
         pass
-    _MUTEX_HANDLE = ctypes.windll.kernel32.CreateMutexW(None, True, "Global\\JayraldinesCateringMutex")
+    try:
+        # Prevent Windows Desktop Window Manager (DWM) from creating ghost windows
+        # or flashing 'Not Responding' title bars during rapid UI interactions
+        ctypes.windll.user32.DisableProcessWindowsGhosting()
+    except Exception:
+        pass
+    # Use Local session mutex to prevent cross-session permission conflicts
+    _MUTEX_HANDLE = ctypes.windll.kernel32.CreateMutexW(None, True, "Local\\JayraldinesCateringMutex")
     err = ctypes.windll.kernel32.GetLastError()
-    return err != 183
+    return err != 183 and _MUTEX_HANDLE != 0
+
+
+def _focus_existing_catering_window():
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+
+        found_hwnd = []
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+        def _enum_proc(hwnd, lparam):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buff = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buff, length + 1)
+                title = buff.value
+                if "Jayraldine's Catering" in title:
+                    found_hwnd.append(hwnd)
+                    return False
+            return True
+
+        user32.EnumWindows(WNDENUMPROC(_enum_proc), 0)
+
+        if found_hwnd:
+            target = found_hwnd[0]
+            user32.ShowWindow(target, 9)  # SW_RESTORE
+            user32.SetForegroundWindow(target)
+            return True
+    except Exception as exc:
+        print(f"[main] Window focus helper exception: {exc}")
+    return False
 
 
 def _exception_hook(exc_type, exc_value, exc_tb):
+    global _IN_EXCEPTION_HOOK
+    if issubclass(exc_type, KeyboardInterrupt):
+        return sys.__excepthook__(exc_type, exc_value, exc_tb)
+
     import datetime
     err_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
     print(f"[Unhandled Exception]\n{err_msg}", file=sys.stderr)
@@ -89,7 +137,12 @@ def _exception_hook(exc_type, exc_value, exc_tb):
             f.write(f"\n--- {datetime.datetime.now()} ---\n{err_msg}\n")
     except Exception:
         pass
-    # Show visible error dialog so crashes are not silent
+
+    # Debounce modal error dialog so multiple stacked popups never occur
+    if _IN_EXCEPTION_HOOK:
+        return
+    _IN_EXCEPTION_HOOK = True
+
     try:
         _app = QApplication.instance()
         if _app:
@@ -100,18 +153,68 @@ def _exception_hook(exc_type, exc_value, exc_tb):
             )
     except Exception:
         pass
+    finally:
+        _IN_EXCEPTION_HOOK = False
+
+
+
+def _handle_reset_admin_cli():
+    print("====================================================")
+    print("  Jayraldine's Catering - Admin Emergency Password Reset")
+    print("====================================================")
+    import utils.db as db
+    from utils.auth import ensure_auth_tables, reset_user_password, validate_password, create_default_admin
+    db.connect()
+    ensure_auth_tables()
+
+    new_pwd = None
+    argv = sys.argv
+    idx = argv.index("--reset-admin")
+    if idx + 1 < len(argv) and not argv[idx + 1].startswith("-"):
+        new_pwd = argv[idx + 1]
+
+    if not new_pwd:
+        import getpass
+        while True:
+            try:
+                new_pwd = getpass.getpass("Enter new password for 'admin': ")
+            except Exception:
+                new_pwd = input("Enter new password for 'admin': ")
+            valid, msg = validate_password(new_pwd)
+            if not valid:
+                print(f"Error: {msg}")
+                continue
+            break
+
+    valid, msg = validate_password(new_pwd)
+    if not valid:
+        print(f"Password complexity error: {msg}")
+        sys.exit(1)
+
+    admin_row = db.fetchone("SELECT id FROM users WHERE username = 'admin'")
+    if not admin_row:
+        create_default_admin(new_pwd)
+        print("Admin user 'admin' did not exist and was created with the new password.")
+    else:
+        ok, err = reset_user_password(admin_row["id"], new_pwd)
+        if ok:
+            print("Successfully updated password for 'admin'.")
+        else:
+            print(f"Failed to reset password: {err}")
+            sys.exit(1)
+    db.close()
 
 
 def main():
     sys.excepthook = _exception_hook
 
+    if "--reset-admin" in sys.argv:
+        _handle_reset_admin_cli()
+        sys.exit(0)
+
     if not _acquire_single_instance():
-        app = QApplication(sys.argv)
-        QMessageBox.warning(
-            None,
-            "Already Running",
-            "Jayraldine's Catering is already open.\nPlease check your taskbar.",
-        )
+        print("[Jayraldine's Catering] Application is already running in background/taskbar.")
+        _focus_existing_catering_window()
         sys.exit(0)
 
     if getattr(sys, "frozen", False):
@@ -120,12 +223,20 @@ def main():
                 QCoreApplication.addLibraryPath(plugin_path)
 
     from PySide6.QtGui import QIcon
+    from PySide6.QtWidgets import QDialog
     from utils.paths import resource_path
 
     app = QApplication(sys.argv)
     # Performance flag for older Intel HD Graphics (i5-4670 / HD 4600) on Windows 10
     app.setAttribute(Qt.AA_DontCreateNativeWidgetSiblings, True)
     app.setStyle("Fusion")
+
+    # Install Real-Time Window Detector to monitor popping/background windows
+    try:
+        from utils.window_detector import install_window_detector
+        install_window_detector(app)
+    except Exception as _wd_err:
+        print(f"[WINDOW_DETECTOR] Warning: Could not initialize window detector: {_wd_err}")
 
     ico_path = resource_path("assets", "logo.ico")
     if not os.path.exists(ico_path):
@@ -173,31 +284,55 @@ def main():
         db_thread.start()
         _profile("db thread started")
 
-        splash.set_status("Loading interface...", 50)
-        from ui.main_window import MainWindow
-        app.processEvents()
-        _profile("main window module imported")
-
-        splash.set_status("Waiting for database...", 75)
+        splash.set_status("Waiting for database...", 50)
         app.processEvents()
         db_thread.join(timeout=8)
         _profile("db wait complete")
 
         if _db_result[0]:
-            splash.set_status("Database connected.", 85)
+            splash.set_status("Database connected.", 75)
         else:
-            splash.set_status("Running in offline mode.", 85)
+            splash.set_status("Running in offline mode.", 75)
         app.processEvents()
 
-        splash.set_status("Building interface...", 92)
+        # Ensure authentication tables and default admin account
+        from utils.auth import ensure_auth_tables, create_default_admin
+        ensure_auth_tables()
+        admin_check = db.fetchone("SELECT id FROM users WHERE username = 'admin'")
+        if not admin_check:
+            create_default_admin()
+
+        splash.set_status("Starting Jayraldine's Catering...", 95)
+        app.processEvents()
+
+        # Hide splash screen
+        splash.hide()
+
+        # ── Launch MainWindow directly with integrated unified auth & welcome (0 cutouts) ──
+        from ui.main_window import MainWindow
         window = MainWindow()
         if os.path.exists(ico_path):
             window.setWindowIcon(QIcon(ico_path))
         _profile("main window created")
 
-        splash.set_status("Ready!", 100)
-        app.processEvents()
-        _profile("ready")
+        # Start background LAN Sync Server
+        try:
+            from utils.db_sync_server import start_sync_server_background
+            start_sync_server_background()
+        except Exception as e:
+            log.warning(f"[main] Could not start background LAN Sync Server: {e}")
+
+        # Start background Client Device Monitoring & Heartbeat Tracker
+        try:
+            from utils.device_tracker import device_tracker
+            device_tracker().start()
+            app.aboutToQuit.connect(device_tracker().mark_offline)
+        except Exception as e:
+            log.warning(f"[main] Could not start DeviceTracker: {e}")
+
+        window.showFullScreen()
+        window.raise_()
+        window.activateWindow()
 
     except Exception:
         err_txt = traceback.format_exc()
@@ -228,7 +363,6 @@ def main():
     app.aboutToQuit.connect(db.close)
     app.window_ref = window
 
-    splash.finish(window)
     _profile("main window shown")
 
     app.aboutToQuit.connect(lambda: print("[QT] aboutToQuit triggered"))

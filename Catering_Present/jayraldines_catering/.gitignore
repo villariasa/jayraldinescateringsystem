@@ -58,4 +58,13 @@ get-pip.py
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Temp Test Media & Scratch
+scratch/
+*.mp4
+*.xlsx
+crop_popup.png
+test_revert.py
+local.properties
+OUTPUT_APK
 desktop.ini

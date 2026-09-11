@@ -295,6 +295,23 @@ function seedDefaults() {
       db.run("INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description) VALUES (?, ?, ?, ?, ?)", [name, category, price, status, desc]);
     }
   }
+
+  const DEFAULT_CUSTOMERS = [
+    ["Ichigo Kurosaki", "+63 999 111 2233", "ichigo@bleach.com", "Karakura Town, Cebu"],
+    ["Angela Reyes", "+63 945 777 8899", "angela.reyes@gmail.com", "Mandaue City, Cebu"],
+    ["Maria Santos", "+63 912 345 6789", "maria.santos@yahoo.com", "Lahug, Cebu City"],
+    ["Juan Dela Cruz", "+63 917 123 4567", "juan.delacruz@gmail.com", "Guadalupe, Cebu City"],
+    ["Roberto Tan", "+63 922 888 9900", "roberto.tan@outlook.com", "Banilad, Cebu City"],
+    ["Cruz Family", "+63 920 111 2222", "cruz.events@gmail.com", "Talamban, Cebu City"],
+    ["Smith Wedding", "+63 932 555 6666", "smith.wedding@yahoo.com", "Mactan, Lapu-Lapu City"],
+    ["TechCorp Inc.", "+63 917 000 1234", "events@techcorp.ph", "IT Park, Cebu City"]
+  ];
+
+  if (countOf("customers") === 0) {
+    for (const [name, contact, email, address] of DEFAULT_CUSTOMERS) {
+      db.run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status, sync_status) VALUES (?, ?, ?, ?, 'Active', 'synced')", [name, contact, email, address]);
+    }
+  }
 }
 
 export async function initDb() {
@@ -303,6 +320,8 @@ export async function initDb() {
   const existing = await idbLoad();
   db = existing ? new SQL.Database(new Uint8Array(existing)) : new SQL.Database();
   db.run(SCHEMA_SQL);
+  try { db.run("ALTER TABLE bookings ADD COLUMN sync_status TEXT DEFAULT 'pending';"); } catch (_) {}
+  try { db.run("ALTER TABLE customers ADD COLUMN sync_status TEXT DEFAULT 'pending';"); } catch (_) {}
   seedDefaults();
   scheduleSave();
   return db;

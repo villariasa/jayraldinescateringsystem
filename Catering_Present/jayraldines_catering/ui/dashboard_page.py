@@ -44,6 +44,8 @@ class WelcomeHeroSlideshow(AnimatedCard):
         self._timer.timeout.connect(self._next_slide)
         self._timer.start()
 
+        self.update_greeting_and_permissions()
+
     def _build_ui(self):
         lay = QHBoxLayout(self)
         lay.setContentsMargins(28, 20, 28, 20)
@@ -295,6 +297,44 @@ class WelcomeHeroSlideshow(AnimatedCard):
         super().leaveEvent(event)
         self._timer.start()
 
+    def update_greeting_and_permissions(self):
+        try:
+            from utils.session import SessionManager
+            user = SessionManager.get_current_user() or {}
+            role = (user.get("role") or "").lower()
+            if role == "admin":
+                display_name = "Admin"
+            else:
+                display_name = user.get("display_name") or user.get("username") or "Team Jayraldine"
+
+            now = datetime.now()
+            hour = now.hour
+            if hour < 12:
+                greet = f"Good Morning, {display_name}"
+            elif hour < 18:
+                greet = f"Good Afternoon, {display_name}"
+            else:
+                greet = f"Good Evening, {display_name}"
+
+            if self._slide_widgets and len(self._slide_widgets) > 0:
+                self._slide_widgets[0][2].setText(greet)
+
+            can_create_booking = SessionManager.has_permission("bookings", "create")
+            can_view_booking = SessionManager.has_permission("bookings", "view")
+            can_view_ai = SessionManager.has_permission("ai_chef_jay", "view")
+
+            if len(self._slide_widgets) > 0:
+                self._slide_widgets[0][4].setVisible(can_create_booking)
+                self._slide_widgets[0][4].setEnabled(can_create_booking)
+            if len(self._slide_widgets) > 1:
+                self._slide_widgets[1][4].setVisible(can_view_booking)
+                self._slide_widgets[1][4].setEnabled(can_view_booking)
+            if len(self._slide_widgets) > 2:
+                self._slide_widgets[2][4].setVisible(can_view_ai)
+                self._slide_widgets[2][4].setEnabled(can_view_ai)
+        except Exception:
+            pass
+
 
 class KPICard(AnimatedCard):
     def __init__(self, title, value, trend_text, trend_type="success", icon_name=None, parent=None):
@@ -387,7 +427,7 @@ class PeriodSummaryCard(AnimatedCard):
         lay.addLayout(self._chart_holder, 1)
         self._chart_view = None
 
-        self.refresh()
+        QTimer.singleShot(60, self.refresh)
 
     def set_period(self, period: str):
         if period == self._period:
@@ -417,14 +457,54 @@ class PeriodSummaryCard(AnimatedCard):
         return [(r["month"], r["revenue"], r["expense"]) for r in rows]
 
     def refresh(self):
-        self.render_chart()
+        """Start an async data fetch — never blocks the main thread."""
+        if getattr(self, '_summary_loading', False):
+            return
+        self._summary_loading = True
+        period = self._period
+
+        def _bg_fetch():
+            from datetime import datetime as _dt
+            import utils.repository as _repo
+            now = _dt.now()
+            if period == 'Weekly':
+                rows = _repo.get_weekly_summary(now.year, now.month)
+                label = now.strftime('Weeks of %B %Y')
+                return label, [(r['week'], r['revenue'], r['expense']) for r in rows]
+            if period == 'Yearly':
+                rows = _repo.get_yearly_summary()
+                label = 'All years'
+                return label, [(str(r['year']), r['revenue'], r['expense']) for r in rows]
+            try:
+                rows = _repo.get_profit_summary_for_year(now.year)
+            except Exception:
+                rows = _repo.get_profit_summary()
+            return str(now.year), [(r['month'], r['revenue'], r['expense']) for r in rows]
+
+        loader = DataLoader(_bg_fetch)
+        loader.data_ready.connect(self._on_summary_ready)
+        loader.load_error.connect(lambda _e: self._summary_done())
+        self._summary_loader = loader
+        loader.start()
+
+    def _on_summary_ready(self, result):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        label, data = result
+        self._range_lbl.setText(label)
+        self.render_chart(data)
+        self._summary_done()
+
+    def _summary_done(self):
+        self._summary_loading = False
 
     def render_chart(self, data=None):
         if data is None:
-            try:
-                data = self._fetch()
-            except Exception:
-                data = []
+            data = []
 
         if self._chart_view is not None:
             self._chart_holder.removeWidget(self._chart_view)
@@ -446,6 +526,7 @@ class PeriodSummaryCard(AnimatedCard):
             return
         from PySide6.QtGui import QPainter, QColor
         from PySide6.QtCore import QMargins
+
 
         dark = ThemeManager().is_dark()
         label_color = QColor("#9CA3AF" if dark else "#5B6B84")
@@ -690,8 +771,9 @@ class DashboardPage(QWidget):
     view_all_activity_requested = Signal()
     ai_requested = Signal()
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._dirty = True  # Load on first show
 
         self.root_layout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
@@ -710,11 +792,11 @@ class DashboardPage(QWidget):
 
         header_row = QHBoxLayout()
         v_title = QVBoxLayout()
-        title = QLabel("Welcome back, Owner")
-        title.setObjectName("h1")
+        self._welcome_title = QLabel("Welcome back, Owner")
+        self._welcome_title.setObjectName("h1")
         sub = QLabel("Here's what's happening at Jayraldine's Catering today.")
         sub.setObjectName("subtitle")
-        v_title.addWidget(title)
+        v_title.addWidget(self._welcome_title)
         v_title.addWidget(sub)
         header_row.addLayout(v_title)
         header_row.addStretch()
@@ -722,11 +804,11 @@ class DashboardPage(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
 
-        btn_export = QPushButton("  Export Report")
-        btn_export.setObjectName("secondaryButton")
-        btn_export.setIcon(btn_icon_secondary("export"))
-        btn_export.setIconSize(QSize(15, 15))
-        btn_export.setMenu(self._build_export_menu())
+        self.btn_export = QPushButton("  Export Report")
+        self.btn_export.setObjectName("secondaryButton")
+        self.btn_export.setIcon(btn_icon_secondary("export"))
+        self.btn_export.setIconSize(QSize(15, 15))
+        self.btn_export.setMenu(self._build_export_menu())
 
         self.btn_new = QPushButton("  New Booking")
         self.btn_new.setObjectName("primaryButton")
@@ -734,7 +816,7 @@ class DashboardPage(QWidget):
         self.btn_new.setIconSize(QSize(15, 15))
         self.btn_new.clicked.connect(self.new_booking_requested.emit)
 
-        btn_layout.addWidget(btn_export)
+        btn_layout.addWidget(self.btn_export)
         btn_layout.addWidget(self.btn_new)
         header_row.addLayout(btn_layout)
         self.lay.addLayout(header_row)
@@ -935,7 +1017,69 @@ class DashboardPage(QWidget):
         self.scroll.setWidget(self.content)
         self.root_layout.addWidget(self.scroll)
 
+        self.refresh_permissions()
         QTimer.singleShot(0, self._load_data)
+
+    def refresh_permissions(self):
+        from utils.session import SessionManager
+        user = SessionManager.get_current_user() or {}
+        role = (user.get("role") or "").lower()
+        if role == "admin":
+            display_name = "Admin"
+        else:
+            display_name = user.get("display_name") or user.get("username") or "User"
+
+        if hasattr(self, "_welcome_title"):
+            self._welcome_title.setText(f"Welcome back, {display_name}")
+
+        if hasattr(self, "slideshow") and hasattr(self.slideshow, "update_greeting_and_permissions"):
+            self.slideshow.update_greeting_and_permissions()
+
+        can_view_bookings = SessionManager.has_permission("bookings", "view")
+        can_create_bookings = SessionManager.has_permission("bookings", "create")
+        can_view_finance = SessionManager.has_permission("cashflow", "view") or SessionManager.has_permission("reports", "view")
+        can_view_customers = SessionManager.has_permission("customers", "view")
+        can_export = SessionManager.has_permission("reports", "view")
+
+        if hasattr(self, "btn_new"):
+            self.btn_new.setVisible(can_create_bookings)
+            self.btn_new.setEnabled(can_create_bookings)
+        if hasattr(self, "btn_export"):
+            self.btn_export.setVisible(can_export)
+            self.btn_export.setEnabled(can_export)
+
+        if hasattr(self, "_kpi_today"):
+            self._kpi_today.setVisible(can_view_bookings)
+        if hasattr(self, "_kpi_downpayment"):
+            self._kpi_downpayment.setVisible(can_view_finance)
+        if hasattr(self, "_kpi_revenue"):
+            self._kpi_revenue.setVisible(can_view_finance)
+        if hasattr(self, "_kpi_unpaid"):
+            self._kpi_unpaid.setVisible(can_view_finance)
+        if hasattr(self, "_kpi_profit"):
+            self._kpi_profit.setVisible(can_view_finance)
+        if hasattr(self, "summary_card"):
+            self.summary_card.setVisible(can_view_finance)
+
+        if hasattr(self, "cap_card"):
+            self.cap_card.setVisible(can_view_bookings)
+        if hasattr(self, "events_card"):
+            self.events_card.setVisible(can_view_bookings)
+
+        if hasattr(self, "act_card"):
+            self.act_card.setVisible(can_view_bookings)
+        if hasattr(self, "followup_card"):
+            self.followup_card.setVisible(can_view_customers)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_permissions()
+        if getattr(self, "_dirty", True):
+            self._load_data()
+            self._dirty = False
+
+    def _mark_dirty(self):
+        self._dirty = True
 
     def _build_export_menu(self):
         menu = QMenu(self)
@@ -960,6 +1104,11 @@ class DashboardPage(QWidget):
         return menu
 
     def _export_pdf(self):
+        from utils.session import SessionManager
+        if not SessionManager.has_permission("reports", "view"):
+            from components.dialogs import error
+            error(self, title="Access Denied", message="You do not have permission to export reports.")
+            return
         path, _ = QFileDialog.getSaveFileName(
             self, "Export PDF", "jayraldines_dashboard.pdf", "PDF Files (*.pdf)"
         )
@@ -1003,6 +1152,11 @@ class DashboardPage(QWidget):
                 "PDF export failed. Make sure reportlab is installed:\npip install reportlab")
 
     def _export_excel(self):
+        from utils.session import SessionManager
+        if not SessionManager.has_permission("reports", "view"):
+            from components.dialogs import error
+            error(self, title="Access Denied", message="You do not have permission to export reports.")
+            return
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Excel", "jayraldines_dashboard.xlsx", "Excel Files (*.xlsx)"
         )
@@ -1045,6 +1199,8 @@ class DashboardPage(QWidget):
         self._load_data()
 
     def reload(self):
+        self._dirty = False
+        self.refresh_permissions()
         self._load_data()
 
     def _fetch_dashboard_data(self):
@@ -1087,6 +1243,7 @@ class DashboardPage(QWidget):
                 return
         except Exception:
             pass
+        self.refresh_permissions()
         kpis        = data.get("kpis", {})
         profit_data = data.get("profit", [])
         events      = data.get("events", [])

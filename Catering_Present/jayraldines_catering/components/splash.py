@@ -243,17 +243,25 @@ class SplashScreen(QWidget):
         QApplication.processEvents()
 
     def finish(self, main_window):
-        anim = QPropertyAnimation(self, b"windowOpacity", self)
-        anim.setDuration(200)
-        anim.setStartValue(1.0)
-        anim.setEndValue(0.0)
-        anim.setEasingCurve(QEasingCurve.OutQuad)
+        self._anim = QPropertyAnimation(self, b"windowOpacity", self)
+        self._anim.setDuration(220)
+        self._anim.setStartValue(1.0)
+        self._anim.setEndValue(0.0)
+        self._anim.setEasingCurve(QEasingCurve.OutQuad)
+
+        self._finished_called = False
 
         def _on_finish():
+            if getattr(self, "_finished_called", False):
+                return
+            self._finished_called = True
             self.close()
             main_window.showFullScreen()
             main_window.raise_()
             main_window.activateWindow()
 
-        anim.finished.connect(_on_finish)
-        anim.start()
+        self._anim.finished.connect(_on_finish)
+        self._anim.start()
+        # Safety fallback in case window manager doesn't trigger finished
+        QTimer.singleShot(350, _on_finish)
+

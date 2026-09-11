@@ -68,8 +68,8 @@ class _BriefingWorker(QObject):
 
 
 class AIPage(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.setObjectName("mainBackground")
         self._thread = None
         self._busy = False
@@ -202,6 +202,17 @@ class AIPage(QWidget):
             anchor_pos = self._mascot_anchor.mapTo(self, QPoint(0, 0))
             self._mascot.move(anchor_pos)
         self._mascot.raise_()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, "_mascot"):
+            self._mascot.show()
+            self._reposition_mascot()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        if hasattr(self, "_mascot"):
+            self._mascot.hide()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

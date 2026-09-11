@@ -19,7 +19,8 @@ from PySide6.QtGui import QColor, QFont
 
 import utils.repository as repo
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
-from components.dialogs import confirm, success, prompt_file_saved
+from components.dialogs import confirm, success, prompt_file_saved, error
+from utils.session import SessionManager
 from utils.signals import app_events
 from utils.data_loader import run_async
 
@@ -202,24 +203,62 @@ class TransactionModal(QDialog):
 
 
 class CashFlowPage(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._dirty = True  # Load on first show
         self._filter_date = None
         self._search_text = ""
         self._transactions = []
         self._selected_ids = set()
         self._row_checkboxes = {}
         self._build_ui()
-        self._load_data()
 
         try:
             from utils.signals import app_events
-            app_events().cash_flow_saved.connect(self.reload)
-            app_events().data_changed.connect(self.reload)
+            app_events().cash_flow_saved.connect(self._mark_dirty_and_reload)
+            app_events().data_changed.connect(self._mark_dirty)
         except Exception:
             pass
 
+    def _mark_dirty(self):
+        self._dirty = True
+
+    def _mark_dirty_and_reload(self):
+        self._dirty = True
+        if self.isVisible():
+            self.reload()
+
+    def refresh_permissions(self):
+        can_create = SessionManager.has_permission("cashflow", "create")
+        can_edit = SessionManager.has_permission("cashflow", "edit")
+        can_delete = SessionManager.has_permission("cashflow", "delete")
+        can_export = SessionManager.has_permission("reports", "view") or SessionManager.has_permission("cashflow", "view")
+
+        if hasattr(self, "btn_add"):
+            self.btn_add.setEnabled(can_create)
+            self.btn_add.setVisible(can_create)
+        if hasattr(self, "btn_import"):
+            self.btn_import.setEnabled(can_create)
+            self.btn_import.setVisible(can_create)
+        if hasattr(self, "_btn_delete_selected"):
+            self._btn_delete_selected.setVisible(can_delete)
+            if not can_delete:
+                self._btn_delete_selected.setEnabled(False)
+        if hasattr(self, "_cb_select_all"):
+            self._cb_select_all.setVisible(can_delete)
+        if hasattr(self, "_lbl_selected_count"):
+            self._lbl_selected_count.setVisible(can_delete)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_permissions()
+        if getattr(self, "_dirty", True):
+            self._load_data()
+            self._dirty = False
+
     def reload(self):
+        self._dirty = False
+        self.refresh_permissions()
         self._load_data()
 
     def _build_ui(self):
@@ -239,25 +278,25 @@ class CashFlowPage(QWidget):
         header.addLayout(v_title)
         header.addStretch()
 
-        btn_add = QPushButton("  + Add Transaction")
-        btn_add.setObjectName("primaryButton")
-        btn_add.setIcon(btn_icon_primary("plus"))
-        btn_add.setIconSize(QSize(15, 15))
-        btn_add.setCursor(Qt.PointingHandCursor)
-        btn_add.clicked.connect(self._open_add_dialog)
+        self.btn_add = QPushButton("  + Add Transaction")
+        self.btn_add.setObjectName("primaryButton")
+        self.btn_add.setIcon(btn_icon_primary("plus"))
+        self.btn_add.setIconSize(QSize(15, 15))
+        self.btn_add.setCursor(Qt.PointingHandCursor)
+        self.btn_add.clicked.connect(self._open_add_dialog)
 
-        btn_import = QPushButton("  Import")
-        btn_import.setObjectName("secondaryButton")
-        btn_import.setIcon(btn_icon_secondary("export"))
-        btn_import.setIconSize(QSize(15, 15))
-        btn_import.setCursor(Qt.PointingHandCursor)
-        btn_import.clicked.connect(self._open_import_dialog)
+        self.btn_import = QPushButton("  Import")
+        self.btn_import.setObjectName("secondaryButton")
+        self.btn_import.setIcon(btn_icon_secondary("export"))
+        self.btn_import.setIconSize(QSize(15, 15))
+        self.btn_import.setCursor(Qt.PointingHandCursor)
+        self.btn_import.clicked.connect(self._open_import_dialog)
 
-        btn_export = QPushButton("  Export")
-        btn_export.setObjectName("secondaryButton")
-        btn_export.setIcon(btn_icon_secondary("export"))
-        btn_export.setIconSize(QSize(15, 15))
-        btn_export.setCursor(Qt.PointingHandCursor)
+        self.btn_export = QPushButton("  Export")
+        self.btn_export.setObjectName("secondaryButton")
+        self.btn_export.setIcon(btn_icon_secondary("export"))
+        self.btn_export.setIconSize(QSize(15, 15))
+        self.btn_export.setCursor(Qt.PointingHandCursor)
 
         export_menu = QMenu(self)
         act_csv = export_menu.addAction("Export as CSV (.csv)")
@@ -266,11 +305,11 @@ class CashFlowPage(QWidget):
         act_excel.triggered.connect(self._export_excel)
         act_pdf = export_menu.addAction("Export as PDF (.pdf)")
         act_pdf.triggered.connect(self._export_pdf)
-        btn_export.setMenu(export_menu)
+        self.btn_export.setMenu(export_menu)
 
-        header.addWidget(btn_add)
-        header.addWidget(btn_import)
-        header.addWidget(btn_export)
+        header.addWidget(self.btn_add)
+        header.addWidget(self.btn_import)
+        header.addWidget(self.btn_export)
         root.addLayout(header)
 
         # Summary Stat Cards (Deposits, Withdrawals, Balance, Actual Sales, Net Difference)
@@ -586,8 +625,13 @@ class CashFlowPage(QWidget):
                 del_btn.setToolTip("Delete Transaction")
                 del_btn.clicked.connect(lambda _, item_tx=tx: self._delete_transaction(item_tx))
 
-                act_lay.addWidget(edit_btn)
-                act_lay.addWidget(del_btn)
+                can_edit = SessionManager.has_permission("cashflow", "edit")
+                can_del = SessionManager.has_permission("cashflow", "delete")
+
+                if can_edit:
+                    act_lay.addWidget(edit_btn)
+                if can_del:
+                    act_lay.addWidget(del_btn)
                 self.table.setCellWidget(r_idx, 9, act_widget)
         finally:
             self.table.setUpdatesEnabled(True)
@@ -619,7 +663,9 @@ class CashFlowPage(QWidget):
     def _update_selection_ui(self):
         count = len(self._selected_ids)
         self._lbl_selected_count.setText(f"{count} selected")
-        self._btn_delete_selected.setEnabled(count > 0)
+        can_delete = SessionManager.has_permission("cashflow", "delete")
+        self._btn_delete_selected.setEnabled(count > 0 and can_delete)
+        self._btn_delete_selected.setVisible(can_delete)
         self._btn_delete_selected.setText(f"  Delete Selected ({count})" if count > 0 else "  Delete Selected")
 
         visible_tx_ids = [int(tx["id"]) for tx in self._transactions if tx.get("id")]
@@ -629,6 +675,9 @@ class CashFlowPage(QWidget):
         self._cb_select_all.blockSignals(False)
 
     def _delete_selected_transactions(self):
+        if not SessionManager.has_permission("cashflow", "delete"):
+            error(self, title="Access Denied", message="You do not have permission to delete transactions.")
+            return
         if not self._selected_ids:
             return
         count = len(self._selected_ids)
@@ -649,6 +698,9 @@ class CashFlowPage(QWidget):
         success(self, message=f"Successfully deleted {deleted} transaction(s).")
 
     def _open_add_dialog(self):
+        if not SessionManager.has_permission("cashflow", "create"):
+            error(self, title="Access Denied", message="You do not have permission to add transactions.")
+            return
         dlg = TransactionModal(self)
         if dlg.exec():
             self._load_data()
@@ -661,6 +713,9 @@ class CashFlowPage(QWidget):
             success(self, message="Cash flow transaction recorded.")
 
     def _edit_transaction(self, tx: dict):
+        if not SessionManager.has_permission("cashflow", "edit"):
+            error(self, title="Access Denied", message="You do not have permission to edit transactions.")
+            return
         dlg = TransactionModal(self, tx_data=tx)
         if dlg.exec():
             self._load_data()
@@ -673,6 +728,9 @@ class CashFlowPage(QWidget):
             success(self, message="Transaction updated.")
 
     def _delete_transaction(self, tx: dict):
+        if not SessionManager.has_permission("cashflow", "delete"):
+            error(self, title="Access Denied", message="You do not have permission to delete transactions.")
+            return
         if not confirm(self, title="Delete Transaction",
                        message=f"Are you sure you want to delete transaction for '{tx.get('particulars')}'?",
                        confirm_label="Delete", danger=True):
@@ -690,6 +748,9 @@ class CashFlowPage(QWidget):
         success(self, message="Transaction deleted.")
 
     def _open_import_dialog(self):
+        if not SessionManager.has_permission("cashflow", "create"):
+            error(self, title="Access Denied", message="You do not have permission to import transactions.")
+            return
         from components.import_dialog import ImportWizardDialog
         dlg = ImportWizardDialog(default_entity="cash_flow", parent=self)
         if dlg.exec():

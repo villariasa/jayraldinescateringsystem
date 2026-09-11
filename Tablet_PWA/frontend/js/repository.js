@@ -7,7 +7,31 @@ const BOOKING_REF_PREFIX = "TB";
 
 // ── Customers ────────────────────────────────────────────────────────
 
+export function ensureCustomersSeeded() {
+  try {
+    const c = fetchOne("SELECT COUNT(*) as cnt FROM customers");
+    if (!c || c.cnt === 0) {
+      const DEFAULT_CUSTOMERS = [
+        ["Ichigo Kurosaki", "+63 999 111 2233", "ichigo@bleach.com", "Karakura Town, Cebu"],
+        ["Angela Reyes", "+63 945 777 8899", "angela.reyes@gmail.com", "Mandaue City, Cebu"],
+        ["Maria Santos", "+63 912 345 6789", "maria.santos@yahoo.com", "Lahug, Cebu City"],
+        ["Juan Dela Cruz", "+63 917 123 4567", "juan.delacruz@gmail.com", "Guadalupe, Cebu City"],
+        ["Roberto Tan", "+63 922 888 9900", "roberto.tan@outlook.com", "Banilad, Cebu City"],
+        ["Cruz Family", "+63 920 111 2222", "cruz.events@gmail.com", "Talamban, Cebu City"],
+        ["Smith Wedding", "+63 932 555 6666", "smith.wedding@yahoo.com", "Mactan, Lapu-Lapu City"],
+        ["TechCorp Inc.", "+63 917 000 1234", "events@techcorp.ph", "IT Park, Cebu City"]
+      ];
+      for (const [name, contact, email, address] of DEFAULT_CUSTOMERS) {
+        try {
+          run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status, sync_status) VALUES (?, ?, ?, ?, 'Active', 'synced')", [name, contact, email, address]);
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+
 export function searchCustomers(query) {
+  ensureCustomersSeeded();
   query = (query || "").trim();
   let rows;
   if (!query) {
@@ -88,7 +112,7 @@ export function addCustomer(name, contact = "", email = "", address = "") {
     return existingName.cus_id;
   }
 
-  return run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status) VALUES (?, ?, ?, ?, 'Active')",
+  return run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status, sync_status) VALUES (?, ?, ?, ?, 'Active', 'pending')",
     [name, contactClean, emailClean, addrClean]);
 }
 
@@ -265,8 +289,8 @@ export function createOrder(order) {
     INSERT INTO bookings (
       bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time,
       bk_venue, bk_occasion, bk_pax, bk_total_amount, bk_base_total, bk_payment_mode,
-      bk_amount_paid, bk_down_payment, bk_menu_type, bk_package_id, bk_notes, bk_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'package', ?, ?, 'PENDING')
+      bk_amount_paid, bk_down_payment, bk_menu_type, bk_package_id, bk_notes, bk_status, sync_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'package', ?, ?, 'PENDING', 'pending')
   `, [
     bookingRef, customerId, order.customer_name, order.address || "", order.event_date,
     order.event_time || "18:00", order.venue || "", order.occasion || "", Number(order.pax) || 1,
@@ -501,4 +525,142 @@ export function searchCebuAddress(query, limit = 15) {
     }
   }
   return results;
+}
+
+// ── LAN Sync Data Helpers ───────────────────────────────────────────
+
+export function getPendingSyncRecords() {
+  let bookings = [];
+  try {
+    bookings = fetchAll("SELECT * FROM bookings WHERE sync_status = 'pending' OR sync_status IS NULL");
+  } catch (_) {
+    bookings = fetchAll("SELECT * FROM bookings");
+  }
+
+  const enrichedBookings = bookings.map((b) => {
+    let items = [];
+    let inv = null;
+    try {
+      items = fetchAll("SELECT * FROM booking_menu_items WHERE bmi_booking_id = ?", [b.bk_id]);
+    } catch (_) {}
+    try {
+      inv = fetchOne("SELECT * FROM invoices WHERE inv_booking_id = ?", [b.bk_id]);
+    } catch (_) {}
+    return {
+      ...b,
+      menu_items: items,
+      invoice: inv,
+    };
+  });
+
+  let customers = [];
+  try {
+    customers = fetchAll("SELECT * FROM customers WHERE sync_status = 'pending' OR sync_status IS NULL");
+  } catch (_) {
+    customers = fetchAll("SELECT * FROM customers");
+  }
+
+  return { bookings: enrichedBookings, customers };
+}
+
+export function markRecordsSynced(bookingRefs = [], customerNames = []) {
+  if (bookingRefs && bookingRefs.length > 0) {
+    for (const ref of bookingRefs) {
+      try {
+        run("UPDATE bookings SET sync_status = 'synced' WHERE bk_booking_ref = ? OR bk_id = ?", [ref, ref]);
+      } catch (_) {}
+    }
+  }
+  if (customerNames && customerNames.length > 0) {
+    for (const name of customerNames) {
+      try {
+        run("UPDATE customers SET sync_status = 'synced' WHERE cus_name = ? OR cus_id = ?", [name, name]);
+      } catch (_) {}
+    }
+  }
+}
+
+export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = []) {
+  if (packages && packages.length > 0) {
+    for (const p of packages) {
+      const name = p.pkg_name;
+      if (!name) continue;
+      const desc = p.pkg_description || "";
+      const price = Number(p.pkg_price_per_pax || 350.0);
+      const minPax = Number(p.pkg_min_pax || 30);
+      const existing = fetchOne("SELECT pkg_id FROM packages WHERE LOWER(pkg_name) = LOWER(?)", [name]);
+      if (existing) {
+        run("UPDATE packages SET pkg_name = ?, pkg_description = ?, pkg_price_per_pax = ?, pkg_min_pax = ? WHERE pkg_id = ?",
+          [name, desc, price, minPax, existing.pkg_id]);
+      } else {
+        run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
+          [name, desc, price, minPax]);
+      }
+    }
+  }
+
+  if (menuItems && menuItems.length > 0) {
+    for (const m of menuItems) {
+      const name = m.mi_name || m.name;
+      if (!name) continue;
+      const cat = m.mi_category || m.category || "Main Dish";
+      const price = Number(m.mi_price || m.price || 0.0);
+      const status = m.mi_status || m.status || "Available";
+      const desc = m.mi_description || m.description || "";
+      const existing = fetchOne("SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(?)", [name]);
+      if (existing) {
+        run("UPDATE menu_items SET mi_name = ?, mi_category = ?, mi_price = ?, mi_status = ?, mi_description = ? WHERE mi_id = ?",
+          [name, cat, price, status, desc, existing.mi_id]);
+      } else {
+        run("INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description) VALUES (?, ?, ?, ?, ?)",
+          [name, cat, price, status, desc]);
+      }
+    }
+  }
+
+  if (packageItems && packageItems.length > 0) {
+    for (const pi of packageItems) {
+      try {
+        run("INSERT OR IGNORE INTO package_items (pi_package_id, pi_menu_item_id, pi_item_name, pi_category) VALUES (?, ?, ?, ?)",
+          [pi.pi_package_id, pi.pi_item_id || null, pi.pi_item_name || "", pi.pi_category || ""]);
+      } catch (_) {}
+    }
+  }
+
+  if (customers && customers.length > 0) {
+    for (const c of customers) {
+      const name = c.cus_name || c.name;
+      if (!name) continue;
+      const contact = c.cus_contact || c.contact || "";
+      const email = c.cus_email || c.email || "";
+      const address = c.cus_address || c.address || "";
+      const tier = c.cus_loyalty_tier || c.loyalty_tier || "Bronze";
+      const status = c.cus_status || c.status || "Active";
+      const events = Number(c.cus_total_events || c.total_events || 0);
+      const spent = Number(c.cus_total_spent || c.total_spent || 0.0);
+      const notes = c.cus_notes || c.notes || "";
+
+      const existing = fetchOne("SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(?)", [name]);
+      if (existing) {
+        run("UPDATE customers SET cus_contact = ?, cus_email = ?, cus_address = ?, cus_loyalty_tier = ?, cus_status = ?, cus_total_events = ?, cus_total_spent = ?, cus_notes = ?, sync_status = 'synced' WHERE cus_id = ?",
+          [contact, email, address, tier, status, events, spent, notes, existing.cus_id]);
+      } else {
+        run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_loyalty_tier, cus_total_events, cus_total_spent, cus_status, cus_notes, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
+          [name, contact, email, address, tier, events, spent, status, notes]);
+      }
+    }
+  }
+
+  try {
+    run("INSERT INTO tablet_master_sync (tms_source_export_version, tms_packages_count, tms_menu_items_count) VALUES ('Live-PG-Sync', ?, ?)",
+      [packages.length, menuItems.length]);
+  } catch (_) {}
+
+  if (typeof window.__clearWizardCaches === "function") {
+    window.__clearWizardCaches();
+  }
+
+  if (typeof window.__onMasterDataUpdated === "function") {
+    window.__onMasterDataUpdated();
+  }
 }

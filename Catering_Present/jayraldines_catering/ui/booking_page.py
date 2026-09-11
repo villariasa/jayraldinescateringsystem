@@ -31,8 +31,8 @@ _STATUS_COLORS = {
 
 
 class AnimatedCard(QFrame):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.setObjectName("card")
 
 
@@ -47,12 +47,12 @@ def _status_badge(text):
     return lbl
 
 
-def _action_buttons(status, on_approve, on_decline):
+def _action_buttons(status, on_approve, on_decline, can_edit=True):
     widget = QWidget()
     row = QHBoxLayout(widget)
     row.setContentsMargins(4, 0, 4, 0)
     row.setSpacing(6)
-    if status == "PENDING":
+    if status == "PENDING" and can_edit:
         approve_btn = QPushButton()
         approve_btn.setIcon(get_icon("check", color="#22C55E", size=QSize(16, 16)))
         approve_btn.setIconSize(QSize(16, 16))
@@ -62,7 +62,7 @@ def _action_buttons(status, on_approve, on_decline):
             "background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);"
         )
         approve_btn.setCursor(Qt.PointingHandCursor)
-        approve_btn.setToolTip("Approve")
+        approve_btn.setToolTip("Approve Booking")
         approve_btn.clicked.connect(on_approve)
         row.addWidget(approve_btn)
 
@@ -75,12 +75,11 @@ def _action_buttons(status, on_approve, on_decline):
             "background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);"
         )
         decline_btn.setCursor(Qt.PointingHandCursor)
-        decline_btn.setToolTip("Decline")
+        decline_btn.setToolTip("Decline Booking")
         decline_btn.clicked.connect(on_decline)
         row.addWidget(decline_btn)
     else:
-        locked_lbl = QLabel("—")
-        locked_lbl.setStyleSheet("font-size:13px;")
+        locked_lbl = QLabel("")
         row.addWidget(locked_lbl)
     row.addStretch()
     return widget
@@ -965,8 +964,8 @@ class AddMultipleBookingsDialog(QDialog):
 
 
 class BookingPage(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self._dirty = True
         self._bookings = []
         self._selected_refs: set[str] = set()
@@ -978,10 +977,8 @@ class BookingPage(QWidget):
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._on_search_timer_fired)
         self._build_ui()
-        db_rows = repo.get_all_bookings()
-        self._bookings = db_rows if db_rows else []
-        self._populate_table()
-        self._dirty = False
+        self._bookings = []
+        self._dirty = True
         app_events().booking_saved.connect(self._mark_dirty_and_reload)
         app_events().data_changed.connect(self._mark_dirty)
 
@@ -995,19 +992,58 @@ class BookingPage(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        if self._dirty:
+        self.refresh_permissions()
+        if getattr(self, "_dirty", True):
             self._refresh_bookings()
 
     def reload(self):
         self._mark_dirty()
+        self.refresh_permissions()
         if self.isVisible():
             self._refresh_bookings()
 
+    def refresh_permissions(self):
+        from utils.auth import SessionManager
+        can_create = SessionManager.has_permission("bookings", "create")
+        can_delete = SessionManager.has_permission("bookings", "delete")
+        can_edit = SessionManager.has_permission("bookings", "edit")
+
+        if hasattr(self, "btn_new"):
+            self.btn_new.setEnabled(can_create)
+            self.btn_new.setVisible(can_create)
+        if hasattr(self, "btn_multi_add"):
+            self.btn_multi_add.setEnabled(can_create)
+            self.btn_multi_add.setVisible(can_create)
+        if hasattr(self, "btn_import"):
+            self.btn_import.setEnabled(can_create)
+            self.btn_import.setVisible(can_create)
+
+        for tb in [getattr(self, "_pending_tb", None), getattr(self, "_confirmed_tb", None), getattr(self, "_all_tb", None)]:
+            if tb:
+                if tb.get("batch_approve"):
+                    tb["batch_approve"].setVisible(can_edit)
+                if tb.get("batch_cancel"):
+                    tb["batch_cancel"].setVisible(can_edit)
+                if tb.get("delete_selected"):
+                    tb["delete_selected"].setVisible(can_delete)
+                if tb.get("select_all"):
+                    tb["select_all"].setVisible(can_edit or can_delete)
+                if tb.get("selected_lbl"):
+                    tb["selected_lbl"].setVisible(can_edit or can_delete)
+
     def _refresh_bookings(self):
+        if getattr(self, "_refreshing", False):
+            return
         self._dirty = False
-        run_async(self, repo.get_all_bookings, self._on_bookings_loaded)
+        self._refreshing = True
+        run_async(self, repo.get_all_bookings, self._on_bookings_loaded, self._on_bookings_error)
+
+    def _on_bookings_error(self, err):
+        self._refreshing = False
+        print(f"[BookingPage] Background refresh error: {err}")
 
     def _on_bookings_loaded(self, data):
+        self._refreshing = False
         try:
             from shiboken6 import isValid
             if not isValid(self):
@@ -1015,6 +1051,11 @@ class BookingPage(QWidget):
         except Exception:
             pass
         if data is not None:
+            new_sig = [(b.get("id"), b.get("status"), b.get("total"), b.get("date"), b.get("event_time"), b.get("pax")) for b in data]
+            if getattr(self, "_last_loaded_sig", None) == new_sig and getattr(self, "_has_loaded_once", False):
+                return
+            self._last_loaded_sig = new_sig
+            self._has_loaded_once = True
             self._bookings = data
             self._selected_refs.clear()
             self._populate_table()
@@ -1073,77 +1114,83 @@ class BookingPage(QWidget):
         self._btn_filter.setIcon(btn_icon_secondary("filter"))
         self._btn_filter.setIconSize(QSize(14, 14))
         self._btn_filter.setFixedHeight(38)
+        self._btn_filter.setCursor(Qt.PointingHandCursor)
         self._btn_filter.clicked.connect(self._open_filter)
         search_filter_row.addWidget(self._btn_filter)
 
-        btn_export = QPushButton("  Export")
-        btn_export.setObjectName("secondaryButton")
-        btn_export.setIcon(btn_icon_secondary("export"))
-        btn_export.setIconSize(QSize(14, 14))
-        btn_export.setFixedHeight(38)
-        btn_export.clicked.connect(self._export_csv)
-        search_filter_row.addWidget(btn_export)
+        self._btn_export = QPushButton("  Export")
+        self._btn_export.setObjectName("secondaryButton")
+        self._btn_export.setIcon(btn_icon_secondary("export"))
+        self._btn_export.setIconSize(QSize(14, 14))
+        self._btn_export.setFixedHeight(38)
+        self._btn_export.setCursor(Qt.PointingHandCursor)
+        self._btn_export.clicked.connect(self._export_csv)
+        search_filter_row.addWidget(self._btn_export)
 
         layout.addLayout(search_filter_row)
 
-        # Two Main Tabs: Pending Bookings & Confirmed Bookings (plus All Bookings)
+        # 3-Tab Booking Matrix
         self._tabs = QTabWidget()
+        self._tabs.setObjectName("bookingTabs")
+
+        # Tab 1: Pending Bookings
+        p_page, self._pending_cards_layout, self._pending_tb = self._create_booking_tab("PENDING")
+        self._tabs.addTab(p_page, "⏳ Pending Bookings (0)")
+
+        # Tab 2: Confirmed Bookings
+        c_page, self._confirmed_cards_layout, self._confirmed_tb = self._create_booking_tab("CONFIRMED")
+        self._tabs.addTab(c_page, "✅ Confirmed Bookings (0)")
+
+        # Tab 3: All Bookings
+        a_page, self._all_cards_layout, self._all_tb = self._create_booking_tab("ALL")
+        self._tabs.addTab(a_page, "📋 All Bookings (0)")
+
         self._tabs.currentChanged.connect(self._on_tab_changed)
-
-        # Tab 0: Pending Bookings Tab
-        pending_tab, self._pending_cards_layout, self._pending_toolbar = self._create_tab_page("pending")
-        self._tabs.addTab(pending_tab, "⏳ Pending Bookings (0)")
-
-        # Tab 1: Confirmed Bookings Tab
-        confirmed_tab, self._confirmed_cards_layout, self._confirmed_toolbar = self._create_tab_page("confirmed")
-        self._tabs.addTab(confirmed_tab, "✅ Confirmed Bookings (0)")
-
-        # Tab 2: All Bookings Tab
-        all_tab, self._all_cards_layout, self._all_toolbar = self._create_tab_page("all")
-        self._tabs.addTab(all_tab, "📋 All Bookings (0)")
-
         layout.addWidget(self._tabs, 1)
         self._populate_table()
 
-    def _create_tab_page(self, tab_type: str):
+    def _create_booking_tab(self, tab_type: str):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setContentsMargins(20, 18, 20, 18)
+        lay.setContentsMargins(0, 14, 0, 0)
         lay.setSpacing(12)
 
-        # Batch toolbar
-        batch_toolbar = QHBoxLayout()
-        batch_toolbar.setSpacing(12)
+        # Tab Toolbar
+        tb_lay = QHBoxLayout()
+        tb_lay.setContentsMargins(4, 0, 4, 0)
+        tb_lay.setSpacing(12)
 
         cb_select_all = QCheckBox("Select All")
         cb_select_all.setStyleSheet("QCheckBox { font-weight: 600; font-size: 13px; color: #9CA3AF; }")
-        batch_toolbar.addWidget(cb_select_all)
+        tb_lay.addWidget(cb_select_all)
 
         lbl_selected_count = QLabel("0 selected")
         lbl_selected_count.setStyleSheet("font-size: 12px; color: #6B7280; font-weight: 600;")
-        batch_toolbar.addWidget(lbl_selected_count)
+        tb_lay.addWidget(lbl_selected_count)
 
-        batch_toolbar.addStretch()
+        tb_lay.addStretch()
 
         btn_batch_approve = None
-        if tab_type in ("pending", "all"):
+        btn_batch_cancel = None
+
+        if tab_type == "PENDING":
             btn_batch_approve = QPushButton("  Batch Confirm")
             btn_batch_approve.setObjectName("secondaryButton")
             btn_batch_approve.setIcon(get_icon("check", color="#22C55E", size=QSize(13, 13)))
             btn_batch_approve.setIconSize(QSize(13, 13))
-            btn_batch_approve.setEnabled(False)
             btn_batch_approve.setCursor(Qt.PointingHandCursor)
+            btn_batch_approve.setEnabled(False)
+            btn_batch_approve.setStyleSheet("QPushButton { color: #22C55E; font-weight: 700; }")
             btn_batch_approve.clicked.connect(self._batch_approve_bookings)
-            batch_toolbar.addWidget(btn_batch_approve)
+            tb_lay.addWidget(btn_batch_approve)
 
-        btn_batch_cancel = QPushButton("  Batch Cancel")
-        btn_batch_cancel.setObjectName("secondaryButton")
-        btn_batch_cancel.setIcon(get_icon("close", color="#F59E0B", size=QSize(13, 13)))
-        btn_batch_cancel.setIconSize(QSize(13, 13))
-        btn_batch_cancel.setEnabled(False)
-        btn_batch_cancel.setCursor(Qt.PointingHandCursor)
-        btn_batch_cancel.clicked.connect(self._batch_cancel_bookings)
-        batch_toolbar.addWidget(btn_batch_cancel)
+            btn_batch_cancel = QPushButton("  ✕ Batch Cancel")
+            btn_batch_cancel.setObjectName("secondaryButton")
+            btn_batch_cancel.setCursor(Qt.PointingHandCursor)
+            btn_batch_cancel.setEnabled(False)
+            btn_batch_cancel.setStyleSheet("QPushButton { color: #EF4444; font-weight: 700; }")
+            btn_batch_cancel.clicked.connect(self._batch_cancel_bookings)
+            tb_lay.addWidget(btn_batch_cancel)
 
         btn_delete_selected = QPushButton("  Delete Selected")
         btn_delete_selected.setIcon(btn_icon_red("trash"))
@@ -1156,15 +1203,16 @@ class BookingPage(QWidget):
             "QPushButton:disabled { opacity: 0.35; background: rgba(255,255,255,0.04); border-color: transparent; color: #6B7280; }"
         )
         btn_delete_selected.clicked.connect(self._delete_selected_bookings)
-        batch_toolbar.addWidget(btn_delete_selected)
+        tb_lay.addWidget(btn_delete_selected)
 
-        lay.addLayout(batch_toolbar)
+        lay.addLayout(tb_lay)
 
         div = QFrame()
         div.setObjectName("divider")
         div.setFixedHeight(1)
         lay.addWidget(div)
 
+        # Scroll Area for Cards
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.NoFrame)
@@ -1180,7 +1228,7 @@ class BookingPage(QWidget):
         scroll_area.setWidget(cards_container)
         lay.addWidget(scroll_area, 1)
 
-        toolbar_bundle = {
+        tb_bundle = {
             "select_all": cb_select_all,
             "selected_lbl": lbl_selected_count,
             "batch_approve": btn_batch_approve,
@@ -1192,7 +1240,7 @@ class BookingPage(QWidget):
 
         cb_select_all.stateChanged.connect(lambda state, t=tab_type: self._toggle_select_tab(t, state))
 
-        return page, cards_layout, toolbar_bundle
+        return page, cards_layout, tb_bundle
 
     def _on_tab_changed(self, index: int):
         self._update_selection_ui()
@@ -1234,19 +1282,23 @@ class BookingPage(QWidget):
             raw_rows = data if data is not None else self._visible_bookings()
             self._card_checkboxes.clear()
 
+            from utils.auth import SessionManager
+            can_edit = SessionManager.has_permission("bookings", "edit")
+            can_delete = SessionManager.has_permission("bookings", "delete")
+
             # Partition rows into Pending, Confirmed/Completed, and All
             pending_rows = [b for b in raw_rows if b.get("status") == "PENDING"]
             confirmed_rows = [b for b in raw_rows if b.get("status") in ("CONFIRMED", "COMPLETED")]
             all_rows = raw_rows
 
             # Populate Pending Tab
-            self._populate_card_layout(self._pending_cards_layout, pending_rows, "No pending bookings found.")
+            self._populate_card_layout(self._pending_cards_layout, pending_rows, "No pending bookings found.", can_edit, can_delete)
 
             # Populate Confirmed Tab
-            self._populate_card_layout(self._confirmed_cards_layout, confirmed_rows, "No confirmed bookings found.")
+            self._populate_card_layout(self._confirmed_cards_layout, confirmed_rows, "No confirmed bookings found.", can_edit, can_delete)
 
             # Populate All Tab
-            self._populate_card_layout(self._all_cards_layout, all_rows, "No bookings found.")
+            self._populate_card_layout(self._all_cards_layout, all_rows, "No bookings found.", can_edit, can_delete)
 
             # Update Tab Title Counts
             if hasattr(self, "_tabs"):
@@ -1258,7 +1310,7 @@ class BookingPage(QWidget):
         finally:
             self.setUpdatesEnabled(True)
 
-    def _populate_card_layout(self, layout: QVBoxLayout, rows: list[dict], empty_msg: str):
+    def _populate_card_layout(self, layout: QVBoxLayout, rows: list[dict], empty_msg: str, can_edit: bool = True, can_delete: bool = True):
         if not layout:
             return
         while layout.count():
@@ -1270,19 +1322,20 @@ class BookingPage(QWidget):
                     w.deleteLater()
 
         if not rows:
-            empty_lbl = QLabel(empty_msg)
+            msg = "Loading reservations..." if getattr(self, "_refreshing", False) and not getattr(self, "_has_loaded_once", False) else empty_msg
+            empty_lbl = QLabel(msg)
             empty_lbl.setObjectName("subtitle")
             empty_lbl.setAlignment(Qt.AlignCenter)
             empty_lbl.setStyleSheet("font-size: 13px; color: #64748B; padding: 24px;")
             layout.addWidget(empty_lbl)
         else:
             for b in rows:
-                card = self._create_booking_card(b)
+                card = self._create_booking_card(b, can_edit, can_delete)
                 layout.addWidget(card)
 
         layout.addStretch()
 
-    def _create_booking_card(self, b: dict) -> QFrame:
+    def _create_booking_card(self, b: dict, can_edit: bool = True, can_delete: bool = True) -> QFrame:
         bref = b["id"]
         card = QFrame()
         card.setObjectName("entryCard")
@@ -1355,8 +1408,9 @@ class BookingPage(QWidget):
 
         bref = b["id"]
         motif_btn = QPushButton()
-        motif_btn.setCursor(Qt.PointingHandCursor)
-        motif_btn.setToolTip("Click to change event color motif")
+        motif_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ArrowCursor)
+        motif_btn.setToolTip("Click to change event color motif" if can_edit else "Event color motif")
+        motif_btn.setEnabled(can_edit)
         motif_btn.setStyleSheet(f"""
             QPushButton {{
                 background: rgba(255, 255, 255, 0.05);
@@ -1387,7 +1441,8 @@ class BookingPage(QWidget):
         m_lay.addWidget(m_name_lbl)
         m_lay.addStretch()
 
-        motif_btn.clicked.connect(lambda _, r=bref: self._change_booking_color(r))
+        if can_edit:
+            motif_btn.clicked.connect(lambda _, r=bref: self._change_booking_color(r))
         c_motif.addWidget(motif_btn)
         lay.addLayout(c_motif, 1)
 
@@ -1401,68 +1456,70 @@ class BookingPage(QWidget):
             reason_lbl.setStyleSheet("color:#DC2626;font-size:10px;font-style:italic;")
             reason_lbl.setWordWrap(True)
             c4.addWidget(reason_lbl)
-        elif b["status"] == "PENDING":
+        elif b["status"] == "PENDING" and can_edit:
             bref = b["id"]
             c4.addWidget(_action_buttons(
                 b["status"],
                 on_approve=lambda _, r=bref: self._approve_booking(r),
-                on_decline=lambda _, r=bref: self._decline_booking(r)
+                on_decline=lambda _, r=bref: self._decline_booking(r),
+                can_edit=can_edit
             ))
         lay.addLayout(c4, 2)
 
         # Col 5: Actions (Edit, Delete, Confirmation, Color)
-        actions_w = QFrame()
+        actions_w = QFrame(card)
         actions_w.setStyleSheet("background: transparent;")
         actions_l = QHBoxLayout(actions_w)
         actions_l.setContentsMargins(0, 0, 0, 0)
         actions_l.setSpacing(6)
 
-        edit_btn = QPushButton()
+        edit_btn = QPushButton(parent=actions_w)
         edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
         edit_btn.setIconSize(QSize(13, 13))
         edit_btn.setFixedSize(30, 30)
         edit_btn.setStyleSheet("background:transparent;border:none;")
-        edit_btn.setCursor(Qt.PointingHandCursor)
-        edit_btn.setToolTip("Edit booking / order details")
-        edit_btn.setEnabled(b.get("status") != "CANCELLED")
+        edit_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
+        edit_btn.setToolTip("Edit booking / order details" if can_edit else "Permission required to edit")
+        edit_btn.setEnabled(can_edit and b.get("status") != "CANCELLED")
         if b.get("status") == "CANCELLED":
             edit_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
         edit_btn.clicked.connect(lambda _, r=bref: self._edit_booking(r))
 
-        charges_btn = QPushButton()
+        charges_btn = QPushButton(parent=actions_w)
         charges_btn.setIcon(get_icon("plus", color="#9CA3AF", size=QSize(13, 13)))
         charges_btn.setIconSize(QSize(13, 13))
         charges_btn.setFixedSize(30, 30)
         charges_btn.setStyleSheet("background:transparent;border:none;")
-        charges_btn.setCursor(Qt.PointingHandCursor)
-        charges_btn.setToolTip("Additional Charges / Additional Items")
-        charges_btn.setEnabled(b.get("status") != "CANCELLED")
+        charges_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
+        charges_btn.setToolTip("Additional Charges / Additional Items" if can_edit else "Permission required to edit")
+        charges_btn.setEnabled(can_edit and b.get("status") != "CANCELLED")
         if b.get("status") == "CANCELLED":
             charges_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
         charges_btn.clicked.connect(lambda _, r=bref: self._open_additional_charges(r))
 
-        color_btn = QPushButton()
+        color_btn = QPushButton(parent=actions_w)
         color_btn.setIcon(get_icon("palette", color="#9CA3AF", size=QSize(13, 13)))
         color_btn.setIconSize(QSize(13, 13))
         color_btn.setFixedSize(30, 30)
         color_btn.setStyleSheet("background:transparent;border:none;")
-        color_btn.setCursor(Qt.PointingHandCursor)
-        color_btn.setToolTip("Change Color Motif")
-        color_btn.setEnabled(b.get("status") != "CANCELLED")
+        color_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
+        color_btn.setToolTip("Change Color Motif" if can_edit else "Permission required to edit")
+        color_btn.setEnabled(can_edit and b.get("status") != "CANCELLED")
         if b.get("status") == "CANCELLED":
             color_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
         color_btn.clicked.connect(lambda _, r=bref: self._change_booking_color(r))
 
-        del_btn = QPushButton()
-        del_btn.setIcon(btn_icon_red("trash"))
+        del_btn = QPushButton(parent=actions_w)
+        del_btn.setIcon(btn_icon_red("trash") if can_delete else get_icon("trash", color="#4B5563", size=QSize(13, 13)))
         del_btn.setIconSize(QSize(13, 13))
         del_btn.setFixedSize(30, 30)
         del_btn.setStyleSheet("border:none;background:transparent;")
-        del_btn.setCursor(Qt.PointingHandCursor)
-        del_btn.setToolTip("Delete booking")
+        del_btn.setCursor(Qt.PointingHandCursor if can_delete else Qt.ForbiddenCursor)
+        del_btn.setEnabled(can_delete)
+        del_btn.setToolTip("Delete booking" if can_delete else "Permission required to delete")
         del_btn.clicked.connect(lambda _, r=bref: self._delete_booking(r))
 
-        confirm_btn = QPushButton()
+        confirm_btn = QPushButton(parent=actions_w)
         confirm_btn.setIcon(get_icon("bell", color="#9CA3AF", size=QSize(13, 13)))
         confirm_btn.setIconSize(QSize(13, 13))
         confirm_btn.setFixedSize(30, 30)
@@ -1479,11 +1536,25 @@ class BookingPage(QWidget):
         actions_l.addWidget(color_btn)
         actions_l.addWidget(del_btn)
         actions_l.addWidget(confirm_btn)
+
+        if not can_edit:
+            edit_btn.hide()
+            charges_btn.hide()
+            color_btn.hide()
+            confirm_btn.hide()
+        if not can_delete:
+            del_btn.hide()
+        if not can_edit and not can_delete:
+            actions_w.hide()
+
         lay.addWidget(actions_w)
 
         return card
 
     def _change_booking_color(self, ref: str):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("bookings", "edit"):
+            return
         b = next((x for x in self._bookings if x["id"] == ref), None)
         if not b:
             return
@@ -1676,6 +1747,10 @@ class BookingPage(QWidget):
                 "Ensure customer has an email and SMTP is configured in Settings.")
 
     def _delete_booking(self, ref):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("bookings", "delete"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete bookings.")
+            return
         b = next((x for x in self._bookings if x["id"] == ref), None)
         if not b:
             return
@@ -1702,6 +1777,10 @@ class BookingPage(QWidget):
             app_events().data_changed.emit()
 
     def _edit_booking(self, ref):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("bookings", "edit"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to edit bookings.")
+            return
         b = next((x for x in self._bookings if x["id"] == ref), None)
         if not b:
             return
@@ -1714,6 +1793,14 @@ class BookingPage(QWidget):
         modal.exec()
 
     def _update_booking(self, orig, data):
+        venue = str(data.get("venue") or "").strip()
+        if not venue:
+            venue = str(data.get("address") or "").strip()
+        if not venue:
+            QMessageBox.warning(self, "Validation Error", "Event Venue is required and cannot be blank.")
+            return
+        data["venue"] = venue
+
         db_id = orig.get("db_id") or data.get("db_id")
         if db_id:
             repo.update_booking(db_id, data)
@@ -1724,11 +1811,23 @@ class BookingPage(QWidget):
         app_events().booking_updated.emit()
 
     def _open_modal(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("bookings", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to create bookings.")
+            return
         modal = BookingModal(self)
         modal.booking_saved.connect(self._add_booking)
         modal.exec()
 
     def _add_booking(self, data):
+        venue = str(data.get("venue") or "").strip()
+        if not venue:
+            venue = str(data.get("address") or "").strip()
+        if not venue:
+            QMessageBox.warning(self, "Validation Error", "Event Venue is required and cannot be blank.")
+            return
+        data["venue"] = venue
+
         result = repo.create_booking(data)
         if not result:
             QMessageBox.warning(self, "Booking Failed", "Failed to save booking to database. Please check application logs.")
@@ -1839,6 +1938,10 @@ class BookingPage(QWidget):
             self.filter_search(query)
 
     def _open_import_dialog(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("bookings", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to import bookings.")
+            return
         from components.import_dialog import ImportWizardDialog
         dlg = ImportWizardDialog(default_entity="bookings", parent=self)
         if dlg.exec():
@@ -1854,9 +1957,10 @@ class BookingPage(QWidget):
         self._update_selection_ui()
 
     def _toggle_select_tab(self, tab_type: str, state):
-        if tab_type == "pending":
+        t_type = (tab_type or "").upper()
+        if t_type == "PENDING":
             target_refs = [b["id"] for b in self._visible_bookings() if b.get("status") == "PENDING"]
-        elif tab_type == "confirmed":
+        elif t_type == "CONFIRMED":
             target_refs = [b["id"] for b in self._visible_bookings() if b.get("status") in ("CONFIRMED", "COMPLETED")]
         else:
             target_refs = [b["id"] for b in self._visible_bookings()]
@@ -1880,9 +1984,9 @@ class BookingPage(QWidget):
         cancellable_count = sum(1 for r in self._selected_refs if any(b["id"] == r and b.get("status") != "CANCELLED" for b in self._bookings))
 
         toolbars = [
-            getattr(self, "_pending_toolbar", None),
-            getattr(self, "_confirmed_toolbar", None),
-            getattr(self, "_all_toolbar", None),
+            getattr(self, "_pending_tb", getattr(self, "_pending_toolbar", None)),
+            getattr(self, "_confirmed_tb", getattr(self, "_confirmed_toolbar", None)),
+            getattr(self, "_all_tb", getattr(self, "_all_toolbar", None)),
         ]
 
         for tb in toolbars:
@@ -1900,10 +2004,10 @@ class BookingPage(QWidget):
                 tb["batch_cancel"].setEnabled(cancellable_count > 0)
                 tb["batch_cancel"].setText(f"  Batch Cancel ({cancellable_count})" if cancellable_count > 0 else "  Batch Cancel")
 
-            tab_t = tb.get("tab_type")
-            if tab_t == "pending":
+            tab_t = (tb.get("tab_type") or "").upper()
+            if tab_t == "PENDING":
                 t_refs = [b["id"] for b in self._visible_bookings() if b.get("status") == "PENDING"]
-            elif tab_t == "confirmed":
+            elif tab_t == "CONFIRMED":
                 t_refs = [b["id"] for b in self._visible_bookings() if b.get("status") in ("CONFIRMED", "COMPLETED")]
             else:
                 t_refs = [b["id"] for b in self._visible_bookings()]
@@ -2059,6 +2163,10 @@ class BookingPage(QWidget):
         success(self, message=f"Batch cancelled {cancelled_cnt} booking(s).")
 
     def _open_multi_add_dialog(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("bookings", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to create bookings.")
+            return
         dlg = AddMultipleBookingsDialog(self)
         if dlg.exec():
             self.reload()

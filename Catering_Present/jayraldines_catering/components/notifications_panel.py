@@ -85,9 +85,10 @@ class NotificationPopover(QFrame):
     all_read = Signal()
 
     def __init__(self, parent=None):
-        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        super().__init__(parent, Qt.SubWindow | Qt.FramelessWindowHint)
 
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self.setObjectName("card")
         self.setFixedWidth(380)

@@ -20,6 +20,13 @@ from utils.signals import app_events
 
 class TestNewFeatures(unittest.TestCase):
 
+    @classmethod
+    def setUpClass(cls):
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+        cls._app = QApplication.instance() or QApplication([])
+
     def test_cash_flow_ledger_and_running_balance(self):
         """Test Cash Flow CRUD and sequential running balance recalculation."""
         # 1. Add deposit
@@ -191,6 +198,9 @@ class TestNewFeatures(unittest.TestCase):
         self.assertEqual(mapping.get("actual_sales"), "Actual Sales")
 
         # 2. Test Batch Import
+        import utils.repository as repo
+        repo.db.execute("DELETE FROM cash_flow_transactions WHERE cft_check_no IN ('IMP-001', 'IMP-002')")
+
         test_rows = [
             {
                 "Date": "2026-06-15",
@@ -462,7 +472,7 @@ class TestNewFeatures(unittest.TestCase):
             page = CalendarPage()
             page.current_year = 2026
             page.current_month = 11
-            page.reload()
+            page.reload(sync=True)
             self.assertIn((2026, 11, 15), page._db_cache)
         finally:
             repo.delete_booking(b_id)

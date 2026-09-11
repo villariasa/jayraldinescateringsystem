@@ -106,5 +106,26 @@ class TestImporter(unittest.TestCase):
             self.assertIn("expenses", master_dict)
 
 
+    def test_packages_template_and_validation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sample_path = os.path.join(tmpdir, "packages_template.xlsx")
+            err = importer.generate_sample_csv("packages", sample_path)
+            self.assertIsNone(err)
+            self.assertTrue(os.path.exists(sample_path))
+            headers, data, parse_err = importer.parse_file(sample_path)
+            self.assertIsNone(parse_err)
+            self.assertGreaterEqual(len(headers), 4)
+            self.assertGreaterEqual(len(data), 2)
+            mapping = importer.auto_map_headers(headers, "packages")
+            self.assertIn("name", mapping)
+            self.assertIn("price_per_pax", mapping)
+            prep_rows, counts = importer.validate_and_prepare_rows(data, mapping, "packages")
+            self.assertEqual(counts["error"], 0)
+            self.assertGreaterEqual(counts["valid"], 2)
+            self.assertIsInstance(prep_rows[0]["_data"]["price_per_pax"], (int, float))
+            self.assertIsInstance(prep_rows[0]["_data"]["min_pax"], int)
+
+
 if __name__ == "__main__":
     unittest.main()
+

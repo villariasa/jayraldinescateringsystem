@@ -239,6 +239,36 @@ QFrame#modalCard {
 QFrame#modalCard QLabel {
     color: #F9FAFB;
 }
+QFrame#card QLabel {
+    color: #F9FAFB;
+}
+
+QLabel#aiNameLabel {
+    font-size: 13px;
+    font-weight: 700;
+    color: #F9FAFB;
+}
+
+QLabel#aiSubInfo {
+    font-size: 11px;
+    color: #94A3B8;
+}
+
+QLabel#aiAnswerText {
+    font-size: 13px;
+    color: #F9FAFB;
+}
+
+QPushButton#aiCopyBtn {
+    font-size: 11px;
+    padding: 3px 8px;
+    background: transparent;
+    border: none;
+    color: #9CA3AF;
+}
+QPushButton#aiCopyBtn:hover {
+    color: #F9FAFB;
+}
 
 QFrame#divider {
     background-color: #243244;

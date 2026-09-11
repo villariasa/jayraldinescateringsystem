@@ -31,6 +31,8 @@ ENTITY_SCHEMAS = {
             "occasion": {"label": "Occasion", "required": False},
             "pax": {"label": "Guest Count (Pax)", "required": False},
             "total_amount": {"label": "Booking Total (₱)", "required": False},
+            "amount_paid": {"label": "Paid / Down Payment (₱)", "required": False},
+            "payment_status": {"label": "Payment Status", "required": False},
             "status": {"label": "Booking Status", "required": False},
             "notes": {"label": "Special Notes / Theme", "required": False},
             "expense_date": {"label": "Expense Date", "required": False},
@@ -53,21 +55,21 @@ ENTITY_SCHEMAS = {
         },
         "sample": [
             [
-                "Customer Name", "Contact Number", "Email Address", "Address", "Event Date", "Event Time", "Venue", "Occasion", "Pax", "Total Amount (₱)", "Status", "Special Notes / Theme",
+                "Customer Name", "Contact Number", "Email Address", "Address", "Occasion", "Venue", "Event Date", "Event Time", "Pax", "Total Amount (₱)", "Down Paid (₱)", "Status", "Special Notes / Theme",
                 "Expense Date", "Expense Category", "Expense Description", "Expense Amount (₱)",
                 "Cash Flow Date", "Check # / Ref", "Cash Flow Particulars", "Deposit (₱)", "Withdrawal (₱)", "Actual Sales (₱)",
                 "Menu Item Name", "Menu Category", "Menu Price (₱)",
                 "Package Name", "Package Price / Pax (₱)", "Package Min Pax", "Package Description / Inclusions"
             ],
             [
-                "Engr. Rodrigo Tan", "09178889900", "rodrigo.tan@example.com", "Cebu City", datetime.now().strftime("%Y-%m-%d"), "6:00 PM", "Grand Ballroom Cebu", "Wedding", "150", "45000.00", "CONFIRMED", "Includes Lechon & Backdrop",
+                "Engr. Rodrigo Tan", "09178889900", "rodrigo.tan@example.com", "Cebu City", "Wedding", "Grand Ballroom Cebu", datetime.now().strftime("%Y-%m-%d"), "6:00 PM", "150", "45000.00", "45000.00", "CONFIRMED", "Includes Lechon & Backdrop",
                 datetime.now().strftime("%Y-%m-%d"), "Food Cost", "Fresh Pork & Spices", "15500.00",
                 datetime.now().strftime("%Y-%m-%d"), "CHK-101", "BDO Jayraldine's Catering", "50000.00", "0.00", "132000.00",
                 "Special Pork Humba", "Main Course", "450.00",
                 "Standard Buffet Package A", "350.00", "50", "4 Main Dishes, 1 Rice, 1 Dessert, Free Flow Drinks"
             ],
             [
-                "Capt. Juanito Dela Cruz", "09182223344", "juanito.dc@example.com", "Mandaue City", datetime.now().strftime("%Y-%m-%d"), "12:00 PM", "Lahug Clubhouse", "Birthday", "80", "28000.00", "CONFIRMED", "Buffet Setup",
+                "Capt. Juanito Dela Cruz", "09182223344", "juanito.dc@example.com", "Mandaue City", "Birthday", "Lahug Clubhouse", datetime.now().strftime("%Y-%m-%d"), "12:00 PM", "80", "28000.00", "14000.00", "CONFIRMED", "Buffet Setup",
                 datetime.now().strftime("%Y-%m-%d"), "Transport", "Gas for Delivery Van", "2400.00",
                 datetime.now().strftime("%Y-%m-%d"), "GCASH-99", "GCash", "12000.00", "0.00", "287965.40",
                 "Biko with Latik", "Dessert", "250.00",
@@ -78,6 +80,7 @@ ENTITY_SCHEMAS = {
     "bookings": {
         "title": "Bookings & Orders",
         "fields": {
+            "booking_ref": {"label": "Booking Ref", "required": False},
             "name": {"label": "Customer Name", "required": True},
             "contact": {"label": "Contact Number", "required": False},
             "email": {"label": "Email Address", "required": False},
@@ -88,18 +91,45 @@ ENTITY_SCHEMAS = {
             "time": {"label": "Event Time", "required": False},
             "pax": {"label": "Guest Count (Pax)", "required": True},
             "total": {"label": "Total Amount (₱)", "required": True},
-            "notes": {"label": "Special Notes / Add-ons", "required": False},
+            "amount_paid": {"label": "Down Paid (₱)", "required": False},
+            "balance": {"label": "Balance (₱)", "required": False},
             "status": {"label": "Status", "required": False},
+            "payment_mode": {"label": "Payment Mode", "required": False},
+            "notes": {"label": "Special Notes / Theme", "required": False},
         },
         "sample": [
-            ["Customer Name", "Contact Number", "Email Address", "Address", "Occasion", "Venue", "Event Date", "Event Time", "Guest Count (Pax)", "Total Amount (₱)", "Special Notes / Add-ons", "Status"],
-            ["Engr. Rodrigo Tan", "09178889900", "rodrigo.tan@example.com", "Cebu City", "Wedding", "Grand Ballroom Cebu", datetime.now().strftime("%Y-%m-%d"), "6:00 PM", "150", "45000.00", "Includes Lechon & Backdrop", "CONFIRMED"],
-            ["Capt. Juanito Dela Cruz", "09182223344", "juanito.dc@example.com", "Mandaue City", "Birthday", "Lahug Clubhouse", datetime.now().strftime("%Y-%m-%d"), "12:00 PM", "80", "28000.00", "Buffet Setup", "CONFIRMED"],
+            ["Booking Ref", "Customer Name", "Contact Number", "Email Address", "Address", "Occasion", "Venue / Location", "Event Date", "Event Time", "Guest Count (Pax)", "Total Amount (₱)", "Down Paid (₱)", "Balance (₱)", "Status", "Payment Mode", "Special Notes / Theme"],
+            ["BK-2026-001", "Engr. Rodrigo Tan", "09178889900", "rodrigo.tan@example.com", "Cebu City", "Wedding", "Grand Ballroom Cebu", datetime.now().strftime("%Y-%m-%d"), "6:00 PM", "150", "45000.00", "45000.00", "0.00", "CONFIRMED", "Cash", "Includes Lechon & Backdrop"],
+            ["BK-2026-002", "Capt. Juanito Dela Cruz", "09182223344", "juanito.dc@example.com", "Mandaue City", "Birthday", "Lahug Clubhouse", datetime.now().strftime("%Y-%m-%d"), "12:00 PM", "80", "28000.00", "14000.00", "14000.00", "CONFIRMED", "GCash", "Buffet Setup"],
+        ]
+    },
+    "billings": {
+        "title": "Billing & Invoices",
+        "fields": {
+            "invoice_ref": {"label": "Invoice Ref", "required": False},
+            "booking_ref": {"label": "Booking Ref", "required": False},
+            "customer_name": {"label": "Customer Name", "required": True},
+            "contact": {"label": "Contact Number", "required": False},
+            "email": {"label": "Email Address", "required": False},
+            "event_date": {"label": "Event Date", "required": False},
+            "total_amount": {"label": "Total Amount (₱)", "required": True},
+            "amount_paid": {"label": "Paid Amount (₱)", "required": False},
+            "balance": {"label": "Balance Due (₱)", "required": False},
+            "status": {"label": "Payment Status", "required": False},
+            "payment_mode": {"label": "Payment Mode", "required": False},
+            "notes": {"label": "Notes / Remarks", "required": False},
+        },
+        "sample": [
+            ["Invoice Ref", "Booking Ref", "Customer Name", "Contact Number", "Email Address", "Event Date", "Total Amount (₱)", "Paid Amount (₱)", "Balance Due (₱)", "Payment Status", "Payment Mode", "Notes / Remarks"],
+            ["INV-2026-001", "BK-2026-001", "Engr. Rodrigo Tan", "09178889900", "rodrigo.tan@example.com", datetime.now().strftime("%Y-%m-%d"), "45000.00", "45000.00", "0.00", "Paid", "Cash", "Full payment received"],
+            ["INV-2026-002", "BK-2026-002", "Capt. Juanito Dela Cruz", "09182223344", "juanito.dc@example.com", datetime.now().strftime("%Y-%m-%d"), "28000.00", "14000.00", "14000.00", "Partial", "GCash", "50% deposit paid"],
+            ["INV-2026-003", "BK-2026-003", "Maria Santos", "09171234567", "maria@example.com", datetime.now().strftime("%Y-%m-%d"), "35000.00", "0.00", "35000.00", "Unpaid", "Cash", "Pending down payment"],
         ]
     },
     "customers": {
-        "title": "Customers",
+        "title": "Customers Directory",
         "fields": {
+            "id": {"label": "Customer ID", "required": False},
             "name": {"label": "Customer Name", "required": True},
             "contact": {"label": "Contact Number", "required": False},
             "email": {"label": "Email Address", "required": False},
@@ -108,61 +138,68 @@ ENTITY_SCHEMAS = {
             "notes": {"label": "Notes / History", "required": False},
         },
         "sample": [
-            ["Customer Name", "Contact Number", "Email Address", "Address", "Status", "Notes"],
-            ["Maria Santos", "09171234567", "maria@example.com", "Cebu City", "Active", "VIP Client"],
-            ["Juan Dela Cruz", "09189876543", "juan@example.com", "Mandaue City", "Active", "Prefers Pork Lechon"],
+            ["Customer ID", "Customer Name", "Contact Number", "Email Address", "Address", "Status", "Notes / History"],
+            ["CUS-001", "Maria Santos", "09171234567", "maria@example.com", "Cebu City, Cebu", "Active", "VIP Client"],
+            ["CUS-002", "Juan Dela Cruz", "09189876543", "juan@example.com", "Mandaue City, Cebu", "Active", "Prefers Pork Lechon"],
         ]
     },
     "expenses": {
-        "title": "Expenses",
+        "title": "Expenses & Operating Costs",
         "fields": {
+            "id": {"label": "Expense ID", "required": False},
             "date": {"label": "Expense Date", "required": True},
             "category": {"label": "Category", "required": True},
             "description": {"label": "Description", "required": True},
             "amount": {"label": "Amount (₱)", "required": True},
+            "notes": {"label": "Notes / Remarks", "required": False},
         },
         "sample": [
-            ["Expense Date", "Category", "Description", "Amount (₱)"],
-            [datetime.now().strftime("%Y-%m-%d"), "Food Cost", "Fresh Pork & Spices", "15500.00"],
-            [datetime.now().strftime("%Y-%m-%d"), "Transport", "Gas for Delivery Van", "2400.00"],
-            [datetime.now().strftime("%Y-%m-%d"), "Labor", "Assistant Cook Daily Pay", "3500.00"],
+            ["Expense ID", "Expense Date", "Category", "Description", "Amount (₱)", "Notes / Remarks"],
+            ["EXP-001", datetime.now().strftime("%Y-%m-%d"), "Food Cost", "Fresh Pork & Spices", "15500.00", "Carbon Market supplier"],
+            ["EXP-002", datetime.now().strftime("%Y-%m-%d"), "Transport", "Gas for Delivery Van", "2400.00", "Shell Fuel Station"],
+            ["EXP-003", datetime.now().strftime("%Y-%m-%d"), "Labor", "Assistant Cook Daily Pay", "3500.00", "Event staff catering service"],
         ]
     },
     "menu_items": {
         "title": "Menu Items & Dishes",
         "fields": {
+            "id": {"label": "Item ID", "required": False},
             "name": {"label": "Item Name", "required": True},
             "category": {"label": "Category", "required": True},
+            "package": {"label": "Package Tier", "required": False},
             "price": {"label": "Price / Rate (₱)", "required": True},
+            "status": {"label": "Status", "required": False},
             "description": {"label": "Description / Inclusions", "required": False},
         },
         "sample": [
-            ["Item Name", "Category", "Price / Rate (₱)", "Description / Inclusions"],
-            ["Special Pork Humba", "Main Course", "450.00", "Serves 8-10 pax with boiled eggs"],
-            ["Creamy Carbonara", "Pasta & Noodles", "380.00", "Rich parmesan & bacon platter"],
-            ["Biko with Latik", "Dessert", "250.00", "1 Large Tray traditional sticky rice"],
+            ["Item ID", "Item Name", "Category", "Package Tier", "Price / Rate (₱)", "Status", "Description / Inclusions"],
+            ["MI-001", "Special Pork Humba", "Main Course", "Standard", "450.00", "Available", "Serves 8-10 pax with boiled eggs"],
+            ["MI-002", "Creamy Carbonara", "Noodles", "Premium", "380.00", "Available", "Rich parmesan & bacon platter"],
+            ["MI-003", "Biko with Latik", "Dessert", "Standard", "250.00", "Available", "1 Large Tray traditional sticky rice"],
         ]
     },
     "packages": {
         "title": "Catering Packages",
         "fields": {
+            "id": {"label": "Package ID", "required": False},
             "name": {"label": "Package Name", "required": True},
             "price_per_pax": {"label": "Price Per Pax (₱)", "required": True},
             "min_pax": {"label": "Minimum Pax", "required": False},
             "description": {"label": "Description / Inclusions", "required": False},
         },
         "sample": [
-            ["Package Name", "Price Per Pax (₱)", "Minimum Pax", "Description / Inclusions"],
-            ["Standard Buffet Package A", "350.00", "50", "4 Main Dishes, 1 Rice, 1 Dessert, Free Flow Drinks"],
-            ["Premium Wedding Package B", "550.00", "100", "5 Main Dishes with Lechon Belly, 2 Desserts, Themed Setup"],
-            ["Executive Corporate Package", "450.00", "30", "4 Main Dishes, Soup, Salad, Dessert, Sound System"],
+            ["Package ID", "Package Name", "Price Per Pax (₱)", "Minimum Pax", "Description / Inclusions"],
+            ["PKG-001", "Standard Buffet Package A", "350.00", "50", "4 Main Dishes, 1 Rice, 1 Dessert, Free Flow Drinks"],
+            ["PKG-002", "Premium Wedding Package B", "550.00", "100", "5 Main Dishes with Lechon Belly, 2 Desserts, Themed Setup"],
+            ["PKG-003", "Executive Corporate Package", "450.00", "30", "4 Main Dishes, Soup, Salad, Dessert, Sound System"],
         ]
     },
     "cash_flow": {
         "title": "Cash Flow Transactions",
         "fields": {
-            "date": {"label": "Transaction Date", "required": True},
-            "check_no": {"label": "Check # / Ref", "required": False},
+            "id": {"label": "Transaction ID", "required": False},
+            "date": {"label": "Date", "required": True},
+            "check_no": {"label": "Check #", "required": False},
             "particulars": {"label": "Particulars (Account / Detail)", "required": True},
             "deposit": {"label": "Deposit (₱)", "required": False},
             "withdrawal": {"label": "Withdrawal (₱)", "required": False},
@@ -170,93 +207,122 @@ ENTITY_SCHEMAS = {
             "notes": {"label": "Remarks / Notes", "required": False},
         },
         "sample": [
-            ["Transaction Date", "Check # / Ref", "Particulars (Account / Detail)", "Deposit (₱)", "Withdrawal (₱)", "Actual Sales (₱)", "Remarks / Notes"],
-            [datetime.now().strftime("%Y-%m-%d"), "CHK-101", "BDO Jayraldine's Catering", "50000.00", "0.00", "132000.00", "Initial account deposit"],
-            [datetime.now().strftime("%Y-%m-%d"), "", "Cash on Hand", "0.00", "15000.00", "70000.00", "Ingredients market withdrawal"],
-            [datetime.now().strftime("%Y-%m-%d"), "GCASH-99", "GCash", "12000.00", "0.00", "287965.40", "Customer down payment"],
+            ["Transaction ID", "Date", "Check #", "Particulars (Account / Detail)", "Deposit (₱)", "Withdrawal (₱)", "Running Balance (₱)", "Actual Sales (₱)", "Variance / Difference (₱)", "Remarks / Notes"],
+            ["TX-001", datetime.now().strftime("%Y-%m-%d"), "CHK-101", "BDO Jayraldine's Catering", "50000.00", "0.00", "50000.00", "132000.00", "0.00", "Initial account deposit"],
+            ["TX-002", datetime.now().strftime("%Y-%m-%d"), "", "Cash on Hand", "0.00", "15000.00", "35000.00", "70000.00", "0.00", "Ingredients market withdrawal"],
+            ["TX-003", datetime.now().strftime("%Y-%m-%d"), "GCASH-99", "GCash", "12000.00", "0.00", "47000.00", "287965.40", "0.00", "Customer down payment"],
         ]
     }
 }
 
 ENTITY_HEADER_ALIASES = {
     "all_in_one": {
-        "customer_name": ["customer name", "client name", "customer", "client", "name", "full name"],
-        "contact": ["contact number", "contact", "phone number", "phone", "mobile", "cellphone", "tel"],
-        "email": ["email address", "email", "e-mail", "mail"],
-        "address": ["address", "home address", "client address", "city", "street"],
-        "event_date": ["event date", "booking date", "date", "fecha"],
+        "customer_name": ["customer name", "client name", "customer", "client", "full name", "name"],
+        "contact": ["contact number", "phone number", "contact", "phone", "mobile", "cellphone", "tel"],
+        "email": ["email address", "email", "e mail", "mail"],
+        "address": ["home address", "client address", "customer address", "address", "city", "street"],
+        "event_date": ["event date", "booking date", "event fecha"],
         "event_time": ["event time", "time", "start time", "schedule"],
-        "venue": ["venue location", "venue", "event venue", "location", "place", "event location", "site"],
-        "occasion": ["occasion", "event type", "event", "celebration", "party", "theme"],
-        "pax": ["guest count pax", "guest count", "pax", "guests", "number of guests", "attendees", "headcount", "capacity"],
-        "total_amount": ["booking total", "total amount", "total", "amount", "cost", "price", "grand total"],
-        "status": ["status", "booking status", "state", "order status"],
-        "notes": ["special notes theme", "special notes", "notes", "theme", "motif", "remarks", "details"],
+        "venue": ["venue location", "event venue", "venue", "location", "place", "site"],
+        "occasion": ["occasion", "event type", "celebration", "party", "theme"],
+        "pax": ["guest count pax", "guest count", "pax", "guests", "number of guests", "headcount", "capacity"],
+        "total_amount": ["booking total", "total amount", "total amount php", "total", "grand total"],
+        "amount_paid": ["down paid", "down paid php", "paid amount", "paid amount php", "amount paid", "down payment", "deposit paid", "deposit", "total paid"],
+        "payment_status": ["payment status", "billing status", "pay status", "invoice status"],
+        "status": ["booking status", "order status", "status", "state"],
+        "notes": ["special notes theme", "special notes", "notes theme", "notes history", "notes", "theme", "remarks"],
         "expense_date": ["expense date", "exp date"],
-        "expense_category": ["expense category", "category", "exp category", "expense type", "type"],
-        "expense_description": ["expense description", "particulars", "description", "details", "memo", "inclusions"],
-        "expense_amount": ["expense amount", "exp amount", "cost php", "price php"],
+        "expense_category": ["expense category", "exp category", "expense type"],
+        "expense_description": ["expense description", "exp description", "expense particulars"],
+        "expense_amount": ["expense amount", "exp amount", "expense amount php"],
         "cash_flow_date": ["cash flow date", "tx date", "transaction date"],
-        "cash_flow_check": ["check ref", "check no", "check number", "check", "ref"],
-        "cash_flow_particulars": ["cash flow particulars", "account", "bank", "source", "particulars"],
-        "cash_flow_deposit": ["deposit", "deposit php", "credit", "cash in"],
-        "cash_flow_withdrawal": ["withdrawal", "withdrawal php", "debit", "cash out"],
-        "cash_flow_sales": ["actual sales", "sales", "actual amount", "gross sales"],
-        "menu_item_name": ["menu item name", "item name", "dish name", "dish"],
-        "menu_category": ["menu category", "item category", "dish category"],
-        "menu_price": ["menu price", "item price", "dish price", "rate"],
-        "package_name": ["package name", "pkg name", "package"],
-        "package_price": ["package price pax", "package price", "pkg price", "rate per pax"],
-        "package_min_pax": ["package min pax", "min pax", "minimum pax"],
+        "cash_flow_check": ["check ref", "check no", "check number", "check"],
+        "cash_flow_particulars": ["cash flow particulars", "particulars account detail", "particulars"],
+        "cash_flow_deposit": ["deposit php", "deposit", "credit", "cash in"],
+        "cash_flow_withdrawal": ["withdrawal php", "withdrawal", "debit", "cash out"],
+        "cash_flow_sales": ["actual sales php", "actual sales", "gross sales"],
+        "menu_item_name": ["menu item name", "item name", "dish name"],
+        "menu_category": ["menu category", "dish category"],
+        "menu_price": ["menu price", "item price", "dish price", "price rate"],
+        "package_name": ["package name", "pkg name"],
+        "package_price": ["package price pax", "price per pax", "package price"],
+        "package_min_pax": ["package min pax", "minimum pax", "min pax"],
+        "package_description": ["package description inclusions", "package description"],
     },
     "bookings": {
+        "booking_ref": ["booking ref", "booking reference", "order ref", "booking id", "bk ref", "order number", "booking number", "id"],
         "name": ["customer name", "client name", "customer", "client", "full name", "name"],
-        "contact": ["contact number", "contact", "phone number", "phone", "mobile", "cellphone", "tel"],
-        "email": ["email address", "email", "e-mail", "mail"],
-        "address": ["address", "home address", "client address", "city", "street"],
+        "contact": ["contact number", "phone number", "contact", "phone", "mobile", "cellphone", "tel"],
+        "email": ["email address", "email", "e mail", "mail"],
+        "address": ["client address", "home address", "customer address", "address", "city", "street"],
+        "occasion": ["occasion", "event type", "celebration", "party", "theme"],
+        "venue": ["venue location", "event venue", "venue", "location", "place", "site"],
         "date": ["event date", "booking date", "date", "fecha"],
         "time": ["event time", "time", "schedule", "start time"],
-        "venue": ["venue location", "venue", "event venue", "location", "place", "event location", "site"],
-        "occasion": ["occasion", "event", "event type", "celebration", "party", "theme"],
         "pax": ["guest count pax", "guest count", "pax", "guests", "number of guests", "attendees", "headcount", "capacity"],
-        "total": ["total amount", "total", "amount", "booking total", "cost", "price", "subtotal", "grand total", "fee"],
-        "notes": ["special notes add-ons", "special notes", "notes", "add-ons", "remarks", "inclusions", "details", "comments"],
-        "status": ["status", "booking status", "state", "order status"],
+        "total": ["total amount php", "total amount", "booking total", "total", "amount", "cost", "price", "grand total"],
+        "amount_paid": ["down paid php", "down paid", "paid amount php", "paid amount", "amount paid", "down payment", "deposit paid", "deposit", "total paid", "cash paid"],
+        "balance": ["balance php", "balance", "balance due", "remaining balance", "unpaid balance"],
+        "status": ["booking status", "order status", "status", "state"],
+        "payment_mode": ["payment mode", "payment method", "paid via", "mode", "method"],
+        "notes": ["special notes theme", "special notes add ons", "special notes", "notes theme", "add ons", "notes", "remarks", "theme", "comments"],
+    },
+    "billings": {
+        "invoice_ref": ["invoice ref", "invoice number", "inv no", "invoice id", "inv ref", "invoice", "id"],
+        "booking_ref": ["booking ref", "booking reference", "order ref", "booking id", "bk ref", "order number", "booking number"],
+        "customer_name": ["customer name", "client name", "customer", "client", "full name", "name"],
+        "contact": ["contact number", "phone number", "contact", "phone", "mobile", "cellphone", "tel"],
+        "email": ["email address", "email", "e mail", "customer email", "mail"],
+        "event_date": ["event date", "booking date", "invoice date", "date", "fecha"],
+        "total_amount": ["total amount php", "total amount", "total", "amount", "grand total", "subtotal", "fee", "cost"],
+        "amount_paid": ["paid amount php", "paid amount", "down paid php", "down paid", "amount paid", "paid", "down payment", "deposit", "total paid"],
+        "balance": ["balance due php", "balance due", "balance php", "balance", "remaining balance", "unpaid balance", "due"],
+        "status": ["payment status", "billing status", "invoice status", "status", "state"],
+        "payment_mode": ["payment mode", "payment method", "paid via", "mode", "method"],
+        "notes": ["notes remarks", "notes", "remarks", "memo", "comments", "details"],
     },
     "customers": {
-        "name": ["customer name", "client name", "customer", "client", "full name", "name"],
-        "contact": ["contact number", "contact", "phone number", "phone", "mobile", "cellphone", "tel"],
-        "email": ["email address", "email", "e-mail", "mail"],
-        "address": ["home address", "address", "location", "city", "street"],
-        "status": ["status", "customer status", "state", "account status"],
-        "notes": ["notes", "history", "remarks", "memo", "details", "comments"],
+        "id": ["customer id", "client id", "id", "customer number", "code"],
+        "name": ["customer name", "client name", "full name", "name", "customer", "client"],
+        "contact": ["contact number", "phone number", "contact", "phone", "mobile", "cellphone", "tel"],
+        "email": ["email address", "email", "e mail", "mail"],
+        "address": ["customer address", "client address", "home address", "address", "location", "city", "street"],
+        "status": ["customer status", "account status", "status", "state"],
+        "notes": ["notes history", "notes", "history", "remarks", "memo", "details", "comments"],
     },
     "expenses": {
-        "date": ["expense date", "date", "transaction date", "fecha"],
-        "category": ["expense category", "category", "expense type", "type", "item category", "group"],
-        "description": ["expense description", "particulars", "description", "details", "memo", "notes", "inclusions", "summary"],
-        "amount": ["expense amount", "amount", "cost", "fee", "cost php", "price php", "price", "subtotal", "rate"],
+        "id": ["expense id", "exp id", "id", "ref", "code"],
+        "date": ["expense date", "transaction date", "date", "entry date", "fecha"],
+        "category": ["expense category", "exp category", "category", "expense type", "type", "group"],
+        "description": ["expense description", "description", "particulars", "details", "memo", "summary"],
+        "amount": ["expense amount php", "expense amount", "amount php", "amount", "cost php", "cost", "price", "subtotal", "rate"],
+        "notes": ["notes remarks", "remarks notes", "notes", "remarks", "memo", "comments"],
     },
     "menu_items": {
-        "name": ["item name", "dish name", "name", "title", "item", "dish"],
-        "category": ["category", "item category", "menu category", "type", "group"],
-        "price": ["price rate", "price", "rate", "cost", "unit price", "amount", "price php"],
+        "id": ["item id", "menu item id", "id", "dish id", "code"],
+        "name": ["item name", "dish name", "item package name", "item", "dish", "name", "title"],
+        "category": ["menu category", "item category", "dish category", "category", "type", "group"],
+        "package": ["package tier", "tier", "package", "standard"],
+        "price": ["price rate php", "price rate", "price php", "price", "rate", "cost", "unit price", "amount"],
+        "status": ["item status", "status", "availability", "available"],
         "description": ["description inclusions", "description", "inclusions", "details", "notes", "summary"],
     },
     "packages": {
+        "id": ["package id", "pkg id", "id", "code"],
         "name": ["package name", "pkg name", "package", "name", "title"],
-        "price_per_pax": ["price per pax", "rate per pax", "price", "rate", "cost", "price php"],
-        "min_pax": ["minimum pax", "min pax", "pax", "capacity", "minimum guests"],
-        "description": ["description inclusions", "description", "inclusions", "details", "notes", "menu items"],
+        "price_per_pax": ["price per pax php", "price per pax", "rate per pax php", "rate per pax", "package price", "price", "rate"],
+        "min_pax": ["minimum pax", "min pax", "minimum guests", "pax", "capacity"],
+        "description": ["package description inclusions", "description inclusions", "description", "inclusions", "details", "notes", "menu items"],
     },
     "cash_flow": {
-        "date": ["transaction date", "date", "tx date", "entry date", "fecha"],
-        "check_no": ["check ref", "check", "check no", "check number", "ref", "reference", "ref no", "reference number", "voucher no", "or no"],
-        "particulars": ["particulars account detail", "particulars", "account", "bank", "account name", "description", "details", "memo", "source"],
-        "deposit": ["deposit", "deposit php", "credit", "amount in", "cash in", "inflow", "in", "received"],
-        "withdrawal": ["withdrawal", "withdrawal php", "debit", "amount out", "cash out", "outflow", "out", "expense", "disbursement", "spent"],
-        "actual_sales": ["actual sales", "actual sales php", "actual sale", "sales", "actual_sales", "actual amount", "gross sales", "sales amount", "daily sales", "sales php", "total sales"],
-        "notes": ["remarks notes", "remarks", "notes", "memo", "comments", "description"],
+        "id": ["transaction id", "cft id", "tx id", "id", "ref"],
+        "date": ["transaction date", "entry date", "date", "tx date", "fecha"],
+        "check_no": ["check number", "check ref", "check no", "check", "ref", "reference", "voucher no", "or no"],
+        "particulars": ["particulars account detail", "particulars", "account name", "account", "bank", "source", "description"],
+        "deposit": ["deposit php", "deposit", "credit", "amount in", "cash in", "inflow"],
+        "withdrawal": ["withdrawal php", "withdrawal", "debit", "amount out", "cash out", "outflow", "disbursement"],
+        "actual_sales": ["actual sales php", "actual sales", "actual sale", "gross sales", "sales amount", "daily sales", "sales"],
+        "notes": ["remarks notes", "notes remarks", "remarks", "notes", "memo", "comments", "variance difference"],
     }
 }
 
@@ -266,6 +332,59 @@ def _clean_header_str(text: str) -> str:
     s = str(text or "").lower().strip()
     s = re.sub(r"[^\w\s]", " ", s)
     return re.sub(r"\s+", " ", s).strip()
+
+
+def detect_file_entity_type(headers: List[str]) -> str:
+    """Intelligently score headers to determine which entity type a single-sheet file belongs to."""
+    if not headers:
+        return "customers"
+
+    h_clean = [_clean_header_str(h) for h in headers]
+    h_text = " ".join(h_clean)
+
+    # 1. Cash Flow
+    if any(k in h_clean for k in ("deposit", "withdrawal", "running balance", "particulars account detail", "particulars", "actual sales")):
+        return "cash_flow"
+
+    # 2. Billing / Invoices
+    if any(k in h_clean for k in ("invoice ref", "paid amount", "balance due", "payment status")) and not any(k in h_clean for k in ("guest count pax", "venue location", "occasion")):
+        return "billings"
+
+    # 3. Bookings
+    if any(k in h_clean for k in ("booking ref", "guest count pax", "venue location", "occasion", "down paid", "special notes theme")) or ("event date" in h_clean and ("pax" in h_clean or "total amount" in h_clean)):
+        return "bookings"
+
+    # 4. Catering Packages
+    if any(k in h_clean for k in ("price per pax", "minimum pax", "package name", "package min pax", "min pax")):
+        return "packages"
+
+    # 5. Menu Items
+    if any(k in h_clean for k in ("item name", "item id", "package tier", "menu category", "dish name")) or ("price rate" in h_clean and "category" in h_clean):
+        return "menu_items"
+
+    # 6. Expenses
+    if any(k in h_clean for k in ("expense date", "expense id", "expense amount", "expense category", "expense description")) or ("expense" in h_text and "amount" in h_text):
+        return "expenses"
+
+    # 7. Customers
+    if any(k in h_clean for k in ("customer id", "customer name", "notes history", "client name")):
+        return "customers"
+
+    # Fallback checks
+    if "expense" in h_text:
+        return "expenses"
+    if "menu" in h_text or "dish" in h_text:
+        return "menu_items"
+    if "package" in h_text:
+        return "packages"
+    if "booking" in h_text or "event" in h_text:
+        return "bookings"
+    if "invoice" in h_text or "billing" in h_text:
+        return "billings"
+    if "deposit" in h_text or "withdraw" in h_text or "particular" in h_text:
+        return "cash_flow"
+
+    return "customers"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -313,6 +432,15 @@ def normalize_customer_status(status: Any) -> str:
     return "Active"
 
 
+def normalize_menu_status(status: Any) -> str:
+    if not status:
+        return "Available"
+    s = str(status).strip().lower()
+    if any(w in s for w in ("unavail", "inact", "out", "disab", "no")):
+        return "Unavailable"
+    return "Available"
+
+
 def normalize_menu_category(cat: Any) -> str:
     if not cat:
         return "Main Course"
@@ -340,15 +468,22 @@ def normalize_amount(raw: Any) -> float:
     if raw is None:
         return 0.0
     s = str(raw).strip()
+    if s in ("—", "-", "", "N/A", "none", "null"):
+        return 0.0
+    # Handle accounting format: (1,234.50) -> -1234.50
+    is_neg = False
+    if s.startswith("(") and s.endswith(")"):
+        is_neg = True
+        s = s[1:-1]
     s = re.sub(r"[^\d.-]", "", s.replace(",", ""))
     try:
-        return float(s)
+        val = float(s)
+        return -val if is_neg else val
     except ValueError:
         return 0.0
 
 
 def normalize_date(raw: Any) -> str:
-    from datetime import timedelta
     if not raw:
         return datetime.now().strftime("%Y-%m-%d")
 
@@ -367,7 +502,7 @@ def normalize_date(raw: Any) -> str:
             pass
 
     s = str(raw).strip()
-    if not s:
+    if not s or s in ("—", "-", "N/A", "none", "null"):
         return datetime.now().strftime("%Y-%m-%d")
 
     # If already YYYY-MM-DD
@@ -533,14 +668,22 @@ def parse_master_file(file_path: str) -> Tuple[Dict[str, Tuple[List[str], List[D
 
                     sn_lower = sheetname.lower().strip()
                     entity = "customers"
-                    if "cash" in sn_lower or "flow" in sn_lower or "deposit" in sn_lower:
+                    if "cash" in sn_lower or "flow" in sn_lower or "ledger" in sn_lower or "deposit" in sn_lower:
                         entity = "cash_flow"
-                    elif "expense" in sn_lower:
+                    elif "expense" in sn_lower or "cost" in sn_lower:
                         entity = "expenses"
+                    elif "billing" in sn_lower or "invoice" in sn_lower:
+                        entity = "billings"
                     elif "booking" in sn_lower or "order" in sn_lower or "event" in sn_lower:
                         entity = "bookings"
-                    elif "menu" in sn_lower or "item" in sn_lower or "package" in sn_lower:
+                    elif "package" in sn_lower:
+                        entity = "packages"
+                    elif "menu" in sn_lower or "dish" in sn_lower or "item" in sn_lower:
                         entity = "menu_items"
+                    elif "customer" in sn_lower or "client" in sn_lower:
+                        entity = "customers"
+                    else:
+                        entity = detect_file_entity_type(headers)
 
                     result[entity] = (headers, data_rows)
 
@@ -549,76 +692,13 @@ def parse_master_file(file_path: str) -> Tuple[Dict[str, Tuple[List[str], List[D
         except Exception:
             pass
 
-    # Single sheet / CSV file auto-splitting
+    # Single sheet / CSV file auto-detection
     headers, rows, err = parse_file(file_path)
     if err:
         return {}, err
 
-    result = {}
-    headers_lower = [h.lower() for h in headers]
-
-    # Check for cash flow data
-    has_cf = any("deposit" in h or "withdrawal" in h or "particulars" in h or "check" in h for h in headers_lower)
-    if has_cf:
-        cf_rows = []
-        for r in rows:
-            has_part = any(r.get(h, "").strip() for h in headers if "particular" in h.lower() or "account" in h.lower())
-            has_dep_with = any(normalize_amount(r.get(h, "")) > 0 for h in headers if "deposit" in h.lower() or "withdrawal" in h.lower())
-            if has_part or has_dep_with:
-                cf_rows.append(r)
-        if cf_rows:
-            result["cash_flow"] = (headers, cf_rows)
-
-    # Check for bookings data
-    has_bkg = any("booking" in h or "event" in h or "pax" in h or "occasion" in h or "venue" in h for h in headers_lower)
-    if has_bkg:
-        bkg_rows = []
-        for r in rows:
-            has_name = any(r.get(h, "").strip() for h in headers if "name" in h.lower() or "customer" in h.lower())
-            has_date = any(r.get(h, "").strip() for h in headers if "event" in h.lower() or "date" in h.lower())
-            if has_name and has_date:
-                bkg_rows.append(r)
-        if bkg_rows:
-            result["bookings"] = (headers, bkg_rows)
-
-    # Check for customers data
-    has_cus = any("customer" in h or "client" in h or "contact" in h for h in headers_lower)
-    if has_cus or not result:
-        cus_rows = []
-        for r in rows:
-            has_name = any(r.get(h, "").strip() for h in headers if "customer" in h.lower() or "client" in h.lower() or "name" in h.lower())
-            if has_name:
-                cus_rows.append(r)
-        if cus_rows:
-            result["customers"] = (headers, cus_rows)
-
-    # Check for expenses data
-    has_exp = any("expense" in h or "category" in h or "cost" in h for h in headers_lower)
-    if has_exp:
-        exp_rows = []
-        for r in rows:
-            has_exp_amt = any(normalize_amount(r.get(h, "")) > 0 for h in headers if "expense" in h.lower() or "amount" in h.lower() or "cost" in h.lower())
-            has_exp_desc = any(r.get(h, "").strip() for h in headers if "expense" in h.lower() or "description" in h.lower() or "category" in h.lower())
-            if has_exp_amt or has_exp_desc:
-                exp_rows.append(r)
-        if exp_rows:
-            result["expenses"] = (headers, exp_rows)
-
-    # Check for menu items data
-    has_menu = any("menu" in h or "dish" in h or "package" in h or "item" in h for h in headers_lower)
-    if has_menu:
-        menu_rows = []
-        for r in rows:
-            has_item_name = any(r.get(h, "").strip() for h in headers if "item" in h.lower() or "dish" in h.lower())
-            has_item_price = any(normalize_amount(r.get(h, "")) > 0 for h in headers if "price" in h.lower() or "rate" in h.lower())
-            if has_item_name and has_item_price:
-                menu_rows.append(r)
-        if menu_rows:
-            result["menu_items"] = (headers, menu_rows)
-
-    if not result:
-        result["customers"] = (headers, rows)
-
+    detected = detect_file_entity_type(headers)
+    result = {detected: (headers, rows)}
     return result, None
 
 
@@ -628,37 +708,61 @@ def parse_master_file(file_path: str) -> Tuple[Dict[str, Tuple[List[str], List[D
 
 def auto_map_headers(headers: List[str], entity_type: str) -> Dict[str, str]:
     """Auto-detect which uploaded column header maps to system fields for entity_type."""
-    schema = ENTITY_SCHEMAS.get(entity_type, {})
+    canon_entity = normalize_entity_type(entity_type)
+    schema = ENTITY_SCHEMAS.get(canon_entity, {})
     fields = schema.get("fields", {})
     mapping = {}
 
-    entity_aliases = ENTITY_HEADER_ALIASES.get(entity_type, {})
+    entity_aliases = ENTITY_HEADER_ALIASES.get(canon_entity, {})
     headers_clean = {h: _clean_header_str(h) for h in headers}
 
+    assigned_headers = set()
+
+    # Step 1: Exact matches (priority order of aliases)
     for field_key in fields.keys():
         aliases = [_clean_header_str(a) for a in entity_aliases.get(field_key, [field_key])]
         matched_header = ""
-
-        # 1. Exact match in order of alias priority
         for alias in aliases:
             for h_orig, h_clean in headers_clean.items():
-                if h_clean == alias:
+                if h_clean == alias and h_orig not in assigned_headers:
                     matched_header = h_orig
                     break
             if matched_header:
                 break
+        if matched_header:
+            mapping[field_key] = matched_header
+            assigned_headers.add(matched_header)
 
-        # 2. Substring match in order of alias priority
-        if not matched_header:
-            for alias in aliases:
-                for h_orig, h_clean in headers_clean.items():
-                    if alias in h_clean or h_clean in alias:
-                        matched_header = h_orig
-                        break
-                if matched_header:
+    # Step 2: Safe word token matching (preventing false overlaps like 'address' in 'email address' or 'id' in 'paid')
+    for field_key in fields.keys():
+        if field_key in mapping:
+            continue
+        aliases = [_clean_header_str(a) for a in entity_aliases.get(field_key, [field_key])]
+        matched_header = ""
+        for alias in aliases:
+            alias_words = set(alias.split())
+            for h_orig, h_clean in headers_clean.items():
+                if h_orig in assigned_headers:
+                    continue
+                h_words = set(h_clean.split())
+                # Disallow known hazardous matches
+                if field_key == "address" and "email" in h_words:
+                    continue
+                if field_key == "name" and ("id" in h_words or "code" in h_words or "package" in h_words or "dish" in h_words):
+                    continue
+                if field_key in ("id", "booking_ref", "invoice_ref") and ("paid" in h_words or "down" in h_words or "balance" in h_words):
+                    continue
+
+                if alias_words.issubset(h_words) or (len(alias) >= 4 and alias in h_clean):
+                    matched_header = h_orig
                     break
-
-        mapping[field_key] = matched_header
+            if matched_header:
+                break
+        if matched_header:
+            mapping[field_key] = matched_header
+            assigned_headers.add(matched_header)
+        else:
+            mapping[field_key] = ""
 
     return mapping
 
@@ -672,7 +776,8 @@ def validate_and_prepare_rows(
     mapping: Dict[str, str],
     entity_type: str
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
-    schema = ENTITY_SCHEMAS.get(entity_type, {})
+    canon_entity = normalize_entity_type(entity_type)
+    schema = ENTITY_SCHEMAS.get(canon_entity, {})
     fields = schema.get("fields", {})
 
     prepared = []
@@ -691,28 +796,35 @@ def validate_and_prepare_rows(
                 issues.append(f"Missing required field '{field_info['label']}'")
                 status = "error"
 
-            if field_key in ("amount", "total", "price", "total_amount", "expense_amount"):
+            if field_key in ("amount", "total", "price", "total_amount", "expense_amount", "amount_paid", "balance", "deposit", "withdrawal", "actual_sales", "menu_price", "package_price", "price_per_pax"):
                 val = normalize_amount(raw_val)
                 if val <= 0 and field_info.get("required"):
                     issues.append(f"Invalid amount '{raw_val}'")
                     status = "error"
                 sanitized[field_key] = val
-            elif field_key in ("date", "event_date", "expense_date"):
+            elif field_key in ("date", "event_date", "expense_date", "cash_flow_date"):
                 if raw_val:
                     sanitized[field_key] = normalize_date(raw_val)
                 else:
-                    sanitized[field_key] = datetime.now().strftime("%b %d, %Y")
-            elif field_key in ("pax",):
+                    sanitized[field_key] = datetime.now().strftime("%Y-%m-%d")
+            elif field_key in ("pax", "package_min_pax", "min_pax"):
                 sanitized[field_key] = normalize_pax(raw_val)
-            elif field_key in ("category", "expense_category"):
-                sanitized[field_key] = normalize_expense_category(raw_val) if entity_type in ("expenses", "all_in_one") else normalize_menu_category(raw_val)
-            elif field_key in ("status",):
-                sanitized[field_key] = normalize_booking_status(raw_val) if entity_type == "bookings" else normalize_customer_status(raw_val)
+            elif field_key in ("category", "expense_category", "menu_category"):
+                sanitized[field_key] = normalize_expense_category(raw_val) if canon_entity in ("expenses", "all_in_one") else normalize_menu_category(raw_val)
+            elif field_key in ("status", "payment_status"):
+                if canon_entity == "billings" or field_key == "payment_status":
+                    sanitized[field_key] = raw_val.strip()
+                elif canon_entity == "bookings":
+                    sanitized[field_key] = normalize_booking_status(raw_val)
+                elif canon_entity == "menu_items":
+                    sanitized[field_key] = normalize_menu_status(raw_val)
+                else:
+                    sanitized[field_key] = normalize_customer_status(raw_val)
             else:
                 sanitized[field_key] = raw_val
 
         # Warning checks
-        if entity_type == "customers" and sanitized.get("contact"):
+        if canon_entity == "customers" and sanitized.get("contact"):
             if not re.search(r"\d{7,}", sanitized["contact"]):
                 issues.append("Contact number format warning")
                 if status == "valid":
@@ -745,21 +857,25 @@ def execute_batch_import(
     entity_type: str,
     skip_errors: bool = True
 ) -> Tuple[int, int, List[str]]:
+    canon_entity = normalize_entity_type(entity_type)
     success_count = 0
     fail_count = 0
     errors = []
     seen_customer_names = set()
+    seen_cash_flow = set()
 
     for row_info in prepared_rows:
-        if row_info["_status"] == "error" and skip_errors:
+        row_idx = row_info.get("_row_index", "?")
+        row_info.setdefault("_row_index", row_idx)
+        if row_info.get("_status") == "error" and skip_errors:
             fail_count += 1
             err_details = ", ".join(row_info.get("_issues", ["Validation failed"]))
-            errors.append(f"Row {row_info['_row_index']} skipped: {err_details}")
+            errors.append(f"Row {row_idx} skipped: {err_details}")
             continue
 
-        data = row_info["_data"]
+        data = row_info.get("_data", row_info)
         try:
-            if entity_type == "customers":
+            if canon_entity == "customers":
                 cust_name = data.get("name", "").strip()
                 if not cust_name:
                     fail_count += 1
@@ -767,27 +883,46 @@ def execute_batch_import(
                     continue
 
                 name_key = cust_name.lower()
-                if name_key in seen_customer_names or repo.customer_exists(cust_name):
-                    fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']} [Customer: '{cust_name}']: Customer already exists, skipping this customer.")
-                    continue
-                seen_customer_names.add(name_key)
-
-                res = repo.add_customer({
-                    "name": cust_name,
-                    "contact": data.get("contact", "").strip(),
-                    "email": data.get("email", "").strip(),
-                    "address": data.get("address", "").strip(),
-                    "status": normalize_customer_status(data.get("status")),
-                    "notes": data.get("notes", "").strip(),
-                })
-                if res:
-                    success_count += 1
+                existing_cust = repo.get_customer_by_name(cust_name)
+                if existing_cust:
+                    # Update existing customer details seamlessly
+                    try:
+                        c_id = existing_cust.get("id") or existing_cust.get("cus_id")
+                        if c_id:
+                            db.execute("""
+                                UPDATE customers
+                                SET cus_contact = COALESCE(NULLIF(%s, ''), cus_contact),
+                                    cus_email = COALESCE(NULLIF(%s, ''), cus_email),
+                                    cus_address = COALESCE(NULLIF(%s, ''), cus_address),
+                                    cus_status = %s::customer_status
+                                WHERE cus_id = %s
+                            """, (
+                                data.get("contact", "").strip(),
+                                data.get("email", "").strip(),
+                                data.get("address", "").strip(),
+                                normalize_customer_status(data.get("status")),
+                                c_id
+                            ))
+                        success_count += 1
+                    except Exception as e_up:
+                        success_count += 1  # Existing customer kept intact
                 else:
-                    fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']} [Customer: '{cust_name}']: Database insert failed.")
+                    res = repo.add_customer({
+                        "name": cust_name,
+                        "contact": data.get("contact", "").strip(),
+                        "email": data.get("email", "").strip(),
+                        "address": data.get("address", "").strip(),
+                        "status": normalize_customer_status(data.get("status")),
+                        "notes": data.get("notes", "").strip(),
+                    })
+                    if res:
+                        seen_customer_names.add(name_key)
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                        errors.append(f"Row {row_info['_row_index']} [Customer: '{cust_name}']: Database insert failed.")
 
-            elif entity_type == "expenses":
+            elif canon_entity == "expenses":
                 amount_val = float(data.get("amount", 0.0))
                 if amount_val <= 0:
                     fail_count += 1
@@ -806,7 +941,7 @@ def execute_batch_import(
                     fail_count += 1
                     errors.append(f"Row {row_info['_row_index']} [Category: '{data.get('category')}']: Expense database insert failed.")
 
-            elif entity_type == "bookings":
+            elif canon_entity == "bookings":
                 cust_name = data.get("name", "").strip()
                 total_val = float(data.get("total", 0.0))
                 if not cust_name:
@@ -818,11 +953,17 @@ def execute_batch_import(
                     errors.append(f"Row {row_info['_row_index']} [Total Amount]: Booking total amount must be greater than 0.")
                     continue
 
+                paid_val = normalize_amount(data.get("amount_paid") or data.get("paid") or data.get("paid_amount") or data.get("down_paid") or data.get("down_payment") or 0.0)
+                raw_status = str(data.get("payment_status") or data.get("status") or "").strip()
+                raw_upper = raw_status.upper()
+                if ("PAID" in raw_upper or "FULL" in raw_upper) and paid_val <= 0 and total_val > 0:
+                    paid_val = total_val
+
                 bkg_payload = {
                     "name": cust_name,
                     "contact": data.get("contact", "").strip(),
                     "email": data.get("email", "").strip(),
-                    "address": data.get("venue", "").strip() or data.get("address", "").strip() or "Cebu City",
+                    "address": data.get("address", "").strip() or data.get("venue", "").strip() or "Cebu City",
                     "occasion": data.get("occasion", "").strip() or "Catering Event",
                     "venue": data.get("venue", "").strip() or "Catering Venue",
                     "date": data.get("date") or datetime.now().strftime("%Y-%m-%d"),
@@ -831,29 +972,165 @@ def execute_batch_import(
                     "notes": data.get("notes", "").strip(),
                     "menu_type": "package",
                     "total": total_val,
-                    "payment_mode": "Cash",
-                    "amount_paid": 0.0,
+                    "payment_mode": str(data.get("payment_mode") or "Cash").strip(),
+                    "amount_paid": paid_val,
+                    "down_payment": paid_val,
                 }
                 res = repo.create_booking(bkg_payload)
                 if res and res.get("booking_id"):
+                    b_id = res["booking_id"]
                     target_status = normalize_booking_status(data.get("status"))
                     if target_status == "COMPLETED":
                         try:
-                            repo.update_booking_status(res["booking_id"], "CONFIRMED")
-                            repo.update_booking_status(res["booking_id"], "COMPLETED")
+                            repo.update_booking_status(b_id, "CONFIRMED")
+                            repo.update_booking_status(b_id, "COMPLETED")
                         except Exception:
                             pass
                     elif target_status in ("CONFIRMED", "CANCELLED"):
                         try:
-                            repo.update_booking_status(res["booking_id"], target_status)
+                            repo.update_booking_status(b_id, target_status)
                         except Exception:
                             pass
+
+                    # Preserve invoice payment and status (Paid / Partial / Unpaid)
+                    bal_val = max(0.0, total_val - paid_val)
+                    inv_st = db.compute_invoice_status(total_val, paid_val)
+                    if "PAID" in raw_upper and bal_val <= 0.01:
+                        inv_st = "Paid"
+                    elif "PARTIAL" in raw_upper:
+                        inv_st = "Partial"
+                    elif "UNPAID" in raw_upper:
+                        inv_st = "Unpaid"
+
+                    db.execute("""
+                        UPDATE invoices
+                        SET inv_total_amount = %s, inv_amount_paid = %s, inv_balance = %s,
+                            inv_down_payment = %s, inv_status = %s, inv_payment_verified = %s
+                        WHERE inv_booking_id = %s
+                    """, (total_val, paid_val, bal_val, paid_val, inv_st, 1 if paid_val > 0 else 0, b_id))
+                    if paid_val > 0:
+                        db.execute("""
+                            UPDATE bookings
+                            SET bk_amount_paid = %s, bk_down_payment = %s,
+                                bk_down_payment_status = 'ACCEPTED'
+                            WHERE bk_id = %s
+                        """, (paid_val, paid_val, b_id))
+
                     success_count += 1
                 else:
                     fail_count += 1
                     errors.append(f"Row {row_info['_row_index']} [Booking: '{cust_name}']: Booking database insert failed.")
 
-            elif entity_type == "menu_items":
+            elif canon_entity == "billings":
+                cust_name = str(data.get("customer_name") or data.get("name") or "").strip()
+                total_val = normalize_amount(data.get("total_amount") or data.get("total") or data.get("amount") or 0.0)
+                paid_val = normalize_amount(data.get("amount_paid") or data.get("paid") or data.get("paid_amount") or data.get("down_paid") or data.get("down_payment") or 0.0)
+                inv_ref = str(data.get("invoice_ref") or data.get("invoice") or "").strip()
+                bk_ref = str(data.get("booking_ref") or "").strip()
+                raw_st = str(data.get("status") or data.get("payment_status") or "").strip().upper()
+                if ("PAID" in raw_st or "FULL" in raw_st) and paid_val <= 0 and total_val > 0:
+                    paid_val = total_val
+
+                # Try finding matching invoice by invoice_ref, booking_ref, or customer + date
+                existing_inv = None
+                if inv_ref:
+                    existing_inv = db.fetchone("SELECT inv_id, inv_booking_id FROM invoices WHERE inv_invoice_ref = %s LIMIT 1", (inv_ref,))
+                if not existing_inv and bk_ref:
+                    existing_inv = db.fetchone("""
+                        SELECT i.inv_id, i.inv_booking_id
+                        FROM invoices i
+                        JOIN bookings b ON b.bk_id = i.inv_booking_id
+                        WHERE b.bk_booking_ref = %s
+                        LIMIT 1
+                    """, (bk_ref,))
+                if not existing_inv and cust_name:
+                    e_date = normalize_date(data.get("event_date") or data.get("date"))
+                    existing_inv = db.fetchone("""
+                        SELECT inv_id, inv_booking_id
+                        FROM invoices
+                        WHERE LOWER(inv_customer_name) = LOWER(%s)
+                          AND inv_event_date = %s
+                        LIMIT 1
+                    """, (cust_name, e_date))
+
+                if existing_inv:
+                    inv_id = existing_inv["inv_id"]
+                    bk_id = existing_inv["inv_booking_id"]
+                    bal_val = max(0.0, total_val - paid_val)
+                    inv_st = db.compute_invoice_status(total_val, paid_val)
+                    if "PAID" in raw_st and bal_val <= 0.01:
+                        inv_st = "Paid"
+                    elif "PARTIAL" in raw_st:
+                        inv_st = "Partial"
+                    elif "UNPAID" in raw_st:
+                        inv_st = "Unpaid"
+
+                    db.execute("""
+                        UPDATE invoices
+                        SET inv_total_amount = %s, inv_amount_paid = %s, inv_balance = %s,
+                            inv_down_payment = %s, inv_status = %s, inv_payment_verified = 1
+                        WHERE inv_id = %s
+                    """, (total_val, paid_val, bal_val, paid_val, inv_st, inv_id))
+                    if bk_id:
+                        db.execute("""
+                            UPDATE bookings
+                            SET bk_total_amount = %s, bk_amount_paid = %s,
+                                bk_down_payment = %s, bk_down_payment_status = 'ACCEPTED'
+                            WHERE bk_id = %s
+                        """, (total_val, paid_val, paid_val, bk_id))
+                    success_count += 1
+                else:
+                    if not cust_name:
+                        fail_count += 1
+                        errors.append(f"Row {row_info['_row_index']}: Customer name is required.")
+                        continue
+                    bkg_payload = {
+                        "name": cust_name,
+                        "contact": data.get("contact", "").strip(),
+                        "email": data.get("email", "").strip(),
+                        "address": data.get("address", "").strip() or "Cebu City",
+                        "occasion": "Catering Event",
+                        "venue": "Catering Venue",
+                        "date": normalize_date(data.get("event_date") or data.get("date")),
+                        "time": "6:00 PM",
+                        "pax": 50,
+                        "notes": data.get("notes", "").strip(),
+                        "menu_type": "package",
+                        "total": total_val,
+                        "payment_mode": str(data.get("payment_mode") or "Cash").strip(),
+                        "amount_paid": paid_val,
+                    }
+                    res = repo.create_booking(bkg_payload)
+                    if res and res.get("booking_id"):
+                        b_id = res["booking_id"]
+                        bal_val = max(0.0, total_val - paid_val)
+                        inv_st = db.compute_invoice_status(total_val, paid_val)
+                        if "PAID" in raw_st and bal_val <= 0.01:
+                            inv_st = "Paid"
+                        elif "PARTIAL" in raw_st:
+                            inv_st = "Partial"
+                        elif "UNPAID" in raw_st:
+                            inv_st = "Unpaid"
+
+                        db.execute("""
+                            UPDATE invoices
+                            SET inv_total_amount = %s, inv_amount_paid = %s, inv_balance = %s,
+                                inv_down_payment = %s, inv_status = %s, inv_payment_verified = %s
+                            WHERE inv_booking_id = %s
+                        """, (total_val, paid_val, bal_val, paid_val, inv_st, 1 if paid_val > 0 else 0, b_id))
+                        if paid_val > 0:
+                            db.execute("""
+                                UPDATE bookings
+                                SET bk_amount_paid = %s, bk_down_payment = %s,
+                                    bk_down_payment_status = 'ACCEPTED'
+                                WHERE bk_id = %s
+                            """, (paid_val, paid_val, b_id))
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                        errors.append(f"Row {row_info['_row_index']} [Billing: '{cust_name}']: Booking creation failed.")
+
+            elif canon_entity == "menu_items":
                 item_name = data.get("name", "New Item").strip() or "New Item"
                 price_val = float(data.get("price", 0.0))
                 if price_val <= 0:
@@ -864,9 +1141,9 @@ def execute_batch_import(
                 item_payload = {
                     "item": item_name,
                     "category": normalize_menu_category(data.get("category")),
-                    "package": "Standard",
+                    "package": str(data.get("package") or "Standard").strip() or "Standard",
                     "price": price_val,
-                    "status": "Available",
+                    "status": normalize_menu_status(data.get("status")),
                     "description": data.get("description", "").strip(),
                 }
                 res = repo.add_menu_item(item_payload)
@@ -876,7 +1153,7 @@ def execute_batch_import(
                     fail_count += 1
                     errors.append(f"Row {row_info['_row_index']} [Item: '{item_name}']: Menu item database insert failed.")
 
-            elif entity_type == "cash_flow":
+            elif canon_entity == "cash_flow":
                 t_date = normalize_date(data.get("date") or datetime.now().strftime("%Y-%m-%d"))
                 t_particulars = str(data.get("particulars") or "Cash on Hand").strip()
                 t_check = str(data.get("check_no") or data.get("check") or "").strip()
@@ -886,6 +1163,15 @@ def execute_batch_import(
                 t_notes = str(data.get("notes") or "").strip()
 
                 if t_deposit > 0 or t_withdrawal > 0 or t_actual_sales > 0 or t_particulars:
+                    cf_key = (t_date, t_check.lower(), t_particulars.lower(), round(t_deposit, 2), round(t_withdrawal, 2), round(t_actual_sales, 2))
+                    if cf_key in seen_cash_flow:
+                        success_count += 1
+                        continue
+                    if repo.find_duplicate_cash_flow(t_date, t_particulars, t_deposit, t_withdrawal, t_actual_sales, t_check):
+                        seen_cash_flow.add(cf_key)
+                        success_count += 1
+                        continue
+
                     tx_id = repo.add_cash_flow_transaction({
                         "date": t_date,
                         "check_no": t_check,
@@ -896,6 +1182,7 @@ def execute_batch_import(
                         "notes": t_notes,
                     })
                     if tx_id:
+                        seen_cash_flow.add(cf_key)
                         success_count += 1
                     else:
                         fail_count += 1
@@ -904,14 +1191,14 @@ def execute_batch_import(
                     fail_count += 1
                     errors.append(f"Row {row_info['_row_index']}: Empty cash flow entry.")
 
-            elif entity_type == "packages":
+            elif canon_entity == "packages":
                 pkg_name = str(data.get("name") or data.get("package_name") or "").strip()
                 if not pkg_name:
                     fail_count += 1
                     errors.append(f"Row {row_info['_row_index']} [Package Name]: Package name cannot be empty.")
                     continue
                 pkg_price = normalize_amount(data.get("price_per_pax") or data.get("price") or 0.0)
-                pkg_min_pax = int(data.get("min_pax") or data.get("pax") or 1)
+                pkg_min_pax = int(normalize_pax(data.get("min_pax") or data.get("pax") or 1))
                 pkg_desc = str(data.get("description") or "").strip()
                 pkg_res = repo.add_package({
                     "name": pkg_name,
@@ -925,7 +1212,7 @@ def execute_batch_import(
                     fail_count += 1
                     errors.append(f"Row {row_info['_row_index']} [Package: '{pkg_name}']: Package insert failed (may already exist).")
 
-            elif entity_type == "all_in_one":
+            elif canon_entity == "all_in_one":
                 row_success = False
 
                 # 1. Customer & Booking
@@ -941,6 +1228,11 @@ def execute_batch_import(
 
                     total_amt = float(data.get("total_amount") or data.get("total", 0.0))
                     if total_amt > 0:
+                        paid_val = normalize_amount(data.get("amount_paid") or data.get("paid") or data.get("paid_amount") or data.get("down_paid") or 0.0)
+                        raw_st = str(data.get("payment_status") or data.get("status") or "").strip().upper()
+                        if ("PAID" in raw_st or "FULL" in raw_st) and paid_val <= 0:
+                            paid_val = total_amt
+
                         bkg_res = repo.create_booking({
                             "name": cust_name,
                             "contact": data.get("contact", "").strip(),
@@ -955,9 +1247,30 @@ def execute_batch_import(
                             "notes": data.get("notes", "").strip(),
                             "menu_type": "package",
                             "payment_mode": "Cash",
-                            "amount_paid": 0.0,
+                            "amount_paid": paid_val,
+                            "down_payment": paid_val,
                         })
                         if bkg_res and bkg_res.get("booking_id"):
+                            b_id = bkg_res["booking_id"]
+                            bal_val = max(0.0, total_amt - paid_val)
+                            inv_st = db.compute_invoice_status(total_amt, paid_val)
+                            if "PAID" in raw_st and bal_val <= 0.01:
+                                inv_st = "Paid"
+                            elif "PARTIAL" in raw_st:
+                                inv_st = "Partial"
+                            db.execute("""
+                                UPDATE invoices
+                                SET inv_total_amount = %s, inv_amount_paid = %s, inv_balance = %s,
+                                    inv_down_payment = %s, inv_status = %s, inv_payment_verified = %s
+                                WHERE inv_booking_id = %s
+                            """, (total_amt, paid_val, bal_val, paid_val, inv_st, 1 if paid_val > 0 else 0, b_id))
+                            if paid_val > 0:
+                                db.execute("""
+                                    UPDATE bookings
+                                    SET bk_amount_paid = %s, bk_down_payment = %s,
+                                        bk_down_payment_status = 'ACCEPTED'
+                                    WHERE bk_id = %s
+                                """, (paid_val, paid_val, b_id))
                             row_success = True
 
                 # 2. Expense
@@ -972,23 +1285,31 @@ def execute_batch_import(
                     if exp_res:
                         row_success = True
 
-                # 3. Cash Flow
+                # 3. Cash Flow (with deduplication)
                 cf_part = str(data.get("cash_flow_particulars") or data.get("particulars") or "").strip()
                 cf_dep = normalize_amount(data.get("cash_flow_deposit") or data.get("deposit") or 0.0)
                 cf_withd = normalize_amount(data.get("cash_flow_withdrawal") or data.get("withdrawal") or 0.0)
                 cf_sales = normalize_amount(data.get("cash_flow_sales") or data.get("actual_sales") or 0.0)
+                cf_date = normalize_date(data.get("cash_flow_date") or data.get("date") or datetime.now().strftime("%Y-%m-%d"))
+                cf_chk = str(data.get("cash_flow_check") or data.get("check_no") or "").strip()
+
                 if cf_part or cf_dep > 0 or cf_withd > 0 or cf_sales > 0:
-                    cf_res = repo.add_cash_flow_transaction({
-                        "date": data.get("cash_flow_date") or data.get("date") or datetime.now().strftime("%Y-%m-%d"),
-                        "check_no": str(data.get("cash_flow_check") or data.get("check_no") or "").strip(),
-                        "particulars": cf_part or "Cash on Hand",
-                        "deposit": cf_dep,
-                        "withdrawal": cf_withd,
-                        "actual_sales": cf_sales,
-                        "notes": "Imported via Master Template",
-                    })
-                    if cf_res:
-                        row_success = True
+                    cf_key = (cf_date, cf_chk.lower(), (cf_part or "Cash on Hand").lower(), round(cf_dep, 2), round(cf_withd, 2), round(cf_sales, 2))
+                    if cf_key not in seen_cash_flow and not repo.find_duplicate_cash_flow(cf_date, cf_part or "Cash on Hand", cf_dep, cf_withd, cf_sales, cf_chk):
+                        cf_res = repo.add_cash_flow_transaction({
+                            "date": cf_date,
+                            "check_no": cf_chk,
+                            "particulars": cf_part or "Cash on Hand",
+                            "deposit": cf_dep,
+                            "withdrawal": cf_withd,
+                            "actual_sales": cf_sales,
+                            "notes": "Imported via Master Template",
+                        })
+                        if cf_res:
+                            seen_cash_flow.add(cf_key)
+                            row_success = True
+                    else:
+                        row_success = True  # Counted as handled (not double inserted)
 
                 # 4. Menu Item
                 mi_name = str(data.get("menu_item_name") or data.get("dish_name") or "").strip()
@@ -1031,7 +1352,7 @@ def execute_batch_import(
     # Emit app data change signals and run automatic deduplication
     if success_count > 0:
         try:
-            if entity_type in ("customers", "bookings", "all_in_one"):
+            if canon_entity in ("customers", "bookings", "billings", "all_in_one"):
                 repo.merge_duplicate_customers()
                 repo.recalculate_all_customer_stats()
         except Exception:
@@ -1041,19 +1362,21 @@ def execute_batch_import(
             from utils.signals import app_events
             ev = app_events()
             ev.data_changed.emit()
-            if entity_type == "expenses":
+            if canon_entity == "expenses":
                 ev.expense_saved.emit()
-            elif entity_type == "customers":
+            elif canon_entity == "customers":
                 ev.customer_saved.emit()
-            elif entity_type == "bookings":
+            elif canon_entity in ("bookings", "billings"):
                 ev.booking_saved.emit()
-            elif entity_type == "cash_flow":
+                ev.payment_saved.emit()
+            elif canon_entity == "cash_flow":
                 ev.cash_flow_saved.emit()
-            elif entity_type in ("packages", "menu_items"):
+            elif canon_entity in ("packages", "menu_items"):
                 ev.menu_saved.emit()
-            elif entity_type == "all_in_one":
+            elif canon_entity == "all_in_one":
                 ev.customer_saved.emit()
                 ev.booking_saved.emit()
+                ev.payment_saved.emit()
                 ev.expense_saved.emit()
                 ev.cash_flow_saved.emit()
                 ev.menu_saved.emit()
@@ -1072,6 +1395,8 @@ def normalize_entity_type(key: str) -> str:
     k = (key or "").strip().lower().replace("-", "_").replace(" ", "_")
     if k in ("booking", "bookings", "order", "orders", "booking_order", "bookings_orders"):
         return "bookings"
+    if k in ("billing", "billings", "invoice", "invoices", "billing_invoice", "billings_invoices"):
+        return "billings"
     if k in ("customer", "customers", "client", "clients"):
         return "customers"
     if k in ("expense", "expenses", "cost", "costs"):
@@ -1142,7 +1467,7 @@ def generate_sample_csv(entity_type: str, save_path: str) -> Optional[str]:
 
             if canon_entity == "all_in_one":
                 wb.remove(wb.active)  # remove default sheet
-                sections = ["bookings", "customers", "expenses", "cash_flow", "menu_items", "packages"]
+                sections = ["bookings", "customers", "billings", "expenses", "cash_flow", "menu_items", "packages"]
                 for sec in sections:
                     s_info = ENTITY_SCHEMAS.get(sec, {})
                     title_name = s_info.get("title", sec.title())

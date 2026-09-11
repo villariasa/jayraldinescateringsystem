@@ -16,13 +16,39 @@ _current_actor: str = ""
 
 def get_actor() -> str:
     global _current_actor
-    if not _current_actor:
+    # 1. Prioritize currently authenticated user in SessionManager
+    try:
+        user = SessionManager.get_current_user()
+        if user:
+            name = (user.get("display_name") or user.get("username") or "").strip()
+            if name:
+                return name
+    except Exception:
+        pass
+
+    # 2. Check explicitly set actor in memory
+    if _current_actor and _current_actor.strip():
+        return _current_actor.strip()
+
+    # 3. Fallback to QSettings local actor
+    try:
         stored = QSettings(_ORG, _APP).value(_KEY_ACTOR, "")
-        _current_actor = stored.strip() if stored and stored.strip() else "staff"
-    return _current_actor
+        if stored and str(stored).strip():
+            _current_actor = str(stored).strip()
+            return _current_actor
+    except Exception:
+        pass
+
+    return "staff"
 
 
 def set_actor(name: str) -> None:
     global _current_actor
     _current_actor = name if name and name.strip() else "staff"
     QSettings(_ORG, _APP).setValue(_KEY_ACTOR, _current_actor)
+
+
+# Re-export SessionManager from auth for convenience
+from utils.auth import SessionManager  # noqa: E402
+
+

@@ -5,9 +5,9 @@ laptops (PC app) and tablets (kiosk PWA) depend on that server's data over
 LAN. Adds admin/user accounts with per-module access control, including
 gating the Chef Jay AI assistant's actions by the same permissions.
 
-This supersedes the earlier offline-first-only design for `Tablet_PWA`
-(see its `README.md`) — tablets now require a live LAN connection to the
-server instead of working fully offline and syncing later.
+This supports a hybrid architecture: desktop PCs connect directly over LAN,
+while the kiosk tablet operates in **offline-first mode** when off-site at
+client venues and **auto-syncs with zero duplicates** when reconnected to the LAN.
 
 ## 1. PC Installer — "Set up Server" vs "Connect to Server"
 
@@ -15,62 +15,44 @@ Add a new wizard step in `Catering_Present/jayraldines_catering/installer_wizard
 (after `_init_welcome_page`, before `_init_preferences_page`) with two paths:
 
 ### A. Set up Server
-- Runs the existing local-Postgres init (`ExtractWorker._init_local_database`),
-  but generates a random strong password instead of the hardcoded `12345678`
-  default, and a DB user scoped to just this database.
-- On the completed page (`_init_completed_page`), show a **credentials card**:
-  host (this PC's LAN IP, auto-detected), port, DB name, user, password —
-  with a **"Save as file"** button (writes a `.txt`/`.pdf` the owner can
-  screenshot or print) and a copy-to-clipboard button. This is the one and
-  only time the password is shown in full.
+- Auto-detects or silently installs PostgreSQL locally if missing.
+- Runs the local-Postgres init (`ExtractWorker._init_local_database`),
+  generating a random strong password for the `jayraldines_app` DB user,
+  and provisions the default `admin` application account.
+- On the completed page (`_init_completed_page`), shows a **credentials card**:
+  host (this PC's LAN IP, auto-detected), port, DB name, DB user, DB password,
+  and initial `admin` login credentials — with a **"Save as file"** button
+  (writes `credentials.txt`) and a copy-to-clipboard button.
 - Opens the firewall port for Postgres on the LAN profile (Windows:
-  `netsh advfirewall`) so other machines can actually reach it — currently
-  it's local-only.
+  `netsh advfirewall`) so other machines can reach it.
 
 ### B. Connect to Server
 - Skips local Postgres install entirely. Shows a form: server IP/host,
-  port, DB name, user, password (the ones the owner saved from the "Set up
-  Server" run on the server PC).
-- Does a live test-connection before letting the wizard proceed (reuse
+  port, DB name, user, password.
+- Does a live test-connection before letting the wizard proceed (reusing
   `connect_postgres()` from `utils/db.py`).
-- Writes those values into the app's env/config so every launch uses
-  `DB_ENGINE=postgres` pointed at the remote host — no local DB, no local
-  install step at all.
+- Writes those values into `db_config.json` so every launch connects
+  to the central host.
 
-Both paths end up with the same app, same code — only the config differs.
-This matches how `utils/db.py` already resolves `DB_ENGINE`/`DB_HOST`/etc.,
-so no new DB layer is needed, just the installer UI and credential
-generation/display.
+## 2. Tablet — Offline-First Kiosk with Deduplicated LAN Sync
 
-## 2. Tablet — thin client of the central DB
+Per client requirement, the tablet kiosk **must have offline mode** because
+the owner frequently takes the tablet off-site to venues for customer orders
+without a LAN connection.
 
-Reverses the earlier offline-first recommendation, per client direction:
-tablets go from "offline-first, sync later" to "LAN-only, live against the
-server." Real tradeoff worth remembering: the tablet can no longer take
-orders if the Wi-Fi/server is down.
-
-- Tablet setup screen (first run) asks for the same server credentials
-  (host/port/db/user/password) the owner saved from installer step A —
-  same test-connection flow as the PC "Connect to Server" path.
-- `Tablet_PWA` stops using its local SQLite (`backend/db.py` /
-  sql.js-in-browser) as the source of truth for menus, packages, and
-  images — those now come live from the central DB. The
-  `Tablet_PWA/backend` FastAPI skeleton (currently unused per its README)
-  becomes the right place for this: it proxies the tablet's requests to
-  the central Postgres using the saved credentials, so the browser
-  frontend never talks to Postgres directly.
-- Owner Settings on the tablet (Packages/Menu/Customers CRUD) stays — the
-  user can still edit menu, packages, and images from the tablet — but
-  writes go straight to the central DB instead of the local `.db` file.
-  No more "Export .db → merge on PC."
-- What stays **local to the tablet** (not server data): the image
-  slideshow, and "recent bookings" meaning *orders taken on this specific
-  tablet* — that's a local view filtered by device/session, not pulled
-  from the server's full booking list.
-- Tablet kiosk mode is explicitly **not** part of the new user/role system
-  below — no login screen, no permission tiers, same as always.
-- All of this requires tablets, laptops, and the server PC on the same
-  LAN — no more roaming-with-no-connection use case for tablets.
+- **Offline Operation**: Works 100% standalone using in-browser WebAssembly
+  SQLite (`sql.js`) persisted to IndexedDB. Kiosk ordering, menu browsing,
+  packages, and PDF receipts function with zero network dependency.
+- **LAN Connection Detection**: When the tablet connects to the venue/office
+  Wi-Fi where the server PC resides, it detects the server via a heartbeat.
+- **Smart Deduplicated Sync**:
+  - Pushes pending local orders (`sync_status = 'pending'`) to PostgreSQL
+    using unique identifiers (`booking_reference` with `ON CONFLICT DO NOTHING`)
+    so duplicate entries are impossible even if sync runs multiple times.
+  - Pulls latest menus, categories, and packages from the central database
+    down to the tablet so menu updates made on the PC hub are reflected.
+- **Owner Settings on Tablet**: Full CRUD for Packages & Menus stays available;
+  edits sync to PostgreSQL when connected.
 
 ## 3. Users & Role-Based Access (net new)
 

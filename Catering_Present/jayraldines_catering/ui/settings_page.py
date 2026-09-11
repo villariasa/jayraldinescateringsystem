@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QCheckBox, QFileDialog, QListWidget, QListWidgetItem,
     QInputDialog, QColorDialog, QComboBox, QDateEdit
 )
-from PySide6.QtCore import Qt, QSize, QDate
+from PySide6.QtCore import Qt, QSize, QDate, QTimer
 from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, get_icon
@@ -17,6 +17,9 @@ from utils.palette import THEME_CATEGORIES, THEME_PALETTES, get_palettes_by_cate
 from components.dialogs import success, prompt_file_saved, confirm
 import utils.repository as repo
 from utils.signals import app_events
+from utils.auth import SessionManager
+from components.user_management_panel import UserManagementPanel, ChangeOwnPasswordDialog
+from utils.db_config import get_db_config, save_db_config, test_postgres_connection
 
 
 _BUSINESS_INFO = {
@@ -28,14 +31,122 @@ _BUSINESS_INFO = {
 
 
 class SettingsPage(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self._theme = ThemeManager()
         self._accent = AccentManager()
-        db_info = repo.get_business_info()
-        if db_info:
-            _BUSINESS_INFO.update(db_info)
+        self._dirty = True
         self._build_ui()
+
+        try:
+            from utils.signals import app_events
+            ev = app_events()
+            ev.data_changed.connect(self._mark_dirty_and_reload)
+            ev.customer_saved.connect(self._mark_dirty_and_reload)
+            ev.booking_saved.connect(self._mark_dirty_and_reload)
+            ev.payment_saved.connect(self._mark_dirty_and_reload)
+        except Exception:
+            pass
+
+    def _mark_dirty_and_reload(self):
+        self._dirty = True
+        if self.isVisible():
+            self._load_all_settings_async()
+            self._load_audit_log()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, "_dirty", True):
+            self._dirty = False
+            self._load_all_settings_async()
+            self._load_audit_log()
+
+    def reload(self):
+        self._dirty = False
+        self._load_all_settings_async()
+        self._load_audit_log()
+
+    @staticmethod
+    def _fetch_all_settings_data_worker():
+        cur_year = datetime.now().year
+        try:
+            biz = repo.get_business_info() or {}
+        except Exception:
+            biz = {}
+        try:
+            policy = repo.get_business_policy() or {}
+        except Exception:
+            policy = {}
+        try:
+            smtp = repo.get_smtp_config() or {}
+        except Exception:
+            smtp = {}
+        try:
+            occasions = repo.get_all_occasions() or []
+        except Exception:
+            occasions = []
+        try:
+            sales_targets = repo.get_monthly_sales_targets(cur_year) or {}
+        except Exception:
+            sales_targets = {}
+        return {
+            "biz": biz,
+            "policy": policy,
+            "smtp": smtp,
+            "occasions": occasions,
+            "sales_targets": sales_targets,
+        }
+
+    def _load_all_settings_async(self):
+        from utils.data_loader import run_async
+        run_async(self, self._fetch_all_settings_data_worker, self._apply_settings_data)
+
+    def _apply_settings_data(self, data):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        if not data:
+            return
+        if data.get("biz"):
+            b = data["biz"]
+            _BUSINESS_INFO.update(b)
+            if hasattr(self, "_name_f"):
+                self._name_f.setText(b.get("name", ""))
+            if hasattr(self, "_contact_f"):
+                self._contact_f.setText(b.get("contact", ""))
+            if hasattr(self, "_email_f"):
+                self._email_f.setText(b.get("email", ""))
+            if hasattr(self, "_address_f"):
+                self._address_f.setText(b.get("address", ""))
+        if data.get("policy"):
+            p = data["policy"]
+            if hasattr(self, "_min_dp_spin"):
+                self._min_dp_spin.setValue(float(p.get("min_downpayment_pct", 30.0)))
+            if hasattr(self, "_allow_zero_cb"):
+                self._allow_zero_cb.setChecked(bool(p.get("allow_zero_downpayment", False)))
+            if hasattr(self, "_max_pax_spin"):
+                self._max_pax_spin.setValue(int(p.get("max_daily_pax", 600)))
+        if data.get("smtp"):
+            s = data["smtp"]
+            if hasattr(self, "_smtp_host_f"):
+                self._smtp_host_f.setText(str(s.get("smtp_host", "")))
+            if hasattr(self, "_smtp_port_f"):
+                self._smtp_port_f.setValue(int(s.get("smtp_port", 587)))
+            if hasattr(self, "_smtp_user_f"):
+                self._smtp_user_f.setText(str(s.get("smtp_user", "")))
+            if hasattr(self, "_smtp_pass_f"):
+                self._smtp_pass_f.setText(str(s.get("smtp_pass", "")))
+        if data.get("occasions") is not None and hasattr(self, "_occ_list"):
+            self._occ_list.clear()
+            for name in data["occasions"]:
+                self._occ_list.addItem(QListWidgetItem(name))
+        if data.get("sales_targets") and hasattr(self, "_month_target_spins"):
+            st = data["sales_targets"]
+            for m, spin in self._month_target_spins.items():
+                spin.setValue(float(st.get(m, 85000.0)))
 
     def _build_ui(self):
         root_lay = QVBoxLayout(self)
@@ -54,7 +165,39 @@ class SettingsPage(QWidget):
         title.setObjectName("pageTitle")
         lay.addWidget(title)
 
+        can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
+        can_delete = SessionManager.is_admin() or SessionManager.has_permission("settings", "delete")
+
+        if not can_edit:
+            view_banner = QFrame()
+            view_banner.setObjectName("viewBanner")
+            view_banner.setStyleSheet("""
+                QFrame#viewBanner {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(245, 158, 11, 0.16), stop:1 rgba(217, 119, 6, 0.08));
+                    border: 1.5px solid rgba(245, 158, 11, 0.45);
+                    border-radius: 10px;
+                }
+            """)
+            vb_lay = QHBoxLayout(view_banner)
+            vb_lay.setContentsMargins(16, 12, 16, 12)
+            vb_lay.setSpacing(12)
+            vb_icon = QLabel("🔒")
+            vb_icon.setStyleSheet("font-size: 20px;")
+            vb_lay.addWidget(vb_icon)
+            vb_text = QLabel(
+                "<b>VIEW-ONLY ACCESS:</b> You have view-only permission for Settings. "
+                "Adding, modifying, saving settings, importing data, restoring backups, and purging records are strictly disabled."
+            )
+            vb_text.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: 500;")
+            vb_text.setWordWrap(True)
+            vb_lay.addWidget(vb_text, 1)
+            lay.addWidget(view_banner)
+
         lay.addWidget(self._build_current_user_card())
+        if SessionManager.is_admin():
+            lay.addWidget(self._build_user_management_card())
+            lay.addWidget(self._build_server_database_card())
+        lay.addWidget(self._build_session_security_card())
         lay.addWidget(self._build_business_card())
         lay.addWidget(self._build_sales_targets_card())
         lay.addWidget(self._build_import_card())
@@ -67,7 +210,8 @@ class SettingsPage(QWidget):
         lay.addWidget(self._build_audit_card())
         lay.addWidget(self._build_daily_report_card())
         lay.addWidget(self._build_diagnostics_card())
-        lay.addWidget(self._build_purge_data_card())
+        if can_edit and can_delete:
+            lay.addWidget(self._build_purge_data_card())
         lay.addStretch()
 
         scroll.setWidget(content)
@@ -89,23 +233,205 @@ class SettingsPage(QWidget):
         hint.setWordWrap(True)
         lay.addWidget(hint)
 
+        can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
+
         row = QHBoxLayout()
         from utils.session import get_actor, set_actor
         self._actor_f = QLineEdit(get_actor())
         self._actor_f.setPlaceholderText("Your name (e.g. John)")
-        save_btn = QPushButton("Save Name")
-        save_btn.setObjectName("primaryButton")
-        save_btn.setFixedHeight(34)
+        if not can_edit:
+            self._actor_f.setReadOnly(True)
 
         def _save_actor():
+            if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
+                QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot edit user information.")
+                return
             set_actor(self._actor_f.text().strip())
             success(self, message=f"You are now logged as: {get_actor()}")
 
-        save_btn.clicked.connect(_save_actor)
         row.addWidget(self._actor_f, 3)
-        row.addWidget(save_btn, 1)
-        lay.addLayout(row)
+        if can_edit:
+            save_btn = QPushButton("Save Name")
+            save_btn.setObjectName("primaryButton")
+            save_btn.setFixedHeight(34)
+            save_btn.clicked.connect(_save_actor)
+            row.addWidget(save_btn, 1)
 
+        # Change Password Button
+        chg_pwd_btn = QPushButton("Change Password")
+        chg_pwd_btn.setFixedHeight(34)
+        chg_pwd_btn.setCursor(Qt.PointingHandCursor)
+        chg_pwd_btn.setStyleSheet("background-color: #334155; color: #F8FAFC; border-radius: 6px; padding: 0 14px; font-weight: 600;")
+        def _open_chg_pwd():
+            dlg = ChangeOwnPasswordDialog(self)
+            dlg.exec()
+        chg_pwd_btn.clicked.connect(_open_chg_pwd)
+        row.addWidget(chg_pwd_btn)
+
+        lay.addLayout(row)
+        return card
+
+    def _build_user_management_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setSpacing(10)
+        self.user_panel = UserManagementPanel(self)
+        lay.addWidget(self.user_panel)
+        return card
+
+    def _build_server_database_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(14)
+
+        sec_title = QLabel("Central Database Server & Backups")
+        sec_title.setObjectName("h3")
+        lay.addWidget(sec_title)
+
+        hint = QLabel("View current PostgreSQL server connectivity, export backup connection credentials, or test live LAN link.")
+        hint.setObjectName("subtitle")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        cfg = get_db_config()
+        details_box = QFrame()
+        details_box.setStyleSheet("background: #1E293B; border-radius: 8px; padding: 12px;")
+        d_lay = QVBoxLayout(details_box)
+        d_lay.setSpacing(6)
+
+        info_lbl = QLabel(
+            f"• Engine: {cfg.get('engine', 'postgres').upper()}\n"
+            f"• Server Host IP: {cfg.get('host', 'localhost')}\n"
+            f"• Port: {cfg.get('port', 5432)}\n"
+            f"• Database Name: {cfg.get('dbname', 'jayraldines_catering')}\n"
+            f"• App User: {cfg.get('user', 'jayraldines_app')}"
+        )
+        info_lbl.setStyleSheet("color: #F8FAFC; font-family: monospace; font-size: 12px;")
+        d_lay.addWidget(info_lbl)
+        lay.addWidget(details_box)
+
+        btn_row = QHBoxLayout()
+        test_btn = QPushButton("Test Server Connection")
+        test_btn.setCursor(Qt.PointingHandCursor)
+        test_btn.setStyleSheet("background-color: #0284C7; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
+        def _test_conn():
+            ok, msg = test_postgres_connection(
+                host=cfg.get("host", "localhost"),
+                port=int(cfg.get("port", 5432)),
+                dbname=cfg.get("dbname", "jayraldines_catering"),
+                user=cfg.get("user", "jayraldines_app"),
+                password=cfg.get("password", ""),
+            )
+            if ok:
+                QMessageBox.information(self, "Connection Test", "✅ Successfully connected to Central PostgreSQL Server!")
+            else:
+                QMessageBox.warning(self, "Connection Test", f"❌ Failed to connect:\n{msg}")
+        test_btn.clicked.connect(_test_conn)
+        btn_row.addWidget(test_btn)
+
+        export_creds_btn = QPushButton("Export Credentials Backup (.txt)")
+        export_creds_btn.setCursor(Qt.PointingHandCursor)
+        export_creds_btn.setStyleSheet("background-color: #10B981; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
+        def _export_creds():
+            from pathlib import Path
+            content = (
+                "=====================================================\n"
+                "  JAYRALDINE'S CATERING - SERVER CREDENTIALS BACKUP\n"
+                "=====================================================\n\n"
+                f"Server Host IP : {cfg.get('host', 'localhost')}\n"
+                f"Port           : {cfg.get('port', 5432)}\n"
+                f"Database Name  : {cfg.get('dbname', 'jayraldines_catering')}\n"
+                f"DB User        : {cfg.get('user', 'jayraldines_app')}\n"
+                f"DB Password    : {cfg.get('password', '')}\n\n"
+                f"Generated on   : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            )
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "Export Credentials Backup",
+                str(Path.home() / "Desktop" / "jayraldines_credentials_backup.txt"),
+                "Text Files (*.txt);;All Files (*)"
+            )
+            if file_path:
+                try:
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    QMessageBox.information(self, "Exported", f"Credentials backup saved to:\n{file_path}")
+                except Exception as exc:
+                    QMessageBox.warning(self, "Error", f"Could not write file: {exc}")
+        export_creds_btn.clicked.connect(_export_creds)
+        btn_row.addWidget(export_creds_btn)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+
+        # ── Connected Devices & Server Activity Telemetry ──────────────────
+        from components.connected_devices_panel import ConnectedDevicesPanel
+        self._connected_devices_panel = ConnectedDevicesPanel(card)
+        lay.addWidget(self._connected_devices_panel)
+
+        return card
+
+    def _build_session_security_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(14)
+
+        sec_title = QLabel("Session Security & Auto-Lock")
+        sec_title.setObjectName("h3")
+        lay.addWidget(sec_title)
+
+        hint = QLabel("Configure how long the system waits during inactivity before locking the screen to protect catering records.")
+        hint.setObjectName("subtitle")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
+
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        row.addWidget(QLabel("Idle Lock Timeout:"))
+
+        self.timeout_combo = QComboBox()
+        self.timeout_combo.addItems([
+            "60 minutes (Default - Recommended)",
+            "30 minutes",
+            "120 minutes (2 Hours)",
+            "Disabled (Never Auto-Lock)"
+        ])
+        timeout_map = [60, 30, 120, 0]
+        cur_mins = SessionManager.get_auto_lock_minutes()
+        if cur_mins in timeout_map:
+            self.timeout_combo.setCurrentIndex(timeout_map.index(cur_mins))
+        else:
+            self.timeout_combo.setCurrentIndex(0)
+
+        def _on_timeout_changed(idx: int):
+            if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
+                return
+            if 0 <= idx < len(timeout_map):
+                SessionManager.set_auto_lock_minutes(timeout_map[idx])
+
+        self.timeout_combo.currentIndexChanged.connect(_on_timeout_changed)
+        self.timeout_combo.setStyleSheet("background: #1E293B; border: 1px solid #334155; color: #F8FAFC; padding: 6px 12px; border-radius: 6px;")
+        if not can_edit:
+            self.timeout_combo.setEnabled(False)
+        row.addWidget(self.timeout_combo, 1)
+
+        lock_now_btn = QPushButton("🔒 Lock Screen Now")
+        lock_now_btn.setCursor(Qt.PointingHandCursor)
+        lock_now_btn.setStyleSheet("background-color: #E11D48; color: #FFFFFF; font-weight: 700; padding: 7px 16px; border-radius: 6px;")
+        def _lock_now():
+            from components.login_dialog import LockScreenDialog
+            dlg = LockScreenDialog(self.window())
+            dlg.exec()
+        lock_now_btn.clicked.connect(_lock_now)
+        row.addWidget(lock_now_btn)
+
+        lay.addLayout(row)
         return card
 
     def _build_business_card(self):
@@ -123,10 +449,18 @@ class SettingsPage(QWidget):
         form.setSpacing(14)
         form.setLabelAlignment(Qt.AlignRight)
 
+        can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
+
         self._name_f    = QLineEdit(_BUSINESS_INFO["name"])
         self._contact_f = QLineEdit(_BUSINESS_INFO["contact"])
         self._email_f   = QLineEdit(_BUSINESS_INFO["email"])
         self._address_f = QLineEdit(_BUSINESS_INFO["address"])
+
+        if not can_edit:
+            self._name_f.setReadOnly(True)
+            self._contact_f.setReadOnly(True)
+            self._email_f.setReadOnly(True)
+            self._address_f.setReadOnly(True)
 
         for label, field in [
             ("Business Name",  self._name_f),
@@ -143,14 +477,15 @@ class SettingsPage(QWidget):
         self._save_notice.hide()
         lay.addWidget(self._save_notice)
 
-        save_btn = QPushButton("  Save Changes")
-        save_btn.setObjectName("primaryButton")
-        save_btn.setIcon(btn_icon_primary("check"))
-        save_btn.setIconSize(QSize(15, 15))
-        save_btn.setFixedWidth(160)
-        save_btn.setCursor(Qt.PointingHandCursor)
-        save_btn.clicked.connect(self._save_business)
-        lay.addWidget(save_btn, alignment=Qt.AlignRight)
+        if can_edit:
+            save_btn = QPushButton("  Save Changes")
+            save_btn.setObjectName("primaryButton")
+            save_btn.setIcon(btn_icon_primary("check"))
+            save_btn.setIconSize(QSize(15, 15))
+            save_btn.setFixedWidth(160)
+            save_btn.setCursor(Qt.PointingHandCursor)
+            save_btn.clicked.connect(self._save_business)
+            lay.addWidget(save_btn, alignment=Qt.AlignRight)
 
         return card
 
@@ -173,6 +508,8 @@ class SettingsPage(QWidget):
         desc.setWordWrap(True)
         lay.addWidget(desc)
 
+        can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
+
         top_ctrl = QHBoxLayout()
         top_ctrl.setSpacing(12)
 
@@ -193,13 +530,16 @@ class SettingsPage(QWidget):
         self._universal_target_spin.setValue(85000.0)
         self._universal_target_spin.setSingleStep(5000)
         self._universal_target_spin.setFixedHeight(34)
+        if not can_edit:
+            self._universal_target_spin.setEnabled(False)
         top_ctrl.addWidget(self._universal_target_spin)
 
-        apply_btn = QPushButton("  Apply to All 12 Months")
-        apply_btn.setObjectName("secondaryButton")
-        apply_btn.setFixedHeight(34)
-        apply_btn.clicked.connect(self._apply_universal_target)
-        top_ctrl.addWidget(apply_btn)
+        if can_edit:
+            apply_btn = QPushButton("  Apply to All 12 Months")
+            apply_btn.setObjectName("secondaryButton")
+            apply_btn.setFixedHeight(34)
+            apply_btn.clicked.connect(self._apply_universal_target)
+            top_ctrl.addWidget(apply_btn)
         top_ctrl.addStretch()
 
         lay.addLayout(top_ctrl)
@@ -220,6 +560,8 @@ class SettingsPage(QWidget):
             m_spin.setValue(85000.0)
             m_spin.setSingleStep(5000)
             m_spin.setFixedHeight(32)
+            if not can_edit:
+                m_spin.setEnabled(False)
             self._month_target_spins[m] = m_spin
             row = (m - 1) // 3
             col = (m - 1) % 3
@@ -228,28 +570,37 @@ class SettingsPage(QWidget):
 
         lay.addLayout(grid)
 
-        save_btn = QPushButton("  Save Sales Targets")
-        save_btn.setObjectName("primaryButton")
-        save_btn.setIcon(btn_icon_primary("check"))
-        save_btn.setIconSize(QSize(15, 15))
-        save_btn.setFixedWidth(180)
-        save_btn.setCursor(Qt.PointingHandCursor)
-        save_btn.clicked.connect(self._save_sales_targets)
-        lay.addWidget(save_btn, alignment=Qt.AlignRight)
+        if can_edit:
+            save_btn = QPushButton("  Save Sales Targets")
+            save_btn.setObjectName("primaryButton")
+            save_btn.setIcon(btn_icon_primary("check"))
+            save_btn.setIconSize(QSize(15, 15))
+            save_btn.setFixedWidth(180)
+            save_btn.setCursor(Qt.PointingHandCursor)
+            save_btn.clicked.connect(self._save_sales_targets)
+            lay.addWidget(save_btn, alignment=Qt.AlignRight)
 
         self._target_year_combo.currentIndexChanged.connect(self._load_sales_targets)
-        self._load_sales_targets()
-
         return card
 
     def _load_sales_targets(self):
         try:
             yr = int(self._target_year_combo.currentText())
-            targets = repo.get_monthly_sales_targets(yr)
-            for m, spin in self._month_target_spins.items():
-                spin.setValue(targets.get(m, 85000.0))
+            from utils.data_loader import run_async
+            run_async(self, lambda y=yr: repo.get_monthly_sales_targets(y), self._on_sales_targets_loaded)
         except Exception as e:
-            print(f"[SettingsPage] Error loading sales targets: {e}")
+            print(f"[SettingsPage] Error requesting sales targets: {e}")
+
+    def _on_sales_targets_loaded(self, targets):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        targets = targets or {}
+        for m, spin in getattr(self, "_month_target_spins", {}).items():
+            spin.setValue(float(targets.get(m, 85000.0)))
 
     def _apply_universal_target(self):
         val = self._universal_target_spin.value()
@@ -257,6 +608,9 @@ class SettingsPage(QWidget):
             spin.setValue(val)
 
     def _save_sales_targets(self):
+        if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot modify sales targets.")
+            return
         try:
             yr = int(self._target_year_combo.currentText())
             for m, spin in self._month_target_spins.items():
@@ -276,10 +630,8 @@ class SettingsPage(QWidget):
         sec_title.setObjectName("h3")
         lay.addWidget(sec_title)
 
-        try:
-            policy = repo.get_business_policy()
-        except Exception:
-            policy = {"min_downpayment_pct": 30.0, "allow_zero_downpayment": False, "max_daily_pax": 600}
+        can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
+        policy = {"min_downpayment_pct": 30.0, "allow_zero_downpayment": False, "max_daily_pax": 600}
 
         form = QFormLayout()
         form.setSpacing(14)
@@ -289,28 +641,35 @@ class SettingsPage(QWidget):
         self._min_dp_spin.setRange(0, 100)
         self._min_dp_spin.setSuffix(" %")
         self._min_dp_spin.setValue(policy["min_downpayment_pct"])
+        if not can_edit:
+            self._min_dp_spin.setEnabled(False)
         form.addRow(QLabel("Minimum Downpayment"), self._min_dp_spin)
 
         self._allow_zero_cb = QCheckBox("Allow confirming without downpayment")
         self._allow_zero_cb.setChecked(policy["allow_zero_downpayment"])
+        if not can_edit:
+            self._allow_zero_cb.setEnabled(False)
         form.addRow(QLabel("Override"), self._allow_zero_cb)
 
         self._max_pax_spin = QSpinBox()
         self._max_pax_spin.setRange(1, 10000)
         self._max_pax_spin.setSuffix(" pax")
         self._max_pax_spin.setValue(policy["max_daily_pax"])
+        if not can_edit:
+            self._max_pax_spin.setEnabled(False)
         form.addRow(QLabel("Max Daily Capacity"), self._max_pax_spin)
 
         lay.addLayout(form)
 
-        save_btn = QPushButton("  Save Policy")
-        save_btn.setObjectName("primaryButton")
-        save_btn.setIcon(btn_icon_primary("check"))
-        save_btn.setIconSize(QSize(15, 15))
-        save_btn.setFixedWidth(140)
-        save_btn.setCursor(Qt.PointingHandCursor)
-        save_btn.clicked.connect(self._save_policy)
-        lay.addWidget(save_btn, alignment=Qt.AlignRight)
+        if can_edit:
+            save_btn = QPushButton("  Save Policy")
+            save_btn.setObjectName("primaryButton")
+            save_btn.setIcon(btn_icon_primary("check"))
+            save_btn.setIconSize(QSize(15, 15))
+            save_btn.setFixedWidth(140)
+            save_btn.setCursor(Qt.PointingHandCursor)
+            save_btn.clicked.connect(self._save_policy)
+            lay.addWidget(save_btn, alignment=Qt.AlignRight)
 
         return card
 
@@ -330,10 +689,8 @@ class SettingsPage(QWidget):
         sub.setWordWrap(True)
         lay.addWidget(sub)
 
-        try:
-            smtp = repo.get_smtp_config()
-        except Exception:
-            smtp = {"smtp_host": "", "smtp_port": 587, "smtp_user": "", "smtp_pass": ""}
+        can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
+        smtp = {"smtp_host": "smtp.gmail.com", "smtp_port": 587, "smtp_user": "", "smtp_pass": ""}
 
         form = QFormLayout()
         form.setSpacing(14)
@@ -350,6 +707,12 @@ class SettingsPage(QWidget):
         self._smtp_pass_f.setEchoMode(QLineEdit.Password)
         self._smtp_pass_f.setPlaceholderText("App password or SMTP password")
 
+        if not can_edit:
+            self._smtp_host_f.setReadOnly(True)
+            self._smtp_port_f.setEnabled(False)
+            self._smtp_user_f.setReadOnly(True)
+            self._smtp_pass_f.setReadOnly(True)
+
         for label, field in [
             ("SMTP Host",     self._smtp_host_f),
             ("Port",          self._smtp_port_f),
@@ -360,28 +723,29 @@ class SettingsPage(QWidget):
 
         lay.addLayout(form)
 
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(12)
+        if can_edit:
+            btn_row = QHBoxLayout()
+            btn_row.setSpacing(12)
 
-        test_btn = QPushButton("  Test Connection")
-        test_btn.setObjectName("secondaryButton")
-        test_btn.setIcon(get_icon("bell", color="#64748B", size=QSize(15, 15)))
-        test_btn.setIconSize(QSize(15, 15))
-        test_btn.setFixedWidth(160)
-        test_btn.setCursor(Qt.PointingHandCursor)
-        test_btn.clicked.connect(self._test_smtp)
-        btn_row.addWidget(test_btn)
+            test_btn = QPushButton("  Test Connection")
+            test_btn.setObjectName("secondaryButton")
+            test_btn.setIcon(get_icon("bell", color="#64748B", size=QSize(15, 15)))
+            test_btn.setIconSize(QSize(15, 15))
+            test_btn.setFixedWidth(160)
+            test_btn.setCursor(Qt.PointingHandCursor)
+            test_btn.clicked.connect(self._test_smtp)
+            btn_row.addWidget(test_btn)
 
-        save_btn = QPushButton("  Save SMTP Config")
-        save_btn.setObjectName("primaryButton")
-        save_btn.setIcon(btn_icon_primary("check"))
-        save_btn.setIconSize(QSize(15, 15))
-        save_btn.setFixedWidth(180)
-        save_btn.setCursor(Qt.PointingHandCursor)
-        save_btn.clicked.connect(self._save_smtp)
-        btn_row.addWidget(save_btn)
+            save_btn = QPushButton("  Save SMTP Config")
+            save_btn.setObjectName("primaryButton")
+            save_btn.setIcon(btn_icon_primary("check"))
+            save_btn.setIconSize(QSize(15, 15))
+            save_btn.setFixedWidth(180)
+            save_btn.setCursor(Qt.PointingHandCursor)
+            save_btn.clicked.connect(self._save_smtp)
+            btn_row.addWidget(save_btn)
 
-        lay.addLayout(btn_row)
+            lay.addLayout(btn_row)
 
         return card
 
@@ -444,10 +808,19 @@ class SettingsPage(QWidget):
         lay.addWidget(cat_scroll)
         self._update_cat_buttons_style()
 
-        # ── Palette Cards Container ─────────────────────────────────────────
-        self._palettes_container = QVBoxLayout()
-        self._palettes_container.setSpacing(12)
-        lay.addLayout(self._palettes_container)
+        # ── Palette Cards Container (Compact & Space Conserving) ────────────
+        self._palettes_scroll = QScrollArea()
+        self._palettes_scroll.setFixedHeight(230)
+        self._palettes_scroll.setWidgetResizable(True)
+        self._palettes_scroll.setFrameShape(QFrame.NoFrame)
+        self._palettes_scroll.setStyleSheet("QScrollArea { background: transparent; }")
+
+        self._palettes_widget = QWidget()
+        self._palettes_container = QVBoxLayout(self._palettes_widget)
+        self._palettes_container.setContentsMargins(0, 0, 8, 0)
+        self._palettes_container.setSpacing(8)
+        self._palettes_scroll.setWidget(self._palettes_widget)
+        lay.addWidget(self._palettes_scroll)
         self._rebuild_palette_cards()
 
         # ── Accent Color Customizer ─────────────────────────────────────────
@@ -504,22 +877,22 @@ class SettingsPage(QWidget):
 
             if self._active_category == "All":
                 cat_head = QLabel(cat)
-                cat_head.setStyleSheet("font-weight: 700; font-size: 13px; color: #94A3B8; margin-top: 6px;")
+                cat_head.setStyleSheet("font-weight: 700; font-size: 12px; color: #94A3B8; margin-top: 4px; margin-bottom: 2px;")
                 self._palettes_container.addWidget(cat_head)
 
-            # Grid in rows of 3
+            # Compact Grid in rows of 4
             current_row = QHBoxLayout()
-            current_row.setSpacing(12)
+            current_row.setSpacing(8)
             cards_in_row = 0
 
             for pal in palettes:
                 card = self._create_palette_card(pal)
                 current_row.addWidget(card)
                 cards_in_row += 1
-                if cards_in_row == 3:
+                if cards_in_row == 4:
                     self._palettes_container.addLayout(current_row)
                     current_row = QHBoxLayout()
-                    current_row.setSpacing(12)
+                    current_row.setSpacing(8)
                     cards_in_row = 0
 
             if cards_in_row > 0:
@@ -529,8 +902,8 @@ class SettingsPage(QWidget):
     def _create_palette_card(self, pal: dict) -> QFrame:
         card = QFrame()
         card.setCursor(Qt.PointingHandCursor)
-        card.setFixedHeight(84)
-        card.setMinimumWidth(220)
+        card.setFixedHeight(54)
+        card.setMinimumWidth(170)
 
         is_active = self._theme.palette_id == pal["id"]
         dark = self._theme.is_dark()
@@ -541,7 +914,7 @@ class SettingsPage(QWidget):
             QFrame {{
                 background-color: {card_bg};
                 border: {active_border};
-                border-radius: 12px;
+                border-radius: 8px;
             }}
             QFrame:hover {{
                 border: 2px solid {pal['primary']};
@@ -549,35 +922,34 @@ class SettingsPage(QWidget):
         """)
 
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(12, 10, 12, 10)
-        lay.setSpacing(6)
+        lay.setContentsMargins(10, 6, 10, 6)
+        lay.setSpacing(4)
 
         top_row = QHBoxLayout()
         name_lbl = QLabel(pal["name"])
-        name_lbl.setStyleSheet(f"color: {pal['text_primary']}; font-weight: 700; font-size: 13px;")
+        name_lbl.setStyleSheet(f"color: {pal['text_primary']}; font-weight: 700; font-size: 11px;")
         top_row.addWidget(name_lbl, 1)
 
-        mode_badge = QLabel(f" {pal['mode'].upper()} ")
+        mode_badge = QLabel(f"{pal['mode'][:1].upper()}")
         mode_color = "#38BDF8" if pal["mode"] == "dark" else "#F59E0B"
-        mode_badge.setStyleSheet(f"background: rgba(255,255,255,0.08); color: {mode_color}; font-size: 10px; font-weight: 800; border-radius: 6px; padding: 2px 6px;")
+        mode_badge.setStyleSheet(f"background: rgba(255,255,255,0.08); color: {mode_color}; font-size: 9px; font-weight: 800; border-radius: 4px; padding: 1px 4px;")
         top_row.addWidget(mode_badge)
 
         if is_active:
             check_lbl = QLabel("✓")
-            check_lbl.setStyleSheet(f"color: {pal['primary']}; font-weight: 900; font-size: 14px;")
+            check_lbl.setStyleSheet(f"color: {pal['primary']}; font-weight: 900; font-size: 12px;")
             top_row.addWidget(check_lbl)
 
         lay.addLayout(top_row)
 
-        # 4-bar swatch preview: [Background, Surface, Accent, Text]
+        # 4-bar mini swatch preview dots
         swatch_row = QHBoxLayout()
-        swatch_row.setSpacing(4)
+        swatch_row.setSpacing(3)
         colors = [pal["background"], pal["surface"], pal["primary"], pal["text_primary"]]
-        labels = ["BG", "Card", "Accent", "Text"]
-        for c, _ in zip(colors, labels):
+        for c in colors:
             sw = QFrame()
-            sw.setFixedHeight(14)
-            sw.setStyleSheet(f"background-color: {c}; border-radius: 4px; border: 1px solid rgba(0,0,0,0.15);")
+            sw.setFixedHeight(6)
+            sw.setStyleSheet(f"background-color: {c}; border-radius: 3px; border: 1px solid rgba(0,0,0,0.12);")
             swatch_row.addWidget(sw, 1)
         lay.addLayout(swatch_row)
 
@@ -589,8 +961,8 @@ class SettingsPage(QWidget):
         self._theme_lbl.setText(self._theme.palette.get("name", "Dark Mode"))
         self._theme_lbl.setStyleSheet(f"color: {AccentManager().current}; font-size: 13px; font-weight: 700;")
         self._update_cat_buttons_style()
-        self._rebuild_palette_cards()
-        self._rebuild_color_swatches()
+        QTimer.singleShot(120, self._rebuild_palette_cards)
+        QTimer.singleShot(120, self._rebuild_color_swatches)
         success(self, message=f"Theme set to '{self._theme.palette.get('name')}'")
 
     # ── Color theme picker ──────────────────────────────────────────────
@@ -689,6 +1061,8 @@ class SettingsPage(QWidget):
         sub.setWordWrap(True)
         lay.addWidget(sub)
 
+        can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
 
@@ -698,45 +1072,50 @@ class SettingsPage(QWidget):
         backup_btn.setIconSize(QSize(15, 15))
         backup_btn.setCursor(Qt.PointingHandCursor)
         backup_btn.clicked.connect(self._backup_db)
-
-        restore_btn = QPushButton("  Restore Database")
-        restore_btn.setObjectName("secondaryButton")
-        restore_btn.setCursor(Qt.PointingHandCursor)
-        restore_btn.setToolTip("DESTRUCTIVE: completely replaces all current data with the backup file.\nUse 'Merge Data from Another Device' instead if you just want to bring in another device's records.")
-        restore_btn.clicked.connect(self._restore_db)
-
         btn_row.addWidget(backup_btn)
-        btn_row.addWidget(restore_btn)
+
+        if can_edit:
+            restore_btn = QPushButton("  Restore Database")
+            restore_btn.setObjectName("secondaryButton")
+            restore_btn.setCursor(Qt.PointingHandCursor)
+            restore_btn.setToolTip("DESTRUCTIVE: completely replaces all current data with the backup file.\nUse 'Merge Data from Another Device' instead if you just want to bring in another device's records.")
+            restore_btn.clicked.connect(self._restore_db)
+            btn_row.addWidget(restore_btn)
+
         btn_row.addStretch()
         lay.addLayout(btn_row)
 
-        div = QFrame()
-        div.setObjectName("divider")
-        lay.addWidget(div)
+        if can_edit:
+            div = QFrame()
+            div.setObjectName("divider")
+            lay.addWidget(div)
 
-        merge_title = QLabel("Merge Data from Another Device (Safe)")
-        merge_title.setStyleSheet("font-weight: 700; font-size: 13px;")
-        lay.addWidget(merge_title)
+            merge_title = QLabel("Merge Data from Another Device (Safe)")
+            merge_title.setStyleSheet("font-weight: 700; font-size: 13px;")
+            lay.addWidget(merge_title)
 
-        merge_sub = QLabel(
-            "For multiple devices (e.g. a PC and a laptop) that each have their own bookings and "
-            "payments. This safely combines the other device's backup into this database — it never "
-            "deletes or downgrades a payment/status that already exists here (Paid stays Paid, Partial "
-            "stays at least Partial), only adds genuinely new bookings and payments."
-        )
-        merge_sub.setObjectName("subtitle")
-        merge_sub.setWordWrap(True)
-        lay.addWidget(merge_sub)
+            merge_sub = QLabel(
+                "For multiple devices (e.g. a PC and a laptop) that each have their own bookings and "
+                "payments. This safely combines the other device's backup into this database — it never "
+                "deletes or downgrades a payment/status that already exists here (Paid stays Paid, Partial "
+                "stays at least Partial), only adds genuinely new bookings and payments."
+            )
+            merge_sub.setObjectName("subtitle")
+            merge_sub.setWordWrap(True)
+            lay.addWidget(merge_sub)
 
-        merge_btn = QPushButton("  Merge Backup File Into This Database...")
-        merge_btn.setObjectName("secondaryButton")
-        merge_btn.setCursor(Qt.PointingHandCursor)
-        merge_btn.clicked.connect(self._merge_db)
-        lay.addWidget(merge_btn, alignment=Qt.AlignLeft)
+            merge_btn = QPushButton("  Merge Backup File Into This Database...")
+            merge_btn.setObjectName("secondaryButton")
+            merge_btn.setCursor(Qt.PointingHandCursor)
+            merge_btn.clicked.connect(self._merge_db)
+            lay.addWidget(merge_btn, alignment=Qt.AlignLeft)
 
         return card
 
     def _merge_db(self):
+        if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot merge external database files.")
+            return
         path, _ = QFileDialog.getOpenFileName(self, "Select Backup Database File to Merge", "", "SQLite Database (*.db);;All Files (*)")
         if not path:
             return
@@ -833,15 +1212,19 @@ class SettingsPage(QWidget):
         sub.setWordWrap(True)
         lay.addWidget(sub)
 
+        can_create = SessionManager.is_admin() or SessionManager.has_permission("settings", "create") or SessionManager.has_permission("settings", "edit")
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
 
-        import_btn = QPushButton("  Open Data Import Wizard")
-        import_btn.setObjectName("primaryButton")
-        import_btn.setIcon(btn_icon_primary("export"))
-        import_btn.setIconSize(QSize(15, 15))
-        import_btn.setCursor(Qt.PointingHandCursor)
-        import_btn.clicked.connect(self._open_import_wizard)
+        if can_create:
+            import_btn = QPushButton("  Open Data Import Wizard")
+            import_btn.setObjectName("primaryButton")
+            import_btn.setIcon(btn_icon_primary("export"))
+            import_btn.setIconSize(QSize(15, 15))
+            import_btn.setCursor(Qt.PointingHandCursor)
+            import_btn.clicked.connect(self._open_import_wizard)
+            btn_row.addWidget(import_btn)
 
         export_btn = QPushButton("  Open Data Export Wizard")
         export_btn.setObjectName("secondaryButton")
@@ -849,14 +1232,16 @@ class SettingsPage(QWidget):
         export_btn.setIconSize(QSize(15, 15))
         export_btn.setCursor(Qt.PointingHandCursor)
         export_btn.clicked.connect(self._open_export_wizard)
-
-        btn_row.addWidget(import_btn)
         btn_row.addWidget(export_btn)
+
         btn_row.addStretch()
         lay.addLayout(btn_row)
         return card
 
     def _open_import_wizard(self):
+        if not SessionManager.is_admin() and not (SessionManager.has_permission("settings", "create") or SessionManager.has_permission("settings", "edit")):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot import data.")
+            return
         from components.import_dialog import ImportWizardDialog
         dlg = ImportWizardDialog(default_entity="customers", parent=self)
         dlg.exec()
@@ -873,17 +1258,22 @@ class SettingsPage(QWidget):
         lay.setContentsMargins(24, 24, 24, 24)
         lay.setSpacing(16)
 
+        can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
+        can_create = SessionManager.is_admin() or SessionManager.has_permission("settings", "create")
+        can_delete = SessionManager.is_admin() or SessionManager.has_permission("settings", "delete")
+
         head = QHBoxLayout()
         sec_title = QLabel("Occasion Types")
         sec_title.setObjectName("h3")
         head.addWidget(sec_title)
         head.addStretch()
-        add_btn = QPushButton("  Add")
-        add_btn.setObjectName("primaryButton")
-        add_btn.setFixedHeight(30)
-        add_btn.setIcon(btn_icon_primary("plus"))
-        add_btn.clicked.connect(self._add_occasion)
-        head.addWidget(add_btn)
+        if can_create:
+            add_btn = QPushButton("  Add")
+            add_btn.setObjectName("primaryButton")
+            add_btn.setFixedHeight(30)
+            add_btn.setIcon(btn_icon_primary("plus"))
+            add_btn.clicked.connect(self._add_occasion)
+            head.addWidget(add_btn)
         lay.addLayout(head)
 
         self._occ_list = QListWidget()
@@ -891,29 +1281,45 @@ class SettingsPage(QWidget):
         self._occ_list.setFocusPolicy(Qt.NoFocus)
         lay.addWidget(self._occ_list)
 
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        edit_btn = QPushButton("  Rename")
-        edit_btn.setObjectName("secondaryButton")
-        edit_btn.setFixedHeight(30)
-        edit_btn.clicked.connect(self._edit_occasion)
-        del_btn = QPushButton("  Delete")
-        del_btn.setObjectName("secondaryButton")
-        del_btn.setFixedHeight(30)
-        del_btn.clicked.connect(self._delete_occasion)
-        btn_row.addWidget(edit_btn)
-        btn_row.addWidget(del_btn)
-        lay.addLayout(btn_row)
+        if can_edit or can_delete:
+            btn_row = QHBoxLayout()
+            btn_row.addStretch()
+            if can_edit:
+                edit_btn = QPushButton("  Rename")
+                edit_btn.setObjectName("secondaryButton")
+                edit_btn.setFixedHeight(30)
+                edit_btn.clicked.connect(self._edit_occasion)
+                btn_row.addWidget(edit_btn)
+            if can_delete:
+                del_btn = QPushButton("  Delete")
+                del_btn.setObjectName("secondaryButton")
+                del_btn.setFixedHeight(30)
+                del_btn.clicked.connect(self._delete_occasion)
+                btn_row.addWidget(del_btn)
+            lay.addLayout(btn_row)
 
-        self._load_occasions()
         return card
 
     def _load_occasions(self):
-        self._occ_list.clear()
-        for name in repo.get_all_occasions():
-            self._occ_list.addItem(QListWidgetItem(name))
+        from utils.data_loader import run_async
+        run_async(self, repo.get_all_occasions, self._on_occasions_loaded)
+
+    def _on_occasions_loaded(self, occasions):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        if hasattr(self, "_occ_list"):
+            self._occ_list.clear()
+            for name in (occasions or []):
+                self._occ_list.addItem(QListWidgetItem(name))
 
     def _add_occasion(self):
+        if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "create"):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot add occasion types.")
+            return
         text, ok = QInputDialog.getText(self, "Add Occasion", "Occasion name:")
         if ok and text.strip():
             try:
@@ -924,6 +1330,9 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, "Error", str(e))
 
     def _edit_occasion(self):
+        if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot edit occasion types.")
+            return
         item = self._occ_list.currentItem()
         if not item:
             QMessageBox.information(self, "Select", "Please select an occasion to rename.")
@@ -939,6 +1348,9 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, "Error", str(e))
 
     def _delete_occasion(self):
+        if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "delete"):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot delete occasion types.")
+            return
         item = self._occ_list.currentItem()
         if not item:
             QMessageBox.information(self, "Select", "Please select an occasion to delete.")
@@ -996,12 +1408,21 @@ class SettingsPage(QWidget):
         return card
 
     def _load_audit_log(self):
+        from utils.data_loader import run_async
+        run_async(self, lambda: repo.get_audit_log(50), self._on_audit_logs_loaded)
+
+    def _on_audit_logs_loaded(self, logs):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
         while self.audit_cards_layout.count():
             item = self.audit_cards_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        logs = repo.get_audit_log(50)
         if not logs:
             empty_card = QFrame()
             empty_card.setObjectName("entryCard")
@@ -1013,9 +1434,12 @@ class SettingsPage(QWidget):
             self.audit_cards_layout.addWidget(empty_card)
         else:
             action_colors = {
-                "APPROVE": "#22C55E", "CREATE": "#3B82F6", "CANCEL": "#EF4444",
-                "PAYMENT": "#F59E0B", "DOWN_PAYMENT": "#F59E0B", "DELETE": "#EF4444",
-                "UPDATE": "#8B5CF6", "ADD_CHARGE": "#38BDF8",
+                "APPROVE": "#22C55E", "CREATE": "#3B82F6", "ADD": "#3B82F6", "CANCEL": "#EF4444",
+                "DELETE": "#EF4444", "REMOVE": "#EF4444", "PAYMENT": "#10B981", "DOWN_PAYMENT": "#10B981",
+                "UPDATE": "#8B5CF6", "EDIT": "#8B5CF6", "STATUS_CHANGE": "#6366F1",
+                "ADD_CHARGE": "#38BDF8", "DELETE_CHARGE": "#F43F5E",
+                "FOLLOW_UP": "#EC4899", "COMPLETE_FOLLOW_UP": "#14B8A6", "DELETE_FOLLOW_UP": "#64748B",
+                "ADJUST_STOCK": "#06B6D4", "MERGE_IMPORT": "#F59E0B", "REPLACE_IMPORT": "#EA580C",
             }
             for log in logs:
                 card = QFrame()
@@ -1321,6 +1745,9 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, "Backup Error", str(exc))
 
     def _restore_db(self):
+        if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot restore database backups.")
+            return
         import utils.db as db
         import shutil
         engine = db.get_engine_type()
@@ -1533,6 +1960,9 @@ class SettingsPage(QWidget):
                 lbl.setText(label_map[key])
 
     def _on_purge_selected(self):
+        if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "delete"):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot purge data.")
+            return
         selected = [k for k, (cb, _) in self._purge_cbs.items() if cb.isChecked()]
         if not selected:
             QMessageBox.information(self, "No Selection", "Please check at least one category to delete.")
@@ -1562,6 +1992,9 @@ class SettingsPage(QWidget):
             QMessageBox.critical(self, "Deletion Error", f"An error occurred during deletion:\n{exc}")
 
     def _on_purge_all(self):
+        if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "delete"):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot purge data.")
+            return
         confirm = QMessageBox.critical(
             self,
             "FACTORY RESET CONFIRMATION",

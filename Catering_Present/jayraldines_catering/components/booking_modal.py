@@ -166,8 +166,8 @@ def _input(placeholder="", fixed_height=38):
 
 
 class StepIndicator(QWidget):
-    def __init__(self, steps):
-        super().__init__()
+    def __init__(self, steps, parent=None):
+        super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -1159,6 +1159,19 @@ class BookingModal(QDialog):
             self._refresh_step(direction=-1)
 
     def _save(self):
+        venue_val = self.f_venue.text().strip() if hasattr(self, "f_venue") else ""
+        if not venue_val:
+            self._overlay.hide_overlay()
+            self._btn_next.setText("Save Booking")
+            self._btn_next.setEnabled(True)
+            self._btn_back.setEnabled(True)
+            self._step = 1
+            self._refresh_step()
+            if hasattr(self, "f_venue"):
+                self.f_venue.setFocus()
+                self.f_venue.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px; padding: 8px 14px;")
+            return
+
         self._overlay.show_overlay("Saving reservation & updating schedule...")
         self._btn_next.setText("  Saving...")
         self._btn_next.setEnabled(False)

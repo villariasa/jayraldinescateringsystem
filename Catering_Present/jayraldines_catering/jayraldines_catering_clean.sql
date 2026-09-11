@@ -28,7 +28,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- ENUMERATIONS
 -- =============================================================================
 CREATE TYPE booking_status    AS ENUM ('PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED');
-CREATE TYPE invoice_status    AS ENUM ('Unpaid', 'Partial', 'Paid');
+CREATE TYPE invoice_status    AS ENUM ('Unpaid', 'Partial', 'Paid', 'CANCELLED', 'Cancelled');
 CREATE TYPE customer_status   AS ENUM ('Active', 'Pending', 'Inactive');
 CREATE TYPE loyalty_tier      AS ENUM ('Bronze', 'Silver', 'Gold', 'VIP');
 CREATE TYPE menu_status       AS ENUM ('Available', 'Unavailable', 'Seasonal', 'Out of Stock');

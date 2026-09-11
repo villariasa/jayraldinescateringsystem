@@ -1027,8 +1027,8 @@ class AddMultiplePackagesDialog(QDialog):
 
 
 class MenuPage(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self._dirty = True
         self._selected_item_ids = set()
         self._selected_pkg_ids = set()
@@ -1048,13 +1048,56 @@ class MenuPage(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self.refresh_permissions()
         if self._dirty:
             self._do_reload()
 
     def reload(self):
         self._mark_dirty()
+        self.refresh_permissions()
         if self.isVisible():
             self._do_reload()
+
+    def refresh_permissions(self):
+        from utils.auth import SessionManager
+        can_create = SessionManager.has_permission("menu", "create")
+        can_delete = SessionManager.has_permission("menu", "delete")
+        can_edit = SessionManager.has_permission("menu", "edit")
+
+        if hasattr(self, "add_btn"):
+            self.add_btn.setEnabled(can_create)
+            self.add_btn.setVisible(can_create)
+        if hasattr(self, "multi_add_btn"):
+            self.multi_add_btn.setEnabled(can_create)
+            self.multi_add_btn.setVisible(can_create)
+        if hasattr(self, "import_btn"):
+            self.import_btn.setEnabled(can_create)
+            self.import_btn.setVisible(can_create)
+
+        if hasattr(self, "add_pkg_btn"):
+            self.add_pkg_btn.setEnabled(can_create)
+            self.add_pkg_btn.setVisible(can_create)
+        if hasattr(self, "multi_pkg_btn"):
+            self.multi_pkg_btn.setEnabled(can_create)
+            self.multi_pkg_btn.setVisible(can_create)
+        if hasattr(self, "import_pkg_btn"):
+            self.import_pkg_btn.setEnabled(can_create)
+            self.import_pkg_btn.setVisible(can_create)
+        if hasattr(self, "template_pkg_btn"):
+            self.template_pkg_btn.setEnabled(can_create)
+            self.template_pkg_btn.setVisible(can_create)
+
+        if hasattr(self, "_cb_select_all_items"):
+            self._cb_select_all_items.setVisible(can_delete)
+        if hasattr(self, "_lbl_items_selected_count"):
+            self._lbl_items_selected_count.setVisible(can_delete)
+        if hasattr(self, "_cb_select_all_pkgs"):
+            self._cb_select_all_pkgs.setVisible(can_delete)
+        if hasattr(self, "_lbl_pkgs_selected_count"):
+            self._lbl_pkgs_selected_count.setVisible(can_delete)
+
+        self._update_items_selection_ui()
+        self._update_pkgs_selection_ui()
 
     def _do_reload(self):
         self._dirty = False
@@ -1108,27 +1151,27 @@ class MenuPage(QWidget):
         toolbar = QHBoxLayout()
         toolbar.addStretch()
 
-        add_btn = QPushButton("  Add Item")
-        add_btn.setObjectName("primaryButton")
-        add_btn.setIcon(btn_icon_primary("plus"))
-        add_btn.setIconSize(QSize(15, 15))
-        add_btn.setCursor(Qt.PointingHandCursor)
-        add_btn.clicked.connect(self._open_add_dialog)
-        toolbar.addWidget(add_btn)
+        self.add_btn = QPushButton("  Add Item")
+        self.add_btn.setObjectName("primaryButton")
+        self.add_btn.setIcon(btn_icon_primary("plus"))
+        self.add_btn.setIconSize(QSize(15, 15))
+        self.add_btn.setCursor(Qt.PointingHandCursor)
+        self.add_btn.clicked.connect(self._open_add_dialog)
+        toolbar.addWidget(self.add_btn)
 
-        multi_add_btn = QPushButton("  + Quick Multi-Add")
-        multi_add_btn.setObjectName("secondaryButton")
-        multi_add_btn.setCursor(Qt.PointingHandCursor)
-        multi_add_btn.clicked.connect(self._open_multi_add_items_dialog)
-        toolbar.addWidget(multi_add_btn)
+        self.multi_add_btn = QPushButton("  + Quick Multi-Add")
+        self.multi_add_btn.setObjectName("secondaryButton")
+        self.multi_add_btn.setCursor(Qt.PointingHandCursor)
+        self.multi_add_btn.clicked.connect(self._open_multi_add_items_dialog)
+        toolbar.addWidget(self.multi_add_btn)
 
-        import_btn = QPushButton("  Import")
-        import_btn.setObjectName("secondaryButton")
-        import_btn.setIcon(btn_icon_secondary("export"))
-        import_btn.setIconSize(QSize(15, 15))
-        import_btn.setCursor(Qt.PointingHandCursor)
-        import_btn.clicked.connect(self._open_import_items_dialog)
-        toolbar.addWidget(import_btn)
+        self.import_btn = QPushButton("  Import")
+        self.import_btn.setObjectName("secondaryButton")
+        self.import_btn.setIcon(btn_icon_secondary("export"))
+        self.import_btn.setIconSize(QSize(15, 15))
+        self.import_btn.setCursor(Qt.PointingHandCursor)
+        self.import_btn.clicked.connect(self._open_import_items_dialog)
+        toolbar.addWidget(self.import_btn)
 
         export_btn = QPushButton("  Export")
         export_btn.setObjectName("secondaryButton")
@@ -1209,19 +1252,36 @@ class MenuPage(QWidget):
         toolbar = QHBoxLayout()
         toolbar.addStretch()
 
-        add_pkg_btn = QPushButton("  Add Package")
-        add_pkg_btn.setObjectName("primaryButton")
-        add_pkg_btn.setIcon(btn_icon_primary("plus"))
-        add_pkg_btn.setIconSize(QSize(15, 15))
-        add_pkg_btn.setCursor(Qt.PointingHandCursor)
-        add_pkg_btn.clicked.connect(self._open_add_package_dialog)
-        toolbar.addWidget(add_pkg_btn)
+        self.add_pkg_btn = QPushButton("  Add Package")
+        self.add_pkg_btn.setObjectName("primaryButton")
+        self.add_pkg_btn.setIcon(btn_icon_primary("plus"))
+        self.add_pkg_btn.setIconSize(QSize(15, 15))
+        self.add_pkg_btn.setCursor(Qt.PointingHandCursor)
+        self.add_pkg_btn.clicked.connect(self._open_add_package_dialog)
+        toolbar.addWidget(self.add_pkg_btn)
 
-        multi_pkg_btn = QPushButton("  + Quick Multi-Add")
-        multi_pkg_btn.setObjectName("secondaryButton")
-        multi_pkg_btn.setCursor(Qt.PointingHandCursor)
-        multi_pkg_btn.clicked.connect(self._open_multi_add_packages_dialog)
-        toolbar.addWidget(multi_pkg_btn)
+        self.multi_pkg_btn = QPushButton("  + Quick Multi-Add")
+        self.multi_pkg_btn.setObjectName("secondaryButton")
+        self.multi_pkg_btn.setCursor(Qt.PointingHandCursor)
+        self.multi_pkg_btn.clicked.connect(self._open_multi_add_packages_dialog)
+        toolbar.addWidget(self.multi_pkg_btn)
+
+        self.import_pkg_btn = QPushButton("  Import")
+        self.import_pkg_btn.setObjectName("secondaryButton")
+        self.import_pkg_btn.setIcon(btn_icon_secondary("export"))
+        self.import_pkg_btn.setIconSize(QSize(15, 15))
+        self.import_pkg_btn.setCursor(Qt.PointingHandCursor)
+        self.import_pkg_btn.clicked.connect(self._open_import_packages_dialog)
+        toolbar.addWidget(self.import_pkg_btn)
+
+        self.template_pkg_btn = QPushButton("  Template")
+        self.template_pkg_btn.setObjectName("secondaryButton")
+        self.template_pkg_btn.setIcon(btn_icon_secondary("export"))
+        self.template_pkg_btn.setIconSize(QSize(15, 15))
+        self.template_pkg_btn.setCursor(Qt.PointingHandCursor)
+        self.template_pkg_btn.setToolTip("Download sample Excel template for importing packages")
+        self.template_pkg_btn.clicked.connect(self._download_packages_template)
+        toolbar.addWidget(self.template_pkg_btn)
 
         export_pkg_btn = QPushButton("  Export")
         export_pkg_btn.setObjectName("secondaryButton")
@@ -1326,18 +1386,24 @@ class MenuPage(QWidget):
         self._update_pkgs_selection_ui()
 
     def _update_items_selection_ui(self):
+        from utils.auth import SessionManager
+        can_delete = SessionManager.has_permission("menu", "delete")
         count = len(self._selected_item_ids)
         self._lbl_items_selected_count.setText(f"{count} selected")
-        self._btn_delete_selected_items.setEnabled(count > 0)
+        self._btn_delete_selected_items.setEnabled(can_delete and count > 0)
+        self._btn_delete_selected_items.setVisible(can_delete)
         if count > 0:
             self._btn_delete_selected_items.setText(f"  Delete Selected ({count})")
         else:
             self._btn_delete_selected_items.setText("  Delete Selected")
 
     def _update_pkgs_selection_ui(self):
+        from utils.auth import SessionManager
+        can_delete = SessionManager.has_permission("menu", "delete")
         count = len(self._selected_pkg_ids)
         self._lbl_pkgs_selected_count.setText(f"{count} selected")
-        self._btn_delete_selected_pkgs.setEnabled(count > 0)
+        self._btn_delete_selected_pkgs.setEnabled(can_delete and count > 0)
+        self._btn_delete_selected_pkgs.setVisible(can_delete)
         if count > 0:
             self._btn_delete_selected_pkgs.setText(f"  Delete Selected ({count})")
         else:
@@ -1412,6 +1478,10 @@ class MenuPage(QWidget):
         status_lbl.setStyleSheet(f"font-weight: 700; font-size: 11px; color: {s_color}; padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 8px;")
         lay.addWidget(status_lbl, alignment=Qt.AlignVCenter)
 
+        from utils.auth import SessionManager
+        can_edit = SessionManager.has_permission("menu", "edit")
+        can_delete = SessionManager.has_permission("menu", "delete")
+
         actions_w = QFrame()
         actions_w.setStyleSheet("background: transparent;")
         actions_l = QHBoxLayout(actions_w)
@@ -1419,26 +1489,41 @@ class MenuPage(QWidget):
         actions_l.setSpacing(6)
 
         edit_btn = QPushButton()
-        edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
-        edit_btn.setIconSize(QSize(13, 13))
-        edit_btn.setFixedSize(30, 30)
-        edit_btn.setStyleSheet("background: transparent; border: none;")
-        edit_btn.setCursor(Qt.PointingHandCursor)
-        edit_btn.setToolTip("Edit item")
+        edit_btn.setIcon(get_icon("edit", color="#38BDF8" if can_edit else "#4B5563", size=QSize(14, 14)))
+        edit_btn.setIconSize(QSize(14, 14))
+        edit_btn.setFixedSize(32, 32)
+        edit_btn.setToolTip("Edit menu item" if can_edit else "Permission required to edit")
+        edit_btn.setStyleSheet(
+            "QPushButton { background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; } "
+            "QPushButton:hover { background: rgba(56, 189, 248, 0.25); border-color: #38BDF8; }"
+        )
+        edit_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
+        edit_btn.setEnabled(can_edit)
         edit_btn.clicked.connect(lambda _, it=item: self._edit_item_dict(it))
 
         del_btn = QPushButton()
-        del_btn.setIcon(btn_icon_red("trash"))
+        del_btn.setIcon(btn_icon_red("trash") if can_delete else get_icon("trash", color="#4B5563", size=QSize(14, 14)))
         del_btn.setIconSize(QSize(14, 14))
-        del_btn.setFixedSize(30, 30)
-        del_btn.setStyleSheet("background: transparent; border: none;")
-        del_btn.setCursor(Qt.PointingHandCursor)
-        del_btn.setToolTip("Delete item")
+        del_btn.setFixedSize(32, 32)
+        del_btn.setStyleSheet(
+            "QPushButton { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; } "
+            "QPushButton:hover { background: rgba(239, 68, 68, 0.25); border-color: #EF4444; }"
+        )
+        del_btn.setCursor(Qt.PointingHandCursor if can_delete else Qt.ForbiddenCursor)
+        del_btn.setEnabled(can_delete)
+        del_btn.setToolTip("Delete menu item" if can_delete else "Permission required to delete")
         del_btn.clicked.connect(lambda _, it=item: self._delete_item_dict(it))
 
-        actions_l.addWidget(edit_btn)
-        actions_l.addWidget(del_btn)
-        lay.addWidget(actions_w)
+        if can_edit:
+            actions_l.addWidget(edit_btn)
+        if can_delete:
+            actions_l.addWidget(del_btn)
+
+        if can_edit or can_delete:
+            lay.addWidget(actions_w)
+
+        if can_edit:
+            card.mouseDoubleClickEvent = lambda _, it=item: self._edit_item_dict(it)
 
         return card
 
@@ -1452,6 +1537,10 @@ class MenuPage(QWidget):
         self._update_items_selection_ui()
 
     def _edit_item_dict(self, item: dict):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "edit"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to edit menu items.")
+            return
         dlg = MenuItemDialog(self, item_data=item)
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
@@ -1467,6 +1556,10 @@ class MenuPage(QWidget):
                 success(self, message="Menu item updated successfully.")
 
     def _delete_item_dict(self, item: dict):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "delete"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete menu items.")
+            return
         item_name = item.get("item", "")
         item_id = item.get("id")
         if not confirm(self, title="Delete Menu Item",
@@ -1484,6 +1577,10 @@ class MenuPage(QWidget):
         success(self, message="Menu item deleted successfully.")
 
     def _delete_selected_menu_items(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "delete"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete menu items.")
+            return
         if not self._selected_item_ids:
             return
         count = len(self._selected_item_ids)
@@ -1503,6 +1600,10 @@ class MenuPage(QWidget):
         success(self, message=f"Successfully deleted {deleted} menu item(s).")
 
     def _open_add_dialog(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add menu items.")
+            return
         dlg = MenuItemDialog(self)
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
@@ -1518,6 +1619,10 @@ class MenuPage(QWidget):
                 success(self, message="Menu item added successfully.")
 
     def _open_multi_add_items_dialog(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add menu items.")
+            return
         dlg = AddMultipleMenuItemsDialog(self)
         if dlg.exec():
             self.reload()
@@ -1529,6 +1634,10 @@ class MenuPage(QWidget):
             success(self, message=f"Added {dlg._added_count} menu item(s) successfully.")
 
     def _open_import_items_dialog(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to import menu items.")
+            return
         from components.import_dialog import ImportWizardDialog
         dlg = ImportWizardDialog(default_entity="menu_items", parent=self)
         if dlg.exec():
@@ -1640,6 +1749,10 @@ class MenuPage(QWidget):
         p_info.addWidget(min_p)
         lay.addLayout(p_info, 2)
 
+        from utils.auth import SessionManager
+        can_edit = SessionManager.has_permission("menu", "edit")
+        can_delete = SessionManager.has_permission("menu", "delete")
+
         actions_w = QFrame()
         actions_w.setStyleSheet("background: transparent;")
         actions_l = QHBoxLayout(actions_w)
@@ -1647,26 +1760,41 @@ class MenuPage(QWidget):
         actions_l.setSpacing(6)
 
         edit_btn = QPushButton()
-        edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
-        edit_btn.setIconSize(QSize(13, 13))
-        edit_btn.setFixedSize(30, 30)
-        edit_btn.setStyleSheet("background: transparent; border: none;")
-        edit_btn.setCursor(Qt.PointingHandCursor)
-        edit_btn.setToolTip("Edit package")
+        edit_btn.setIcon(get_icon("edit", color="#38BDF8" if can_edit else "#4B5563", size=QSize(14, 14)))
+        edit_btn.setIconSize(QSize(14, 14))
+        edit_btn.setFixedSize(32, 32)
+        edit_btn.setStyleSheet(
+            "QPushButton { background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; } "
+            "QPushButton:hover { background: rgba(56, 189, 248, 0.25); border-color: #38BDF8; }"
+        )
+        edit_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
+        edit_btn.setEnabled(can_edit)
+        edit_btn.setToolTip("Edit package" if can_edit else "Permission required to edit")
         edit_btn.clicked.connect(lambda _, p=pkg: self._edit_package_dict(p))
 
         del_btn = QPushButton()
-        del_btn.setIcon(btn_icon_red("trash"))
+        del_btn.setIcon(btn_icon_red("trash") if can_delete else get_icon("trash", color="#4B5563", size=QSize(14, 14)))
         del_btn.setIconSize(QSize(14, 14))
-        del_btn.setFixedSize(30, 30)
-        del_btn.setStyleSheet("background: transparent; border: none;")
-        del_btn.setCursor(Qt.PointingHandCursor)
-        del_btn.setToolTip("Delete package")
+        del_btn.setFixedSize(32, 32)
+        del_btn.setStyleSheet(
+            "QPushButton { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; } "
+            "QPushButton:hover { background: rgba(239, 68, 68, 0.25); border-color: #EF4444; }"
+        )
+        del_btn.setCursor(Qt.PointingHandCursor if can_delete else Qt.ForbiddenCursor)
+        del_btn.setEnabled(can_delete)
+        del_btn.setToolTip("Delete package" if can_delete else "Permission required to delete")
         del_btn.clicked.connect(lambda _, p=pkg: self._delete_package_dict(p))
 
-        actions_l.addWidget(edit_btn)
-        actions_l.addWidget(del_btn)
-        lay.addWidget(actions_w)
+        if can_edit:
+            actions_l.addWidget(edit_btn)
+        if can_delete:
+            actions_l.addWidget(del_btn)
+
+        if can_edit or can_delete:
+            lay.addWidget(actions_w)
+
+        if can_edit:
+            card.mouseDoubleClickEvent = lambda _, p=pkg: self._edit_package_dict(p)
 
         return card
 
@@ -1680,6 +1808,10 @@ class MenuPage(QWidget):
         self._update_pkgs_selection_ui()
 
     def _open_add_package_dialog(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add packages.")
+            return
         dlg = PackageDialog(self)
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
@@ -1699,6 +1831,10 @@ class MenuPage(QWidget):
                     QMessageBox.warning(self, "Error", "Failed to add package. Name may already exist.")
 
     def _open_multi_add_packages_dialog(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add packages.")
+            return
         dlg = AddMultiplePackagesDialog(self)
         if dlg.exec():
             self.reload()
@@ -1708,6 +1844,43 @@ class MenuPage(QWidget):
             except Exception:
                 pass
             success(self, message=f"Added {dlg._added_count} package(s) successfully.")
+
+    def _open_import_packages_dialog(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to import packages.")
+            return
+        from components.import_dialog import ImportWizardDialog
+        dlg = ImportWizardDialog(default_entity="packages", parent=self)
+        if dlg.exec():
+            self.reload()
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+            except Exception:
+                pass
+
+    def _download_packages_template(self):
+        from PySide6.QtWidgets import QFileDialog
+        from utils import importer
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Packages Import Template",
+            "packages_import_template.xlsx",
+            "Excel Spreadsheet (*.xlsx);;CSV Spreadsheet (*.csv)"
+        )
+        if not path:
+            return
+        err = importer.generate_sample_csv("packages", path)
+        if not err:
+            prompt_file_saved(
+                self,
+                path,
+                title="Template Saved",
+                message="Packages import template saved successfully. Fill in your package details and click Import anytime."
+            )
+        else:
+            QMessageBox.warning(self, "Save Failed", f"Could not generate template: {err}")
 
     def _export_packages(self):
         import csv
@@ -1724,6 +1897,10 @@ class MenuPage(QWidget):
         prompt_file_saved(self, path, title="Packages Exported", message="Packages list exported successfully.")
 
     def _edit_package_dict(self, pkg: dict):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "edit"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to edit packages.")
+            return
         dlg = PackageDialog(self, pkg_data=pkg)
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
@@ -1743,6 +1920,10 @@ class MenuPage(QWidget):
                     QMessageBox.warning(self, "Error", "Failed to update package.")
 
     def _delete_package_dict(self, pkg: dict):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "delete"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete packages.")
+            return
         pkg_name = pkg.get("name", "")
         if not confirm(self, title="Delete Package",
                        message=f"Delete package '{pkg_name}'? Packages linked to existing bookings cannot be deleted.",
@@ -1763,6 +1944,10 @@ class MenuPage(QWidget):
                                 "This package is linked to existing bookings and cannot be deleted.")
 
     def _delete_selected_packages(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("menu", "delete"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete packages.")
+            return
         if not self._selected_pkg_ids:
             return
         count = len(self._selected_pkg_ids)

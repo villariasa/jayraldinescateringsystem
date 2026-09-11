@@ -37,11 +37,20 @@ _DRAG_THRESHOLD = 6
 
 
 class SpeechBubble(QWidget):
-    """Speech bubble attached to the mascot that stays strictly inside the application."""
+    """Speech bubble attached to the mascot that stays strictly inside the application.
+
+    NOTE: We intentionally do NOT use Qt.ToolTip here. Qt.ToolTip causes Windows to
+    create a native OS-level popup window (separate from the main app), which flashes
+    briefly in the taskbar/DWM compositor every time the bubble is shown or repositioned.
+    Qt.SubWindow + Qt.FramelessWindowHint keeps the bubble as a true child widget of its
+    parent, with no native OS window handle, no DWM entry, and no visible flash.
+    """
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(parent, Qt.SubWindow | Qt.FramelessWindowHint)
         self._mascot = parent
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.hide()
 
         layout = QVBoxLayout(self)
@@ -71,12 +80,20 @@ class SpeechBubble(QWidget):
         if not text:
             return
         mascot = self._mascot or self.parent()
-        if mascot and hasattr(mascot, "window"):
+        if not mascot:
+            return
+        try:
+            from shiboken6 import isValid
+            if not isValid(mascot):
+                return
+        except Exception:
+            pass
+        if hasattr(mascot, "window"):
             win = mascot.window()
             if win and (not win.isVisible() or win.isMinimized()):
                 return
-            if win and self.parent() != win:
-                self.setParent(win)
+        if hasattr(mascot, "isVisible") and not mascot.isVisible():
+            return
         self._update_style()
         self._label.setText(text)
         self.adjustSize()
@@ -87,23 +104,23 @@ class SpeechBubble(QWidget):
 
     def reposition(self, global_pos: QPoint = None):
         mascot = self._mascot or self.parent()
-        if mascot:
-            win = mascot.window()
-            if win:
-                if self.parent() != win:
-                    self.setParent(win)
-                m_pos = mascot.mapTo(win, QPoint(0, 0))
-                bw = self.width()
-                bh = self.height()
-                bx = max(10, min(m_pos.x() + (mascot.width() - bw) // 2, win.width() - bw - 10))
-                by = m_pos.y() - bh - 8
-                if by < 10:
-                    by = m_pos.y() + mascot.height() + 8
-                self.move(bx, by)
+        if not mascot:
+            return
+        try:
+            from shiboken6 import isValid
+            if not isValid(mascot):
                 return
+        except Exception:
+            pass
+        if global_pos is None and hasattr(mascot, "mapToGlobal"):
+            global_pos = mascot.mapToGlobal(QPoint(mascot.width() // 2, 0))
         if global_pos:
-            x = global_pos.x() - self.width() // 2
-            y = global_pos.y() - self.height() - 6
+            bw = self.width()
+            bh = self.height()
+            x = global_pos.x() - bw // 2
+            y = global_pos.y() - bh - 8
+            if y < 10:
+                y = global_pos.y() + (mascot.height() if hasattr(mascot, "height") else 60) + 8
             self.move(x, y)
 
 
@@ -252,9 +269,19 @@ class ChefMascot(QWidget):
         if (x, y) != (self.x(), self.y()):
             self.move(x, y)
 
+    def hideEvent(self, event):
+        if hasattr(self, "_quote_bubble") and self._quote_bubble:
+            self._quote_bubble.hide()
+        super().hideEvent(event)
+
+    def setVisible(self, visible: bool):
+        if not visible and hasattr(self, "_quote_bubble") and self._quote_bubble:
+            self._quote_bubble.hide()
+        super().setVisible(visible)
+
     def moveEvent(self, event):
         super().moveEvent(event)
-        if self._quote_bubble.isVisible():
+        if hasattr(self, "_quote_bubble") and self._quote_bubble.isVisible():
             self._quote_bubble.reposition(self.mapToGlobal(QPoint(self.width() // 2, 0)))
 
     def _show_quote(self, text: str, duration_ms: int = 3200):
@@ -268,7 +295,6 @@ class ChefMascot(QWidget):
         self._was_dragged = False
         self._press_widget_pos = None
         self.resetRequested.emit()
-        self.say("Back home!", duration_ms=2500)
 
     # ── Interactive Mouse Events ────────────────────────────────────────
 
@@ -345,7 +371,6 @@ class ChefMascot(QWidget):
                 exprs = ["wink", "happy", "surprised"]
                 self._expression = random.choice(exprs)
                 self._reset_expr_timer.start(2400)
-                self._show_quote(random.choice(_CHEF_QUOTES))
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event):
@@ -355,14 +380,11 @@ class ChefMascot(QWidget):
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)
-        say_act = menu.addAction("Say something 💬")
         spin_act = menu.addAction("Spin! 🌀")
         menu.addSeparator()
         reset_act = menu.addAction("Reset position 📍")
         chosen = menu.exec(event.globalPos())
-        if chosen == say_act:
-            self._show_quote(random.choice(_CHEF_QUOTES))
-        elif chosen == spin_act:
+        if chosen == spin_act:
             self._start_spin_flip()
         elif chosen == reset_act:
             self._was_dragged = False
@@ -373,11 +395,7 @@ class ChefMascot(QWidget):
         self.update()
 
     def _maybe_idle_quip(self):
-        self._idle_quip_timer.start(random.randint(45000, 90000))
-        if self._state != "idle" or self._dragging or not self.isVisible():
-            return
-        if random.random() < 0.6:
-            self._show_quote(random.choice(_CHEF_QUOTES), duration_ms=3000)
+        pass  # Disabled automatic unprompted speech bubbles to keep navigation clean
 
     def _animate_scale(self, target: float, duration: int = 200, easing=QEasingCurve.OutQuad):
         if self._squish_anim and self._squish_anim.state() == QPropertyAnimation.Running:
@@ -519,18 +537,6 @@ class ChefMascot(QWidget):
         anim.setEndValue(offset)
         anim.setEasingCurve(QEasingCurve.OutBack)
         anim.start()
-
-    def _maybe_idle_quip(self):
-        if self._state == "idle" and not self._dragging and not self._is_hovered:
-            quips = [
-                "Hungry for sales growth? Ask me anything!",
-                "Check out today's capacity on the Dashboard!",
-                "Chef Jay tip: Always follow up with pending invoices!",
-                "I'm here anytime you need instant catering reports!",
-            ]
-            self.say(random.choice(quips), duration_ms=4000)
-            self._blink()
-        self._idle_quip_timer.setInterval(random.randint(45000, 75000))
 
     # ── Painting ─────────────────────────────────────────────────────────
 

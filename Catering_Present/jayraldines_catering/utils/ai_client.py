@@ -2393,6 +2393,45 @@ def daily_briefing() -> dict:
     return _answer_daily_briefing("")
 
 
+_ACTION_PERMISSIONS = {
+    "booking_status": ("booking", "edit"),
+    "booking_create": ("booking", "create"),
+    "payment": ("cashflow", "create"),
+    "customer_create": ("customers", "create"),
+    "customer_edit": ("customers", "edit"),
+    "customer_delete": ("customers", "delete"),
+    "loyalty_recalc": ("customers", "edit"),
+    "follow_up_add": ("customers", "create"),
+    "follow_up_complete": ("customers", "edit"),
+    "expense": ("expenses", "create"),
+    "expense_delete": ("expenses", "delete"),
+    "export_report": ("reports", "view"),
+    "notifications_mark_read": ("dashboard", "view"),
+}
+
+
+def _check_action_perm(res: dict) -> dict:
+    if not res or not isinstance(res, dict):
+        return res
+    act = res.get("action")
+    if not act or not isinstance(act, dict):
+        return res
+    kind = act.get("type")
+    perm_req = _ACTION_PERMISSIONS.get(kind)
+    if perm_req:
+        mod, action_name = perm_req
+        from utils.auth import SessionManager
+        if SessionManager.is_logged_in() and not SessionManager.has_permission(mod, action_name):
+            return {
+                "ok": False,
+                "answer": f"⚠️ Access Denied: Your account does not have permission to {action_name} records in the {mod.capitalize()} module.",
+                "chart": None,
+                "action": None,
+                "error": ""
+            }
+    return res
+
+
 def execute_action(action: dict) -> dict:
     """Perform a previously confirmed action. Returns {"ok", "message"}."""
     global _LAST_ACTION
@@ -2400,6 +2439,15 @@ def execute_action(action: dict) -> dict:
     stamp = datetime.now().strftime("%b %d, %I:%M %p")
     try:
         kind = action.get("type")
+        perm_req = _ACTION_PERMISSIONS.get(kind)
+        if perm_req:
+            mod, action_name = perm_req
+            from utils.auth import SessionManager
+            if SessionManager.is_logged_in() and not SessionManager.has_permission(mod, action_name):
+                return {
+                    "ok": False,
+                    "message": f"❌ Permission Denied: Your account does not have permission to {action_name} records in the {mod.capitalize()} module."
+                }
         if kind == "booking_status":
             repo.update_booking_status(action["db_id"], action["status"],
                                        action.get("reason"))
@@ -3665,14 +3713,14 @@ def _ask_internal(q: str, raw: str) -> dict:
         # 0a. Follow-up to a "which one?" question
         pending_result = _resolve_pending(q, raw)
         if pending_result is not None:
-            return pending_result
+            return _check_action_perm(pending_result)
 
         # 0a2. Typed yes/no about the last proposed action
         if _LAST_ACTION:
             if re.search(_YES_WORDS, q.strip()):
                 action = dict(_LAST_ACTION)
-                return {"ok": True, "chart": None, "action": action, "error": "",
-                        "answer": f"To execute — {action.get('label')} — press Confirm below."}
+                return _check_action_perm({"ok": True, "chart": None, "action": action, "error": "",
+                        "answer": f"To execute — {action.get('label')} — press Confirm below."})
             if re.search(_EXIT_WORDS, q.strip()):
                 _LAST_ACTION = {}
                 return _plain("Okay, I've withdrawn that action — nothing was changed.")
@@ -3703,12 +3751,12 @@ def _ask_internal(q: str, raw: str) -> dict:
         # 0b. "add/create new customer|booking|expense…"
         create_result = _detect_create(q, raw)
         if create_result is not None:
-            return create_result
+            return _check_action_perm(create_result)
 
         # 0c. Action requests
         action_result = _detect_action(q)
         if action_result is not None:
-            return action_result
+            return _check_action_perm(action_result)
 
         # 1. Specific date mentioned
         md = _extract_day(q)

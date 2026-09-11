@@ -41,6 +41,10 @@ let root = null;
 let packagesCache = [];
 let menuGroupedCache = {};
 let lastCreatedOrder = null;
+window.__clearWizardCaches = () => {
+  packagesCache = [];
+  menuGroupedCache = {};
+};
 
 function mergeAddress(currentInput, selectedSuggestion) {
   const input = (currentInput || "").trim();
@@ -503,31 +507,42 @@ function renderStepCustomer(card) {
       });
     }
 
+    const renderSearchResults = async (query = "") => {
+      const results = await api.searchCustomers(query);
+      if (!results || results.length === 0) {
+        resultsEl.innerHTML = `<p style="color:var(--text-muted); padding:10px;">No customers found.</p>`;
+        return;
+      }
+      resultsEl.innerHTML = results.map((r) => `
+        <div class="card card-elevated customer-search-item" style="margin-bottom:8px; cursor:pointer; transition:transform 0.2s; padding:12px 14px;" data-id="${r.id}">
+          <b style="color:var(--text); font-size:15px;">${escapeHtml(r.name)}</b><br>
+          <span style="color:var(--text-muted); font-size:13px;">${escapeHtml(r.contact || "No contact")} · ${escapeHtml(r.address || "Cebu")}</span>
+        </div>
+      `).join("");
+      
+      // Auto-next to Event & Package upon selecting existing customer record
+      resultsEl.querySelectorAll(".customer-search-item").forEach((el) => {
+        el.addEventListener("click", () => {
+          const found = results.find((r) => String(r.id) === el.dataset.id);
+          if (found) {
+            d.customer = { id: found.id, name: found.name, contact: found.contact, email: found.email, address: found.address };
+            toast(`Selected customer: ${found.name}`, "success");
+            wizard.step = 2;
+            render();
+          }
+        });
+      });
+    };
+
+    // Populate existing customers immediately so list is visible right away!
+    renderSearchResults("");
+
     let timer = null;
     searchInput?.addEventListener("input", () => {
       clearTimeout(timer);
-      timer = setTimeout(async () => {
-        const results = await api.searchCustomers(searchInput.value);
-        resultsEl.innerHTML = results.map((r) => `
-          <div class="card card-elevated customer-search-item" style="margin-bottom:8px; cursor:pointer; transition:transform 0.2s;" data-id="${r.id}">
-            <b style="color:var(--text);">${escapeHtml(r.name)}</b><br>
-            <span style="color:var(--text-muted); font-size:13px;">${escapeHtml(r.contact)} · ${escapeHtml(r.address)}</span>
-          </div>
-        `).join("") || `<p style="color:var(--text-muted); padding:10px;">No matches found.</p>`;
-        
-        // Auto-next to Event & Package upon selecting existing customer record
-        resultsEl.querySelectorAll(".customer-search-item").forEach((el) => {
-          el.addEventListener("click", () => {
-            const found = results.find((r) => String(r.id) === el.dataset.id);
-            if (found) {
-              d.customer = { id: found.id, name: found.name, contact: found.contact, email: found.email, address: found.address };
-              toast(`Selected customer: ${found.name}`, "success");
-              wizard.step = 2;
-              render();
-            }
-          });
-        });
-      }, 250);
+      timer = setTimeout(() => {
+        renderSearchResults(searchInput.value);
+      }, 200);
     });
   }
 
@@ -543,7 +558,7 @@ function renderStepCustomer(card) {
 async function renderStepPackage(card) {
   const d = wizard.draft;
   card.innerHTML = `<h2 style="margin:0 0 10px;">${icon("package")} Event &amp; Package</h2><p style="color:var(--text-muted);">Loading packages…</p>`;
-  if (!packagesCache.length) packagesCache = await api.getPackages();
+  packagesCache = await api.getPackages();
 
   // If a package was pre-selected from Quick Options, ensure its full data is synced
   if (d.package.id && packagesCache.length) {
@@ -1085,7 +1100,12 @@ async function renderStepMenu(card) {
   });
   updateCounts();
 
-  footer(`Next Step: Event Add-ons (${d.menuSelections.length} Chosen)`, () => { wizard.step = 4; render(); });
+  footer(
+    window.innerWidth < 640
+      ? `Next: Add-ons (${d.menuSelections.length})`
+      : `Next Step: Event Add-ons (${d.menuSelections.length} Chosen)`,
+    () => { wizard.step = 4; render(); }
+  );
 }
 
 // ── Step 4: Add-ons & Extras (Upsell) ────────────────────────────────

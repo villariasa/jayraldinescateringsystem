@@ -1,11 +1,13 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget
+from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QApplication, QDialog
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtCore import Signal, QTimer, Qt
+from PySide6.QtCore import Signal, QTimer, Qt, QEvent
+import time
 
 from components.sidebar import Sidebar
 from components.topbar import TopBar
-from components.notifications_panel import NotificationPopover, reload_notifications
+from components.notifications_panel import NotificationPopover, _notifications as _notif_cache
 from components.toast import ToastManager
+from utils.data_loader import DataLoader
 
 
 
@@ -35,11 +37,6 @@ _PAGE_MODULES = [
 # to prevent a single DLL failure from crashing the whole application.
 
 
-class _PlaceholderPage(QWidget):
-    """Lightweight stand-in kept in the stack until the real page is needed."""
-    pass
-
-
 from version import __version__, APP_NAME
 
 
@@ -55,18 +52,25 @@ class MainWindow(QMainWindow):
         self.shortcut_f11.activated.connect(self._toggle_fullscreen)
         self.shortcut_esc = QShortcut(QKeySequence("Esc"), self)
         self.shortcut_esc.activated.connect(self._exit_fullscreen)
+        self.root_stack = QStackedWidget(self)
+        self.setCentralWidget(self.root_stack)
 
-        self.central_widget = QWidget(self)
-        self.setCentralWidget(self.central_widget)
+        # Layer 0: Full-Window Unified Auth & Welcome Screen
+        from components.unified_auth_welcome import UnifiedAuthWelcome
+        self._auth_welcome = UnifiedAuthWelcome(parent=self.root_stack)
+        self._auth_welcome.auth_and_welcome_finished.connect(self._on_auth_and_welcome_finished)
+        self.root_stack.addWidget(self._auth_welcome)
 
-        self.main_layout = QHBoxLayout(self.central_widget)
+        # Layer 1: Main Application Shell (Sidebar + Topbar + Content Pages)
+        self.app_shell = QWidget(self.root_stack)
+        self.main_layout = QHBoxLayout(self.app_shell)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
         self.sidebar = Sidebar()
         self.main_layout.addWidget(self.sidebar)
 
-        self.right_widget = QWidget(self.central_widget)
+        self.right_widget = QWidget(self.app_shell)
         self.right_layout = QVBoxLayout(self.right_widget)
         self.right_layout.setContentsMargins(0, 0, 0, 0)
         self.right_layout.setSpacing(0)
@@ -74,18 +78,23 @@ class MainWindow(QMainWindow):
         self.topbar = TopBar()
         self.right_layout.addWidget(self.topbar)
 
-        self.stack = QStackedWidget()
-
+        self.stack = QStackedWidget(self.right_widget)
         self._pages = [None] * len(_PAGE_MODULES)
-        for i in range(len(_PAGE_MODULES)):
-            ph = _PlaceholderPage()
-            self.stack.addWidget(ph)
 
         self.right_layout.addWidget(self.stack)
         self.main_layout.addWidget(self.right_widget)
+        self.root_stack.addWidget(self.app_shell)
 
         self.sidebar.page_changed.connect(self._navigate)
+        self.sidebar.logout_requested.connect(self._handle_logout)
         self.topbar.tab_selected.connect(self._navigate)
+
+        self._idle_timer = QTimer(self)
+        self._idle_timer.timeout.connect(self._trigger_auto_lock)
+        self._reset_idle_timer()
+        app_inst = QApplication.instance()
+        if app_inst:
+            app_inst.installEventFilter(self)
 
         self._notif_popover = NotificationPopover(parent=self)
         self.topbar.notif_btn.clicked.connect(self._open_notif_popover)
@@ -99,11 +108,13 @@ class MainWindow(QMainWindow):
         self._scheduler.new_notification.connect(self._on_new_notification)
 
         self._last_notif_id = None
+        self._notif_loader = None  # active background loader reference
+        self._notif_poll_busy = False  # debounce guard
 
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._poll_notifications)
-        self._poll_timer.start(60_000)
-        QTimer.singleShot(2_000, self._poll_notifications)
+        self._poll_timer.start(90_000)   # every 90 s — reduced frequency
+        QTimer.singleShot(8_000, self._poll_notifications)  # first check after 8 s
 
         self._dash_timer = QTimer(self)
         self._dash_timer.timeout.connect(self._reload_dashboard)
@@ -124,14 +135,70 @@ class MainWindow(QMainWindow):
         self.topbar.search_changed.connect(self._on_search)
 
         from utils.theme import ThemeManager
+        from components.theme_loading_overlay import ThemeLoadingOverlay
+        self._theme_overlay = ThemeLoadingOverlay(parent=self)
+        ThemeManager().theme_changing.connect(self._on_theme_changing)
         ThemeManager().theme_changed.connect(self._on_theme_changed)
 
         from components.global_ai_floating import DraggableMascotWidget
         self._floating_ai = DraggableMascotWidget(parent=self)
-        self._floating_ai.show()
-        self._floating_ai.raise_()
+        from utils.auth import SessionManager
 
+        self.sidebar.refresh_permissions()
+        self.topbar.refresh_permissions()
+
+        if SessionManager.is_logged_in():
+            self.root_stack.setCurrentWidget(self.app_shell)
+            self._floating_ai.setVisible(SessionManager.has_permission("ai_chef_jay", "view"))
+            self._floating_ai.show()
+            self._floating_ai.raise_()
+            self._navigate(0)
+            QTimer.singleShot(400, self._show_welcome_greeting)
+            QTimer.singleShot(250, self._start_page_prewarming)
+        else:
+            self._floating_ai.hide()
+            self.root_stack.setCurrentWidget(self._auth_welcome)
+
+    def _on_auth_and_welcome_finished(self):
+        self.root_stack.setCurrentWidget(self.app_shell)
+        self._reload_user_session()
         self._navigate(0)
+        QTimer.singleShot(250, self._start_page_prewarming)
+
+    def _start_page_prewarming(self):
+        """Pre-warms pages sequentially in the background during idle time to make tab switching instant."""
+        self._prewarm_queue = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        self._prewarm_next_page()
+
+    def _prewarm_next_page(self):
+        if not getattr(self, "_prewarm_queue", None):
+            return
+        idx = self._prewarm_queue.pop(0)
+        try:
+            from utils.auth import SessionManager
+            perm_key = self.PAGE_MODULE_PERM.get(idx, "dashboard")
+            if SessionManager.is_logged_in() and SessionManager.has_permission(perm_key, "view"):
+                if self._pages[idx] is None:
+                    self._get_page(idx)
+        except Exception as e:
+            print(f"[MainWindow] Pre-warming page {idx} error: {e}")
+        
+        if self._prewarm_queue:
+            QTimer.singleShot(35, self._prewarm_next_page)
+
+    def _show_welcome_greeting(self):
+        from utils.auth import SessionManager
+        user = SessionManager.current_user() or {}
+        name = user.get("display_name") or user.get("username", "Admin")
+        role = (user.get("role") or "staff")
+        role_label = "Administrator" if role.lower() == "admin" else role.capitalize()
+        self._toast_manager.show(
+            f"Welcome, {name}!",
+            f"Signed in as {role_label}. All authorized modules are loaded.",
+            color="#10B981",
+            duration_ms=4500
+        )
+
 
     def _get_page(self, index: int):
         if self._pages[index] is not None:
@@ -142,7 +209,12 @@ class MainWindow(QMainWindow):
             import importlib
             mod = importlib.import_module(mod_name)
             cls = getattr(mod, cls_name)
-            page = cls()
+            # Pass parent=self.stack so Qt never creates or exposes a top-level native OS window
+            try:
+                page = cls(parent=self.stack)
+            except TypeError:
+                page = cls()
+                page.setParent(self.stack)
         except Exception as exc:
             import traceback
             import sys
@@ -181,7 +253,7 @@ class MainWindow(QMainWindow):
             print(tb_str)
 
             from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea
-            page = QWidget()
+            page = QWidget(parent=self.stack)
             err_lay = QVBoxLayout(page)
             err_lay.setContentsMargins(24, 24, 24, 24)
             err_lay.setSpacing(12)
@@ -223,9 +295,7 @@ class MainWindow(QMainWindow):
             err_lay.addStretch()
 
         self._pages[index] = page
-
-        self.stack.removeWidget(self.stack.widget(index))
-        self.stack.insertWidget(index, page)
+        self.stack.addWidget(page)
 
         if index == 0:
             if hasattr(page, "new_booking_requested"):
@@ -237,19 +307,129 @@ class MainWindow(QMainWindow):
 
         return page
 
+    PAGE_MODULE_PERM = {
+        0: "dashboard",
+        1: "bookings",
+        2: "customers",
+        3: "menu",
+        4: "bookings",
+        5: "cashflow",
+        6: "cashflow",
+        7: "reports",
+        8: "expenses",
+        9: "ai_chef_jay",
+        10: "settings",
+    }
+
     def _navigate(self, index: int):
+        from utils.auth import SessionManager
+        perm_key = self.PAGE_MODULE_PERM.get(index, "dashboard")
+        # Dashboard (index 0) is always allowed for all logged in users
+        if index != 0 and SessionManager.is_logged_in():
+            if not SessionManager.has_permission(perm_key, "view"):
+                disp_name = perm_key.replace("_", " ").title()
+                if perm_key == "ai_chef_jay":
+                    disp_name = "AI Assistant"
+                self._toast_manager.show(
+                    "Access Denied",
+                    f"Your account does not have permission to access the {disp_name} module.",
+                    color="#EF4444"
+                )
+                return
+
         first_time = self._pages[index] is None
         page = self._get_page(index)
-        self.stack.setCurrentIndex(index)
-        self.topbar.set_page(index)
-        self.sidebar.handle_click(index)
-        if not first_time and hasattr(page, "reload"):
+        
+        self.stack.setUpdatesEnabled(False)
+        try:
+            self.stack.setCurrentWidget(page)
+            self.topbar.set_page(index)
+            self.sidebar.handle_click(index)
+            if hasattr(page, "refresh_permissions"):
+                try:
+                    page.refresh_permissions()
+                except Exception:
+                    pass
+            # For pages without _dirty, call reload() only when navigating back and dirty
+            if not first_time and hasattr(page, "reload") and not hasattr(page, "_dirty"):
+                try:
+                    page.reload()
+                except Exception as exc:
+                    print(f"[MainWindow] Error reloading page {index}: {exc}")
+            if hasattr(self, "_floating_ai") and self._floating_ai:
+                from utils.auth import SessionManager
+                self._floating_ai.setVisible(index != 9 and SessionManager.has_permission("ai_chef_jay", "view"))
+
+            # Telemetry: Update active screen on server
             try:
-                page.reload()
-            except Exception as exc:
-                print(f"[MainWindow] Error reloading page {index}: {exc}")
+                from utils.device_tracker import device_tracker
+                page_titles = {
+                    0: "Dashboard", 1: "Bookings", 2: "Customers", 3: "Menu Items",
+                    4: "Calendar", 5: "Kitchen Orders", 6: "Billing & Invoices",
+                    7: "Reports & Analytics", 8: "Expenses", 9: "AI Chef Jay", 10: "Settings"
+                }
+                device_tracker().set_active_module(page_titles.get(index, "Dashboard"))
+            except Exception:
+                pass
+        finally:
+            self.stack.setUpdatesEnabled(True)
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.MouseButtonPress, QEvent.KeyPress, QEvent.Wheel):
+            self._reset_idle_timer(force=True)
+        elif event.type() == QEvent.MouseMove:
+            self._reset_idle_timer(force=False)
+        return super().eventFilter(obj, event)
+
+    def _reset_idle_timer(self, force: bool = False):
+        now = time.monotonic()
+        last = getattr(self, "_last_idle_reset_time", 0.0)
+        # Avoid lock acquisition and timer restarts on every single mouse pixel movement
+        if not force and (now - last) < 10.0:
+            return
+        self._last_idle_reset_time = now
+        from utils.auth import SessionManager
+        mins = SessionManager.get_auto_lock_minutes()
+        if mins <= 0:
+            self._idle_timer.stop()
+        else:
+            self._idle_timer.start(mins * 60 * 1000)
+
+    def _trigger_auto_lock(self):
+        from utils.auth import SessionManager
+        if not SessionManager.is_logged_in():
+            return
+        self._idle_timer.stop()
+        from components.login_dialog import LockScreenDialog
+        dlg = LockScreenDialog(self)
+        dlg.exec()
+        self._reset_idle_timer()
+
+    def _handle_logout(self):
+        from components.dialogs import confirm
+        from utils.auth import SessionManager
+        if not confirm(self, "Sign Out", "Are you sure you want to sign out?"):
+            return
+        SessionManager.logout()
         if hasattr(self, "_floating_ai") and self._floating_ai:
-            self._floating_ai.setVisible(index != 9)
+            self._floating_ai.hide()
+        if hasattr(self, "_auth_welcome") and self._auth_welcome:
+            self._auth_welcome.reset_to_login()
+            self.root_stack.setCurrentWidget(self._auth_welcome)
+
+    def _reload_user_session(self):
+        self.sidebar.refresh_permissions()
+        self.topbar.refresh_permissions()
+        self._reset_idle_timer()
+        if hasattr(self, "_floating_ai") and self._floating_ai:
+            from utils.auth import SessionManager
+            self._floating_ai.setVisible(SessionManager.has_permission("ai_chef_jay", "view"))
+        if len(self._pages) > 10 and self._pages[10] is not None:
+            p = self._pages[10]
+            if hasattr(p, "reload"):
+                p.reload()
+        self._navigate(0)
+        self._show_welcome_greeting()
 
     def _on_search(self, text):
         page = self.stack.currentWidget()
@@ -267,16 +447,48 @@ class MainWindow(QMainWindow):
             self.showMaximized()
 
     def _open_notif_popover(self):
-        reload_notifications()
+        # Open panel immediately with cached data; async refresh in background
         self._notif_popover.toggle_anchored(self.topbar.notif_btn)
+        self._poll_notifications()
 
     def _poll_notifications(self):
+        """Kick off async notification reload ΓÇö NEVER blocks the main thread."""
+        if self._notif_poll_busy:
+            return  # previous fetch still in progress
+        if self._notif_loader is not None and self._notif_loader.isRunning():
+            return
+        self._notif_poll_busy = True
+
+        from components.notifications_panel import _load_notifications
+
+        def _bg_load():
+            return _load_notifications()
+
+        loader = DataLoader(_bg_load)
+        loader.data_ready.connect(self._on_notif_data_ready)
+        loader.load_error.connect(lambda _e: self._finish_notif_poll())
+        self._notif_loader = loader
+        loader.start()
+
+    def _on_notif_data_ready(self, fresh):
+        """Called on main thread after background notification fetch completes."""
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+
         from components.notifications_panel import _notifications
-        count = reload_notifications()
+        _notifications.clear()
+        _notifications.extend(fresh or [])
+        count = len(_notifications)
+
         self.topbar.notif_badge.setText(str(count))
         self.topbar.notif_badge.setVisible(count > 0)
         if self._notif_popover.isVisible():
             self._notif_popover._refresh_list()
+
         if _notifications:
             max_id = max(n.get("db_id", 0) for n in _notifications)
             if self._last_notif_id is None:
@@ -290,17 +502,41 @@ class MainWindow(QMainWindow):
         elif self._last_notif_id is None:
             self._last_notif_id = 0
 
+        self._finish_notif_poll()
+
+    def _finish_notif_poll(self):
+        self._notif_poll_busy = False
+
     def _on_new_notification(self, title: str, message: str, color: str):
-        self._poll_notifications()
+        # Schedule an async poll ΓÇö don't call synchronously
+        QTimer.singleShot(500, self._poll_notifications)
         self._toast_manager.show(title, message, color, duration_ms=7000)
 
     def _on_all_read(self):
         self.topbar.notif_badge.setText("0")
         self.topbar.notif_badge.setVisible(False)
 
+    def _smart_reload(self, index: int):
+        """Mark page[index] dirty. If it is the currently visible page, also
+        call reload() immediately. Otherwise the page will self-reload when
+        the user navigates to it (via its showEvent / _dirty check)."""
+        p = self._pages[index] if index < len(self._pages) else None
+        if p is None:
+            return  # page not yet created ΓÇö nothing to do
+        # Mark dirty regardless
+        if hasattr(p, "_mark_dirty"):
+            p._mark_dirty()
+        elif hasattr(p, "_dirty"):
+            p._dirty = True
+        # Immediately reload only if currently shown
+        if self.stack.currentIndex() == index and hasattr(p, "reload"):
+            try:
+                p.reload()
+            except Exception as exc:
+                print(f"[MainWindow] _smart_reload({index}) error: {exc}")
+
     def _reload_dashboard(self):
-        if self._pages[0] is not None:
-            self._pages[0].reload()
+        self._smart_reload(0)
 
     def _on_booking_saved(self):
         # Reload booking page if visible; mark others dirty for lazy reload
@@ -323,24 +559,19 @@ class MainWindow(QMainWindow):
         self._poll_notifications()
 
     def _on_payment_recorded(self):
-        if self._pages[6] is not None:
-            self._pages[6].reload()
-        if self._pages[0] is not None:
-            self._pages[0].reload()
+        self._smart_reload(6)   # BillingPage
+        self._smart_reload(0)   # DashboardPage
+        self._smart_reload(7)   # ReportsPage
         self._poll_notifications()
 
     def _on_kitchen_updated(self):
-        if self._pages[0] is not None:
-            self._pages[0].reload()
+        self._smart_reload(0)   # DashboardPage reflects kitchen changes
         self._poll_notifications()
 
     def _on_expense_saved(self):
-        if self._pages[8] is not None:  # ExpensesPage
-            self._pages[8].reload()
-        if self._pages[0] is not None:  # DashboardPage
-            self._pages[0].reload()
-        if self._pages[7] is not None:  # ReportsPage
-            self._pages[7].reload()
+        self._smart_reload(8)   # ExpensesPage
+        self._smart_reload(0)   # DashboardPage
+        self._smart_reload(7)   # ReportsPage
         self._poll_notifications()
 
     def _on_customer_saved(self):
@@ -379,18 +610,37 @@ class MainWindow(QMainWindow):
                     print(f"[MainWindow] Error reloading page {i}: {exc}")
         self._poll_notifications()
 
+    def _on_theme_changing(self, palette_id: str):
+        if hasattr(self, "_theme_overlay") and self._theme_overlay:
+            from utils.palette import THEME_PALETTES
+            pal = THEME_PALETTES.get(palette_id, {})
+            name = pal.get("name", "Theme")
+            self._theme_overlay.show_loading(f"Switching to {name}...", "Updating color palette & UI styles...")
+
     def _on_theme_changed(self, _theme: str):
-        current_index = self.stack.currentIndex()
-        for i in range(len(self._pages)):
-            page = self._pages[i]
-            if page is not None:
-                self._pages[i] = None
-                ph = _PlaceholderPage()
-                idx = self.stack.indexOf(page)
-                self.stack.insertWidget(idx, ph)
-                self.stack.removeWidget(page)
-                page.deleteLater()
-        self._navigate(current_index)
+        # In-place dynamic styling: keep all page instances and data in memory
+        if hasattr(self, "sidebar"):
+            self.sidebar.refresh_permissions()
+        if hasattr(self, "topbar"):
+            self.topbar.refresh_permissions()
+
+        # Notify loaded pages if they have theme hook methods
+        for p in self._pages:
+            if p is not None:
+                if hasattr(p, "_apply_theme_styles"):
+                    try:
+                        p._apply_theme_styles()
+                    except Exception as e:
+                        print(f"[MainWindow] Error applying theme styles on page: {e}")
+                elif hasattr(p, "_on_theme_changed"):
+                    try:
+                        p._on_theme_changed(_theme)
+                    except Exception as e:
+                        print(f"[MainWindow] Error in _on_theme_changed on page: {e}")
+
+        # Smooth animated dismissal of loading overlay after fluid rotation
+        if hasattr(self, "_theme_overlay") and self._theme_overlay and self._theme_overlay.isVisible():
+            QTimer.singleShot(80, lambda: self._theme_overlay.hide_loading(animated=True))
 
     def _on_alarm_fired(self, entry: dict):
         msg = entry.get("message", "Alarm")
@@ -407,6 +657,8 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if hasattr(self, "_theme_overlay") and self._theme_overlay and self._theme_overlay.isVisible():
+            self._theme_overlay.resize(self.size())
         if hasattr(self, "_floating_ai") and self._floating_ai:
             if not getattr(self._floating_ai, "_user_moved", False):
                 x = self.width() - self._floating_ai.width() - 24

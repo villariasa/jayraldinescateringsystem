@@ -192,6 +192,76 @@ def success(parent, message="Action completed successfully.", title="Success"):
     SuccessDialog(parent, title=title, message=message).exec()
 
 
+class ErrorDialog(QDialog):
+    """Modern modal for access denied and validation error alerts."""
+    def __init__(self, parent=None, title="Error", message="An error occurred."):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(380)
+        self.setModal(True)
+        self._build(title, message)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        animate_dialog_open(self, duration=240)
+
+    def _build(self, title, message):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(20, 20, 20, 20)
+
+        container = QFrame()
+        container.setObjectName("modalCard")
+        create_soft_shadow(container, radius=32, y_offset=8, opacity=45)
+        inner = QVBoxLayout(container)
+        inner.setContentsMargins(28, 28, 28, 24)
+        inner.setSpacing(12)
+
+        icon_row = QHBoxLayout()
+        icon_row.addStretch()
+        chip = QLabel()
+        chip.setFixedSize(52, 52)
+        chip.setAlignment(Qt.AlignCenter)
+        chip.setStyleSheet(
+            "background-color: rgba(239,68,68,0.12); border-radius: 26px; border: none;"
+        )
+        chip.setPixmap(
+            get_icon("close", color="#EF4444", size=QSize(24, 24)).pixmap(QSize(24, 24))
+        )
+        icon_row.addWidget(chip)
+        icon_row.addStretch()
+        inner.addLayout(icon_row)
+        inner.addSpacing(4)
+
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("h3")
+        title_lbl.setAlignment(Qt.AlignCenter)
+        inner.addWidget(title_lbl)
+
+        msg_lbl = QLabel()
+        msg_lbl.setText(f"<div style='line-height: 140%;'>{message}</div>")
+        msg_lbl.setObjectName("subtitle")
+        msg_lbl.setWordWrap(True)
+        msg_lbl.setAlignment(Qt.AlignCenter)
+        inner.addWidget(msg_lbl)
+
+        inner.addSpacing(6)
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("primaryButton")
+        ok_btn.setFixedHeight(34)
+        ok_btn.setCursor(Qt.PointingHandCursor)
+        ok_btn.clicked.connect(self.accept)
+        inner.addWidget(ok_btn)
+
+        outer.addWidget(container)
+
+
+def error(parent, message="An error occurred.", title="Error"):
+    """Convenience helper to show error/access denied modal."""
+    dlg = ErrorDialog(parent=parent, title=title, message=message)
+    dlg.exec()
+
+
 class ExportSuccessDialog(QDialog):
     """
     Sleek, modern prompt modal shown whenever any file (PDF, Excel, CSV, Backup, Report)

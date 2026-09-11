@@ -63,6 +63,7 @@ def add_customer(data: dict) -> Optional[int]:
     if status not in ("Active", "Pending", "Inactive"):
         status = "Active"
 
+    cust_id = None
     try:
         result = db.callproc_out(
             "sp_add_customer",
@@ -70,30 +71,40 @@ def add_customer(data: dict) -> Optional[int]:
             out_names=["p_customer_id"],
         )
         if result and result.get("p_customer_id"):
-            return result["p_customer_id"]
+            cust_id = result["p_customer_id"]
     except Exception as exc:
         print(f"[repository] sp_add_customer procedure failed: {exc}")
 
     # Fallback direct insert if procedure fails or returns None
-    try:
-        row = db.fetchone("""
-            INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status)
-            VALUES (%s, %s, %s, %s, %s::customer_status)
-            ON CONFLICT (cus_name, cus_contact) DO UPDATE
-            SET cus_email = EXCLUDED.cus_email,
-                cus_address = EXCLUDED.cus_address,
-                cus_status = EXCLUDED.cus_status
-            RETURNING cus_id
-        """, (name, contact, email, address, status))
-        if row and row.get("cus_id"):
-            return row["cus_id"]
-    except Exception as exc:
-        print(f"[repository] add_customer direct insert failed: {exc}")
-        existing = db.fetchone(
-            "SELECT cus_id FROM customers WHERE cus_name = %s LIMIT 1", (name,)
+    if not cust_id:
+        try:
+            row = db.fetchone("""
+                INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status)
+                VALUES (%s, %s, %s, %s, %s::customer_status)
+                ON CONFLICT (cus_name, cus_contact) DO UPDATE
+                SET cus_email = EXCLUDED.cus_email,
+                    cus_address = EXCLUDED.cus_address,
+                    cus_status = EXCLUDED.cus_status
+                RETURNING cus_id
+            """, (name, contact, email, address, status))
+            if row and row.get("cus_id"):
+                cust_id = row["cus_id"]
+        except Exception as exc:
+            print(f"[repository] add_customer direct insert failed: {exc}")
+            existing = db.fetchone(
+                "SELECT cus_id FROM customers WHERE cus_name = %s LIMIT 1", (name,)
+            )
+            if existing and existing.get("cus_id"):
+                cust_id = existing["cus_id"]
+
+    if cust_id:
+        write_audit_log(
+            action="CREATE",
+            table_name="customers",
+            record_id=cust_id,
+            new_value={"name": name, "contact": contact, "email": email, "address": address, "status": status}
         )
-        if existing and existing.get("cus_id"):
-            return existing["cus_id"]
+        return cust_id
 
     return None
 
@@ -110,10 +121,35 @@ def update_customer(customer_id: int, data: dict) -> None:
             data.get("status", "Active"),
         ),
     )
+    write_audit_log(
+        action="UPDATE",
+        table_name="customers",
+        record_id=customer_id,
+        new_value={
+            "name": data.get("name", ""),
+            "contact": data.get("contact", ""),
+            "email": data.get("email", ""),
+            "address": data.get("address", ""),
+            "status": data.get("status", "Active"),
+        }
+    )
 
 
 def delete_customer(customer_id: int) -> None:
+    c_name = ""
+    try:
+        row = db.fetchone("SELECT cus_name FROM customers WHERE cus_id = %s", (customer_id,))
+        if row:
+            c_name = row.get("cus_name", "")
+    except Exception:
+        pass
     db.callproc_void("sp_delete_customer", in_params=(customer_id,))
+    write_audit_log(
+        action="DELETE",
+        table_name="customers",
+        record_id=customer_id,
+        old_value={"name": c_name or f"Customer #{customer_id}"}
+    )
 
 
 def delete_multiple_customers(customer_ids: list[int]) -> int:
@@ -360,34 +396,54 @@ def get_available_menu_items() -> list[dict]:
 
 
 def add_menu_item(data: dict) -> Optional[int]:
+    item_name = data.get("item") or data.get("name", "")
+    raw_st = str(data.get("status", "Available")).strip().lower()
+    st = "Unavailable" if any(w in raw_st for w in ("unavail", "inact", "out", "disab", "no")) else "Available"
     result = db.callproc_out(
         "sp_add_menu_item",
         in_params=(
-            data["item"],
+            item_name,
             data.get("description", ""),
-            data["category"],
-            data["package"],
-            data["price"],
-            data["status"],
+            data.get("category", "Main Course"),
+            data.get("package", "Standard"),
+            data.get("price", 0.0),
+            st,
         ),
         out_names=["p_item_id"],
     )
     menu_store.add_item(data)
-    return result["p_item_id"] if result else None
+    p_id = result["p_item_id"] if result else None
+    if p_id:
+        write_audit_log(
+            action="CREATE",
+            table_name="menu_items",
+            record_id=p_id,
+            new_value={"name": item_name, "category": data.get("category"), "price": data.get("price")}
+        )
+    return p_id
 
 
 def update_menu_item(item_id: int, data: dict) -> None:
+    item_name = data.get("item") or data.get("name", "")
+    raw_st = str(data.get("status", "Available")).strip().lower()
+    st = "Unavailable" if any(w in raw_st for w in ("unavail", "inact", "out", "disab", "no")) else "Available"
     db.callproc_void(
         "sp_update_menu_item",
         in_params=(
             item_id,
-            data["item"],
+            item_name,
             data.get("description", ""),
-            data["category"],
-            data["package"],
-            data["price"],
-            data["status"],
+            data.get("category", "Main Course"),
+            data.get("package", "Standard"),
+            data.get("price", 0.0),
+            st,
         ),
+    )
+    write_audit_log(
+        action="UPDATE",
+        table_name="menu_items",
+        record_id=item_id,
+        new_value={"name": data.get("item") or data.get("name"), "category": data.get("category"), "price": data.get("price")}
     )
 
 
@@ -399,11 +455,24 @@ def delete_menu_item(arg1: int, arg2: int = None) -> None:
     else:
         item_id = int(arg1)
         idx = 0
+    m_name = ""
+    try:
+        row = db.fetchone("SELECT mi_name FROM menu_items WHERE mi_id = %s", (item_id,))
+        if row:
+            m_name = row.get("mi_name", "")
+    except Exception:
+        pass
     db.callproc_void("sp_delete_menu_item", in_params=(item_id,))
     try:
         menu_store.remove_item(idx)
     except Exception:
         pass
+    write_audit_log(
+        action="DELETE",
+        table_name="menu_items",
+        record_id=item_id,
+        old_value={"name": m_name or f"Menu Item #{item_id}"}
+    )
 
 
 def delete_multiple_menu_items(item_ids: list[int]) -> int:
@@ -488,6 +557,7 @@ def add_occasion(name: str) -> None:
         "INSERT INTO occasions (occ_name, occ_is_active) VALUES (%s, 1) ON CONFLICT (occ_name) DO UPDATE SET occ_is_active = 1",
         (clean_name,),
     )
+    write_audit_log(action="CREATE", table_name="occasions", record_id=0, new_value={"name": clean_name})
 
 
 def update_occasion(old_name: str, new_name: str) -> None:
@@ -497,12 +567,25 @@ def update_occasion(old_name: str, new_name: str) -> None:
         "UPDATE occasions SET occ_name = %s WHERE occ_name = %s",
         (new_name.strip(), old_name.strip()),
     )
+    write_audit_log(
+        action="UPDATE",
+        table_name="occasions",
+        record_id=0,
+        old_value={"name": old_name.strip()},
+        new_value={"name": new_name.strip()}
+    )
 
 
 def delete_occasion(name: str) -> None:
     if not name:
         return
     db.execute("DELETE FROM occasions WHERE occ_name = %s", (name.strip(),))
+    write_audit_log(
+        action="DELETE",
+        table_name="occasions",
+        record_id=0,
+        old_value={"name": name.strip()}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -528,7 +611,7 @@ def get_all_packages() -> list[dict]:
                pi.pi_package_id      AS package_id,
                pi.pi_menu_item_id    AS menu_item_id,
                COALESCE(mi.mi_name, pi.pi_item_name, '') AS item_name,
-               COALESCE(mi.mi_category, pi.pi_category, 'General') AS category,
+               COALESCE(mi.mi_category::TEXT, pi.pi_category::TEXT, 'General') AS category,
                COALESCE(pi.pi_custom_price, 0.0) AS custom_price
         FROM package_items pi
         LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
@@ -566,7 +649,7 @@ def get_package_items(package_id: int) -> list[dict]:
         SELECT pi.pi_id              AS id,
                pi.pi_menu_item_id    AS menu_item_id,
                COALESCE(mi.mi_name, pi.pi_item_name, '') AS item_name,
-               COALESCE(mi.mi_category, pi.pi_category, 'General') AS category,
+               COALESCE(mi.mi_category::TEXT, pi.pi_category::TEXT, 'General') AS category,
                COALESCE(pi.pi_custom_price, 0.0) AS custom_price
         FROM package_items pi
         LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
@@ -642,21 +725,64 @@ def set_package_items(package_id: int, items: list[dict]) -> bool:
 
 
 def add_package(data: dict) -> Optional[int]:
+    pkg_id = None
+    pkg_name = str(data.get("name", "")).strip()
+    if not pkg_name:
+        return None
     try:
+        existing = db.fetchone("SELECT pkg_id FROM packages WHERE LOWER(pkg_name) = LOWER(%s) LIMIT 1", (pkg_name,))
+        if existing and existing.get("pkg_id"):
+            pkg_id = existing["pkg_id"]
+            db.execute("""
+                UPDATE packages
+                SET pkg_price_per_pax = %s,
+                    pkg_min_pax = %s,
+                    pkg_description = COALESCE(NULLIF(%s, ''), pkg_description)
+                WHERE pkg_id = %s
+            """, (data.get("price_per_pax", 0.0), data.get("min_pax", 1), data.get("description", ""), pkg_id))
+            return pkg_id
+
         result = db.callproc_out(
             "sp_add_package",
             in_params=(
-                data["name"],
-                data["price_per_pax"],
+                pkg_name,
+                data.get("price_per_pax", 0.0),
                 data.get("min_pax", 1),
                 data.get("description", ""),
             ),
             out_names=["p_package_id"],
         )
-        return result["p_package_id"] if result else None
+        if result and result.get("p_package_id"):
+            pkg_id = result["p_package_id"]
     except Exception as exc:
-        print(f"[repository] add_package failed: {exc}")
-        return None
+        print(f"[repository] sp_add_package failed: {exc}")
+
+    # Fallback to direct INSERT / UPDATE if procedure failed or returned None
+    if not pkg_id:
+        try:
+            row = db.fetchone("""
+                INSERT INTO packages (pkg_name, pkg_price_per_pax, pkg_min_pax, pkg_description)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (pkg_name) DO UPDATE SET
+                    pkg_price_per_pax = EXCLUDED.pkg_price_per_pax,
+                    pkg_min_pax = EXCLUDED.pkg_min_pax,
+                    pkg_description = COALESCE(NULLIF(EXCLUDED.pkg_description, ''), packages.pkg_description)
+                RETURNING pkg_id
+            """, (pkg_name, data.get("price_per_pax", 0.0), data.get("min_pax", 1), data.get("description", "")))
+            if row and row.get("pkg_id"):
+                pkg_id = row["pkg_id"]
+        except Exception as exc:
+            print(f"[repository] add_package direct insert fallback failed: {exc}")
+
+    if pkg_id:
+        write_audit_log(
+            action="CREATE",
+            table_name="packages",
+            record_id=pkg_id,
+            new_value={"name": pkg_name, "price": data.get("price_per_pax")}
+        )
+        return pkg_id
+    return None
 
 
 def update_package(db_id: int, data: dict) -> bool:
@@ -671,6 +797,12 @@ def update_package(db_id: int, data: dict) -> bool:
                 data.get("description", ""),
             ),
         )
+        write_audit_log(
+            action="UPDATE",
+            table_name="packages",
+            record_id=db_id,
+            new_value={"name": data["name"], "price": data.get("price_per_pax")}
+        )
         return True
     except Exception as exc:
         print(f"[repository] update_package failed: {exc}")
@@ -678,8 +810,21 @@ def update_package(db_id: int, data: dict) -> bool:
 
 
 def delete_package(db_id: int) -> bool:
+    pkg_name = ""
+    try:
+        row = db.fetchone("SELECT pkg_name FROM packages WHERE pkg_id = %s", (db_id,))
+        if row:
+            pkg_name = row.get("pkg_name", "")
+    except Exception:
+        pass
     try:
         db.callproc_void("sp_delete_package", in_params=(db_id,))
+        write_audit_log(
+            action="DELETE",
+            table_name="packages",
+            record_id=db_id,
+            old_value={"name": pkg_name or f"Package #{db_id}"}
+        )
         return True
     except Exception as exc:
         print(f"[repository] delete_package failed: {exc}")
@@ -719,7 +864,7 @@ def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> l
         LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
         LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
         WHERE 1=1 {status_clause} {period_filter}
-        ORDER BY b.bk_event_date DESC
+        ORDER BY b.bk_id DESC
         """
     )
     if not rows:
@@ -924,14 +1069,41 @@ def create_booking(data: dict) -> Optional[dict]:
         amount_paid = _parse_amount(raw_down)
         total_amt   = _parse_amount(raw_total)
 
+        menu_type = str(data.get("menu_type") or "package").strip().lower()
+        if menu_type not in ("package", "custom"):
+            menu_type = "package"
+
         package_id = data.get("package_id")
-        if not package_id and data.get("menu_type") == "package":
+        if package_id:
+            try:
+                chk = db.fetchone("SELECT pkg_id FROM packages WHERE pkg_id = %s", (package_id,))
+                if not chk:
+                    package_id = None
+            except Exception:
+                package_id = None
+        if not package_id and menu_type == "package":
             pkg_row = db.fetchone(
                 "SELECT pkg_id AS id FROM packages WHERE pkg_name = %s",
                 (data.get("menu_value"),),
             )
             if pkg_row:
                 package_id = pkg_row["id"]
+
+        mode_raw = str(data.get("payment_mode") or "Cash").strip()
+        if mode_raw.upper() == "GCASH":
+            pm = "GCash"
+        elif mode_raw.upper() == "PAYMAYA":
+            pm = "PayMaya"
+        elif "BANK" in mode_raw.upper() or "TRANSFER" in mode_raw.upper():
+            pm = "Bank Transfer"
+        else:
+            pm = "Cash"
+
+        venue_val = (data.get("venue") or "").strip()
+        if not venue_val:
+            venue_val = (data.get("address") or "").strip()
+        if not venue_val:
+            venue_val = "Main Hall / Venue TBD"
 
         result = db.callproc_out(
             "sp_create_booking",
@@ -941,16 +1113,16 @@ def create_booking(data: dict) -> Optional[dict]:
                 data.get("email", ""),
                 data.get("address", ""),
                 data.get("occasion", ""),
-                data.get("venue", ""),
+                venue_val,
                 event_date,
                 event_time,
                 data["pax"],
                 data.get("notes", ""),
-                data.get("menu_type", "package"),
+                menu_type,
                 package_id,
-                data.get("menu_value", "") if data.get("menu_type") == "custom" else None,
+                data.get("menu_value", "") if menu_type == "custom" else None,
                 total_amt,
-                data.get("payment_mode", "Cash"),
+                pm,
                 amount_paid,
             ),
             out_names=["p_booking_id", "p_booking_ref"],
@@ -962,6 +1134,17 @@ def create_booking(data: dict) -> Optional[dict]:
                     db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_id = %s", (str(data["color_theme"]).strip(), b_id))
                 except Exception:
                     pass
+            write_audit_log(
+                action="CREATE",
+                table_name="bookings",
+                record_id=b_id,
+                new_value={
+                    "customer": data.get("name"),
+                    "amount": total_amt,
+                    "down_payment": amount_paid,
+                    "ref": result.get("p_booking_ref"),
+                }
+            )
             return {"booking_id": b_id, "booking_ref": result["p_booking_ref"]}
     except Exception as exc:
         print(f"[repository] create_booking failed: {exc}")
@@ -992,6 +1175,22 @@ def update_booking(db_id: int, data: dict) -> None:
             if pkg_row:
                 package_id = pkg_row["id"]
 
+        mode_raw = str(data.get("payment_mode") or "Cash").strip()
+        if mode_raw.upper() == "GCASH":
+            pm = "GCash"
+        elif mode_raw.upper() == "PAYMAYA":
+            pm = "PayMaya"
+        elif "BANK" in mode_raw.upper() or "TRANSFER" in mode_raw.upper():
+            pm = "Bank Transfer"
+        else:
+            pm = "Cash"
+
+        venue_val = (data.get("venue") or "").strip()
+        if not venue_val:
+            venue_val = (data.get("address") or "").strip()
+        if not venue_val:
+            venue_val = "Main Hall / Venue TBD"
+
         db.callproc_void(
             "sp_update_booking",
             in_params=(
@@ -1001,7 +1200,7 @@ def update_booking(db_id: int, data: dict) -> None:
                 data.get("email", ""),
                 data.get("address", ""),
                 data.get("occasion", ""),
-                data.get("venue", ""),
+                venue_val,
                 event_date,
                 event_time,
                 data["pax"],
@@ -1010,7 +1209,7 @@ def update_booking(db_id: int, data: dict) -> None:
                 package_id,
                 data.get("menu_value", "") if data.get("menu_type") == "custom" else None,
                 data["total"],
-                data.get("payment_mode", "Cash"),
+                pm,
                 amount_paid,
             ),
         )
@@ -1019,6 +1218,15 @@ def update_booking(db_id: int, data: dict) -> None:
                 db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_id = %s", (str(data["color_theme"]).strip(), db_id))
             except Exception:
                 pass
+        write_audit_log(
+            action="UPDATE",
+            table_name="bookings",
+            record_id=db_id,
+            new_value={
+                "customer": data.get("name"),
+                "amount": total_amt,
+            }
+        )
     except Exception as exc:
         print(f"[repository] update_booking failed: {exc}")
 
@@ -1030,6 +1238,35 @@ def update_booking_status(db_id: int, new_status: str, cancellation_reason: str 
             db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_id = %s", (str(color_theme).strip(), db_id))
         except Exception:
             pass
+
+    c_name = ""
+    b_tot = None
+    try:
+        row = db.fetchone("SELECT bk_customer_name, bk_total_amount FROM bookings WHERE bk_id = %s", (db_id,))
+        if row:
+            c_name = row.get("bk_customer_name", "")
+            b_tot = row.get("bk_total_amount")
+    except Exception:
+        pass
+
+    act = "STATUS_CHANGE"
+    st_upper = str(new_status or "").upper()
+    if "CANCEL" in st_upper:
+        act = "CANCEL"
+    elif "CONFIRM" in st_upper:
+        act = "APPROVE"
+
+    write_audit_log(
+        action=act,
+        table_name="bookings",
+        record_id=db_id,
+        new_value={
+            "customer": c_name or f"Order #{db_id}",
+            "status": new_status,
+            "amount": b_tot,
+            "reason": cancellation_reason,
+        }
+    )
 
 
 def check_date_capacity(event_date, exclude_id: int = 0) -> dict:
@@ -1048,12 +1285,40 @@ def check_date_capacity(event_date, exclude_id: int = 0) -> dict:
 
 
 def delete_booking(db_id: int) -> None:
+    c_name = ""
+    amt = None
+    try:
+        row = db.fetchone("SELECT bk_customer_name, bk_total_amount FROM bookings WHERE bk_id = %s", (db_id,))
+        if row:
+            c_name = row.get("bk_customer_name", "")
+            amt = row.get("bk_total_amount")
+    except Exception:
+        pass
     db.callproc_void("sp_delete_booking", in_params=(db_id,))
+    write_audit_log(
+        action="DELETE",
+        table_name="bookings",
+        record_id=db_id,
+        old_value={"customer": c_name or f"Order #{db_id}", "amount": amt}
+    )
 
 
 def complete_booking(db_id: int) -> bool:
     try:
         db.callproc_void("sp_complete_booking", in_params=(db_id,))
+        c_name = ""
+        try:
+            row = db.fetchone("SELECT bk_customer_name FROM bookings WHERE bk_id = %s", (db_id,))
+            if row:
+                c_name = row.get("bk_customer_name", "")
+        except Exception:
+            pass
+        write_audit_log(
+            action="STATUS_CHANGE",
+            table_name="bookings",
+            record_id=db_id,
+            new_value={"customer": c_name or f"Order #{db_id}", "status": "COMPLETED"}
+        )
         return True
     except Exception as exc:
         print(f"[repository] complete_booking failed: {exc}")
@@ -1078,7 +1343,7 @@ def get_all_invoices() -> list[dict]:
                COALESCE(c.cus_email, '') AS customer_email
         FROM invoices i
         LEFT JOIN customers c ON c.cus_name = i.inv_customer_name
-        WHERE i.inv_status != 'CANCELLED'
+        WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
         ORDER BY i.inv_created_at DESC
     """)
     if not rows:
@@ -1122,6 +1387,14 @@ def pay_invoice(booking_id: int, payment_amount: float, payment_date,
         payment_date = _d.today()
     elif isinstance(payment_date, str):
         payment_date = _parse_date(payment_date)
+
+    # Ensure invoice exists before recording payment
+    try:
+        inv_check = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = %s", (booking_id,))
+        if not inv_check:
+            auto_create_invoice(booking_id)
+    except Exception:
+        pass
     result = db.callproc_out(
         "sp_pay_invoice",
         in_params=(booking_id, payment_amount, payment_date, method, note or None),
@@ -1133,6 +1406,28 @@ def pay_invoice(booking_id: int, payment_amount: float, payment_date,
     )
     if not result:
         raise Exception("Payment failed — no result from database.")
+
+    c_name = ""
+    try:
+        b_row = db.fetchone("SELECT bk_customer_name FROM bookings WHERE bk_id = %s", (booking_id,))
+        if b_row:
+            c_name = b_row.get("bk_customer_name", "")
+    except Exception:
+        pass
+
+    write_audit_log(
+        action="PAYMENT",
+        table_name="invoices",
+        record_id=result.get("p_invoice_id") or booking_id,
+        new_value={
+            "customer": c_name or result.get("p_invoice_ref"),
+            "amount": payment_amount,
+            "method": method,
+            "note": note,
+            "invoice_ref": result.get("p_invoice_ref"),
+        }
+    )
+
     return {
         "invoice_id":         result["p_invoice_id"],
         "invoice_ref":        result["p_invoice_ref"],
@@ -1259,12 +1554,31 @@ def update_invoice(db_id: int, data: dict) -> None:
             "sp_update_invoice",
             in_params=(db_id, data["customer"], event_date, data["amount"], data["paid"], data["status"]),
         )
+        write_audit_log(
+            action="UPDATE",
+            table_name="invoices",
+            record_id=db_id,
+            new_value={"customer": data.get("customer"), "amount": data.get("amount"), "status": data.get("status")}
+        )
     except Exception as exc:
         print(f"[repository] update_invoice failed: {exc}")
 
 
 def delete_invoice(db_id: int) -> None:
+    c_name = ""
+    try:
+        inv_row = db.fetchone("SELECT inv_customer_name FROM invoices WHERE inv_id = %s", (db_id,))
+        if inv_row:
+            c_name = inv_row.get("inv_customer_name", "")
+    except Exception:
+        pass
     db.callproc_void("sp_delete_invoice", in_params=(db_id,))
+    write_audit_log(
+        action="DELETE",
+        table_name="invoices",
+        record_id=db_id,
+        old_value={"customer": c_name or f"Invoice #{db_id}"}
+    )
 
 
 def add_payment_record(invoice_id: int, amount: float,
@@ -1281,6 +1595,19 @@ def add_payment_record(invoice_id: int, amount: float,
             out_names=["p_record_id", "p_new_status", "p_new_paid"],
         )
         if result:
+            c_name = ""
+            try:
+                inv_row = db.fetchone("SELECT inv_customer_name FROM invoices WHERE inv_id = %s", (invoice_id,))
+                if inv_row:
+                    c_name = inv_row.get("inv_customer_name", "")
+            except Exception:
+                pass
+            write_audit_log(
+                action="PAYMENT",
+                table_name="invoices",
+                record_id=invoice_id,
+                new_value={"customer": c_name, "amount": float(amount), "method": method, "note": note}
+            )
             return {
                 "record_id":  result["p_record_id"],
                 "new_status": result["p_new_status"],
@@ -1425,16 +1752,45 @@ def add_additional_charge(booking_id: int, description: str, amount: float, adde
         (booking_id, description.strip(), float(amount), _d.today(), added_by or ""),
     )
     _recalc_booking_totals(booking_id)
+    c_name = ""
+    try:
+        b_row = db.fetchone("SELECT bk_customer_name FROM bookings WHERE bk_id = %s", (booking_id,))
+        if b_row:
+            c_name = b_row.get("bk_customer_name", "")
+    except Exception:
+        pass
+    write_audit_log(
+        actor=added_by,
+        action="ADD_CHARGE",
+        table_name="bookings",
+        record_id=booking_id,
+        new_value={"customer": c_name, "description": description.strip(), "amount": float(amount)}
+    )
     return get_additional_charges(booking_id)
 
 
 def delete_additional_charge(charge_id: int) -> bool:
-    row = db.fetchone("SELECT ac_booking_id FROM booking_additional_charges WHERE ac_id = %s", (charge_id,))
+    row = db.fetchone("SELECT ac_booking_id, ac_description, ac_amount FROM booking_additional_charges WHERE ac_id = %s", (charge_id,))
     if not row:
         return False
     booking_id = row["ac_booking_id"]
+    desc = row.get("ac_description", "")
+    amt = row.get("ac_amount", 0.0)
     db.execute("DELETE FROM booking_additional_charges WHERE ac_id = %s", (charge_id,))
     _recalc_booking_totals(booking_id)
+    c_name = ""
+    try:
+        b_row = db.fetchone("SELECT bk_customer_name FROM bookings WHERE bk_id = %s", (booking_id,))
+        if b_row:
+            c_name = b_row.get("bk_customer_name", "")
+    except Exception:
+        pass
+    write_audit_log(
+        action="DELETE_CHARGE",
+        table_name="bookings",
+        record_id=booking_id,
+        old_value={"customer": c_name, "description": desc, "amount": amt}
+    )
     return True
 
 
@@ -1744,7 +2100,7 @@ def get_dashboard_kpis_filtered(target_date: str = None) -> dict:
     inv_row = db.fetchone("""
         SELECT COALESCE(SUM(inv_balance), 0.0) AS unpaid
         FROM invoices
-        WHERE inv_event_date = %s AND inv_status != 'Paid'
+        WHERE inv_event_date = %s AND CAST(inv_status AS TEXT) != 'Paid' AND CAST(inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
     """, (d_str,))
     unpaid = float(inv_row["unpaid"] if inv_row and inv_row.get("unpaid") is not None else 0.0)
 
@@ -1950,6 +2306,12 @@ def save_booking_policy(min_pct: float, allow_zero: bool) -> None:
         SET bi_min_downpayment_pct = %s, bi_allow_zero_downpayment = %s, bi_updated_at = NOW()
         WHERE bi_id = (SELECT MIN(bi_id) FROM business_info);
     """, (min_pct, allow_zero))
+    write_audit_log(
+        action="UPDATE",
+        table_name="business_info",
+        record_id=0,
+        new_value={"name": "Booking Policy", "details": f"Updated booking policy (min down payment: {min_pct}%, allow zero: {allow_zero})"}
+    )
 
 
 def save_capacity_policy(max_pax: int) -> None:
@@ -1958,6 +2320,12 @@ def save_capacity_policy(max_pax: int) -> None:
         SET bi_max_daily_pax = %s, bi_updated_at = NOW()
         WHERE bi_id = (SELECT MIN(bi_id) FROM business_info);
     """, (max_pax,))
+    write_audit_log(
+        action="UPDATE",
+        table_name="business_info",
+        record_id=0,
+        new_value={"name": "Capacity Policy", "details": f"Updated daily capacity limit to {max_pax} pax"}
+    )
 
 
 def get_business_info() -> dict:
@@ -1981,6 +2349,12 @@ def save_business_info(data: dict) -> None:
         SET bi_name = %s, bi_contact = %s, bi_email = %s, bi_address = %s, bi_updated_at = NOW()
         WHERE bi_id = (SELECT MIN(bi_id) FROM business_info);
     """, (data["name"], data["contact"], data["email"], data["address"]))
+    write_audit_log(
+        action="UPDATE",
+        table_name="business_info",
+        record_id=0,
+        new_value={"name": data.get("name"), "details": f"Updated business information for '{data.get('name')}'"}
+    )
 
 
 def get_smtp_config() -> dict:
@@ -2054,6 +2428,7 @@ def add_expense(data: dict) -> Optional[int]:
         amt = 0.0
     d_val = _parse_date(data.get("date"))
 
+    exp_id = None
     try:
         result = db.callproc_out(
             "sp_add_expense",
@@ -2061,21 +2436,31 @@ def add_expense(data: dict) -> Optional[int]:
             out_names=["p_expense_id"],
         )
         if result and result.get("p_expense_id"):
-            return result["p_expense_id"]
+            exp_id = result["p_expense_id"]
     except Exception as exc:
         print(f"[repository] sp_add_expense failed: {exc}")
 
     # Direct fallback if procedure fails
-    try:
-        row = db.fetchone("""
-            INSERT INTO expenses (exp_category, exp_description, exp_amount, exp_date)
-            VALUES (%s, %s, %s, %s)
-            RETURNING exp_id
-        """, (cat, desc, amt, d_val))
-        if row and row.get("exp_id"):
-            return row["exp_id"]
-    except Exception as exc:
-        print(f"[repository] add_expense direct insert fallback failed: {exc}")
+    if not exp_id:
+        try:
+            row = db.fetchone("""
+                INSERT INTO expenses (exp_category, exp_description, exp_amount, exp_date)
+                VALUES (%s, %s, %s, %s)
+                RETURNING exp_id
+            """, (cat, desc, amt, d_val))
+            if row and row.get("exp_id"):
+                exp_id = row["exp_id"]
+        except Exception as exc:
+            print(f"[repository] add_expense direct insert fallback failed: {exc}")
+
+    if exp_id:
+        write_audit_log(
+            action="CREATE",
+            table_name="expenses",
+            record_id=exp_id,
+            new_value={"category": cat, "description": desc, "amount": amt}
+        )
+        return exp_id
     return None
 
 
@@ -2084,10 +2469,33 @@ def update_expense(expense_id: int, data: dict) -> None:
         "sp_update_expense",
         in_params=(expense_id, data["category"], data["description"], data["amount"], _parse_date(data["date"])),
     )
+    write_audit_log(
+        action="UPDATE",
+        table_name="expenses",
+        record_id=expense_id,
+        new_value={"category": data.get("category"), "description": data.get("description"), "amount": data.get("amount")}
+    )
 
 
 def delete_expense(expense_id: int) -> None:
+    desc = ""
+    amt = 0.0
+    cat = ""
+    try:
+        row = db.fetchone("SELECT exp_category, exp_description, exp_amount FROM expenses WHERE exp_id = %s", (expense_id,))
+        if row:
+            desc = row.get("exp_description", "")
+            amt = float(row.get("exp_amount") or 0.0)
+            cat = row.get("exp_category", "")
+    except Exception:
+        pass
     db.callproc_void("sp_delete_expense", in_params=(expense_id,))
+    write_audit_log(
+        action="DELETE",
+        table_name="expenses",
+        record_id=expense_id,
+        old_value={"category": cat, "description": desc, "amount": amt}
+    )
 
 
 def get_top_locations(limit: int = 10) -> list[dict]:
@@ -2245,15 +2653,69 @@ def add_follow_up(customer_id: int, date_str: str, note: str) -> Optional[int]:
         in_params=(customer_id, _parse_date(date_str), note),
         out_names=["p_follow_up_id"],
     )
-    return result["p_follow_up_id"] if result else None
+    fid = result["p_follow_up_id"] if result else None
+    c_name = ""
+    try:
+        c_row = db.fetchone("SELECT cus_name FROM customers WHERE cus_id = %s", (customer_id,))
+        if c_row:
+            c_name = c_row.get("cus_name", "")
+    except Exception:
+        pass
+    write_audit_log(
+        action="FOLLOW_UP",
+        table_name="customers",
+        record_id=customer_id,
+        new_value={"name": c_name, "date": date_str, "note": note}
+    )
+    return fid
 
 
 def complete_follow_up(follow_up_id: int) -> None:
+    c_name = ""
+    cid = 0
+    try:
+        row = db.fetchone("""
+            SELECT c.cus_name, c.cus_id 
+            FROM customer_follow_ups cf 
+            JOIN customers c ON c.cus_id = cf.cfu_customer_id 
+            WHERE cf.cfu_id = %s
+        """, (follow_up_id,))
+        if row:
+            c_name = row.get("cus_name", "")
+            cid = row.get("cus_id", 0)
+    except Exception:
+        pass
     db.callproc_void("sp_complete_follow_up", in_params=(follow_up_id,))
+    write_audit_log(
+        action="COMPLETE_FOLLOW_UP",
+        table_name="customers",
+        record_id=cid or follow_up_id,
+        new_value={"name": c_name}
+    )
 
 
 def delete_follow_up(follow_up_id: int) -> None:
+    c_name = ""
+    cid = 0
+    try:
+        row = db.fetchone("""
+            SELECT c.cus_name, c.cus_id 
+            FROM customer_follow_ups cf 
+            JOIN customers c ON c.cus_id = cf.cfu_customer_id 
+            WHERE cf.cfu_id = %s
+        """, (follow_up_id,))
+        if row:
+            c_name = row.get("cus_name", "")
+            cid = row.get("cus_id", 0)
+    except Exception:
+        pass
     db.callproc_void("sp_delete_follow_up", in_params=(follow_up_id,))
+    write_audit_log(
+        action="DELETE_FOLLOW_UP",
+        table_name="customers",
+        record_id=cid or follow_up_id,
+        old_value={"name": c_name}
+    )
 
 
 def get_upcoming_follow_ups(days: int = 7) -> list[dict]:
@@ -2322,25 +2784,69 @@ def get_overdue_follow_ups() -> list[dict]:
 # AUDIT LOG
 # ---------------------------------------------------------------------------
 
-def write_audit_log(actor: str, action: str, table_name: str, record_id: int,
-                    old_value: dict = None, new_value: dict = None) -> None:
+_last_audit_entry = {"key": None, "time": 0.0}
+
+def write_audit_log(actor: str = None, action: str = "LOG", table_name: str = "general",
+                    record_id: int = 0, old_value: dict = None, new_value: dict = None) -> None:
     import json
-    old_json = json.dumps(old_value) if old_value else None
-    new_json = json.dumps(new_value) if new_value else None
+    import time
+    global _last_audit_entry
+
+    if not actor or not str(actor).strip():
+        try:
+            from utils.session import get_actor
+            actor = get_actor()
+        except Exception:
+            actor = "Staff"
+    actor = str(actor).strip()
+
+    action = str(action or "LOG").strip().upper()
+    table_name = str(table_name or "general").strip().lower()
+    record_id = int(record_id or 0)
+
+    # 1.0s deduplication guard
+    dedup_key = (actor, action, table_name, record_id, str(new_value))
+    now = time.time()
+    if dedup_key == _last_audit_entry["key"] and (now - _last_audit_entry["time"]) < 1.0:
+        return
+    _last_audit_entry["key"] = dedup_key
+    _last_audit_entry["time"] = now
+
+    old_json = json.dumps(old_value, default=str) if old_value else None
+    new_json = json.dumps(new_value, default=str) if new_value else None
+    res = None
     try:
-        db.callproc_out(
+        res = db.callproc_out(
             "sp_write_audit_log",
             in_params=(actor, action, table_name, record_id, old_json, new_json),
             out_names=["p_log_id"],
         )
     except Exception as exc:
-        print(f"[audit] write failed: {exc}")
+        print(f"[audit] sp_write_audit_log failed: {exc}")
+
+    # Fallback direct insert if procedure failed or didn't return an ID
+    if not res or not res.get("p_log_id"):
+        try:
+            db.execute("""
+                INSERT INTO audit_logs (al_actor, al_action, al_table_name, al_record_id, al_old_value, al_new_value)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (actor, action, table_name, record_id, old_json, new_json))
+        except Exception as exc2:
+            print(f"[audit] direct insert fallback failed: {exc2}")
+
+    try:
+        from utils.signals import app_events
+        app_events().data_changed.emit()
+    except Exception:
+        pass
 
 
-def _format_audit_description(action: str, old_value, new_value) -> str:
-    """Build a human-readable sentence like 'John added a new order for Maria
-    Santos - P15,000' from the JSON old/new value blobs written alongside
-    every audit_logs row."""
+add_audit_log = write_audit_log
+
+
+def _format_audit_description(action: str, old_value, new_value, table_name: str = None) -> str:
+    """Build a human-readable sentence from the JSON old/new value blobs
+    and table context for audit_logs entries."""
     import json
     import re
 
@@ -2348,53 +2854,186 @@ def _format_audit_description(action: str, old_value, new_value) -> str:
         if not v or v in ("None", "null"):
             return {}
         try:
-            return json.loads(v) if isinstance(v, str) else v
+            return json.loads(v) if isinstance(v, str) else (v if isinstance(v, dict) else {})
         except Exception:
             return {}
 
     def _parse_amount(v):
         if v in (None, ""):
             return None
-        if isinstance(v, str):
-            v = re.sub(r"[^\d.\-]", "", v)
-            if not v:
-                return None
-        try:
+        if isinstance(v, (int, float)):
             return float(v)
-        except (TypeError, ValueError):
-            return None
+        if isinstance(v, str):
+            clean = re.sub(r"[^\d.\-]", "", v)
+            if not clean:
+                return None
+            try:
+                return float(clean)
+            except (TypeError, ValueError):
+                return None
+        return None
 
     data = {**_load(old_value), **_load(new_value)}
-    customer = data.get("customer") or data.get("customer_name") or ""
-    amount = _parse_amount(data.get("amount"))
+    table = str(table_name or data.get("table") or "").strip().lower()
+    act = str(action or "").strip().upper()
+
+    # If an explicit human-readable description or details was passed, prioritize it
+    explicit_desc = data.get("details") or data.get("audit_desc")
+    if explicit_desc and isinstance(explicit_desc, str) and explicit_desc.strip():
+        return explicit_desc.strip()
+
+    name = data.get("name") or data.get("customer") or data.get("customer_name") or data.get("client") or ""
+    amount = _parse_amount(data.get("amount") or data.get("total") or data.get("total_amount") or data.get("price"))
     amount_str = f" — ₱{amount:,.2f}" if amount is not None else ""
     reason = data.get("reason") or ""
-    charge_desc = data.get("description") or ""
+    contact = data.get("contact") or data.get("phone") or ""
+    contact_str = f" ({contact})" if contact else ""
+    category = data.get("category") or ""
+    item_desc = data.get("description") or data.get("desc") or ""
 
+    # CUSTOMERS
+    if table in ("customers", "customer"):
+        c_label = f"'{name}'" if name else "customer"
+        if act in ("CREATE", "ADD"):
+            return f"Added new customer {c_label}{contact_str}"
+        elif act in ("UPDATE", "EDIT"):
+            status_part = f" [Status: {data.get('status')}]" if data.get("status") else ""
+            return f"Updated customer details for {c_label}{status_part}"
+        elif act in ("DELETE", "REMOVE"):
+            return f"Deleted customer {c_label}"
+        elif act == "FOLLOW_UP":
+            note = data.get("note", "")
+            return f"Added follow-up note for {c_label}{': ' + note if note else ''}"
+        elif act == "COMPLETE_FOLLOW_UP":
+            return f"Marked follow-up as completed for {c_label}"
+        elif act == "DELETE_FOLLOW_UP":
+            return f"Deleted follow-up for {c_label}"
+
+    # MENU ITEMS
+    elif table in ("menu_items", "menu_item", "dishes", "menu"):
+        m_label = f"'{name}'" if name else "menu item"
+        cat_part = f" ({category})" if category else ""
+        if act in ("CREATE", "ADD"):
+            return f"Added menu item {m_label}{cat_part}{amount_str}"
+        elif act in ("UPDATE", "EDIT"):
+            return f"Updated menu item {m_label}{cat_part}{amount_str}"
+        elif act in ("DELETE", "REMOVE"):
+            return f"Deleted menu item {m_label}"
+
+    # PACKAGES
+    elif table in ("packages", "package", "menu_packages"):
+        p_label = f"'{name}'" if name else "package"
+        if act in ("CREATE", "ADD"):
+            return f"Added package {p_label}{amount_str}"
+        elif act in ("UPDATE", "EDIT"):
+            return f"Updated package {p_label}{amount_str}"
+        elif act in ("DELETE", "REMOVE"):
+            return f"Deleted package {p_label}"
+
+    # EXPENSES
+    elif table in ("expenses", "expense"):
+        cat_part = f" ({category})" if category else ""
+        e_desc = f": {item_desc}" if item_desc else ""
+        if act in ("CREATE", "ADD"):
+            return f"Recorded expense{cat_part}{e_desc}{amount_str}"
+        elif act in ("UPDATE", "EDIT"):
+            return f"Updated expense{cat_part}{e_desc}{amount_str}"
+        elif act in ("DELETE", "REMOVE"):
+            return f"Deleted expense{cat_part}{e_desc}{amount_str}"
+
+    # INVOICES & PAYMENTS
+    elif table in ("invoices", "invoice", "payment_records", "payments", "payment"):
+        cust_part = f" from {name}" if name else ""
+        if act in ("PAYMENT", "RECORD_PAYMENT"):
+            method = data.get("method") or "Cash"
+            return f"Recorded payment{cust_part} via {method}{amount_str}"
+        elif act == "DOWN_PAYMENT":
+            return f"Recorded down payment{cust_part}{amount_str}"
+        elif act in ("CREATE", "ADD"):
+            return f"Created invoice for {name or 'booking'}{amount_str}"
+        elif act in ("UPDATE", "EDIT"):
+            return f"Updated invoice for {name or 'booking'}{amount_str}"
+        elif act in ("DELETE", "VOID", "CANCEL"):
+            return f"Voided/deleted invoice for {name or 'booking'}"
+
+    # INVENTORY
+    elif table in ("inventory", "inventory_items", "ingredients"):
+        ingredient = data.get("ingredient") or name or "item"
+        unit = data.get("unit") or ""
+        stock = data.get("stock")
+        if act in ("CREATE", "ADD"):
+            stock_info = f" ({stock} {unit})" if stock is not None else ""
+            return f"Added inventory item '{ingredient}'{stock_info}"
+        elif act in ("UPDATE", "EDIT"):
+            return f"Updated inventory item '{ingredient}'"
+        elif act == "ADJUST_STOCK":
+            delta = data.get("delta")
+            delta_str = f" ({'+' if delta and delta > 0 else ''}{delta} {unit})" if delta is not None else ""
+            return f"Adjusted stock for '{ingredient}'{delta_str}"
+        elif act in ("DELETE", "REMOVE"):
+            return f"Deleted inventory item '{ingredient}'"
+
+    # CASH FLOW
+    elif table in ("cash_flow", "cash_flow_transactions"):
+        cft_type = data.get("type") or "Transaction"
+        desc_part = f" ({item_desc})" if item_desc else ""
+        if act in ("CREATE", "ADD"):
+            return f"Recorded cash flow {cft_type}{desc_part}{amount_str}"
+        elif act in ("UPDATE", "EDIT"):
+            return f"Updated cash flow {cft_type}{desc_part}{amount_str}"
+        elif act in ("DELETE", "REMOVE"):
+            return f"Deleted cash flow {cft_type}{desc_part}"
+
+    # OCCASIONS
+    elif table in ("occasions", "occasion"):
+        o_label = f"'{name}'" if name else "occasion"
+        if act in ("CREATE", "ADD"):
+            return f"Added occasion {o_label}"
+        elif act in ("UPDATE", "EDIT"):
+            return f"Updated occasion {o_label}"
+        elif act in ("DELETE", "REMOVE"):
+            return f"Deleted occasion {o_label}"
+
+    # SETTINGS / BUSINESS
+    elif table in ("business_info", "settings", "policy"):
+        return f"Updated {name or 'business settings'}"
+
+    # IMPORT / BACKUP
+    elif act == "MERGE_IMPORT":
+        imported = data.get("imported") or data.get("summary") or ""
+        return f"Merged database import{' — ' + str(imported) if imported else ''}"
+
+    # BOOKINGS / ORDERS / FALLBACK
     verbs = {
-        "CREATE":     "added a new order",
-        "UPDATE":     "updated an order",
-        "DELETE":     "deleted an order",
-        "CANCEL":     "cancelled an order",
-        "APPROVE":    "approved an order",
-        "PAYMENT":      "recorded a payment",
-        "DOWN_PAYMENT": "recorded a down payment",
-        "ADD_CHARGE": "added an additional charge",
-        "STATUS_CHANGE": "changed the order status",
+        "CREATE":        "Added a new order",
+        "ADD":           "Added an order",
+        "UPDATE":        "Updated an order",
+        "EDIT":          "Edited an order",
+        "DELETE":        "Deleted an order",
+        "CANCEL":        "Cancelled an order",
+        "APPROVE":       "Approved an order",
+        "PAYMENT":       "Recorded a payment",
+        "DOWN_PAYMENT":  "Recorded a down payment",
+        "ADD_CHARGE":    "Added an additional charge",
+        "DELETE_CHARGE": "Removed an additional charge",
+        "STATUS_CHANGE": "Changed the order status",
+        "CONFIRM":       "Confirmed an order",
     }
-    verb = verbs.get(action, action.replace("_", " ").title())
-
+    verb = verbs.get(act, act.replace("_", " ").title())
     parts = [verb]
-    if customer:
-        parts.append(f"from {customer}" if action in ("PAYMENT", "DOWN_PAYMENT") else f"for {customer}")
-    if action == "ADD_CHARGE" and charge_desc:
-        parts.append(f"({charge_desc})")
-    if action == "CANCEL" and reason:
+    if name:
+        parts.append(f"from {name}" if act in ("PAYMENT", "DOWN_PAYMENT") else f"for {name}")
+    if act in ("ADD_CHARGE", "DELETE_CHARGE") and item_desc:
+        parts.append(f"({item_desc})")
+    if act == "CANCEL" and reason:
         parts.append(f"— reason: {reason}")
+    elif act == "STATUS_CHANGE" and data.get("status"):
+        parts.append(f"to {data.get('status')}")
+
     return (" ".join(parts) + amount_str).strip()
 
 
-def get_audit_log(limit: int = 50, start_date=None, end_date=None) -> list[dict]:
+def get_audit_log(limit: int = 50, start_date=None, end_date=None, table_name=None) -> list[dict]:
     """Recent activity log. If start_date/end_date are given, returns every
     matching entry in that range (used by the Daily Activity Report) instead
     of only the most recent `limit` rows."""
@@ -2410,11 +3049,25 @@ def get_audit_log(limit: int = 50, start_date=None, end_date=None) -> list[dict]
         FROM audit_logs
     """
     params: list = []
+    where_clauses = []
     if start_date and end_date:
-        sql += " WHERE DATE(al_created_at) BETWEEN %s AND %s"
+        where_clauses.append("DATE(al_created_at) BETWEEN %s AND %s")
         params.extend([start_date, end_date])
-    sql += " ORDER BY al_created_at DESC"
-    if not (start_date and end_date):
+    elif start_date:
+        where_clauses.append("DATE(al_created_at) >= %s")
+        params.append(start_date)
+    elif end_date:
+        where_clauses.append("DATE(al_created_at) <= %s")
+        params.append(end_date)
+    if table_name:
+        where_clauses.append("LOWER(al_table_name) = LOWER(%s)")
+        params.append(str(table_name).strip().lower())
+
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+
+    sql += " ORDER BY al_created_at DESC, al_id DESC"
+    if not (start_date or end_date):
         sql += " LIMIT %s"
         params.append(limit)
 
@@ -2441,12 +3094,20 @@ def get_audit_log(limit: int = 50, start_date=None, end_date=None) -> list[dict]
             "action":      r["action"],
             "table":       r["table_name"],
             "record_id":   r["record_id"],
-            "description": _format_audit_description(r["action"], r.get("al_old_value"), r.get("al_new_value")),
+            "description": _format_audit_description(
+                r["action"],
+                r.get("al_old_value"),
+                r.get("al_new_value"),
+                table_name=r.get("table_name")
+            ),
             "date":        date_str,
             "time":        time_str,
             "created_at":  f"{date_str} {time_str}".strip(),
         })
     return results
+
+
+get_audit_logs = get_audit_log
 
 
 # ---------------------------------------------------------------------------
@@ -3682,7 +4343,46 @@ def get_cash_flow_transactions(filter_date=None, search=None) -> list[dict]:
     return rows
 
 
-def add_cash_flow_transaction(data: dict) -> bool:
+def find_duplicate_cash_flow(t_date, particulars: str, deposit: float = 0.0,
+                             withdrawal: float = 0.0, actual_sales: float = 0.0,
+                             check_no: str = "") -> Optional[dict]:
+    """Check if an identical cash flow transaction already exists in the database.
+    Prevents duplicate entries during Excel/CSV batch imports.
+    """
+    p_date = _parse_date(t_date)
+    chk = str(check_no or "").strip()
+    part = str(particulars or "").strip()
+    dep = round(float(deposit or 0.0), 2)
+    withd = round(float(withdrawal or 0.0), 2)
+    sales = round(float(actual_sales or 0.0), 2)
+
+    # 1. If check / reference number is provided, check by check_no + date
+    if chk:
+        row = db.fetchone("""
+            SELECT cft_id, cft_date, cft_check_no, cft_particulars, cft_deposit, cft_withdrawal, cft_actual_sales
+            FROM cash_flow_transactions
+            WHERE cft_check_no = %s
+              AND cft_date = %s
+            LIMIT 1
+        """, (chk, p_date))
+        if row:
+            return row
+
+    # 2. Match by date, particulars, and exact amounts (within 1 cent)
+    row = db.fetchone("""
+        SELECT cft_id, cft_date, cft_check_no, cft_particulars, cft_deposit, cft_withdrawal, cft_actual_sales
+        FROM cash_flow_transactions
+        WHERE cft_date = %s
+          AND LOWER(TRIM(cft_particulars)) = LOWER(TRIM(%s))
+          AND ABS(COALESCE(cft_deposit, 0) - %s) < 0.01
+          AND ABS(COALESCE(cft_withdrawal, 0) - %s) < 0.01
+          AND ABS(COALESCE(cft_actual_sales, 0) - %s) < 0.01
+        LIMIT 1
+    """, (p_date, part, dep, withd, sales))
+    return row
+
+
+def add_cash_flow_transaction(data: dict, check_duplicate: bool = False) -> bool:
     """Insert a new cash flow transaction and recompute running balance."""
     t_date = _parse_date(data.get("date", datetime.today().strftime("%Y-%m-%d")))
     check_no = str(data.get("check_no", "")).strip()
@@ -3692,12 +4392,39 @@ def add_cash_flow_transaction(data: dict) -> bool:
     actual_sales = float(data.get("actual_sales") or 0.0)
     notes = str(data.get("notes", "")).strip()
 
-    db.execute("""
-        INSERT INTO cash_flow_transactions (cft_date, cft_check_no, cft_particulars, cft_deposit, cft_withdrawal, cft_balance, cft_actual_sales, cft_notes)
-        VALUES (%s, %s, %s, %s, %s, 0.0, %s, %s)
-    """, (t_date, check_no, particulars, deposit, withdrawal, actual_sales, notes))
+    if check_duplicate:
+        dup = find_duplicate_cash_flow(t_date, particulars, deposit, withdrawal, actual_sales, check_no)
+        if dup:
+            return False
+
+    if db.get_engine_type() == "postgres":
+        row = db.fetchone("""
+            INSERT INTO cash_flow_transactions (cft_date, cft_check_no, cft_particulars, cft_deposit, cft_withdrawal, cft_balance, cft_actual_sales, cft_notes)
+            VALUES (%s, %s, %s, %s, %s, 0.0, %s, %s)
+            RETURNING cft_id
+        """, (t_date, check_no, particulars, deposit, withdrawal, actual_sales, notes))
+        new_id = row["cft_id"] if row else None
+    else:
+        db.execute("""
+            INSERT INTO cash_flow_transactions (cft_date, cft_check_no, cft_particulars, cft_deposit, cft_withdrawal, cft_balance, cft_actual_sales, cft_notes)
+            VALUES (%s, %s, %s, %s, %s, 0.0, %s, %s)
+        """, (t_date, check_no, particulars, deposit, withdrawal, actual_sales, notes))
+        last_row = db.fetchone("SELECT last_insert_rowid() AS id")
+        new_id = last_row["id"] if last_row else None
+
     recalculate_cash_flow_balances()
-    return True
+    cft_type = "Deposit" if deposit > 0 else ("Withdrawal" if withdrawal > 0 else "Sales")
+    write_audit_log(
+        action="CREATE",
+        table_name="cash_flow",
+        record_id=new_id or 0,
+        new_value={
+            "description": particulars,
+            "amount": deposit or withdrawal or actual_sales,
+            "type": cft_type,
+        }
+    )
+    return new_id if new_id is not None else True
 
 
 def update_cash_flow_transaction(cft_id: int, data: dict) -> bool:
@@ -3717,13 +4444,35 @@ def update_cash_flow_transaction(cft_id: int, data: dict) -> bool:
         WHERE cft_id = %s
     """, (t_date, check_no, particulars, deposit, withdrawal, actual_sales, notes, cft_id))
     recalculate_cash_flow_balances()
+    write_audit_log(
+        action="UPDATE",
+        table_name="cash_flow",
+        record_id=cft_id,
+        new_value={
+            "description": particulars,
+            "amount": deposit or withdrawal or actual_sales,
+        }
+    )
     return True
 
 
 def delete_cash_flow_transaction(cft_id: int) -> bool:
     """Delete a single cash flow transaction."""
+    desc = ""
+    try:
+        row = db.fetchone("SELECT cft_particulars FROM cash_flow_transactions WHERE cft_id = %s", (cft_id,))
+        if row:
+            desc = row.get("cft_particulars", "")
+    except Exception:
+        pass
     db.execute("DELETE FROM cash_flow_transactions WHERE cft_id = %s", (cft_id,))
     recalculate_cash_flow_balances()
+    write_audit_log(
+        action="DELETE",
+        table_name="cash_flow",
+        record_id=cft_id,
+        old_value={"description": desc or f"Transaction #{cft_id}"}
+    )
     return True
 
 
@@ -3906,7 +4655,7 @@ def get_down_payments_summary() -> dict:
             END
         ), 0.0) AS pending_inv
         FROM invoices
-        WHERE inv_status != 'Paid' AND inv_status != 'CANCELLED'
+        WHERE CAST(inv_status AS TEXT) != 'Paid' AND CAST(inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
     """)
     r2_bk = db.fetchone("""
         SELECT COALESCE(SUM(
@@ -3932,14 +4681,14 @@ def get_down_payments_summary() -> dict:
             END
         ), 0.0) AS upcoming_amt
         FROM invoices
-        WHERE inv_event_date >= %s AND inv_status != 'CANCELLED'
+        WHERE inv_event_date >= %s AND CAST(inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
     """, (today_str,))
     upcoming_down = float(r3["upcoming_amt"] if r3 and r3.get("upcoming_amt") is not None else 0.0)
 
     r4 = db.fetchone("""
         SELECT COUNT(*) AS cnt
         FROM invoices
-        WHERE inv_status != 'CANCELLED'
+        WHERE CAST(inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
     """)
     r4_bk = db.fetchone("""
         SELECT COUNT(*) AS cnt
@@ -4001,4 +4750,82 @@ def verify_invoice_payment(inv_id: int, pr_id: int = None) -> bool:
     except Exception:
         pass
     return True
+
+
+# ---------------------------------------------------------------------------
+# INVENTORY
+# ---------------------------------------------------------------------------
+
+def get_all_inventory() -> list[dict]:
+    try:
+        rows = db.fetchall("SELECT * FROM inventory ORDER BY inv_ingredient")
+        return [
+            {
+                "id": r.get("inv_id") or r.get("id"),
+                "ingredient": r.get("inv_ingredient") or r.get("ingredient"),
+                "unit": r.get("inv_unit") or r.get("unit") or "pcs",
+                "stock": float(r.get("inv_stock") or r.get("stock") or 0.0),
+                "min_stock": float(r.get("inv_min_stock") or r.get("min_stock") or 0.0),
+                "status": "Low Stock" if float(r.get("inv_stock") or r.get("stock") or 0.0) < float(r.get("inv_min_stock") or r.get("min_stock") or 0.0) else "OK"
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+def add_inventory_item(data: dict) -> Optional[int]:
+    try:
+        row = db.fetchone("""
+            INSERT INTO inventory (inv_ingredient, inv_unit, inv_stock, inv_min_stock)
+            VALUES (%s, %s, %s, %s)
+            RETURNING inv_id
+        """, (data["ingredient"], data.get("unit", "pcs"), float(data.get("stock", 0.0)), float(data.get("min_stock", 0.0))))
+        new_id = row.get("inv_id") if row else None
+        if new_id:
+            write_audit_log(
+                action="CREATE",
+                table_name="inventory",
+                record_id=new_id,
+                new_value={"ingredient": data["ingredient"], "unit": data.get("unit"), "stock": data.get("stock")}
+            )
+        return new_id
+    except Exception:
+        return None
+
+
+def adjust_inventory_stock(item_id: int, delta: float) -> Optional[float]:
+    try:
+        row = db.fetchone("SELECT inv_ingredient, inv_stock, inv_unit FROM inventory WHERE inv_id = %s", (item_id,))
+        if not row:
+            return None
+        ing = row.get("inv_ingredient", "")
+        unit = row.get("inv_unit", "")
+        new_stock = max(0.0, float(row.get("inv_stock") or 0.0) + float(delta))
+        db.execute("UPDATE inventory SET inv_stock = %s WHERE inv_id = %s", (new_stock, item_id))
+        write_audit_log(
+            action="ADJUST_STOCK",
+            table_name="inventory",
+            record_id=item_id,
+            new_value={"ingredient": ing, "unit": unit, "delta": delta, "stock": new_stock}
+        )
+        return new_stock
+    except Exception:
+        return None
+
+
+def delete_inventory_item(item_id: int) -> bool:
+    try:
+        row = db.fetchone("SELECT inv_ingredient FROM inventory WHERE inv_id = %s", (item_id,))
+        ing = row.get("inv_ingredient", "") if row else f"Item #{item_id}"
+        db.execute("DELETE FROM inventory WHERE inv_id = %s", (item_id,))
+        write_audit_log(
+            action="DELETE",
+            table_name="inventory",
+            record_id=item_id,
+            old_value={"ingredient": ing}
+        )
+        return True
+    except Exception:
+        return False
 

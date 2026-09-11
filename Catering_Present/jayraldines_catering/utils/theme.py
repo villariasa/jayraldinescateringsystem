@@ -1,6 +1,6 @@
 import os
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QObject, Signal, QSettings
+from PySide6.QtCore import QObject, Signal, QSettings, QTimer
 from utils.paths import resource_path
 from utils.palette import get_palette, THEME_PALETTES
 
@@ -11,8 +11,12 @@ _BRAND_ACCENT_DARK = "#9F1239"
 _ORG, _APP = "Jayraldines", "CateringSystem"
 _KEY_THEME_PALETTE = "appearance/active_palette"
 
+# In-memory template cache to eliminate repeated disk I/O on theme switches
+_QSS_TEMPLATES = {}
+
 
 class ThemeManager(QObject):
+    theme_changing = Signal(str)
     theme_changed = Signal(str)
 
     _instance = None
@@ -75,13 +79,47 @@ class ThemeManager(QObject):
                 self._palette = get_palette(theme)
                 self._current = self._palette.get("mode", "dark")
 
-        path = resource_path("styles", "main.qss") if self._current == "dark" else resource_path("styles", "light.qss")
+        # Notify listeners immediately so loading overlays render instantly
+        target_palette_id = self._palette_id or ("dark_mode" if self._current == "dark" else "light_mode")
+        self.theme_changing.emit(target_palette_id)
+
         app = QApplication.instance()
-        if app and os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                qss = f.read()
-            qss = self._apply_palette_substitutions(qss)
-            app.setStyleSheet(qss)
+        if not app:
+            self.theme_changed.emit(self._current)
+            return
+
+        # Force initial paint of loading overlay
+        app.processEvents()
+
+        top_windows = [w for w in app.topLevelWidgets() if w.isVisible()]
+        for w in top_windows:
+            try:
+                w.setUpdatesEnabled(False)
+            except Exception:
+                pass
+
+        try:
+            # Load from memory cache or disk
+            tmpl_key = self._current
+            if tmpl_key not in _QSS_TEMPLATES:
+                path = resource_path("styles", "main.qss") if self._current == "dark" else resource_path("styles", "light.qss")
+                if os.path.exists(path):
+                    with open(path, "r", encoding="utf-8") as f:
+                        _QSS_TEMPLATES[tmpl_key] = f.read()
+                else:
+                    _QSS_TEMPLATES[tmpl_key] = ""
+
+            raw_qss = _QSS_TEMPLATES.get(tmpl_key, "")
+            if raw_qss:
+                qss = self._apply_palette_substitutions(raw_qss)
+                app.setStyleSheet(qss)
+        finally:
+            for w in top_windows:
+                try:
+                    w.setUpdatesEnabled(True)
+                except Exception:
+                    pass
+
         self.theme_changed.emit(self._current)
 
     def _apply_palette_substitutions(self, qss: str) -> str:

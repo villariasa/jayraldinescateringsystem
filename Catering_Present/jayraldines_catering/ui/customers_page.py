@@ -879,15 +879,18 @@ class AddMultipleCustomersDialog(QDialog):
 
 
 class CustomersPage(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self._dirty = True
         self._customers = []
         self._selected_ids: set[int] = set()
         self._card_checkboxes: dict[int, QCheckBox] = {}
         self._reload_generation = 0
+        self._reload_timer = QTimer(self)
+        self._reload_timer.setSingleShot(True)
+        self._reload_timer.setInterval(80)
+        self._reload_timer.timeout.connect(self._do_reload_direct)
         self._build_ui()
-        self._do_reload()
 
         try:
             from utils.signals import app_events
@@ -896,6 +899,14 @@ class CustomersPage(QWidget):
             app_events().data_changed.connect(self._mark_dirty)
         except Exception:
             pass
+
+    def _show_toast(self, title: str, message: str, color: str = "#22C55E"):
+        win = self.window()
+        if hasattr(win, "_toast_manager") and win._toast_manager:
+            win._toast_manager.show(title, message, color=color)
+        else:
+            from components.dialogs import success
+            success(self, title=title, message=message)
 
     def _mark_dirty_and_reload(self):
         self._dirty = True
@@ -907,15 +918,46 @@ class CustomersPage(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        if self._dirty:
+        self.refresh_permissions()
+        if getattr(self, "_dirty", True):
             self._do_reload()
 
     def reload(self):
         self._mark_dirty()
+        self.refresh_permissions()
         if self.isVisible():
             self._do_reload()
 
+    def refresh_permissions(self):
+        from utils.auth import SessionManager
+        can_create = SessionManager.has_permission("customers", "create")
+        can_delete = SessionManager.has_permission("customers", "delete")
+        can_edit = SessionManager.has_permission("customers", "edit")
+
+        if hasattr(self, "add_btn"):
+            self.add_btn.setEnabled(can_create)
+            self.add_btn.setVisible(can_create)
+        if hasattr(self, "multi_add_btn"):
+            self.multi_add_btn.setEnabled(can_create)
+            self.multi_add_btn.setVisible(can_create)
+        if hasattr(self, "import_btn"):
+            self.import_btn.setEnabled(can_create)
+            self.import_btn.setVisible(can_create)
+        if hasattr(self, "_btn_delete_selected"):
+            self._btn_delete_selected.setEnabled(can_delete and len(self._selected_ids) > 0)
+            self._btn_delete_selected.setVisible(can_delete)
+        if hasattr(self, "_cb_select_all"):
+            self._cb_select_all.setVisible(can_delete)
+        if hasattr(self, "_lbl_selected_count"):
+            self._lbl_selected_count.setVisible(can_delete)
+
     def _do_reload(self):
+        if hasattr(self, "_reload_timer"):
+            self._reload_timer.start(80)
+        else:
+            self._do_reload_direct()
+
+    def _do_reload_direct(self):
         self._dirty = False
         self._reload_generation += 1
         gen = self._reload_generation
@@ -929,15 +971,14 @@ class CustomersPage(QWidget):
                 return
         except Exception:
             pass
-        # Discard results from a reload that's been superseded by a newer
-        # one (e.g. customer_saved + booking_saved both firing off an
-        # all_in_one import) — otherwise whichever async query happens to
-        # finish last wins, even if it started first and is now stale.
         if gen is not None and gen != self._reload_generation:
             return
-        rows = data or []
-        if not rows:
-            rows = repo.get_all_customers() or []
+        rows = data if data is not None else []
+        old_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in self._customers]
+        new_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in rows]
+        if old_sig == new_sig and getattr(self, "_has_populated_once", False):
+            return
+        self._has_populated_once = True
         self._customers = rows
         self._selected_ids.clear()
         self._populate_table()
@@ -953,27 +994,27 @@ class CustomersPage(QWidget):
         header.addWidget(title)
         header.addStretch()
 
-        add_btn = QPushButton("  Add Customer")
-        add_btn.setObjectName("primaryButton")
-        add_btn.setIcon(btn_icon_primary("plus"))
-        add_btn.setIconSize(QSize(15, 15))
-        add_btn.setCursor(Qt.PointingHandCursor)
-        add_btn.clicked.connect(self._open_add_dialog)
-        header.addWidget(add_btn)
+        self.add_btn = QPushButton("  Add Customer")
+        self.add_btn.setObjectName("primaryButton")
+        self.add_btn.setIcon(btn_icon_primary("plus"))
+        self.add_btn.setIconSize(QSize(15, 15))
+        self.add_btn.setCursor(Qt.PointingHandCursor)
+        self.add_btn.clicked.connect(self._open_add_dialog)
+        header.addWidget(self.add_btn)
 
-        multi_add_btn = QPushButton("  + Quick Multi-Add")
-        multi_add_btn.setObjectName("secondaryButton")
-        multi_add_btn.setCursor(Qt.PointingHandCursor)
-        multi_add_btn.clicked.connect(self._open_multi_add_dialog)
-        header.addWidget(multi_add_btn)
+        self.multi_add_btn = QPushButton("  + Quick Multi-Add")
+        self.multi_add_btn.setObjectName("secondaryButton")
+        self.multi_add_btn.setCursor(Qt.PointingHandCursor)
+        self.multi_add_btn.clicked.connect(self._open_multi_add_dialog)
+        header.addWidget(self.multi_add_btn)
 
-        import_btn = QPushButton("  Import")
-        import_btn.setObjectName("secondaryButton")
-        import_btn.setIcon(btn_icon_secondary("export"))
-        import_btn.setIconSize(QSize(15, 15))
-        import_btn.setCursor(Qt.PointingHandCursor)
-        import_btn.clicked.connect(self._open_import_dialog)
-        header.addWidget(import_btn)
+        self.import_btn = QPushButton("  Import")
+        self.import_btn.setObjectName("secondaryButton")
+        self.import_btn.setIcon(btn_icon_secondary("export"))
+        self.import_btn.setIconSize(QSize(15, 15))
+        self.import_btn.setCursor(Qt.PointingHandCursor)
+        self.import_btn.clicked.connect(self._open_import_dialog)
+        header.addWidget(self.import_btn)
 
         export_btn = QPushButton("  Export")
         export_btn.setObjectName("secondaryButton")
@@ -1150,53 +1191,77 @@ class CustomersPage(QWidget):
         lay.addWidget(status_lbl, alignment=Qt.AlignVCenter)
 
         # Col 4: Action Buttons
-        actions_w = QFrame()
+        actions_w = QFrame(card)
         actions_w.setStyleSheet("background: transparent;")
         actions_l = QHBoxLayout(actions_w)
         actions_l.setContentsMargins(0, 0, 0, 0)
         actions_l.setSpacing(6)
 
+        from utils.auth import SessionManager
+        can_edit = SessionManager.has_permission("customers", "edit")
+        can_delete = SessionManager.has_permission("customers", "delete")
+
         edit_btn = QPushButton()
-        edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(13, 13)))
-        edit_btn.setIconSize(QSize(13, 13))
-        edit_btn.setFixedSize(30, 30)
-        edit_btn.setToolTip("Edit customer")
-        edit_btn.setStyleSheet("background: transparent; border: none;")
-        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.setIcon(get_icon("edit", color="#38BDF8" if can_edit else "#4B5563", size=QSize(14, 14)))
+        edit_btn.setIconSize(QSize(14, 14))
+        edit_btn.setFixedSize(32, 32)
+        edit_btn.setToolTip("Edit customer" if can_edit else "Permission required to edit")
+        edit_btn.setStyleSheet(
+            "QPushButton { background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; } "
+            "QPushButton:hover { background: rgba(56, 189, 248, 0.25); border-color: #38BDF8; }"
+        )
+        edit_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
+        edit_btn.setEnabled(can_edit)
         edit_btn.clicked.connect(lambda _, cust=c: self._open_edit_dialog(cust))
 
         ledger_btn = QPushButton()
-        ledger_btn.setIcon(get_icon("reports", color="#3B82F6", size=QSize(13, 13)))
-        ledger_btn.setIconSize(QSize(13, 13))
-        ledger_btn.setFixedSize(30, 30)
-        ledger_btn.setToolTip("View ledger")
-        ledger_btn.setStyleSheet("background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:6px;")
+        ledger_btn.setIcon(get_icon("reports", color="#3B82F6", size=QSize(14, 14)))
+        ledger_btn.setIconSize(QSize(14, 14))
+        ledger_btn.setFixedSize(32, 32)
+        ledger_btn.setToolTip("View statement & ledger")
+        ledger_btn.setStyleSheet(
+            "QPushButton { background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; } "
+            "QPushButton:hover { background: rgba(59, 130, 246, 0.25); border-color: #3B82F6; }"
+        )
         ledger_btn.setCursor(Qt.PointingHandCursor)
         ledger_btn.clicked.connect(lambda _, cust=c: self._open_ledger(cust))
 
         fu_btn = QPushButton()
-        fu_btn.setIcon(get_icon("bell", color="#F59E0B", size=QSize(13, 13)))
-        fu_btn.setIconSize(QSize(13, 13))
-        fu_btn.setFixedSize(30, 30)
+        fu_btn.setIcon(get_icon("bell", color="#F59E0B", size=QSize(14, 14)))
+        fu_btn.setIconSize(QSize(14, 14))
+        fu_btn.setFixedSize(32, 32)
         fu_btn.setToolTip("Follow-up reminders")
-        fu_btn.setStyleSheet("background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:6px;")
+        fu_btn.setStyleSheet(
+            "QPushButton { background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 6px; } "
+            "QPushButton:hover { background: rgba(245, 158, 11, 0.25); border-color: #F59E0B; }"
+        )
         fu_btn.setCursor(Qt.PointingHandCursor)
         fu_btn.clicked.connect(lambda _, cust=c: self._open_follow_ups(cust))
 
         del_btn = QPushButton()
-        del_btn.setIcon(btn_icon_red("trash"))
-        del_btn.setIconSize(QSize(13, 13))
-        del_btn.setFixedSize(30, 30)
-        del_btn.setStyleSheet("background: transparent; border: none;")
-        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.setIcon(btn_icon_red("trash") if can_delete else get_icon("trash", color="#4B5563", size=QSize(14, 14)))
+        del_btn.setIconSize(QSize(14, 14))
+        del_btn.setFixedSize(32, 32)
+        del_btn.setStyleSheet(
+            "QPushButton { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; } "
+            "QPushButton:hover { background: rgba(239, 68, 68, 0.25); border-color: #EF4444; }"
+        )
+        del_btn.setCursor(Qt.PointingHandCursor if can_delete else Qt.ForbiddenCursor)
+        del_btn.setEnabled(can_delete)
+        del_btn.setToolTip("Delete customer" if can_delete else "Permission required to delete")
         del_btn.clicked.connect(lambda _, cust=c: self._delete_customer_by_ref(cust))
 
-        actions_l.addWidget(edit_btn)
+        if can_edit:
+            actions_l.addWidget(edit_btn)
         actions_l.addWidget(ledger_btn)
         actions_l.addWidget(fu_btn)
-        actions_l.addWidget(del_btn)
+        if can_delete:
+            actions_l.addWidget(del_btn)
 
         lay.addWidget(actions_w)
+
+        if can_edit:
+            card.mouseDoubleClickEvent = lambda _, cust=c: self._open_edit_dialog(cust)
 
         return card
 
@@ -1243,6 +1308,10 @@ class CustomersPage(QWidget):
         self._cb_select_all.blockSignals(False)
 
     def _delete_selected_customers(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("customers", "delete"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete customers.")
+            return
         if not self._selected_ids:
             return
         count = len(self._selected_ids)
@@ -1260,9 +1329,13 @@ class CustomersPage(QWidget):
             app_events().data_changed.emit()
         except Exception:
             pass
-        success(self, message=f"Successfully deleted {deleted} customer(s).")
+        self._show_toast("Customers Deleted", f"Successfully deleted {deleted} customer(s).")
 
     def _open_multi_add_dialog(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("customers", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add customers.")
+            return
         dlg = AddMultipleCustomersDialog(self)
         if dlg.exec():
             self.reload()
@@ -1272,7 +1345,7 @@ class CustomersPage(QWidget):
                 app_events().data_changed.emit()
             except Exception:
                 pass
-            success(self, message=f"Added {dlg._added_count} customer(s) successfully.")
+            self._show_toast("Customers Added", f"Added {dlg._added_count} customer(s) successfully.")
 
 
     def _open_ledger(self, c):
@@ -1285,6 +1358,10 @@ class CustomersPage(QWidget):
             QMessageBox.warning(self, "Ledger Error", f"Unable to open customer ledger:\n{e}")
 
     def _delete_customer_by_ref(self, c):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("customers", "delete"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete customers.")
+            return
         if not confirm(self, title="Delete Customer",
                        message=f"Are you sure you want to delete '{c['name']}'? This cannot be undone.",
                        confirm_label="Delete", danger=True):
@@ -1299,7 +1376,7 @@ class CustomersPage(QWidget):
             app_events().data_changed.emit()
         except Exception:
             pass
-        success(self, message="Customer deleted successfully.")
+        self._show_toast("Customer Deleted", "Customer deleted successfully.")
 
     def _open_follow_ups(self, c):
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
@@ -1395,6 +1472,10 @@ class CustomersPage(QWidget):
         dlg.exec()
 
     def _open_edit_dialog(self, c):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("customers", "edit"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to edit customers.")
+            return
         dlg = EditCustomerDialog(self, customer=c)
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
@@ -1422,9 +1503,13 @@ class CustomersPage(QWidget):
                     app_events().data_changed.emit()
                 except Exception:
                     pass
-                success(self, message="Customer updated successfully.")
+                self._show_toast("Customer Updated", "Customer updated successfully.")
 
     def _open_add_dialog(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("customers", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add customers.")
+            return
         dlg = AddCustomerDialog(self)
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
@@ -1464,7 +1549,7 @@ class CustomersPage(QWidget):
                         app_events().data_changed.emit()
                     except Exception:
                         pass
-                    success(self, message="Customer added successfully.")
+                    self._show_toast("Customer Added", "Customer added successfully.")
                 else:
                     QMessageBox.warning(self, "Error", "Failed to save customer to database.")
 
@@ -1503,6 +1588,10 @@ class CustomersPage(QWidget):
         dlg.exec()
 
     def _open_import_dialog(self):
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("customers", "create"):
+            QMessageBox.warning(self, "Access Denied", "Your account does not have permission to import customers.")
+            return
         from components.import_dialog import ImportWizardDialog
         dlg = ImportWizardDialog(default_entity="customers", parent=self)
         if dlg.exec():

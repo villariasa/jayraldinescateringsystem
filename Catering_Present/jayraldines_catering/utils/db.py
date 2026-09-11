@@ -10,6 +10,7 @@ import time
 import sqlite3
 import threading
 import contextlib
+import uuid
 from pathlib import Path
 from datetime import date, datetime, time as time_type
 from typing import Any, Optional, Dict, List, Tuple
@@ -39,15 +40,22 @@ def compute_invoice_status(total_amount: float, amount_paid: float) -> str:
 try:
     import psycopg2
     import psycopg2.extras
+    import psycopg2.pool
     _PSYCOPG2_AVAILABLE = True
 except ImportError:
     _PSYCOPG2_AVAILABLE = False
 
-_db_lock = threading.RLock()
-_engine_type: str = "sqlite"  # 'sqlite' or 'postgres'
+_db_lock = threading.RLock()          # Used for SQLite and pool init only
+_engine_type: str = "sqlite"          # 'sqlite' or 'postgres'
 _sqlite_conn: Optional[sqlite3.Connection] = None
-_pg_conn: Optional[Any] = None
+_pg_pool: Optional[Any] = None        # psycopg2.pool.ThreadedConnectionPool
+_pg_conn: Optional[Any] = None        # Legacy alias — points to first pool conn for compat
 _sqlite_path: Optional[Path] = None
+_keepalive_started: bool = False
+
+_POOL_MIN_CONNS = 5
+_POOL_MAX_CONNS = 32
+_pg_pool_semaphore: Optional[threading.BoundedSemaphore] = None
 
 
 def get_sqlite_db_path() -> Path:
@@ -81,7 +89,65 @@ def set_sqlite_db_path(custom_path: Path):
 
 def get_engine_type() -> str:
     """Return active database engine ('sqlite' or 'postgres')."""
+    _ensure_connected()
     return _engine_type
+
+
+def get_connection():
+    """Return active connection handle, ensuring connection is initialized.
+
+    NOTE: For PostgreSQL, callers should prefer using _pg_getconn()/_pg_putconn()
+    directly so connections are returned to the pool. This function is kept for
+    backwards-compatibility with the db_sync_server health-check only.
+    """
+    with _db_lock:
+        if not _ensure_connected():
+            return None
+        if _engine_type == "postgres" and _pg_pool is not None:
+            try:
+                return _pg_pool.getconn()
+            except Exception:
+                return None
+        return _sqlite_conn
+
+
+def _pg_getconn(timeout: float = 5.0):
+    """Borrow a connection from the PostgreSQL pool with semaphore wait (thread-safe, graceful queuing)."""
+    if _pg_pool is None:
+        return None
+    global _pg_pool_semaphore
+    if _pg_pool_semaphore is not None:
+        acquired = _pg_pool_semaphore.acquire(timeout=timeout)
+        if not acquired:
+            log.warning(f"[Postgres] Connection pool semaphore timed out after {timeout}s.")
+            return None
+    try:
+        return _pg_pool.getconn()
+    except Exception as exc:
+        if _pg_pool_semaphore is not None:
+            try:
+                _pg_pool_semaphore.release()
+            except ValueError:
+                pass
+        log.error(f"[Postgres] Failed to borrow connection from pool: {exc}")
+        return None
+
+
+def _pg_putconn(conn) -> None:
+    """Return a borrowed connection back to the pool."""
+    if _pg_pool is not None and conn is not None:
+        try:
+            _pg_pool.putconn(conn)
+        except Exception:
+            pass
+        finally:
+            global _pg_pool_semaphore
+            if _pg_pool_semaphore is not None:
+                try:
+                    _pg_pool_semaphore.release()
+                except ValueError:
+                    pass
+
 
 
 def is_available() -> bool:
@@ -190,61 +256,475 @@ def connect_sqlite() -> bool:
             return False
 
 
-def connect_postgres() -> bool:
-    """Connect to PostgreSQL if explicitly requested."""
-    global _pg_conn, _engine_type
+try:
+    from utils.db_config import load_db_config, test_postgres_connection, save_db_config, get_db_config
+except ImportError:
+    def load_db_config(): return {}
+    def test_postgres_connection(*args, **kwargs): return False, "db_config not available"
+    def save_db_config(*args, **kwargs): pass
+    def get_db_config(): return {}
+
+load_config = load_db_config
+
+_pg_schema_verified = False
+
+
+def _ensure_pg_places_and_auth(conn) -> None:
+    """Verifies that Cebu places dropdown and basic auth tables exist in PostgreSQL, auto-inserting if empty."""
+    global _pg_schema_verified
+    if _pg_schema_verified:
+        return
+    try:
+        # 1. Ensure audit_logs table exists
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS audit_logs (
+                        id              SERIAL PRIMARY KEY,
+                        user_id         INT,
+                        username        VARCHAR(100),
+                        action          VARCHAR(100) NOT NULL,
+                        target_type     VARCHAR(50),
+                        target_id       VARCHAR(50),
+                        details         TEXT,
+                        ip_address      VARCHAR(50),
+                        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+        # 2. Check address_cities
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='address_cities'")
+                has_table = cur.fetchone() is not None
+                has_rows = False
+                if has_table:
+                    cur.execute("SELECT count(*) FROM address_cities")
+                    has_rows = (cur.fetchone()[0] or 0) > 0
+
+                if not has_rows:
+                    log.info("Auto-inserting Cebu places dropdown hierarchy into PostgreSQL...")
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS address_regions (
+                            ar_id   SERIAL PRIMARY KEY,
+                            ar_name VARCHAR(120) NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS address_provinces (
+                            ap_id        SERIAL PRIMARY KEY,
+                            ap_region_id INT NOT NULL REFERENCES address_regions(ar_id) ON DELETE CASCADE,
+                            ap_name      VARCHAR(120) NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS address_cities (
+                            ac_id          SERIAL PRIMARY KEY,
+                            ac_province_id INT NOT NULL REFERENCES address_provinces(ap_id) ON DELETE CASCADE,
+                            ac_name        VARCHAR(120) NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS address_barangays (
+                            ab_id      SERIAL PRIMARY KEY,
+                            ab_city_id INT NOT NULL REFERENCES address_cities(ac_id) ON DELETE CASCADE,
+                            ab_name    VARCHAR(120) NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_address_barangays_name ON address_barangays (LOWER(ab_name));
+                        CREATE INDEX IF NOT EXISTS idx_address_cities_name    ON address_cities    (LOWER(ac_name));
+
+                        CREATE TABLE IF NOT EXISTS addresses (
+                            addr_id          SERIAL PRIMARY KEY,
+                            addr_street      VARCHAR(255)    NOT NULL,
+                            addr_barangay_id INT REFERENCES address_barangays(ab_id),
+                            addr_city_id     INT REFERENCES address_cities(ac_id),
+                            addr_province_id INT REFERENCES address_provinces(ap_id),
+                            addr_zip_code    VARCHAR(10),
+                            addr_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        );
+
+                        INSERT INTO address_regions (ar_name) VALUES ('Region VII - Central Visayas')
+                            ON CONFLICT DO NOTHING;
+
+                        INSERT INTO address_provinces (ap_region_id, ap_name)
+                        SELECT r.ar_id, 'Cebu'
+                        FROM address_regions r WHERE r.ar_name = 'Region VII - Central Visayas'
+                        ON CONFLICT DO NOTHING;
+                    """)
+                    cur.execute("SELECT ap_id FROM address_provinces WHERE ap_name = 'Cebu' LIMIT 1")
+                    prov_res = cur.fetchone()
+                    if prov_res:
+                        prov_id = prov_res[0]
+                        cebu_cities_data = [
+                            ("Cebu City", ["Apas", "Banilad", "Basak San Nicolas", "Busay", "Camputhaw", "Capitol Site", "Guadalupe", "Kasambagan", "Lahug", "Mabolo", "Pardo", "Punta Princesa", "Sambag I", "Sambag II", "Talamban", "Tisa", "Zapatera"]),
+                            ("Mandaue City", ["Alang-alang", "Bakilid", "Banilad", "Cabancalan", "Centro", "Guizo", "Ibabao-Estancia", "Maguikay", "Paknaan", "Subangdaku", "Tipolo"]),
+                            ("Lapu-Lapu City", ["Basak", "Gun-ob", "Ibo", "Mactan", "Maribago", "Marigondon", "Pajac", "Pajo", "Poblacion", "Pusok", "Subabasbas"]),
+                            ("Talisay City", ["Bulacao", "Cansojong", "Dumlog", "Lawaan I", "Lawaan II", "Mohon", "Poblacion", "San Roque", "Tabunok", "Tangke"]),
+                            ("Consolacion", ["Casili", "Cansaga", "Danlag", "Jugan", "Nangka", "Pitogo", "Poblacion", "Tayud"]),
+                            ("Liloan", ["Catarman", "Cotcot", "Jubay", "Poblacion", "San Roque", "San Vicente", "Yati"]),
+                            ("Minglanilla", ["Cadulawan", "Calajo-an", "Camp 7", "Camp 8", "Cuanos", "Guindaruhan", "Linao", "Manduang", "Pakigne", "Poblacion Ward 1", "Poblacion Ward 2", "Tubod", "Tulay", "Tungkop", "Tungkil", "Vito", "Ward I", "Ward II", "Ward III", "Ward IV"]),
+                            ("Carcar City", ["Bolinawan", "Buenavista", "Calidngan", "Can-asujan", "Guadalupe", "Liburon", "Napu", "Ocana", "Perrelos", "Poblacion I", "Poblacion II", "Poblacion III", "Tuyom", "Valencia", "Valladolid"]),
+                            ("Danao City", ["Baliang", "Bayabas", "Binaliw", "Cabungahan", "Cahumayan", "Cambanay", "Cambubho", "Cogon-Cruz", "Danasan", "Dungga", "Guinsay", "Ibo", "Lawaan", "Licos", "Looc", "Magtagobtob", "Malapoc", "Manlayag", "Mantija", "Maslog", "Nangka", "Oguis", "Pili", "Poblacion", "Quisol", "Sabang", "Sacsac", "Sandayong Norte", "Sandayong Sur", "Santa Rosa", "Santican", "Sibacan", "Suba", "Taboc", "Taytay", "Togonon", "Tuburan Sur"]),
+                            ("Naga City", ["Alfaco", "Bairan", "Balirong", "Cabungahan", "Cantao-an", "Central Poblacion", "Cogon", "Colon", "Inayagan", "Inoburan", "Kinasang-an", "Lutac", "Mainit", "Mayana", "Naalad", "North Poblacion", "Pangdan", "Patag", "South Poblacion", "Tagjaguimit", "Tangke", "Tinaan", "Tuyan", "Uling"]),
+                            ("Toledo City", ["Awihao", "Bagakay", "Bato", "Biga", "Bulongan", "Bunga", "Cabitoonan", "Calongcalong", "Cambang-ug", "Camp 8", "Canlumampao", "Cantabaco", "Capitan Claudio", "Carmen", "Daanglungsod", "Don Andres Soriano", "Dumlog", "Gen. Climaco", "Ibo", "Ilihan", "Landahan", "Loay", "Luray II", "Matab-ang", "Media Once", "Pangamihan", "Poog", "Poblacion", "Putingbato", "Sagay", "Sam-ang", "Sangi", "Santo Nino", "Subayon", "Talavera", "Tubod", "Tungkay"]),
+                        ]
+                        for c_name, brgys in cebu_cities_data:
+                            cur.execute("INSERT INTO address_cities (ac_province_id, ac_name) VALUES (%s, %s) RETURNING ac_id", (prov_id, c_name))
+                            c_id = cur.fetchone()[0]
+                            for b_name in brgys:
+                                cur.execute("INSERT INTO address_barangays (ab_city_id, ab_name) VALUES (%s, %s)", (c_id, b_name))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+        # 3. Ensure bookings table has all expected columns
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_down_payment NUMERIC(12, 2) DEFAULT 0.00;
+                    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_down_payment_status VARCHAR(50) DEFAULT 'PENDING';
+                    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_base_total NUMERIC(12, 2) DEFAULT 0.00;
+                    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_color_theme VARCHAR(100) DEFAULT '#2563EB';
+                    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_notes TEXT DEFAULT '';
+                    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_cancellation_reason TEXT DEFAULT '';
+                """)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+            # 4. Ensure occasions table & occ_is_active column
+            try:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS occasions (
+                        occ_id SERIAL PRIMARY KEY,
+                        occ_name VARCHAR(100) NOT NULL UNIQUE,
+                        occ_is_active INT DEFAULT 1
+                    );
+                    ALTER TABLE occasions ADD COLUMN IF NOT EXISTS occ_is_active INT DEFAULT 1;
+                """)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+            # 5. Ensure monthly_sales_targets table
+            try:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS monthly_sales_targets (
+                        mst_year INT NOT NULL,
+                        mst_month INT NOT NULL,
+                        mst_target_amount NUMERIC(12, 2) DEFAULT 85000.0,
+                        mst_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (mst_year, mst_month)
+                    );
+                """)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+            # 6. Ensure cash_flow_transactions table
+            try:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS cash_flow_transactions (
+                        cft_id SERIAL PRIMARY KEY,
+                        cft_date DATE NOT NULL,
+                        cft_check_no VARCHAR(100) DEFAULT '',
+                        cft_particulars VARCHAR(255) NOT NULL,
+                        cft_deposit NUMERIC(12, 2) DEFAULT 0.0,
+                        cft_withdrawal NUMERIC(12, 2) DEFAULT 0.0,
+                        cft_balance NUMERIC(12, 2) DEFAULT 0.0,
+                        cft_actual_sales NUMERIC(12, 2) DEFAULT 0.0,
+                        cft_notes TEXT DEFAULT '',
+                        cft_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+            # 7. Ensure expenses table & columns
+            try:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS expenses (
+                        exp_id SERIAL PRIMARY KEY,
+                        exp_category VARCHAR(100) NOT NULL,
+                        exp_description VARCHAR(255) NOT NULL,
+                        exp_amount NUMERIC(12, 2) NOT NULL,
+                        exp_date DATE NOT NULL,
+                        exp_expense_date DATE,
+                        exp_notes TEXT DEFAULT '',
+                        exp_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_date DATE;
+                    ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_expense_date DATE;
+                    ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_notes TEXT DEFAULT '';
+                    UPDATE expenses SET exp_date = exp_expense_date WHERE exp_date IS NULL AND exp_expense_date IS NOT NULL;
+                    UPDATE expenses SET exp_expense_date = exp_date WHERE exp_expense_date IS NULL AND exp_date IS NOT NULL;
+                """)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+            # 8. Ensure booking_additional_charges table
+            try:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS booking_additional_charges (
+                        ac_id SERIAL PRIMARY KEY,
+                        ac_booking_id INT NOT NULL REFERENCES bookings(bk_id) ON DELETE CASCADE,
+                        ac_description TEXT NOT NULL,
+                        ac_amount NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+                        ac_date_added DATE NOT NULL DEFAULT CURRENT_DATE,
+                        ac_added_by TEXT DEFAULT '',
+                        ac_created_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                """)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+            # 9. Ensure device_sessions table for monitoring connected client devices
+            try:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS device_sessions (
+                        device_id VARCHAR(64) PRIMARY KEY,
+                        hostname VARCHAR(128) NOT NULL,
+                        ip_address VARCHAR(45),
+                        os_info VARCHAR(128),
+                        app_version VARCHAR(32),
+                        username VARCHAR(64),
+                        user_role VARCHAR(32),
+                        active_module VARCHAR(64) DEFAULT 'Dashboard',
+                        status VARCHAR(20) DEFAULT 'online',
+                        first_connected_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        last_heartbeat TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_device_sessions_status ON device_sessions(status);
+                    CREATE INDEX IF NOT EXISTS idx_device_sessions_heartbeat ON device_sessions(last_heartbeat);
+                """)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+            # 8. Ensure invoices & payment_records columns
+            for stmt in [
+                "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS inv_balance NUMERIC(12, 2) DEFAULT 0.00;",
+                "ALTER TABLE payment_records ADD COLUMN IF NOT EXISTS pr_is_downpayment INT DEFAULT 0;",
+                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_down_payment NUMERIC(12, 2) DEFAULT 0.00;",
+                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_color_theme VARCHAR(50) DEFAULT '#2563EB';",
+                "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_item_name VARCHAR(255) DEFAULT '';",
+                "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_category VARCHAR(100) DEFAULT '';",
+                "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_quantity INT DEFAULT 1;",
+                "ALTER TABLE customers ADD COLUMN IF NOT EXISTS cus_total_spent NUMERIC(12, 2) DEFAULT 0.00;",
+                "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_date DATE;",
+                "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_expense_date DATE;"
+            ]:
+                try:
+                    cur.execute(stmt)
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+
+            # Ensure invoice_status enum values
+            try:
+                old_iso = conn.isolation_level
+                conn.set_isolation_level(0)
+                with conn.cursor() as cur_enum:
+                    cur_enum.execute("ALTER TYPE invoice_status ADD VALUE IF NOT EXISTS 'CANCELLED';")
+                    cur_enum.execute("ALTER TYPE invoice_status ADD VALUE IF NOT EXISTS 'Cancelled';")
+                conn.set_isolation_level(old_iso)
+            except Exception as e_enum:
+                log.warning(f"Could not add CANCELLED to invoice_status enum: {e_enum}")
+
+            # 9. Ensure helper tables
+            for create_stmt in [
+                """CREATE TABLE IF NOT EXISTS customer_loyalty_tiers (
+                    cl_id SERIAL PRIMARY KEY,
+                    cl_customer_id INT NOT NULL REFERENCES customers(cus_id) ON DELETE CASCADE,
+                    cl_tier VARCHAR(50) DEFAULT 'Bronze',
+                    cl_points INT DEFAULT 0,
+                    cl_last_recalculated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );""",
+                """CREATE TABLE IF NOT EXISTS inventory (
+                    inv_id SERIAL PRIMARY KEY,
+                    inv_ingredient VARCHAR(150) NOT NULL,
+                    inv_category VARCHAR(100) DEFAULT '',
+                    inv_stock NUMERIC(12, 2) DEFAULT 0.0,
+                    inv_unit VARCHAR(50) DEFAULT 'kg',
+                    inv_cost_per_unit NUMERIC(12, 2) DEFAULT 0.0,
+                    inv_min_stock NUMERIC(12, 2) DEFAULT 5.0,
+                    inv_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );""",
+                """CREATE TABLE IF NOT EXISTS customer_addresses (
+                    ca_id SERIAL PRIMARY KEY,
+                    ca_customer_id INT NOT NULL,
+                    ca_address_id INT NOT NULL
+                );"""
+            ]:
+                try:
+                    cur.execute(create_stmt)
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+
+            # 10. PostgreSQL strftime compatibility functions
+            try:
+                cur.execute("""
+                    CREATE OR REPLACE FUNCTION strftime(format text, d date) RETURNS text AS $$
+                    BEGIN
+                        IF format = '%Y' THEN RETURN TO_CHAR(d, 'YYYY');
+                        ELSIF format = '%m' THEN RETURN TO_CHAR(d, 'MM');
+                        ELSIF format = '%d' THEN RETURN TO_CHAR(d, 'DD');
+                        ELSE RETURN TO_CHAR(d, 'YYYY-MM-DD');
+                        END IF;
+                    END;
+                    $$ LANGUAGE plpgsql IMMUTABLE;
+
+                    CREATE OR REPLACE FUNCTION strftime(format text, ts timestamp) RETURNS text AS $$
+                    BEGIN
+                        IF format = '%Y' THEN RETURN TO_CHAR(ts, 'YYYY');
+                        ELSIF format = '%m' THEN RETURN TO_CHAR(ts, 'MM');
+                        ELSIF format = '%d' THEN RETURN TO_CHAR(ts, 'DD');
+                        ELSE RETURN TO_CHAR(ts, 'YYYY-MM-DD');
+                        END IF;
+                    END;
+                    $$ LANGUAGE plpgsql IMMUTABLE;
+
+                    CREATE OR REPLACE FUNCTION strftime(format text, ts timestamptz) RETURNS text AS $$
+                    BEGIN
+                        IF format = '%Y' THEN RETURN TO_CHAR(ts, 'YYYY');
+                        ELSIF format = '%m' THEN RETURN TO_CHAR(ts, 'MM');
+                        ELSIF format = '%d' THEN RETURN TO_CHAR(ts, 'DD');
+                        ELSE RETURN TO_CHAR(ts, 'YYYY-MM-DD');
+                        END IF;
+                    END;
+                    $$ LANGUAGE plpgsql IMMUTABLE;
+                """)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        log.warning(f"Note verifying PostgreSQL places/auth/schema: {exc}")
+    finally:
+        _pg_schema_verified = True
+
+
+def connect_postgres(force: bool = False) -> bool:
+    """Connect to PostgreSQL using a ThreadedConnectionPool."""
+    global _pg_pool, _pg_conn, _engine_type, _keepalive_started, _pg_pool_semaphore
     if not _PSYCOPG2_AVAILABLE:
         return False
 
-    import getpass
-    env_user = os.environ.get("DB_USER")
-    user = env_user if env_user else getpass.getuser()
-    cfg = {
-        "host":     os.environ.get("DB_HOST", "localhost"),
-        "port":     int(os.environ.get("DB_PORT", "5432")),
-        "dbname":   os.environ.get("DB_NAME", "jayraldines_catering"),
-        "user":     user,
-        "password": os.environ.get("DB_PASSWORD", "12345678"),
-    }
-
     with _db_lock:
+        if not force and _engine_type == "postgres" and _pg_pool is not None:
+            return True
+
+        load_db_config()
+
+        import getpass
+        env_user = os.environ.get("DB_USER")
+        user = env_user if env_user else getpass.getuser()
+        cfg = {
+            "host":            os.environ.get("DB_HOST", "localhost"),
+            "port":            int(os.environ.get("DB_PORT", "5432")),
+            "dbname":          os.environ.get("DB_NAME", "jayraldines_catering"),
+            "user":            user,
+            "password":        os.environ.get("DB_PASSWORD", "12345678"),
+            "connect_timeout": 4,
+        }
+
         try:
-            if _pg_conn is not None:
+            # Close any existing pool cleanly
+            if _pg_pool is not None:
                 try:
-                    _pg_conn.close()
+                    _pg_pool.closeall()
                 except Exception:
                     pass
-            _pg_conn = psycopg2.connect(**cfg, connect_timeout=4)
-            _pg_conn.autocommit = False
+                _pg_pool = None
+
+            _pg_pool = psycopg2.pool.ThreadedConnectionPool(
+                minconn=_POOL_MIN_CONNS,
+                maxconn=_POOL_MAX_CONNS,
+                **cfg
+            )
+            _pg_pool_semaphore = threading.BoundedSemaphore(_POOL_MAX_CONNS)
+            # Verify pool works and run schema bootstrap on one connection
+            _boot_conn = _pg_pool.getconn()
+            try:
+                _boot_conn.autocommit = False
+                _ensure_pg_places_and_auth(_boot_conn)
+            finally:
+                _pg_pool.putconn(_boot_conn)
+
             _engine_type = "postgres"
-            log.info("Connected to PostgreSQL database.")
+            log.info(f"Connected to PostgreSQL via ThreadedConnectionPool ({_POOL_MIN_CONNS}–{_POOL_MAX_CONNS} connections).")
+
+            # Start keepalive daemon (only once per process)
+            if not _keepalive_started:
+                _keepalive_started = True
+                _start_pg_keepalive()
+
             return True
         except Exception as exc:
-            log.warning(f"PostgreSQL connection failed: {exc}. Using SQLite embedded database.")
-            _pg_conn = None
+            log.warning(f"PostgreSQL connection pool failed: {exc}. Using SQLite embedded database.")
+            _pg_pool = None
             return False
 
 
-def connect() -> bool:
-    """Connect to preferred database (SQLite default)."""
-    pref = os.environ.get("DB_ENGINE", "sqlite").lower().strip()
-    if pref == "postgres" and _PSYCOPG2_AVAILABLE:
-        if connect_postgres():
-            return True
-    return connect_sqlite()
+def _start_pg_keepalive() -> None:
+    """Daemon thread that pings the pool every 45 s to prevent idle-timeout disconnects."""
+    def _keepalive_worker():
+        while True:
+            try:
+                threading.Event().wait(45)
+            except Exception:
+                pass
+            if _pg_pool is None or _engine_type != "postgres":
+                return
+            conn = None
+            try:
+                conn = _pg_getconn(timeout=2.0)
+                if conn is not None:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+                    conn.commit()
+            except Exception:
+                pass
+            finally:
+                if conn is not None:
+                    _pg_putconn(conn)
+
+    t = threading.Thread(target=_keepalive_worker, daemon=True, name="PGKeepalive")
+    t.start()
+
+
+def connect(force: bool = False) -> bool:
+    """Connect to preferred database (checks db_config.json and DB_ENGINE)."""
+    with _db_lock:
+        if not force:
+            if _engine_type == "postgres" and _pg_pool is not None:
+                return True
+            if _engine_type == "sqlite" and _sqlite_conn is not None:
+                return True
+        load_db_config()
+        pref = os.environ.get("DB_ENGINE", "sqlite").lower().strip()
+        if pref == "postgres" and _PSYCOPG2_AVAILABLE:
+            if connect_postgres(force=force):
+                return True
+        return connect_sqlite()
 
 
 def _ensure_connected() -> bool:
-    global _engine_type, _sqlite_conn, _pg_conn
-    if _engine_type == "sqlite":
-        if _sqlite_conn is None:
-            return connect_sqlite()
+    global _engine_type, _sqlite_conn, _pg_pool
+    if _engine_type == "sqlite" and _sqlite_conn is not None:
         return True
-    elif _engine_type == "postgres":
-        if _pg_conn is None or getattr(_pg_conn, "closed", 1) != 0:
-            return connect()
+    elif _engine_type == "postgres" and _pg_pool is not None:
         return True
-    return connect()
+    with _db_lock:
+        if _engine_type == "sqlite" and _sqlite_conn is not None:
+            return True
+        elif _engine_type == "postgres" and _pg_pool is not None:
+            return True
+        return connect()
 
 
 @contextlib.contextmanager
@@ -275,11 +755,19 @@ def transaction():
                 raise
 
 
+def _prepare_pg_sql(sql: str, params: Any = ()) -> str:
+    """Ensure raw PostgreSQL queries don't break when parameters are passed alongside literal % characters."""
+    if not params or "%" not in sql:
+        return sql
+    # Don't escape %s, %d, %f, or %(name)s placeholders or %%
+    return re.sub(r"%(?!s|d|f|\([a-zA-Z0-9_]+\)s|%)", "%%", sql)
+
+
 def execute(sql: str, params: tuple = ()) -> None:
-    with _db_lock:
-        if not _ensure_connected():
-            raise RuntimeError("No database connection")
-        if _engine_type == "sqlite":
+    if not _ensure_connected():
+        raise RuntimeError("No database connection")
+    if _engine_type == "sqlite":
+        with _db_lock:
             try:
                 clean_sql = _translate_pg_to_sqlite(sql)
                 sanitized_params = _sanitize_params(params)
@@ -290,25 +778,34 @@ def execute(sql: str, params: tuple = ()) -> None:
             except Exception as exc:
                 log.error(f"[SQLite] execute failed on SQL: {sql[:100]} | Error: {exc}")
                 raise
-        else:
+    else:
+        conn = _pg_getconn()
+        if conn is None:
+            raise RuntimeError("No PostgreSQL connection available from pool")
+        try:
+            pg_sql = _prepare_pg_sql(sql, params)
+            with conn.cursor() as cur:
+                if params:
+                    cur.execute(pg_sql, params)
+                else:
+                    cur.execute(pg_sql)
+            conn.commit()
+        except Exception as exc:
             try:
-                with _pg_conn.cursor() as cur:
-                    cur.execute(sql, params)
-                _pg_conn.commit()
-            except Exception as exc:
-                try:
-                    _pg_conn.rollback()
-                except Exception:
-                    pass
-                log.error(f"[Postgres] execute failed: {exc}")
-                raise
+                conn.rollback()
+            except Exception:
+                pass
+            log.error(f"[Postgres] execute failed on SQL: {sql[:160]} | Error: {exc}")
+            raise
+        finally:
+            _pg_putconn(conn)
 
 
 def fetchall(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
-    with _db_lock:
-        if not _ensure_connected():
-            return []
-        if _engine_type == "sqlite":
+    if not _ensure_connected():
+        return []
+    if _engine_type == "sqlite":
+        with _db_lock:
             try:
                 clean_sql = _translate_pg_to_sqlite(sql)
                 actual_placeholders = clean_sql.count("?")
@@ -322,25 +819,36 @@ def fetchall(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
             except Exception as exc:
                 log.error(f"[SQLite] fetchall failed on SQL: {sql[:100]} | Error: {exc}")
                 return []
-        else:
+    else:
+        conn = _pg_getconn()
+        if conn is None:
+            return []
+        try:
+            pg_sql = _prepare_pg_sql(sql, params)
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                if params:
+                    cur.execute(pg_sql, params)
+                else:
+                    cur.execute(pg_sql)
+                rows = [dict(row) for row in cur.fetchall()]
+            conn.commit()
+            return rows
+        except Exception as exc:
             try:
-                with _pg_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    cur.execute(sql, params)
-                    return [dict(row) for row in cur.fetchall()]
-            except Exception as exc:
-                try:
-                    _pg_conn.rollback()
-                except Exception:
-                    pass
-                log.error(f"[Postgres] fetchall failed: {exc}")
-                return []
+                conn.rollback()
+            except Exception:
+                pass
+            log.error(f"[Postgres] fetchall failed on SQL: {sql[:160]} | Error: {exc}")
+            return []
+        finally:
+            _pg_putconn(conn)
 
 
 def fetchone(sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
-    with _db_lock:
-        if not _ensure_connected():
-            return None
-        if _engine_type == "sqlite":
+    if not _ensure_connected():
+        return None
+    if _engine_type == "sqlite":
+        with _db_lock:
             try:
                 clean_sql = _translate_pg_to_sqlite(sql)
                 actual_placeholders = clean_sql.count("?")
@@ -354,87 +862,139 @@ def fetchone(sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
             except Exception as exc:
                 log.error(f"[SQLite] fetchone failed on SQL: {sql[:100]} | Error: {exc}")
                 return None
-        else:
+    else:
+        conn = _pg_getconn()
+        if conn is None:
+            return None
+        try:
+            pg_sql = _prepare_pg_sql(sql, params)
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                if params:
+                    cur.execute(pg_sql, params)
+                else:
+                    cur.execute(pg_sql)
+                row = cur.fetchone()
+            conn.commit()
+            return dict(row) if row else None
+        except Exception as exc:
             try:
-                with _pg_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    cur.execute(sql, params)
-                    row = cur.fetchone()
-                    return dict(row) if row else None
-            except Exception as exc:
-                try:
-                    _pg_conn.rollback()
-                except Exception:
-                    pass
-                log.error(f"[Postgres] fetchone failed: {exc}")
-                return None
+                conn.rollback()
+            except Exception:
+                pass
+            log.error(f"[Postgres] fetchone failed on SQL: {sql[:160]} | Error: {exc}")
+            return None
+        finally:
+            _pg_putconn(conn)
+
+
+def callproc_cursor(proc: str, cursor_name: str = None, in_params: tuple = ()) -> List[Dict[str, Any]]:
+    """Execute a PostgreSQL stored procedure returning a REFCURSOR, or return empty list on SQLite."""
+    if not _ensure_connected():
+        return []
+    if _engine_type == "sqlite":
+        return []
+    if not cursor_name or cursor_name == "cursor":
+        cursor_name = f"c_{uuid.uuid4().hex[:12]}"
+    conn = _pg_getconn()
+    if conn is None:
+        return []
+    try:
+        all_params = in_params + (cursor_name,)
+        placeholders = ", ".join(["%s"] * len(all_params))
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("BEGIN;")
+            cur.execute(f"CALL {proc}({placeholders})", all_params)
+            cur.execute(f'FETCH ALL IN "{cursor_name}"')
+            rows = [dict(r) for r in cur.fetchall()]
+        conn.commit()
+        return rows
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        log.warning(f"[Postgres] callproc_cursor({proc}) failed: {exc}")
+        return []
+    finally:
+        _pg_putconn(conn)
 
 
 def callproc_out(proc: str, in_params: tuple = (), out_names: list = None) -> Optional[Dict[str, Any]]:
     """Emulate stored procedure execution with OUT parameters for SQLite, or run PostgreSQL procedure."""
-    with _db_lock:
-        if not _ensure_connected():
-            return None
+    if not _ensure_connected():
+        return None
 
-        if _engine_type == "sqlite":
+    if _engine_type == "sqlite":
+        with _db_lock:
             try:
                 return _emulate_sqlite_procedure_out(proc, in_params, out_names)
             except Exception as exc:
                 log.error(f"[SQLite] Procedure emulation failed for {proc}: {exc}")
                 return None
 
-        # PostgreSQL Execution
-        placeholders = ", ".join(["%s"] * len(in_params))
-        if out_names:
-            out_placeholders = ", ".join(["NULL"] * len(out_names))
-            sql = f"CALL {proc}({placeholders}, {out_placeholders})" if in_params else f"CALL {proc}({out_placeholders})"
-        else:
-            sql = f"CALL {proc}({placeholders})" if in_params else f"CALL {proc}()"
-        try:
-            with _pg_conn.cursor() as cur:
-                cur.execute(sql, in_params if in_params else ())
-                row = cur.fetchone()
-                _pg_conn.commit()
-                if row is None:
-                    return {}
-                if out_names:
-                    return dict(zip(out_names, row))
+    # PostgreSQL Execution
+    conn = _pg_getconn()
+    if conn is None:
+        return None
+    placeholders = ", ".join(["%s"] * len(in_params))
+    if out_names:
+        out_placeholders = ", ".join(["NULL"] * len(out_names))
+        sql = f"CALL {proc}({placeholders}, {out_placeholders})" if in_params else f"CALL {proc}({out_placeholders})"
+    else:
+        sql = f"CALL {proc}({placeholders})" if in_params else f"CALL {proc}()"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, in_params if in_params else ())
+            row = cur.fetchone()
+            conn.commit()
+            if row is None:
                 return {}
-        except Exception as exc:
-            try:
-                _pg_conn.rollback()
-            except Exception:
-                pass
-            log.error(f"[Postgres] callproc_out({proc}) failed: {exc}")
-            return None
+            if out_names:
+                return dict(zip(out_names, row))
+            return {}
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        log.error(f"[Postgres] callproc_out({proc}) failed: {exc}")
+        return None
+    finally:
+        _pg_putconn(conn)
 
 
 def callproc_void(proc: str, in_params: tuple = ()) -> bool:
     """Emulate void stored procedure execution for SQLite, or run PostgreSQL procedure."""
-    with _db_lock:
-        if not _ensure_connected():
-            return False
+    if not _ensure_connected():
+        return False
 
-        if _engine_type == "sqlite":
+    if _engine_type == "sqlite":
+        with _db_lock:
             try:
                 return _emulate_sqlite_procedure_void(proc, in_params)
             except Exception as exc:
                 log.error(f"[SQLite] Void procedure emulation failed for {proc}: {exc}")
                 return False
 
-        placeholders = ", ".join(["%s"] * len(in_params))
-        sql = f"CALL {proc}({placeholders})" if in_params else f"CALL {proc}()"
+    conn = _pg_getconn()
+    if conn is None:
+        return False
+    placeholders = ", ".join(["%s"] * len(in_params))
+    sql = f"CALL {proc}({placeholders})" if in_params else f"CALL {proc}()"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, in_params if in_params else ())
+        conn.commit()
+        return True
+    except Exception as exc:
         try:
-            with _pg_conn.cursor() as cur:
-                cur.execute(sql, in_params if in_params else ())
-            _pg_conn.commit()
-            return True
-        except Exception as exc:
-            try:
-                _pg_conn.rollback()
-            except Exception:
-                pass
-            log.error(f"[Postgres] callproc_void({proc}) failed: {exc}")
-            return False
+            conn.rollback()
+        except Exception:
+            pass
+        log.error(f"[Postgres] callproc_void({proc}) failed: {exc}")
+        return False
+    finally:
+        _pg_putconn(conn)
 
 
 def _gen_unique_booking_ref(cur) -> str:
@@ -1105,8 +1665,8 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
 
 
 def close() -> None:
-    """Close active database connections."""
-    global _sqlite_conn, _pg_conn
+    """Close active database connections and the connection pool."""
+    global _sqlite_conn, _pg_conn, _pg_pool
     with _db_lock:
         if _sqlite_conn is not None:
             try:
@@ -1114,9 +1674,214 @@ def close() -> None:
             except Exception:
                 pass
             _sqlite_conn = None
-        if _pg_conn is not None:
+        if _pg_pool is not None:
             try:
-                _pg_conn.close()
+                _pg_pool.closeall()
             except Exception:
                 pass
-            _pg_conn = None
+            _pg_pool = None
+        _pg_conn = None
+
+
+# ---------------------------------------------------------------------------
+# Device & Server Session Monitoring
+# ---------------------------------------------------------------------------
+
+def upsert_device_session(
+    device_id: str,
+    hostname: str,
+    ip_address: str = "",
+    os_info: str = "",
+    app_version: str = "",
+    username: str = "",
+    user_role: str = "",
+    active_module: str = "Dashboard",
+    status: str = "online"
+) -> bool:
+    """Register or update a connected client device session in the database."""
+    _ensure_connected()
+    if _engine_type == "postgres":
+        sql = """
+            INSERT INTO device_sessions (
+                device_id, hostname, ip_address, os_info, app_version,
+                username, user_role, active_module, status, first_connected_at, last_heartbeat
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (device_id) DO UPDATE SET
+                hostname = EXCLUDED.hostname,
+                ip_address = EXCLUDED.ip_address,
+                os_info = EXCLUDED.os_info,
+                app_version = EXCLUDED.app_version,
+                username = COALESCE(NULLIF(EXCLUDED.username, ''), device_sessions.username),
+                user_role = COALESCE(NULLIF(EXCLUDED.user_role, ''), device_sessions.user_role),
+                active_module = EXCLUDED.active_module,
+                status = EXCLUDED.status,
+                last_heartbeat = NOW()
+        """
+        params = (device_id, hostname, ip_address, os_info, app_version, username, user_role, active_module, status)
+    else:
+        sql = """
+            INSERT INTO device_sessions (
+                device_id, hostname, ip_address, os_info, app_version,
+                username, user_role, active_module, status, first_connected_at, last_heartbeat
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (device_id) DO UPDATE SET
+                hostname = excluded.hostname,
+                ip_address = excluded.ip_address,
+                os_info = excluded.os_info,
+                app_version = excluded.app_version,
+                username = COALESCE(NULLIF(excluded.username, ''), device_sessions.username),
+                user_role = COALESCE(NULLIF(excluded.user_role, ''), device_sessions.user_role),
+                active_module = excluded.active_module,
+                status = excluded.status,
+                last_heartbeat = CURRENT_TIMESTAMP
+        """
+        params = (device_id, hostname, ip_address, os_info, app_version, username, user_role, active_module, status)
+
+    try:
+        execute(sql, params)
+        return True
+    except Exception as e:
+        log.warning(f"[DB] upsert_device_session failed: {e}")
+        return False
+
+
+def update_device_heartbeat(
+    device_id: str,
+    username: Optional[str] = None,
+    user_role: Optional[str] = None,
+    active_module: Optional[str] = None,
+    status: str = "online"
+) -> bool:
+    """Update active heartbeat ping and current screen from a connected client device."""
+    _ensure_connected()
+    if _engine_type == "postgres":
+        sql = """
+            UPDATE device_sessions SET
+                last_heartbeat = NOW(),
+                status = %s,
+                username = COALESCE(%s, username),
+                user_role = COALESCE(%s, user_role),
+                active_module = COALESCE(%s, active_module)
+            WHERE device_id = %s
+        """
+    else:
+        sql = """
+            UPDATE device_sessions SET
+                last_heartbeat = CURRENT_TIMESTAMP,
+                status = ?,
+                username = COALESCE(?, username),
+                user_role = COALESCE(?, user_role),
+                active_module = COALESCE(?, active_module)
+            WHERE device_id = ?
+        """
+    params = (status, username, user_role, active_module, device_id)
+    try:
+        execute(sql, params)
+        return True
+    except Exception as e:
+        log.warning(f"[DB] update_device_heartbeat failed: {e}")
+        return False
+
+
+def set_device_offline(device_id: str) -> bool:
+    """Mark a client device as disconnected / offline."""
+    return update_device_heartbeat(device_id, status="offline")
+
+
+def get_connected_devices() -> List[Dict[str, Any]]:
+    """Retrieve list of all monitored devices with computed live status."""
+    _ensure_connected()
+    if _engine_type == "postgres":
+        sql = """
+            SELECT 
+                device_id, hostname, ip_address, os_info, app_version,
+                username, user_role, active_module,
+                CASE 
+                    WHEN status = 'offline' THEN 'offline'
+                    WHEN last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN 'online'
+                    WHEN last_heartbeat >= NOW() - INTERVAL '10 minutes' THEN 'idle'
+                    ELSE 'offline'
+                END AS live_status,
+                status AS raw_status,
+                first_connected_at,
+                last_heartbeat,
+                ROUND(EXTRACT(EPOCH FROM (NOW() - last_heartbeat))) AS seconds_since_ping
+            FROM device_sessions
+            ORDER BY last_heartbeat DESC
+        """
+    else:
+        sql = """
+            SELECT 
+                device_id, hostname, ip_address, os_info, app_version,
+                username, user_role, active_module,
+                CASE 
+                    WHEN status = 'offline' THEN 'offline'
+                    WHEN (julianday('now') - julianday(last_heartbeat)) * 86400 <= 120 THEN 'online'
+                    WHEN (julianday('now') - julianday(last_heartbeat)) * 86400 <= 600 THEN 'idle'
+                    ELSE 'offline'
+                END AS live_status,
+                status AS raw_status,
+                first_connected_at,
+                last_heartbeat,
+                CAST((julianday('now') - julianday(last_heartbeat)) * 86400 AS INTEGER) AS seconds_since_ping
+            FROM device_sessions
+            ORDER BY last_heartbeat DESC
+        """
+    try:
+        rows = fetchall(sql)
+        devices = []
+        for r in rows:
+            if isinstance(r, dict):
+                devices.append(r)
+            else:
+                # tuple/list conversion
+                devices.append({
+                    "device_id": r[0], "hostname": r[1], "ip_address": r[2], "os_info": r[3],
+                    "app_version": r[4], "username": r[5], "user_role": r[6], "active_module": r[7],
+                    "live_status": r[8], "raw_status": r[9], "first_connected_at": r[10],
+                    "last_heartbeat": r[11], "seconds_since_ping": r[12]
+                })
+        return devices
+    except Exception as e:
+        log.warning(f"[DB] get_connected_devices failed: {e}")
+        return []
+
+
+def get_server_connection_stats() -> Dict[str, Any]:
+    """Return live database server stats including active PG connections and pool status."""
+    _ensure_connected()
+    stats = {
+        "engine": _engine_type,
+        "active_devices_count": 0,
+        "pg_active_connections": 1,
+        "pool_min": _POOL_MIN_CONNS if _engine_type == "postgres" else 1,
+        "pool_max": _POOL_MAX_CONNS if _engine_type == "postgres" else 1,
+        "database_name": "PostgreSQL (jayraldines_catering)" if _engine_type == "postgres" else "SQLite WAL Embedded",
+        "ping_ms": 0.0
+    }
+
+    t0 = time.perf_counter()
+    try:
+        if _engine_type == "postgres":
+            pg_res = fetchone("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()")
+            if pg_res:
+                stats["pg_active_connections"] = pg_res[0] if isinstance(pg_res, (list, tuple)) else pg_res.get("count", 1)
+
+            db_name_res = fetchone("SELECT current_database() AS dbname")
+            if db_name_res:
+                if isinstance(db_name_res, (list, tuple)):
+                    stats["database_name"] = str(db_name_res[0])
+                elif isinstance(db_name_res, dict):
+                    stats["database_name"] = str(db_name_res.get("dbname") or db_name_res.get("current_database") or "PostgreSQL")
+                else:
+                    stats["database_name"] = str(db_name_res)
+
+        devices = get_connected_devices()
+        stats["active_devices_count"] = sum(1 for d in devices if d.get("live_status") == "online")
+        stats["total_registered_devices"] = len(devices)
+    except Exception as e:
+        log.warning(f"[DB] get_server_connection_stats failed: {e}")
+    finally:
+        stats["ping_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+
+    return stats

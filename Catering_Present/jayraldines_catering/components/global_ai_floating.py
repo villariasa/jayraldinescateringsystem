@@ -44,46 +44,64 @@ class _AskWorker(QObject):
         self.finished.emit(ai_client.ask(self._question))
 
 
+class UserBubble(QWidget):
+    """Renders a user message bubble with User Profile Avatar and theme awareness."""
+    def __init__(self, question: str, parent=None):
+        super().__init__(parent)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 4, 0, 4)
+        row.setSpacing(10)
+        row.addStretch()
+
+        col = QVBoxLayout()
+        col.setSpacing(3)
+
+        self.header = QLabel("You")
+        self.header.setAlignment(Qt.AlignRight)
+        col.addWidget(self.header)
+
+        self.bubble = QLabel(question)
+        self.bubble.setWordWrap(True)
+        self.bubble.setMaximumWidth(480)
+        self.bubble.setStyleSheet(
+            f"background: {AccentManager().current}; color: #FFFFFF; border-radius: 14px; "
+            "border-top-right-radius: 2px; padding: 10px 14px; font-size: 13px; "
+            "font-weight: 600; line-height: 140%;"
+        )
+        col.addWidget(self.bubble)
+        row.addLayout(col)
+
+        # User Avatar Badge (SVG Icon Avatar)
+        self.avatar = QLabel()
+        self.avatar.setFixedSize(36, 36)
+        self.avatar.setAlignment(Qt.AlignCenter)
+        icon = get_icon("user", color=AccentManager().current, size=QSize(18, 18))
+        self.avatar.setPixmap(icon.pixmap(QSize(18, 18)))
+        row.addWidget(self.avatar, 0, Qt.AlignTop)
+
+        self.update_theme()
+        ThemeManager().theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, *_args):
+        try:
+            from shiboken6 import isValid
+            if isValid(self):
+                self.update_theme()
+        except Exception:
+            pass
+
+    def update_theme(self):
+        dark = _is_dark()
+        self.header.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {'#9CA3AF' if dark else '#475569'};")
+        bg = "#1F2937" if dark else "#F1F5F9"
+        self.avatar.setStyleSheet(
+            f"background: {bg}; border: 2px solid {AccentManager().current}; border-radius: 18px;"
+        )
+
+
 def build_user_bubble(question: str) -> QWidget:
     """Renders a user message bubble with User Profile Avatar."""
-    wrap = QWidget()
-    row = QHBoxLayout(wrap)
-    row.setContentsMargins(0, 4, 0, 4)
-    row.setSpacing(10)
-    row.addStretch()
-
-    col = QVBoxLayout()
-    col.setSpacing(3)
-
-    header = QLabel("You")
-    header.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
-    header.setAlignment(Qt.AlignRight)
-    col.addWidget(header)
-
-    bubble = QLabel(question)
-    bubble.setWordWrap(True)
-    bubble.setMaximumWidth(480)
-    bubble.setStyleSheet(
-        f"background: {AccentManager().current}; color: #FFFFFF; border-radius: 14px; "
-        "border-top-right-radius: 2px; padding: 10px 14px; font-size: 13px; "
-        "font-weight: 600; line-height: 140%;"
-    )
-    col.addWidget(bubble)
-    row.addLayout(col)
-
-    # User Avatar Badge (SVG Icon Avatar)
-    avatar = QLabel()
-    avatar.setFixedSize(36, 36)
-    avatar.setAlignment(Qt.AlignCenter)
-    dark = _is_dark()
-    bg = "#1F2937" if dark else "#F1F5F9"
-    icon = get_icon("user", color=AccentManager().current, size=QSize(18, 18))
-    avatar.setPixmap(icon.pixmap(QSize(18, 18)))
-    avatar.setStyleSheet(
-        f"background: {bg}; border: 2px solid {AccentManager().current}; border-radius: 18px;"
-    )
-    row.addWidget(avatar, 0, Qt.AlignTop)
-    return wrap
+    return UserBubble(question)
 
 
 import re
@@ -104,7 +122,8 @@ def format_ai_text(text: str, is_dark: bool) -> str:
     html = re.sub(r'`(.+?)`', rf'<span style="background:{code_bg}; color:{code_col}; font-family:monospace; padding:1px 4px; border-radius:3px;">\1</span>', html)
     # Convert newlines to <br/>
     html = html.replace("\n", "<br/>")
-    return html
+    text_col = "#F8FAFC" if is_dark else "#0F172A"
+    return f'<div style="color: {text_col}; font-size: 13px; line-height: 145%;">{html}</div>'
 
 
 class TypewriterLabel(QLabel):
@@ -113,16 +132,16 @@ class TypewriterLabel(QLabel):
 
     def __init__(self, full_text: str, animate: bool = True, parent=None):
         super().__init__(parent)
+        self.setObjectName("aiAnswerText")
         self.setWordWrap(True)
         self.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self._full_text = full_text or ""
-        self._is_dark = _is_dark()
-        self._text_color = '#F9FAFB' if self._is_dark else '#0F172A'
-        self.setStyleSheet(f"font-size: 13px; line-height: 140%; color: {self._text_color};")
-        
         self._current_len = 0
         self._total_len = len(self._full_text)
-        
+        self._apply_style()
+
+        ThemeManager().theme_changed.connect(self._on_theme_changed)
+
         if not animate or self._total_len == 0:
             self._render_text(self._full_text, cursor=False)
             QTimer.singleShot(0, self.typing_finished.emit)
@@ -131,7 +150,7 @@ class TypewriterLabel(QLabel):
             self._timer = QTimer(self)
             self._timer.setInterval(14)
             self._timer.timeout.connect(self._on_tick)
-            
+
             # Adaptive typing speed: feels organic and finishes in 1-2.5 seconds
             if self._total_len < 60:
                 self._step = 1
@@ -141,12 +160,28 @@ class TypewriterLabel(QLabel):
                 self._step = 3
             else:
                 self._step = max(4, self._total_len // 90)
-                
+
             self._render_text("", cursor=True)
             self._timer.start()
 
+    def _apply_style(self):
+        dark = _is_dark()
+        text_color = '#F9FAFB' if dark else '#0F172A'
+        self.setStyleSheet(f"font-size: 13px; line-height: 140%; color: {text_color};")
+        if not getattr(self, "_timer", None) or not self._timer.isActive():
+            self._render_text(self._full_text, cursor=False)
+
+    def _on_theme_changed(self, *_args):
+        try:
+            from shiboken6 import isValid
+            if isValid(self):
+                self._apply_style()
+        except Exception:
+            pass
+
     def _render_text(self, sub_text: str, cursor: bool = False):
-        formatted = format_ai_text(sub_text, self._is_dark)
+        dark = _is_dark()
+        formatted = format_ai_text(sub_text, dark)
         if cursor:
             cur_color = AccentManager().current
             formatted += f' <span style="color:{cur_color}; font-weight:bold; font-size:13px;">▌</span>'
@@ -175,14 +210,47 @@ class TypewriterLabel(QLabel):
         super().mousePressEvent(event)
 
 
+class AICard(QFrame):
+    """Container for Chef Jay AI answer cards with dynamic light/dark theme refresh."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("card")
+        self.name_lbl = None
+        self.sub_info = None
+        self.div = None
+        self.copy_btn = None
+        self.body_lbl = None
+        ThemeManager().theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, *_args):
+        try:
+            from shiboken6 import isValid
+            if isValid(self):
+                self.update_card_theme()
+        except Exception:
+            pass
+
+    def update_card_theme(self):
+        dark = _is_dark()
+        if self.name_lbl:
+            self.name_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {'#F9FAFB' if dark else '#0F172A'};")
+        if self.sub_info:
+            self.sub_info.setStyleSheet(f"font-size: 11px; color: {'#94A3B8' if dark else '#475569'};")
+        if self.div:
+            self.div.setStyleSheet(f"background-color: {'#243244' if dark else '#E2E8F0'};")
+        if self.copy_btn:
+            self.copy_btn.setStyleSheet(f"font-size: 11px; padding: 3px 8px; background: transparent; border: none; color: {'#9CA3AF' if dark else '#64748B'};")
+        if self.body_lbl and hasattr(self.body_lbl, "_apply_style"):
+            self.body_lbl._apply_style()
+
+
 def build_ai_card(answer: str, chart_spec: dict | None = None,
                   error: str = "", action: dict | None = None,
                   options: list | None = None, on_option_send=None,
                   on_action_result=None, animate_typing: bool = True,
                   on_scroll_request=None) -> QWidget:
     """Renders an AI answer card with Chef Jay AI Profile Avatar and typing animation."""
-    card = QFrame()
-    card.setObjectName("card")
+    card = AICard()
     main_lay = QVBoxLayout(card)
     main_lay.setContentsMargins(16, 14, 16, 14)
     main_lay.setSpacing(10)
@@ -210,8 +278,7 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
     name_row = QHBoxLayout()
     name_row.setSpacing(6)
     name_lbl = QLabel("Chef Jay AI")
-    dark = _is_dark()
-    name_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {'#F9FAFB' if dark else '#0F172A'};")
+    name_lbl.setObjectName("aiNameLabel")
     name_row.addWidget(name_lbl)
 
     status_badge = QLabel("LOCAL AI")
@@ -224,7 +291,7 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
     info_col.addLayout(name_row)
 
     sub_info = QLabel("Jayraldine's Catering Assistant")
-    sub_info.setStyleSheet("font-size: 11px; color: #9CA3AF;")
+    sub_info.setObjectName("aiSubInfo")
     info_col.addWidget(sub_info)
 
     header_row.addLayout(info_col, 1)
@@ -234,6 +301,10 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
     div.setObjectName("divider")
     div.setFixedHeight(1)
     main_lay.addWidget(div)
+
+    card.name_lbl = name_lbl
+    card.sub_info = sub_info
+    card.div = div
 
     extra_widgets = []
 
@@ -247,6 +318,7 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
         type_anim = animate_typing and bool(answer and answer.strip())
         lbl = TypewriterLabel(answer or "(no answer)", animate=type_anim)
         main_lay.addWidget(lbl)
+        card.body_lbl = lbl
 
         if chart_spec:
             chart_view = _build_chart(chart_spec)
@@ -340,8 +412,9 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
     footer_row.addStretch()
 
     copy_btn = QPushButton("📋 Copy")
+    copy_btn.setObjectName("aiCopyBtn")
     copy_btn.setCursor(Qt.PointingHandCursor)
-    copy_btn.setStyleSheet("font-size: 11px; padding: 3px 8px; background: transparent; border: none; color: #9CA3AF;")
+    card.copy_btn = copy_btn
     
     def _copy_answer():
         clipboard = QApplication.clipboard()
@@ -365,6 +438,7 @@ def build_ai_card(answer: str, chart_spec: dict | None = None,
 
         lbl.typing_finished.connect(_reveal_extras)
 
+    card.update_card_theme()
     return card
 
 
@@ -516,12 +590,12 @@ class GlobalAIChatDrawer(QFrame):
 
         t_col = QVBoxLayout()
         t_col.setSpacing(0)
-        title = QLabel("Chef Jay AI — Global Assistant")
-        title.setStyleSheet("font-size: 13px; font-weight: 700;")
-        sub = QLabel("Online • Ask anything about your business")
-        sub.setStyleSheet("font-size: 11px; color: #22C55E;")
-        t_col.addWidget(title)
-        t_col.addWidget(sub)
+        self._title_lbl = QLabel("Chef Jay AI — Global Assistant")
+        self._title_lbl.setObjectName("aiDrawerTitle")
+        self._sub_lbl = QLabel("Online • Ask anything about your business")
+        self._sub_lbl.setStyleSheet("font-size: 11px; color: #22C55E;")
+        t_col.addWidget(self._title_lbl)
+        t_col.addWidget(self._sub_lbl)
         head.addLayout(t_col, 1)
 
         close_btn = QPushButton("✕")
@@ -592,13 +666,14 @@ class GlobalAIChatDrawer(QFrame):
         # Input Card
         in_card = QFrame()
         in_card.setObjectName("card")
+        self._in_card = in_card
         in_lay = QHBoxLayout(in_card)
         in_lay.setContentsMargins(10, 6, 8, 6)
         in_lay.setSpacing(6)
 
         self._input = QLineEdit()
+        self._input.setObjectName("aiDrawerInput")
         self._input.setPlaceholderText("Ask Chef Jay AI anything...")
-        self._input.setStyleSheet("border: none; background: transparent; font-size: 13px;")
         self._input.returnPressed.connect(lambda: self.ask(self._input.text()))
         in_lay.addWidget(self._input, 1)
 
@@ -618,11 +693,34 @@ class GlobalAIChatDrawer(QFrame):
         )
         self._add_to_feed(welcome_card)
 
+        self._apply_theme_styles()
+        ThemeManager().theme_changed.connect(self._on_theme_changed)
+
         try:
             from utils.reminder_manager import reminder_manager
             reminder_manager().alarm_fired.connect(self._on_alarm_fired)
         except Exception:
             pass
+
+    def _on_theme_changed(self, *_args):
+        try:
+            from shiboken6 import isValid
+            if isValid(self):
+                self._apply_theme_styles()
+        except Exception:
+            pass
+
+    def _apply_theme_styles(self):
+        dark = _is_dark()
+        bg = "#111827" if dark else "#FFFFFF"
+        border = "#374151" if dark else "#CBD5E1"
+        self.setStyleSheet(f"QFrame#modalCard {{ background-color: {bg}; border: 1.5px solid {border}; border-radius: 16px; }}")
+        if hasattr(self, "_title_lbl") and self._title_lbl:
+            self._title_lbl.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {'#F9FAFB' if dark else '#0F172A'};")
+        if hasattr(self, "_input") and self._input:
+            self._input.setStyleSheet(f"border: none; background: transparent; font-size: 13px; color: {'#F9FAFB' if dark else '#0F172A'};")
+        if hasattr(self, "_in_card") and self._in_card:
+            self._in_card.setStyleSheet(f"QFrame#card {{ background-color: {'#1F2937' if dark else '#F8FAFC'}; border: 1px solid {'#374151' if dark else '#E2E8F0'}; border-radius: 10px; }}")
 
     def _scroll_to_bottom(self):
         self._scroll.verticalScrollBar().setValue(
@@ -850,3 +948,10 @@ class DraggableMascotWidget(QWidget):
     def mouseReleaseEvent(self, event):
         self._drag_pos = None
         super().mouseReleaseEvent(event)
+
+    def hideEvent(self, event):
+        if hasattr(self, "mascot") and hasattr(self.mascot, "_quote_bubble") and self.mascot._quote_bubble:
+            self.mascot._quote_bubble.hide()
+        if hasattr(self, "drawer") and self.drawer and self.drawer.isVisible():
+            self.drawer.hide()
+        super().hideEvent(event)
