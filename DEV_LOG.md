@@ -1772,3 +1772,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Programmatically calls `ShowWindow(FindWindow("Shell_TrayWnd", NULL), SW_HIDE)` upon entering full kiosk mode.
 - Restores taskbar visibility (`SW_SHOW`) when the authorized supervisor exits the kiosk application.
 - Guarantees a fully immersive, distraction-free ordering environment for dining customers.
+
+### Kivy Clock Schedule Optimization
+- Audited all periodic timers: replaced tight polling intervals with targeted event-driven callbacks.
+- Scheduled lightweight polling tasks at non-conflicting prime intervals (e.g., clock display at 1.0s, network check at 15.0s).
+- Eliminates CPU spikes and guarantees stutter-free UI navigation animations.
