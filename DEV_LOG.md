@@ -1586,3 +1586,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured automated post-compilation signing using Microsoft `SignTool.exe` with SHA-256 authenticode digital certificates.
 - Dual-signing configuration: SHA-1 for legacy Windows 7 compatibility and SHA-256 for modern Windows 10/11 security requirements.
 - Injects timestamp server URL (`http://timestamp.digicert.com`) ensuring signatures remain valid after certificate expiry.
+
+### Windows Defender SmartScreen Reputation Strategy
+- Documented best practices to prevent SmartScreen untrusted binary warnings on newly compiled installer executables.
+- Enforces strict EV code signing certificate submission and automated Microsoft Security Intelligence false-positive submission.
+- Preserves consistent publisher name and product metadata across all release iterations.
