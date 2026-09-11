@@ -108,3 +108,10 @@
 ---
 
 If you want, I can now: (a) fill each sub-item with suggested text for the manuscript, or (b) generate a ready-to-paste `.docx` or `.md` version of each section. Tell me which.
+
+
+## Completed Features (v4.1.15)
+- [x] Real-time client device sessions monitoring panel.
+- [x] Standalone 60-FPS circular loading animation.
+- [x] SQLite to PostgreSQL data migration engine in installer.
+- [x] High-DPI installer wizard UI layout.
