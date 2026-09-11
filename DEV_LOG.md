@@ -1820,3 +1820,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Desktop client queries central server endpoint `/api/v1/desktop/latest-installer` daily during idle hours.
 - If newer version is detected, downloads installer binary in background to `%TEMP%\JayraldinesSetup_vX.Y.exe`.
 - Prompts supervisor with notification: "Software Update Ready - Click to Install and Restart".
+
+### Unattended Silent Update Execution Script
+- Built supervisor remote update command allowing central management PC to push silent updates to all venue kiosks simultaneously.
+- Kiosk closes cleanly, runs updated installer with `/VERYSILENT /NORESTART` flags, and restarts into updated kiosk view.
+- Minimizes IT labor and maintenance downtime across multi-terminal restaurant franchises.
