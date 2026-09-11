@@ -1606,3 +1606,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Bundled complete typography font files (`Outfit-Regular.ttf`, `Outfit-SemiBold.ttf`, `Inter-Bold.ttf`) inside installer assets.
 - Inno Setup installs fonts into Windows font directory (`FontInstall: "Outfit"`) or loads dynamically via private font API.
 - Guarantees 100% typography consistency regardless of whether client machines have internet access to Google Fonts.
+
+### Embedded Local Static Web Server
+- Built lightweight Python HTTP server running on `localhost:8088` serving offline PWA bundle assets inside desktop wrapper.
+- Eliminates CORS restrictions and `file://` security policy limitations on modern WebView2 engines.
+- Configured local socket binding strictly restricted to loopback address `127.0.0.1` preventing external LAN access.
