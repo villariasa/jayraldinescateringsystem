@@ -1611,3 +1611,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Built lightweight Python HTTP server running on `localhost:8088` serving offline PWA bundle assets inside desktop wrapper.
 - Eliminates CORS restrictions and `file://` security policy limitations on modern WebView2 engines.
 - Configured local socket binding strictly restricted to loopback address `127.0.0.1` preventing external LAN access.
+
+### Virtualenv Bundling vs PyInstaller Standalone Compilation
+- Evaluated deployment trade-offs between embedded Python virtual environment distribution vs monolithic PyInstaller EXE.
+- Selected PyInstaller directory mode (`--onedir`) bundled inside Inno Setup installer for 4x faster cold startup time.
+- Avoids temporary directory extraction overhead (`_MEIxxxxxx`) associated with `--onefile` packaging.
