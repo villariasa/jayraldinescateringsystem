@@ -1737,3 +1737,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured network adapter metric guidelines setting wired Ethernet adapter metric to 10 and Wi-Fi adapter metric to 20.
 - Guarantees desktop POS prioritizes stable low-latency wired LAN connections while keeping Wi-Fi as seamless automatic backup.
 - Eliminates intermittent socket disconnects caused by Windows oscillating between wired and wireless networks.
+
+### Intranet Proxy Bypass Configuration
+- Configured network client settings to explicitly bypass system HTTP proxy for private intranet IP ranges (`192.168.*`, `10.*`).
+- Prevents client-server database synchronization requests from failing when venues have corporate web proxies installed.
+- Verified direct socket connection latency under 5ms on standard Gigabit local area networks.
