@@ -1794,3 +1794,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured Windows Event Logger writing critical POS events to `Application` event log source `JayraldinesPOS`.
 - Events logged: Cash drawer manual key openings, supervisor price overrides, unexpected application shutdowns.
 - Provides tamper-resistant system logs accessible to corporate IT security auditors.
+
+### USB Cable Dislodging & Reconnect Recovery
+- Handled `WM_DEVICECHANGE` Windows messages detecting accidental printer or barcode scanner cable disconnections.
+- Displays non-intrusive warning icon in top status bar instead of crashing application threads.
+- Automatically re-establishes peripheral communications within 500ms of cable re-insertion.
