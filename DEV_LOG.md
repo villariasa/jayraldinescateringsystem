@@ -1566,3 +1566,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented local client SQLite caching layer mirroring active catering menu items, packages, and table layouts.
 - Background synchronization thread queries central PostgreSQL server every 60 seconds for updated catalog timestamps.
 - Employs incremental change detection updating only modified records rather than full catalog re-downloads.
+
+### Multi-Platform Offline Caching Strategy Comparison
+- PWA Client: Employs Service Worker CacheStorage API for static UI assets and IndexedDB for transactional order queues.
+- Desktop Client: Employs local filesystem storage for media assets and embedded SQLite for relational data persistence.
+- Unified synchronization contract ensuring identical payload schemas are submitted across both client platform architectures.
