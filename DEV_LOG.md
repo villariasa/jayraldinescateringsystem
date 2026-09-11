@@ -1626,3 +1626,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured unhandled exception hook (`sys.excepthook`) in Python and `window.onerror` in WebView2 wrapper.
 - Writes detailed crash diagnostics including stack trace, active view name, and memory stats to `%LOCALAPPDATA%\CrashReports\`.
 - Automatically dispatches crash report to central server during next successful network synchronization cycle.
+
+### Desktop Kiosk Watchdog Daemon
+- Implemented lightweight background supervisor process monitoring the primary kiosk window process ID (PID).
+- If the kiosk application crashes or becomes unresponsive (failing heartbeat check for 30s), watchdog gracefully restarts it.
+- Prevents unattended kiosk terminals from sitting on a bare Windows desktop during restaurant operational hours.
