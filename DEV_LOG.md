@@ -1777,3 +1777,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Audited all periodic timers: replaced tight polling intervals with targeted event-driven callbacks.
 - Scheduled lightweight polling tasks at non-conflicting prime intervals (e.g., clock display at 1.0s, network check at 15.0s).
 - Eliminates CPU spikes and guarantees stutter-free UI navigation animations.
+
+### Local Cache Encryption with Windows DPAPI
+- Encrypted sensitive local SQLite database records and offline customer tokens using Microsoft DPAPI (`CryptProtectData`).
+- Encryption key derived automatically from the machine and user account security context; no hardcoded keys stored in source code.
+- Protects customer personal data and offline credit balances if a physical POS terminal hard drive is stolen.
