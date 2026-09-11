@@ -1706,3 +1706,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - Windows Key, `Alt+Tab`, `Ctrl+Esc`, `Alt+F4`.
 - Prevents inquisitive customers from breaking out of the catering order kiosk and accessing the underlying Windows OS.
 - Super-admin bypass: Typing master supervisor key combination unlocks full Windows keyboard access.
+
+### Touchscreen Calibration Integration
+- Integrated diagnostic calibration utility in supervisor tools for 4-wire and 5-wire resistive touch monitors.
+- Presents 5-point calibration targets (top-left, top-right, center, bottom-left, bottom-right) mapping touch coordinates.
+- Stores calibration matrix in local configuration file, correcting touch drift on older restaurant hardware.
