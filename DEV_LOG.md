@@ -1571,3 +1571,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - PWA Client: Employs Service Worker CacheStorage API for static UI assets and IndexedDB for transactional order queues.
 - Desktop Client: Employs local filesystem storage for media assets and embedded SQLite for relational data persistence.
 - Unified synchronization contract ensuring identical payload schemas are submitted across both client platform architectures.
+
+### Silent Installation Flags for Unattended Deployment
+- Supported CLI flags for IT administrators: `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="C:\JayraldinesCatering"`.
+- Enables rapid automated deployment across multiple venue terminals via PowerShell remote deployment scripts.
+- Logs installation progress and error codes to `%TEMP%\JayraldinesInstaller.log`.
