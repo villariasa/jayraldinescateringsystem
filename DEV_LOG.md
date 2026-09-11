@@ -1830,3 +1830,11 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Successfully finalized 60-part daily engineering documentation series for Jayraldine's Catering System.
 - Comprehensive technical documentation covering Windows standalone installer packaging, Inno Setup configuration, Kivy desktop lifecycle, peripheral detection, dual monitor support, and unattended LAN updates.
 - Zero code modifications committed; all updates strictly maintained within repository markdown documentation files.
+
+
+## September 12, 2026 — Milestone v4.1.15 Release
+- Added real-time device sessions monitoring on Central Server.
+- Implemented isolated-process 60-FPS theme loading overlay.
+- Added automated SQLite to PostgreSQL installer data migration.
+- Upgraded setup wizard to modern 880x590 layout.
+- Verified 100% pass rate on full QA test suite.
