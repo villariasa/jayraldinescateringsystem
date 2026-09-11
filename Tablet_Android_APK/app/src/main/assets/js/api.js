@@ -189,9 +189,6 @@ export const api = {
     // If testing directly on local PC
     candidates.push("127.0.0.1");
 
-    // Current active server IP on this hotspot
-    if (!candidates.includes("10.105.101.120")) candidates.push("10.105.101.120");
-
     if (typeof window !== "undefined" && window.location && window.location.hostname) {
       const h = window.location.hostname;
       if (h && !h.includes("androidplatform") && !candidates.includes(h)) {
@@ -200,16 +197,19 @@ export const api = {
     }
 
     // Common mobile hotspot and LAN gateway IPs
-    const commonIps = ["192.168.43.1", "192.168.137.1", "10.105.101.1", "192.168.1.1", "192.168.0.1"];
-    for (const ip of commonIps) {
-      if (!candidates.includes(ip)) candidates.push(ip);
+    const commonGateways = ["192.168.1.", "192.168.0.", "192.168.43.", "192.168.137.", "10.105.101."];
+    for (const prefix of commonGateways) {
+      for (const lastOctet of [1, 2, 5, 10, 15, 20, 50, 100, 120]) {
+        const ip = `${prefix}${lastOctet}`;
+        if (!candidates.includes(ip)) candidates.push(ip);
+      }
     }
 
     const probe = async (host) => {
       try {
         const clean = host.replace(/^https?:\/\//i, "").split(":")[0];
         const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 1200);
+        const tid = setTimeout(() => controller.abort(), 1000);
         const res = await fetch(`http://${clean}:8000/api/sync/lan-status?host=${encodeURIComponent(clean)}&port=5432`, {
           signal: controller.signal,
           headers: { "Accept": "application/json" }

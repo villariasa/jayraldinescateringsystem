@@ -1621,14 +1621,17 @@ class ModernInstallerWindow(QWidget):
 
             # Details Grid
             details_text = (
-                f"• Server Host LAN IP : {creds.get('host', '127.0.0.1')}\n"
-                f"• PostgreSQL Port    : {creds.get('port', 5432)}\n"
-                f"• Database Name      : {creds.get('dbname', 'jayraldines_catering')}\n"
-                f"• Scoped DB User     : {creds.get('db_user', 'jayraldines_app')}\n"
-                f"• Scoped DB Password : {creds.get('db_password', '')}\n"
+                f"• Central DB Host IP     : {creds.get('host', '127.0.0.1')}\n"
+                f"• PostgreSQL DB Port     : {creds.get('port', 5432)}\n"
+                f"• Database Name          : {creds.get('dbname', 'jayraldines_catering')}\n"
+                f"• Scoped DB User         : {creds.get('db_user', 'jayraldines_app')}\n"
+                f"• Scoped DB Password     : {creds.get('db_password', '')}\n"
                 f"---------------------------------------------------\n"
-                f"• App Login Username : {creds.get('admin_user', 'admin')}\n"
-                f"• App Admin Password : {creds.get('admin_password', '')}"
+                f"• Tablet Kiosk Sync URL  : http://{creds.get('host', '127.0.0.1')}:8000\n"
+                f"• Tablet Web Kiosk URL   : http://{creds.get('host', '127.0.0.1')}:8085\n"
+                f"---------------------------------------------------\n"
+                f"• App Login Username     : {creds.get('admin_user', 'admin')}\n"
+                f"• App Admin Password     : {creds.get('admin_password', '')}"
             )
             txt_lbl = QLabel(details_text)
             txt_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -1729,19 +1732,29 @@ class ModernInstallerWindow(QWidget):
 
     def _get_formatted_credentials_text(self) -> str:
         creds = self._credentials
+        host = creds.get('host', '127.0.0.1')
         return (
             "=====================================================\n"
             "   JAYRALDINE'S CATERING - SERVER CREDENTIALS\n"
             "=====================================================\n\n"
-            "[DATABASE SERVER CONNECTION - FOR CLIENT PCs & TABLETS]\n"
-            f"Server Host IP : {creds.get('host', '127.0.0.1')}\n"
-            f"Port           : {creds.get('port', 5432)}\n"
-            f"Database Name  : {creds.get('dbname', 'jayraldines_catering')}\n"
-            f"DB User        : {creds.get('db_user', 'jayraldines_app')}\n"
-            f"DB Password    : {creds.get('db_password', '')}\n\n"
+            "[CENTRAL DATABASE CONNECTION - FOR CLIENT PCs & LAPTOPS]\n"
+            f"Server Host IP           : {host}\n"
+            f"Database Port            : {creds.get('port', 5432)}\n"
+            f"Database Name            : {creds.get('dbname', 'jayraldines_catering')}\n"
+            f"Scoped DB User           : {creds.get('db_user', 'jayraldines_app')}\n"
+            f"Scoped DB Password       : {creds.get('db_password', '')}\n\n"
+            "[TABLET KIOSK & ANDROID APP CONNECTION]\n"
+            f"Tablet Server Host IP    : {host}\n"
+            f"Tablet Sync Port         : 8000\n"
+            f"Tablet Sync URL          : http://{host}:8000\n"
+            f"Tablet Web Kiosk URL     : http://{host}:8085\n\n"
+            "Instructions for Tablet Kiosk:\n"
+            f"1. Connect the tablet to the same Wi-Fi as this PC.\n"
+            f"2. Open the Tablet app -> tap Settings -> enter Server Host: {host}\n"
+            f"3. Tap 'Test Connection' -> Sync is instantly active!\n\n"
             "[APPLICATION LOGIN - PRIMARY ADMINISTRATOR]\n"
-            f"Username       : {creds.get('admin_user', 'admin')}\n"
-            f"Admin Password : {creds.get('admin_password', '')}\n\n"
+            f"Username                 : {creds.get('admin_user', 'admin')}\n"
+            f"Admin Password           : {creds.get('admin_password', '')}\n\n"
             "Save this file in a secure location.\n"
         )
 
