@@ -1652,3 +1652,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated native Windows printing using Python `win32print` module for raw printer pass-through (`OpenPrinter`, `StartDocPrinter`).
 - Bypasses Windows graphical print driver formatting, sending raw ESC/POS command bytes directly to printer hardware.
 - Reduces receipt printing latency from 2.5 seconds down to under 300 milliseconds.
+
+### USB Barcode Scanner Integration via Windows Raw Input
+- Implemented low-level Windows Raw Input API listener intercepting barcode scanner hardware events.
+- Differentiates barcode reader keystrokes from manual cashier keyboard typing using device hardware vendor/product IDs (VID/PID).
+- Allows scanning member loyalty cards and equipment barcodes regardless of which input field currently has keyboard focus.
