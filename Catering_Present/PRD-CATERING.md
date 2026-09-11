@@ -203,3 +203,9 @@
 ---
 
 *Updated: 2026-04-27 — Based on owner review and PRD annotations*
+
+
+## Section 12: Centralized Database Server & Device Management
+- Live terminal monitoring for connected workstations.
+- Scoped database role authentication and firewall automation.
+- Zero-downtime offline kiosk sync.
