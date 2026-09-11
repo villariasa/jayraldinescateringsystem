@@ -1642,3 +1642,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Stored local workstation preferences in `%APPDATA%\JayraldinesCatering\config.ini`.
 - Parameters captured: Workstation Station ID, Default Thermal Printer Name, Cash Drawer Kick Code, Server IP/Port.
 - Supports manual supervisor editing via notepad or graphical configuration settings dialog in supervisor mode.
+
+### Kivy Touch Gesture Optimization & Highlighting
+- Disabled multi-touch orange simulation dots in Kivy desktop environment for cleaner commercial aesthetics.
+- Added visual press-state opacity feedback (0.7 opacity on touch down, 1.0 on release) for all button widgets.
+- Fine-tuned gesture swipe velocity thresholds for smooth scrolling through catering package card catalogs.
