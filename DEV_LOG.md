@@ -1747,3 +1747,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Embedded application manifest configuring `<dpiAwareness>PerMonitorV2, unaware</dpiAwareness>`.
 - Prevents blurry text, fuzzy icons, and misaligned touch coordinate offsets when kiosk is connected to high-resolution 4K touch displays.
 - All UI vector icons and fonts render at native pixel sharpness across arbitrary Windows display scaling factors (125%, 150%, 200%).
+
+### Windows Audio Endpoint Management
+- Integrated Windows Multimedia API (`PlaySound` / DirectSound) playing low-latency order submission chimes.
+- Selects primary communication audio device, ensuring notifications are audible even when external HDMI displays are connected.
+- Volume level managed programmatically without affecting Windows master volume settings.
