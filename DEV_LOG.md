@@ -1684,3 +1684,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Evaluated Windows Service architecture vs systray helper application for local network sync daemon.
 - Selected system tray helper (`pystray` / Windows Shell_NotifyIcon) providing visual connection status icon and quick settings menu.
 - Non-intrusive background execution while allowing cashiers to easily restart sync service if needed.
+
+### Desktop Client Local Data Retention & Purge Routine
+- Automated weekly database maintenance routine pruning locally stored transaction records older than 30 days.
+- Retains records only after verifying successful synchronization acknowledgment (`sync_status = 'CONFIRMED'`) from central PostgreSQL server.
+- Maintains lightweight local SQLite file size (under 15MB) ensuring instant query performance.
