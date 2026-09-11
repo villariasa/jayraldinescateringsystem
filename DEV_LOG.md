@@ -1551,3 +1551,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured `Window.fullscreen = 'auto'` and `Window.borderless = True` in Kivy initialization sequence.
 - Enabled multi-touch simulation and calibrated touch response thresholds in `kivy_config` (`[input] mouse = mouse,multitouch_on_demand`).
 - Disabled cursor visibility on touch-enabled all-in-one POS terminals to provide a clean consumer kiosk appearance.
+
+### Desktop POS Peripheral Detection & USB PnP Handling
+- Implemented Windows Plug-and-Play (PnP) device watcher monitoring USB device arrival and removal events.
+- Automatically re-initializes thermal receipt printer connection handle when a USB cable is reconnected during operation.
+- Logs peripheral connection status updates to supervisor diagnostics dashboard.
