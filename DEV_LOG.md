@@ -1581,3 +1581,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured Inno Setup `[Icons]` section creating desktop shortcut, Start Menu program group, and quick launch icons.
 - Attached high-resolution multi-size `.ico` bundle (16x16, 32x32, 48x48, 256x256) ensuring crisp rendering on 4K displays.
 - Registers formal entry in Windows "Installed Apps" control panel with publisher, version, and clean uninstaller routine.
+
+### Inno Setup Code Signing Integration
+- Configured automated post-compilation signing using Microsoft `SignTool.exe` with SHA-256 authenticode digital certificates.
+- Dual-signing configuration: SHA-1 for legacy Windows 7 compatibility and SHA-256 for modern Windows 10/11 security requirements.
+- Injects timestamp server URL (`http://timestamp.digicert.com`) ensuring signatures remain valid after certificate expiry.
