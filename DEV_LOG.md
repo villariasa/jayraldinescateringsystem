@@ -1722,3 +1722,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`
 - If compiler is missing, script provides actionable download link (`https://jrsoftware.org/isdl.php`) and halts gracefully.
 - Prevents cryptic syntax errors caused by running build scripts in unconfigured development environments.
+
+### Desktop Installer Version Bumping Automation
+- PowerShell helper script parses version string from `Tablet_PWA/package.json` and synchronizes with Inno Setup `#define MyAppVersion`.
+- Synchronizes major, minor, and patch numbers across Android APK, PWA manifest, and Windows installer binaries.
+- Ensures all distributed platform binaries report identical release build numbers.
