@@ -1631,3 +1631,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented lightweight background supervisor process monitoring the primary kiosk window process ID (PID).
 - If the kiosk application crashes or becomes unresponsive (failing heartbeat check for 30s), watchdog gracefully restarts it.
 - Prevents unattended kiosk terminals from sitting on a bare Windows desktop during restaurant operational hours.
+
+### Windows Firewall Auto-Configuration in Inno Setup
+- Added execution command in Inno Setup `[Run]` section opening local port for intranet database communication:
+  - `netsh advfirewall firewall add rule name="Jayraldines Kiosk" dir=in action=allow program="{app}\JayraldinesKiosk.exe" enable=yes`
+- Configured rule scope strictly bounded to `Private` and `Domain` network profiles.
+- Uninstaller cleanly deletes firewall rules during software removal.
