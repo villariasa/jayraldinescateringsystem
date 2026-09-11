@@ -1674,3 +1674,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - `F5`: Hold Current Ticket | `F6`: Recall Held Ticket | `F9`: Exact Cash Checkout.
   - `F12`: Print Bill / Subtotal | `Escape`: Clear Selection / Return Home.
 - Speeds up peak-hour cashier transaction throughput by 40%.
+
+### Offline Plain-Text Audit Receipt Fallback
+- If local thermal printer fails or runs out of paper, receipts are archived as timestamped plain-text chits in `C:\ReceiptArchives\`.
+- Formatted with standardized 40-column monospace layout matching physical receipt width.
+- Cashiers can batch reprint missed receipts once printer hardware issues are resolved.
