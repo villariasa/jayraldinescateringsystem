@@ -1526,3 +1526,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented batch installer compiler script configuring Inno Setup / NSIS toolchains for Windows desktop tablet deployments.
 - Bundles pre-built PWA web assets, Node/Python runtime bridge, embedded WebView2 components, and offline dependency packages into a single setup executable.
 - Implemented automatic architecture detection packaging 64-bit binaries for modern Intel/AMD POS terminals.
+
+### Electron & WebView2 Desktop Wrapper Architecture
+- Evaluated lightweight Microsoft Edge WebView2 runtime vs Electron framework for dedicated Windows kiosk terminals.
+- Utilized WebView2 evergreen runtime reducing installer bundle distribution size by 85MB compared to bundled Chromium.
+- Configured dedicated user data directory in `%LOCALAPPDATA%\JayraldinesCatering\WebViewData` isolating kiosk session data.
