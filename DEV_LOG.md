@@ -1757,3 +1757,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented secure configuration for remote administrative assistance using UltraVNC / TightVNC over local LAN.
 - Restricted remote connections to authorized administrator IP subnet with mandatory strong password authentication.
 - Allows technical support personnel to diagnose printer or network issues without disrupting floor operations.
+
+### Desktop Client Database Migration Runner
+- Integrated schema version check running on every desktop application startup against local SQLite database.
+- Applies incremental SQL migration files sequentially (`001_initial_schema.sql`, `002_add_discount_fields.sql`).
+- Wraps migrations in database transactions ensuring rollback if a schema update encounters an error.
