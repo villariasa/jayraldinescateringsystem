@@ -1689,3 +1689,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Automated weekly database maintenance routine pruning locally stored transaction records older than 30 days.
 - Retains records only after verifying successful synchronization acknowledgment (`sync_status = 'CONFIRMED'`) from central PostgreSQL server.
 - Maintains lightweight local SQLite file size (under 15MB) ensuring instant query performance.
+
+### PWA Cache Invalidation on Desktop Installer Updates
+- Inno Setup installer updates embed build timestamp in local metadata file `version.json`.
+- On first launch of new executable version, client automatically triggers cache invalidation clearing legacy Service Worker caches.
+- Ensures updated UI layouts and styling tokens take effect immediately without requiring manual cache clearing.
