@@ -1782,3 +1782,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Encrypted sensitive local SQLite database records and offline customer tokens using Microsoft DPAPI (`CryptProtectData`).
 - Encryption key derived automatically from the machine and user account security context; no hardcoded keys stored in source code.
 - Protects customer personal data and offline credit balances if a physical POS terminal hard drive is stolen.
+
+### Hardware Diagnostic & Self-Test Screen
+- Built dedicated diagnostic view in supervisor settings providing 1-tap hardware self-tests:
+  - Test Receipt Print: Outputs test chit with alignment patterns and cutter test.
+  - Cash Drawer Kick: Sends test solenoid pulse.
+  - Barcode Reader Test: Displays scanned data with ASCII byte breakdown.
+- Accelerates on-site hardware troubleshooting during event venue setup.
