@@ -1546,3 +1546,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Outlined Kivy application initialization in `Tablet/main.py` configuring window properties and rendering backend.
 - Enforced OpenGL ES 2.0 rendering backend for smooth hardware-accelerated vector drawing across budget desktop POS hardware.
 - Configured application lifecycle hooks: `on_start()`, `on_pause()`, `on_resume()`, and `on_stop()` for robust state management.
+
+### Kivy Window Fullscreen & Touch Emulation Flags
+- Configured `Window.fullscreen = 'auto'` and `Window.borderless = True` in Kivy initialization sequence.
+- Enabled multi-touch simulation and calibrated touch response thresholds in `kivy_config` (`[input] mouse = mouse,multitouch_on_demand`).
+- Disabled cursor visibility on touch-enabled all-in-one POS terminals to provide a clean consumer kiosk appearance.
