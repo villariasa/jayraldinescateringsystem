@@ -1815,3 +1815,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Profiled Python and JavaScript heap allocations using memory profilers over continuous 48-hour burn-in runs.
 - Resolved circular reference leaks in Kivy widget trees and un-cleared DOM event listeners in WebView wrapper.
 - Stable memory footprint maintained under 140MB RAM throughout multi-day continuous operation.
+
+### Desktop Software Update Delivery via LAN Server
+- Desktop client queries central server endpoint `/api/v1/desktop/latest-installer` daily during idle hours.
+- If newer version is detected, downloads installer binary in background to `%TEMP%\JayraldinesSetup_vX.Y.exe`.
+- Prompts supervisor with notification: "Software Update Ready - Click to Install and Restart".
