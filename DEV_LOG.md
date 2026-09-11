@@ -1556,3 +1556,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented Windows Plug-and-Play (PnP) device watcher monitoring USB device arrival and removal events.
 - Automatically re-initializes thermal receipt printer connection handle when a USB cable is reconnected during operation.
 - Logs peripheral connection status updates to supervisor diagnostics dashboard.
+
+### Windows Serial COM Port Enumeration
+- Documented automated scanning of active COM ports (`COM1` through `COM16`) using Windows API and Python `pyserial`.
+- Automatically identifies attached hardware peripherals by querying standard peripheral identification strings.
+- Configured baud rate (9600 bps), 8 data bits, no parity, 1 stop bit (8-N-1) communication parameters.
