@@ -1531,3 +1531,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Evaluated lightweight Microsoft Edge WebView2 runtime vs Electron framework for dedicated Windows kiosk terminals.
 - Utilized WebView2 evergreen runtime reducing installer bundle distribution size by 85MB compared to bundled Chromium.
 - Configured dedicated user data directory in `%LOCALAPPDATA%\JayraldinesCatering\WebViewData` isolating kiosk session data.
+
+### Windows Startup Auto-Launch Configuration
+- Configured registry entry in `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` to auto-boot kiosk app on system power-on.
+- Added delayed startup flag (10-second delay) allowing Windows network drivers and LAN interface to initialize before launch.
+- Included registry cleanup routines in Inno Setup uninstaller script to remove auto-start hooks cleanly upon software removal.
