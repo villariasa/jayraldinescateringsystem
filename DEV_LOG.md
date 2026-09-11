@@ -1637,3 +1637,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - `netsh advfirewall firewall add rule name="Jayraldines Kiosk" dir=in action=allow program="{app}\JayraldinesKiosk.exe" enable=yes`
 - Configured rule scope strictly bounded to `Private` and `Domain` network profiles.
 - Uninstaller cleanly deletes firewall rules during software removal.
+
+### Local Configuration File Architecture (config.ini)
+- Stored local workstation preferences in `%APPDATA%\JayraldinesCatering\config.ini`.
+- Parameters captured: Workstation Station ID, Default Thermal Printer Name, Cash Drawer Kick Code, Server IP/Port.
+- Supports manual supervisor editing via notepad or graphical configuration settings dialog in supervisor mode.
