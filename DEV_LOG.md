@@ -1657,3 +1657,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented low-level Windows Raw Input API listener intercepting barcode scanner hardware events.
 - Differentiates barcode reader keystrokes from manual cashier keyboard typing using device hardware vendor/product IDs (VID/PID).
 - Allows scanning member loyalty cards and equipment barcodes regardless of which input field currently has keyboard focus.
+
+### Dual Monitor Support for Customer-Facing Display
+- Configured multi-monitor window placement: Screen 1 displays cashier POS interface; Screen 2 displays customer cart summary.
+- Customer-facing screen renders real-time itemized order breakdown, promotional banner slideshow, and dynamic QR payment code.
+- Windows display topology auto-detected on startup with fallback to single-window split view if secondary monitor is missing.
