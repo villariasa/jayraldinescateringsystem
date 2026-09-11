@@ -1662,3 +1662,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured multi-monitor window placement: Screen 1 displays cashier POS interface; Screen 2 displays customer cart summary.
 - Customer-facing screen renders real-time itemized order breakdown, promotional banner slideshow, and dynamic QR payment code.
 - Windows display topology auto-detected on startup with fallback to single-window split view if secondary monitor is missing.
+
+### Customer Pole Display (20x2 VFD) Command Protocol
+- Structured serial command driver supporting standard 2-line x 20-character vacuum fluorescent displays (VFD).
+- Commands implemented: Initialize display (`0x1B, 0x40`), Clear screen (`0x0C`), Move cursor to line 2 (`0x1B, 0x5B, 0x32, 0x3B, 0x31, 0x48`).
+- Displays running subtotal on Line 1 and thank-you branding message on Line 2 during idle state.
