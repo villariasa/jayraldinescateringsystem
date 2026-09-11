@@ -1732,3 +1732,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Programmatically calls Windows API `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)`.
 - Prevents Windows tablet from entering sleep mode or dimming display while the restaurant or banquet hall is open.
 - Restores standard power management policy cleanly when the supervisor closes the kiosk application at end of business.
+
+### Network Interface Priority & Metric Configuration
+- Configured network adapter metric guidelines setting wired Ethernet adapter metric to 10 and Wi-Fi adapter metric to 20.
+- Guarantees desktop POS prioritizes stable low-latency wired LAN connections while keeping Wi-Fi as seamless automatic backup.
+- Eliminates intermittent socket disconnects caused by Windows oscillating between wired and wireless networks.
