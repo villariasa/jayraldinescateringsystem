@@ -1679,3 +1679,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - If local thermal printer fails or runs out of paper, receipts are archived as timestamped plain-text chits in `C:\ReceiptArchives\`.
 - Formatted with standardized 40-column monospace layout matching physical receipt width.
 - Cashiers can batch reprint missed receipts once printer hardware issues are resolved.
+
+### Windows Background Service vs GUI Architecture
+- Evaluated Windows Service architecture vs systray helper application for local network sync daemon.
+- Selected system tray helper (`pystray` / Windows Shell_NotifyIcon) providing visual connection status icon and quick settings menu.
+- Non-intrusive background execution while allowing cashiers to easily restart sync service if needed.
