@@ -1591,3 +1591,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented best practices to prevent SmartScreen untrusted binary warnings on newly compiled installer executables.
 - Enforces strict EV code signing certificate submission and automated Microsoft Security Intelligence false-positive submission.
 - Preserves consistent publisher name and product metadata across all release iterations.
+
+### Kivy UI Thread Decoupling & Background Workers
+- Separated long-running network synchronization and printing tasks into dedicated Python daemon threads (`threading.Thread`).
+- Results dispatched back to main UI thread using `kivy.clock.Clock.schedule_once()` to avoid OpenGL rendering lockups.
+- Keeps kiosk animations and touch responsiveness fluid at steady 60 FPS even during heavy LAN synchronization bursts.
