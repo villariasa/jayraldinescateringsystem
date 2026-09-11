@@ -1716,3 +1716,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured Inno Setup language files (`en.isl` and custom `fil.isl`) translating installer dialogs into Filipino.
 - Language selection dialog presented at installer launch allowing franchise operators to choose their preferred language.
 - Creates localized desktop shortcut names ("Sistema ng Katering ni Jayraldine").
+
+### Inno Setup Compiler Validation in Build Scripts
+- `build_tablet_pwa_installer.bat` checks registry and standard installation paths for `ISCC.exe`:
+  - `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`
+- If compiler is missing, script provides actionable download link (`https://jrsoftware.org/isdl.php`) and halts gracefully.
+- Prevents cryptic syntax errors caused by running build scripts in unconfigured development environments.
