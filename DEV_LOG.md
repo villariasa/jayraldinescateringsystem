@@ -1694,3 +1694,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Inno Setup installer updates embed build timestamp in local metadata file `version.json`.
 - On first launch of new executable version, client automatically triggers cache invalidation clearing legacy Service Worker caches.
 - Ensures updated UI layouts and styling tokens take effect immediately without requiring manual cache clearing.
+
+### Desktop Sandbox Configuration & Hardening
+- Configured Chromium Embedded Framework (CEF) security flags:
+  - `--disable-web-security=false`, `--no-sandbox=false`, `--disable-remote-debugging`.
+- Disables developer tools access (`F12`, `Ctrl+Shift+I`) on production retail kiosk installations.
+- Restricts navigation strictly to internal whitelist origins (`localhost` and approved LAN server IP).
