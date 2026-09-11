@@ -218,3 +218,10 @@ required on the target machine), see
 [`PACKAGING_GUIDE.md`](./PACKAGING_GUIDE.md), which covers building with
 PyInstaller. That's a separate concern from this setup guide, which is
 about running the app from source with Python installed.
+
+
+## Automated Firewall & Network Configuration
+During server installation, the installer configures:
+- Windows Firewall inbound rules for Port 5432 (PostgreSQL).
+- Windows Firewall inbound rules for Port 8000 & 8085 (HTTP / Tablet Sync).
+- Automatic transition of Wi-Fi / Hotspot interface to 'Private' network profile.
