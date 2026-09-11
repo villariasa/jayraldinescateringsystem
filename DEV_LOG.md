@@ -1536,3 +1536,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured registry entry in `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` to auto-boot kiosk app on system power-on.
 - Added delayed startup flag (10-second delay) allowing Windows network drivers and LAN interface to initialize before launch.
 - Included registry cleanup routines in Inno Setup uninstaller script to remove auto-start hooks cleanly upon software removal.
+
+### Windows Assigned Access & Kiosk Mode Policy
+- Documented configuration steps for Windows 10/11 Assigned Access locking the terminal into a single interactive app.
+- Suppresses default Windows desktop shell, file explorer, taskbar notifications, and lock-screen cortana popups.
+- Configured automatic dedicated kiosk local user account (`CateringKioskUser`) with auto-login privileges.
