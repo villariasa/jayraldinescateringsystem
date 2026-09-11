@@ -1799,3 +1799,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Handled `WM_DEVICECHANGE` Windows messages detecting accidental printer or barcode scanner cable disconnections.
 - Displays non-intrusive warning icon in top status bar instead of crashing application threads.
 - Automatically re-establishes peripheral communications within 500ms of cable re-insertion.
+
+### Desktop PWA HTTP Cache-Control Configuration
+- Configured embedded web server cache policies:
+  - Static media (images, fonts, animations): `Cache-Control: public, max-age=31536000, immutable`.
+  - Application HTML/JS logic: `Cache-Control: no-cache, must-revalidate`.
+- Maximizes local loading speed while ensuring logic updates propagate immediately upon release.
