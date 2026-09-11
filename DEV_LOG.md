@@ -1805,3 +1805,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - Static media (images, fonts, animations): `Cache-Control: public, max-age=31536000, immutable`.
   - Application HTML/JS logic: `Cache-Control: no-cache, must-revalidate`.
 - Maximizes local loading speed while ensuring logic updates propagate immediately upon release.
+
+### Fast Cashier Switching via RFID & PIN
+- Supported fast cashier login using USB RFID card readers (emulating keyboard input) or 4-digit numeric keypad PIN.
+- Instantaneous cashier context switch without requiring full application reload.
+- Attaches active cashier ID to all created orders, receipts, and cash drawer transactions.
