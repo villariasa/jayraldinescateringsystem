@@ -847,3 +847,6 @@ Packer.toBuffer(doc).then(buffer => {
   fs.writeFileSync("/mnt/user-data/outputs/Jayraldines_CMS_Manuscript.docx", buffer);
   console.log("Done!");
 });
+
+## Chapter 8: Multi-PC LAN Architecture & Real-Time Terminal Tracking
+Describes the deployment of Jayraldine's Catering System across local area networks.
