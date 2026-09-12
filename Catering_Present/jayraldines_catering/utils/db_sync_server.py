@@ -11,6 +11,10 @@ import json
 import socket
 import sys
 import threading
+import base64
+import io
+import mimetypes
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
@@ -39,6 +43,53 @@ def get_local_ip() -> str:
     return ip
 
 
+def _image_to_data_uri(img_str: str) -> str:
+    """Encodes a local disk image into an optimized base64 data URI for tablet PWA/APK rendering."""
+    if not img_str:
+        return ""
+    img_clean = str(img_str).strip()
+    if img_clean.startswith("data:image/"):
+        return img_clean
+
+    this_dir = Path(__file__).resolve().parent
+    candidate_paths = [
+        Path(img_clean),
+        Path.cwd() / img_clean,
+        this_dir.parent / img_clean,
+        this_dir.parent.parent / img_clean,
+        this_dir.parent / "assets" / "images" / img_clean,
+        this_dir.parent / "assets" / img_clean,
+    ]
+
+    for p in candidate_paths:
+        if p.exists() and p.is_file():
+            try:
+                # Try Pillow optimization first for fast network payload
+                try:
+                    from PIL import Image
+                    with Image.open(p) as im:
+                        im = im.convert("RGB")
+                        im.thumbnail((800, 800), Image.Resampling.LANCZOS)
+                        buf = io.BytesIO()
+                        im.save(buf, format="JPEG", quality=82, optimize=True)
+                        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                        return f"data:image/jpeg;base64,{b64}"
+                except Exception:
+                    pass
+
+                mime, _ = mimetypes.guess_type(str(p))
+                if not mime:
+                    mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+                with open(p, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("utf-8")
+                return f"data:{mime};base64,{b64}"
+            except Exception as e:
+                logger.warning(f"[SyncServer] Error encoding image {p}: {e}")
+                break
+
+    return img_clean
+
+
 class SyncServerHandler(BaseHTTPRequestHandler):
     """Handles HTTP requests from tablet kiosk apps for LAN sync."""
 
@@ -46,18 +97,19 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, ngrok-skip-browser-warning")
         self.send_header("Content-Type", content_type)
         self.end_headers()
 
     def do_OPTIONS(self):
         self._set_cors_headers(204)
 
+    def do_HEAD(self):
+        self.do_GET()
+
     def log_message(self, format, *args):
         # Override to avoid polluting stdout with routine health pings
-        if "/api/sync/lan-status" in (args[0] if args else ""):
-            return
-        logger.debug("%s - - [%s] %s" % (self.client_address[0], self.log_date_time_string(), format % args))
+        pass
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -83,7 +135,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self._handle_lan_status(parsed)
             return
 
-        # Attempt to serve static files from Tablet_PWA/frontend
+        # Attempt to serve static files from Tablet_PWA/frontend or desktop assets
         if self._serve_static_file(path):
             return
 
@@ -167,7 +219,6 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         self.wfile.write(html.encode("utf-8"))
 
     def _serve_static_file(self, rel_path: str) -> bool:
-        from pathlib import Path
         import mimetypes
         import os
         import sys
@@ -176,6 +227,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         if not clean_path:
             clean_path = "index.html"
 
+        this_file = Path(__file__).resolve()
         candidate_dirs = []
         if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
             meipass = Path(sys._MEIPASS)
@@ -183,18 +235,20 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 meipass / "Tablet_PWA" / "frontend",
                 meipass / "frontend",
                 meipass / "assets",
+                meipass,
             ])
 
-        this_file = Path(__file__).resolve()
         candidate_dirs.extend([
-            this_file.parent.parent.parent.parent / "Tablet_PWA" / "frontend",
-            this_file.parent.parent.parent / "Tablet_PWA" / "frontend",
             this_file.parent.parent / "Tablet_PWA" / "frontend",
-            this_file.parent.parent.parent.parent / "Tablet_Android_APK" / "app" / "src" / "main" / "assets",
+            this_file.parent.parent.parent / "Tablet_PWA" / "frontend",
+            this_file.parent.parent.parent.parent / "Tablet_PWA" / "frontend",
+            this_file.parent.parent / "Tablet_Android_APK" / "app" / "src" / "main" / "assets",
+            this_file.parent.parent.parent / "Tablet_Android_APK" / "app" / "src" / "main" / "assets",
+            this_file.parent.parent,
             Path.cwd() / "Tablet_PWA" / "frontend",
-            Path.cwd().parent / "Tablet_PWA" / "frontend",
-            Path.cwd().parent.parent / "Tablet_PWA" / "frontend",
+            Path.cwd(),
             Path(os.environ.get("LOCALAPPDATA", "")) / "JayraldinesCatering" / "Tablet_PWA" / "frontend",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "JayraldinesCatering",
         ])
 
         target = None
@@ -422,17 +476,18 @@ def perform_server_sync(payload: dict) -> dict:
                                         itm_id = None
                                 except Exception:
                                     itm_id = None
-                            db.execute("""
-                                INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
-                                VALUES (%s, %s, %s, %s, %s, %s)
-                            """, (
-                                bk_id,
-                                itm_id,
-                                itm.get("bmi_item_name") or itm.get("name") or itm.get("item_name") or "Main Dish",
-                                itm.get("bmi_category") or itm.get("category") or "Main Dish",
-                                float(itm.get("bmi_price") or itm.get("price") or 0.0),
-                                int(itm.get("bmi_quantity") or itm.get("quantity") or 1)
-                            ))
+                            if not itm_id:
+                                itm_name = (itm.get("bmi_item_name") or itm.get("name") or itm.get("item_name") or "").strip()
+                                if itm_name:
+                                    chk_name = db.fetchone("SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(%s) LIMIT 1", (itm_name,))
+                                    if chk_name:
+                                        itm_id = chk_name["mi_id"]
+                            if itm_id:
+                                db.execute("""
+                                    INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id)
+                                    VALUES (%s, %s)
+                                    ON CONFLICT DO NOTHING;
+                                """, (bk_id, itm_id))
                         except Exception as bmie:
                             logger.warning(f"[SyncServer] booking_menu_item note: {bmie}")
 
@@ -443,11 +498,36 @@ def perform_server_sync(payload: dict) -> dict:
                             inv_num = f"INV-{ref}"
                         inv_balance = max(0.0, total - paid)
                         inv_status = "Paid" if paid >= total and total > 0 else ("Partial" if paid > 0 else "Unpaid")
-                        db.execute("""
+                        inv_row = db.fetchone("""
                             INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_status)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s::invoice_status)
                             ON CONFLICT DO NOTHING
+                            RETURNING inv_id;
                         """, (bk_id, inv_num, cust_name, ev_date, total, paid, inv_balance, inv_status))
+                        
+                        inv_id = inv_row["inv_id"] if inv_row else None
+                        if not inv_id:
+                            inv_chk = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = %s LIMIT 1", (bk_id,))
+                            inv_id = inv_chk["inv_id"] if inv_chk else None
+
+                        if inv_id and paid > 0:
+                            db.execute("""
+                                INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
+                                VALUES (%s, %s, %s, %s, %s, 1)
+                            """, (inv_id, paid, ev_date, pay_mode, "Tablet Kiosk Initial Payment"))
+
+                        if cust_id:
+                            db.execute("""
+                                UPDATE customers
+                                SET cus_total_events = (
+                                    SELECT COUNT(*) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
+                                ),
+                                cus_total_spent = (
+                                    SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
+                                ),
+                                cus_updated_at = NOW()
+                                WHERE cus_id = %s
+                            """, (cust_id, cust_id, cust_id))
                     except Exception as ie:
                         logger.warning(f"[SyncServer] Invoice insert note: {ie}")
             except Exception as e:
@@ -460,7 +540,8 @@ def perform_server_sync(payload: dict) -> dict:
         pkgs_raw = db.fetchall("""
             SELECT pkg_id, pkg_name, COALESCE(pkg_description, '') AS pkg_description,
                    COALESCE(pkg_price_per_pax, 350.0) AS pkg_price_per_pax,
-                   COALESCE(pkg_min_pax, 30) AS pkg_min_pax
+                   COALESCE(pkg_min_pax, 30) AS pkg_min_pax,
+                   COALESCE(pkg_image, '') AS pkg_image
             FROM packages
             ORDER BY pkg_id
         """) or []
@@ -470,11 +551,14 @@ def perform_server_sync(payload: dict) -> dict:
                 "pkg_name": r["pkg_name"],
                 "pkg_description": r.get("pkg_description", ""),
                 "pkg_price_per_pax": float(r.get("pkg_price_per_pax") or 350.0),
-                "pkg_min_pax": int(r.get("pkg_min_pax") or 30)
+                "pkg_min_pax": int(r.get("pkg_min_pax") or 30),
+                "pkg_image": r.get("pkg_image", ""),
+                "image": _image_to_data_uri(r.get("pkg_image", ""))
             }
             for r in pkgs_raw
         ]
-    except Exception:
+    except Exception as pe:
+        logger.warning(f"[SyncServer] Failed to fetch packages: {pe}")
         pkgs = []
 
     # Pull latest menu items
@@ -485,7 +569,8 @@ def perform_server_sync(payload: dict) -> dict:
                    COALESCE(mi_category::TEXT, 'Main Dish') AS mi_category,
                    COALESCE(mi_price, 0.0) AS mi_price,
                    COALESCE(mi_status::TEXT, 'Available') AS mi_status,
-                   COALESCE(mi_description, '') AS mi_description
+                   COALESCE(mi_description, '') AS mi_description,
+                   COALESCE(mi_image, '') AS mi_image
             FROM menu_items
             ORDER BY mi_id
         """) or []
@@ -496,11 +581,14 @@ def perform_server_sync(payload: dict) -> dict:
                 "mi_category": r["mi_category"],
                 "mi_price": float(r.get("mi_price") or 0.0),
                 "mi_status": r["mi_status"],
-                "mi_description": r.get("mi_description", "")
+                "mi_description": r.get("mi_description", ""),
+                "mi_image": r.get("mi_image", ""),
+                "image": _image_to_data_uri(r.get("mi_image", ""))
             }
             for r in items_raw
         ]
-    except Exception:
+    except Exception as me:
+        logger.warning(f"[SyncServer] Failed to fetch menu_items: {me}")
         menu_items = []
 
     package_items = []

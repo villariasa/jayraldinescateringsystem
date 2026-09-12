@@ -215,21 +215,46 @@ const CEBU_CITIES = [
 ];
 
 const DEFAULT_PACKAGES = [
-  ["Silver Buffet", "Basic buffet package — 4 main dishes, rice, drinks.", 350.0, 60],
-  ["Gold Buffet", "Premium buffet package — 6 main dishes, dessert, drinks.", 450.0, 60],
-  ["Platinum Buffet", "Deluxe buffet package with VIP table service.", 600.0, 100],
+  ["Budget Fiesta Package", "Affordable complete catering package perfect for intimate birthdays and family gatherings.", 350.0, 30],
+  ["Standard Celebration Package", "Most popular catering option for debuts, baptismals, anniversaries, and reunions.", 550.0, 50],
+  ["Grand Fiesta Package", "Grand banquet package featuring Lechon de Cebu, full buffet setup, and table skirts.", 850.0, 80],
+  ["VIP Executive Package", "Top-tier luxury experience for corporate galas and high-end weddings with waiter service.", 1200.0, 100],
 ];
+
 const DEFAULT_MENU_ITEMS = [
-  ["Beef Caldereta", "Beef", 0.0, "Available", ""],
-  ["Pork Sisig", "Pork", 0.0, "Available", ""],
-  ["Chicken Inasal", "Chicken", 0.0, "Available", ""],
-  ["Sweet & Sour Fish Fillet", "Fish & Seafood", 0.0, "Available", ""],
-  ["Buttered Shrimp", "Fish & Seafood", 150.0, "Available", "Add-on"],
-  ["Carbonara", "Pasta & Noodles", 0.0, "Available", ""],
-  ["Chopsuey", "Vegetables", 0.0, "Available", ""],
-  ["Leche Flan", "Dessert", 0.0, "Available", ""],
-  ["Buko Salad", "Dessert", 0.0, "Available", ""],
-  ["Iced Tea Station", "Beverage", 0.0, "Available", ""],
+  ["Lechon de Cebu (Whole Roast Pig)", "Main Course", 8500.0, "Available", "Crispy skin, roasted with lemongrass, garlic, and native herbs."],
+  ["Beef Caldereta Special", "Main Course", 280.0, "Available", "Tender beef chunks stewed in rich tomato liver sauce with bell peppers."],
+  ["Pork Humba Bisaya", "Main Course", 240.0, "Available", "Slow-cooked pork belly in soy-vinegar sauce with banana blossoms."],
+  ["Chicken Inasal Bacolod", "Main Course", 210.0, "Available", "Grilled marinated chicken quarters brushed with annatto oil."],
+  ["Kare-Kare with Homemade Bagoong", "Main Course", 260.0, "Available", "Rich peanut stew with ox tripe, vegetables, and savory shrimp paste."],
+  ["Fish Fillet in Tartar Sauce", "Main Course", 220.0, "Available", "Crispy golden dory fillets served with creamy homemade tartar sauce."],
+  ["Sweet & Sour Pork Ribs", "Main Course", 250.0, "Available", "Crispy pork ribs tossed in vibrant sweet and sour pineapple glaze."],
+  ["Garlic Butter Shrimp", "Main Course", 320.0, "Available", "Fresh tiger prawns sauteed in rich garlic butter and herbs."],
+  ["Beef Broccoli in Oyster Sauce", "Main Course", 270.0, "Available", "Tender sliced beef sirloin sauteed with fresh broccoli florets."],
+  ["Pancit Canton Special", "Noodles", 160.0, "Available", "Stir-fried egg noodles with pork, chicken liver, and mixed vegetables."],
+  ["Pancit Palabok Supreme", "Noodles", 180.0, "Available", "Rice noodles topped with shrimp sauce, crushed chicharon, and boiled eggs."],
+  ["Creamy Carbonara with Bacon", "Noodles", 190.0, "Available", "Fettuccine in rich cream sauce topped with crispy bacon bits."],
+  ["Baked Macaroni Cheese Delight", "Noodles", 200.0, "Available", "Elbow macaroni baked in rich meat sauce and topped with melted cheese."],
+  ["Sinigang na Baboy sa Sampalok", "Soup", 180.0, "Available", "Pork ribs in sour tamarind broth with kangkong, radish, and taro."],
+  ["Classic Chicken Tinola sa Gabi", "Soup", 150.0, "Available", "Native chicken in ginger papaya soup with chili leaves."],
+  ["Cream of Mushroom Soup", "Soup", 130.0, "Available", "Velvety mushroom soup served with garlic croutons."],
+  ["Special Pinakbet sa Bagoong", "Vegetables", 140.0, "Available", "Sauteed squash, eggplant, okra, and ampalaya with crispy pork bagnet."],
+  ["Chopsuey Special with Seafood", "Vegetables", 160.0, "Available", "Crispy stir-fried vegetables with shrimp, squid balls, and quail eggs."],
+  ["Biko sa Latik", "Dessert", 90.0, "Available", "Sticky sweet rice cake topped with caramelized coconut cream latik."],
+  ["Buko Pandan Salad", "Dessert", 110.0, "Available", "Young coconut strips and pandan jelly cubes in sweetened cream."],
+  ["Leche Flan Supreme", "Dessert", 120.0, "Available", "Rich and silky caramel custard cooked with fresh egg yolks."],
+  ["Mango Float Deluxe", "Dessert", 130.0, "Available", "Chilled Graham crackers layered with fresh Cebu mangoes and cream."],
+  ["Unli Steamed Jasmine Rice", "Other", 50.0, "Available", "Fragrant steamed white Jasmine rice."],
+  ["Signature Iced Tea (Per Gallon)", "Drinks", 150.0, "Available", "House-blend citrus iced tea served chilled."]
+];
+
+const DEFAULT_CUSTOMERS = [
+  ["Alexander Wright", "09170001111", "alexander@example.com", "Cebu Business Park", "Silver", 1, 50000.0, "Active"],
+  ["Beatriz Mendoza", "09180002222", "beatriz@example.com", "Mandaue City", "Bronze", 1, 35000.0, "Active"],
+  ["Capt. Juanito Dela Cruz", "09182223344", "juanito.dc@example.com", "Mandaue City", "Bronze", 1, 28000.0, "Active"],
+  ["Carlos De Guzman", "09190003333", "carlos@example.com", "Talisay City", "Bronze", 1, 20000.0, "Active"],
+  ["Engr. Rodrigo Tan", "09178889900", "rodrigo.tan@example.com", "Cebu City", "Bronze", 1, 45000.0, "Active"],
+  ["Larry", "09234234032", "4234@gmail.com", "street, Apas, Cebu City, Cebu", "Bronze", 1, 27000.0, "Active"]
 ];
 
 let SQL = null;
@@ -288,6 +313,17 @@ function seedDefaults() {
     }
   }
 
+  // Clear legacy placeholder tables if present
+  try {
+    const legacyPkg = db.exec("SELECT COUNT(*) FROM packages WHERE pkg_name LIKE '%Silver Buffet%'")[0]?.values[0][0];
+    if (legacyPkg > 0) {
+      db.run("DELETE FROM package_items");
+      db.run("DELETE FROM packages");
+      db.run("DELETE FROM menu_items");
+      db.run("DELETE FROM customers WHERE cus_name LIKE '%Ichigo%' OR cus_name LIKE '%Angela Reyes%'");
+    }
+  } catch (_) {}
+
   if (countOf("packages") === 0) {
     for (const [name, desc, price, minPax] of DEFAULT_PACKAGES) {
       db.run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)", [name, desc, price, minPax]);
@@ -300,20 +336,10 @@ function seedDefaults() {
     }
   }
 
-  const DEFAULT_CUSTOMERS = [
-    ["Ichigo Kurosaki", "+63 999 111 2233", "ichigo@bleach.com", "Karakura Town, Cebu"],
-    ["Angela Reyes", "+63 945 777 8899", "angela.reyes@gmail.com", "Mandaue City, Cebu"],
-    ["Maria Santos", "+63 912 345 6789", "maria.santos@yahoo.com", "Lahug, Cebu City"],
-    ["Juan Dela Cruz", "+63 917 123 4567", "juan.delacruz@gmail.com", "Guadalupe, Cebu City"],
-    ["Roberto Tan", "+63 922 888 9900", "roberto.tan@outlook.com", "Banilad, Cebu City"],
-    ["Cruz Family", "+63 920 111 2222", "cruz.events@gmail.com", "Talamban, Cebu City"],
-    ["Smith Wedding", "+63 932 555 6666", "smith.wedding@yahoo.com", "Mactan, Lapu-Lapu City"],
-    ["TechCorp Inc.", "+63 917 000 1234", "events@techcorp.ph", "IT Park, Cebu City"]
-  ];
-
   if (countOf("customers") === 0) {
-    for (const [name, contact, email, address] of DEFAULT_CUSTOMERS) {
-      db.run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status, sync_status) VALUES (?, ?, ?, ?, 'Active', 'synced')", [name, contact, email, address]);
+    for (const [name, contact, email, address, tier, events, spent, status] of DEFAULT_CUSTOMERS) {
+      db.run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_loyalty_tier, cus_total_events, cus_total_spent, cus_status, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
+        [name, contact, email, address, tier, events, spent, status]);
     }
   }
 }
@@ -379,6 +405,111 @@ export function exportDbBytes() {
  * historical orders because bookings snapshot their own prices at the time
  * they were placed (booking_menu_items/bk_base_total/booking_additional_
  * charges never reference packages/menu_items live). */
+export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], packageItems = [], customers = [] }) {
+  const stats = { packages: 0, menu_items: 0, package_items: 0, customers: 0 };
+  db.run("PRAGMA foreign_keys = OFF;");
+  try {
+    if (packages && packages.length > 0) {
+      db.run("DELETE FROM package_items");
+      db.run("DELETE FROM packages");
+      for (const p of packages) {
+        const name = (p.pkg_name || p.name || "").trim();
+        if (!name) continue;
+        const id = p.pkg_id || p.id;
+        const desc = p.pkg_description || p.description || "";
+        const price = Number(p.pkg_price_per_pax ?? p.price_per_pax) || 0;
+        const minPax = Number(p.pkg_min_pax ?? p.min_pax) || 30;
+        const img = p.image || p.pkg_image || "";
+        if (id) {
+          db.run("INSERT INTO packages (pkg_id, pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [id, name, desc, price, minPax, img, img]);
+        } else {
+          db.run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image) VALUES (?, ?, ?, ?, ?, ?)",
+            [name, desc, price, minPax, img, img]);
+        }
+        const assignedId = id || db.exec("SELECT last_insert_rowid()")[0].values[0][0];
+        if (img) {
+          db.run("INSERT OR REPLACE INTO entity_images (entity_type, entity_id, image_data, updated_at) VALUES ('package', ?, ?, CURRENT_TIMESTAMP)",
+            [assignedId, img]);
+        }
+        stats.packages++;
+      }
+    }
+
+    if (menuItems && menuItems.length > 0) {
+      db.run("DELETE FROM menu_items");
+      for (const m of menuItems) {
+        const name = (m.mi_name || m.name || "").trim();
+        if (!name) continue;
+        const id = m.mi_id || m.id;
+        const cat = m.mi_category || m.category || "Main Course";
+        const price = Number(m.mi_price ?? m.price) || 0;
+        const status = m.mi_status || m.status || "Available";
+        const desc = m.mi_description || m.description || "";
+        const img = m.image || m.mi_image || "";
+        if (id) {
+          db.run("INSERT INTO menu_items (mi_id, mi_name, mi_category, mi_price, mi_status, mi_description, mi_image, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [id, name, cat, price, status, desc, img, img]);
+        } else {
+          db.run("INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description, mi_image, image) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [name, cat, price, status, desc, img, img]);
+        }
+        const assignedId = id || db.exec("SELECT last_insert_rowid()")[0].values[0][0];
+        if (img) {
+          db.run("INSERT OR REPLACE INTO entity_images (entity_type, entity_id, image_data, updated_at) VALUES ('menu_item', ?, ?, CURRENT_TIMESTAMP)",
+            [assignedId, img]);
+        }
+        stats.menu_items++;
+      }
+    }
+
+    if (packageItems && packageItems.length > 0) {
+      for (const pi of packageItems) {
+        const pkgId = pi.pi_package_id || pi.package_id;
+        const itmName = (pi.pi_item_name || pi.item_name || "").trim();
+        if (!pkgId || !itmName) continue;
+        db.run("INSERT INTO package_items (pi_package_id, pi_menu_item_id, pi_item_name, pi_category, pi_custom_price, pi_quantity) VALUES (?, ?, ?, ?, ?, ?)",
+          [pkgId, pi.pi_menu_item_id || null, itmName, pi.pi_category || "", Number(pi.pi_custom_price || 0), Number(pi.pi_quantity || 1)]);
+        stats.package_items++;
+      }
+    }
+
+    if (customers && customers.length > 0) {
+      // Remove any previously synced customers to accurately match database state
+      db.run("DELETE FROM customers WHERE sync_status = 'synced' OR sync_status IS NULL");
+      for (const c of customers) {
+        const name = (c.cus_name || c.name || "").trim();
+        if (!name) continue;
+        const contact = (c.cus_contact || c.contact || "").trim();
+        const email = (c.cus_email || c.email || "").trim();
+        const address = (c.cus_address || c.address || "").trim();
+        const tier = (c.cus_loyalty_tier || c.loyalty_tier || "Bronze").trim();
+        const status = (c.cus_status || c.status || "Active").trim();
+        const events = Number(c.cus_total_events ?? c.total_events) || 0;
+        const spent = Number(c.cus_total_spent ?? c.total_spent) || 0.0;
+        const notes = (c.cus_notes || c.notes || "").trim();
+        const id = c.cus_id || c.id;
+
+        if (id) {
+          db.run("INSERT INTO customers (cus_id, cus_name, cus_contact, cus_email, cus_address, cus_loyalty_tier, cus_total_events, cus_total_spent, cus_status, cus_notes, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
+            [id, name, contact, email, address, tier, events, spent, status, notes]);
+        } else {
+          db.run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_loyalty_tier, cus_total_events, cus_total_spent, cus_status, cus_notes, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
+            [name, contact, email, address, tier, events, spent, status, notes]);
+        }
+        stats.customers++;
+      }
+    }
+
+    db.run("INSERT INTO tablet_master_sync (tms_source_export_version, tms_packages_count, tms_menu_items_count, tms_customers_count) VALUES ('Live-PG-Sync', ?, ?, ?)",
+      [stats.packages, stats.menu_items, stats.customers]);
+  } finally {
+    db.run("PRAGMA foreign_keys = ON;");
+  }
+  scheduleSave();
+  return stats;
+}
+
 export function replaceMasterTables({ packages = [], menuItems = [], packageItems = [], customers = [] }) {
   const stats = { packages: 0, menu_items: 0, package_items: 0, customers: 0 };
   db.run("PRAGMA foreign_keys = OFF;");

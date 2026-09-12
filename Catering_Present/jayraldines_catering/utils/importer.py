@@ -405,6 +405,9 @@ def normalize_expense_category(cat: Any) -> str:
         return "Utilities"
     if any(w in s for w in ["equip", "rent", "table", "chair", "tent", "chafing", "utensil", "plate", "pot", "pan", "appliance", "sound", "light"]):
         return "Equipment"
+    for official in ["Food Cost", "Labor", "Transport", "Utilities", "Equipment", "Other"]:
+        if s == official.lower():
+            return official
     return "Other"
 
 
@@ -782,6 +785,7 @@ def validate_and_prepare_rows(
 
     prepared = []
     counts = {"valid": 0, "warning": 0, "error": 0}
+    seen_in_preview = set()
 
     for idx, row in enumerate(data_rows, start=1):
         issues = []
@@ -823,12 +827,29 @@ def validate_and_prepare_rows(
             else:
                 sanitized[field_key] = raw_val
 
-        # Warning checks
+        # Specific entity validations & duplicate detection
         if canon_entity == "customers" and sanitized.get("contact"):
             if not re.search(r"\d{7,}", sanitized["contact"]):
                 issues.append("Contact number format warning")
                 if status == "valid":
                     status = "warning"
+        elif canon_entity == "expenses":
+            exp_amt = float(sanitized.get("amount") or 0.0)
+            exp_desc = str(sanitized.get("description") or "").strip()
+            if exp_amt <= 0:
+                issues.append("Expense amount must be greater than ₱0.00")
+                status = "error"
+            if not exp_desc or exp_desc in ("—", "-", "none", "null"):
+                issues.append("Expense description is required")
+                status = "error"
+
+            exp_sig = (sanitized.get("date"), sanitized.get("category"), exp_desc.lower(), round(exp_amt, 2))
+            if exp_sig in seen_in_preview:
+                issues.append("Duplicate expense in file (will be deduplicated on import)")
+                if status == "valid":
+                    status = "warning"
+            else:
+                seen_in_preview.add(exp_sig)
 
         if status == "valid":
             counts["valid"] += 1
@@ -863,6 +884,7 @@ def execute_batch_import(
     errors = []
     seen_customer_names = set()
     seen_cash_flow = set()
+    seen_expenses = set()
 
     for row_info in prepared_rows:
         row_idx = row_info.get("_row_index", "?")
@@ -924,26 +946,97 @@ def execute_batch_import(
 
             elif canon_entity == "expenses":
                 amount_val = float(data.get("amount", 0.0))
+                desc_val = str(data.get("description") or data.get("particulars") or data.get("memo") or "").strip()
+                cat_val = normalize_expense_category(data.get("category") or data.get("expense_category"))
+                date_val = normalize_date(data.get("date") or data.get("expense_date"))
+                raw_id = str(data.get("id") or data.get("expense_id") or "").strip()
+
                 if amount_val <= 0:
                     fail_count += 1
                     errors.append(f"Row {row_info['_row_index']} [Amount]: Expense amount must be greater than 0.")
                     continue
+                if not desc_val or desc_val in ("—", "-", "none", "null"):
+                    desc_val = f"{cat_val} Expense"
 
-                res = repo.add_expense({
-                    "category": normalize_expense_category(data.get("category")),
-                    "description": data.get("description", "Imported Expense").strip() or "Imported Expense",
-                    "amount": amount_val,
-                    "date": data.get("date") or datetime.now().strftime("%Y-%m-%d"),
-                })
-                if res:
+                exp_sig = (date_val, cat_val.lower(), desc_val.lower(), round(amount_val, 2))
+                if exp_sig in seen_expenses:
+                    # In-batch duplicate: already processed in this batch
                     success_count += 1
+                    continue
+
+                # Deduplication check against Database
+                existing_exp = None
+                if raw_id:
+                    clean_id = re.sub(r"[^\d]", "", raw_id)
+                    if clean_id:
+                        try:
+                            existing_exp = db.fetchone("SELECT exp_id, exp_amount FROM expenses WHERE exp_id = %s LIMIT 1", (int(clean_id),))
+                        except Exception:
+                            pass
+
+                if not existing_exp:
+                    try:
+                        existing_exp = db.fetchone("""
+                            SELECT exp_id, exp_amount
+                            FROM expenses
+                            WHERE COALESCE(exp_expense_date, exp_date) = %s::DATE
+                              AND LOWER(exp_category::TEXT) = LOWER(%s)
+                              AND LOWER(exp_description) = LOWER(%s)
+                              AND ABS(exp_amount - %s) < 0.01
+                            LIMIT 1
+                        """, (date_val, cat_val, desc_val, amount_val))
+                    except Exception:
+                        pass
+
+                if not existing_exp and desc_val:
+                    try:
+                        existing_exp = db.fetchone("""
+                            SELECT exp_id, exp_amount
+                            FROM expenses
+                            WHERE COALESCE(exp_expense_date, exp_date) = %s::DATE
+                              AND LOWER(exp_category::TEXT) = LOWER(%s)
+                              AND (LOWER(exp_description) = LOWER(%s) OR exp_description ILIKE %s)
+                              AND ABS(exp_amount - %s) < 0.01
+                            LIMIT 1
+                        """, (date_val, cat_val, desc_val, f"%{desc_val}%", amount_val))
+                    except Exception:
+                        pass
+
+                if existing_exp:
+                    # Deduplicate: Update existing expense row instead of inserting a duplicate
+                    e_id = existing_exp["exp_id"]
+                    try:
+                        db.execute("""
+                            UPDATE expenses
+                            SET exp_category = %s::expense_category,
+                                exp_description = %s,
+                                exp_amount = %s,
+                                exp_expense_date = %s,
+                                exp_date = %s
+                            WHERE exp_id = %s
+                        """, (cat_val, desc_val, amount_val, date_val, date_val, e_id))
+                        seen_expenses.add(exp_sig)
+                        success_count += 1
+                    except Exception as e_exp_up:
+                        fail_count += 1
+                        errors.append(f"Row {row_info['_row_index']} [Expense: '{desc_val}']: Database update failed ({e_exp_up}).")
                 else:
-                    fail_count += 1
-                    errors.append(f"Row {row_info['_row_index']} [Category: '{data.get('category')}']: Expense database insert failed.")
+                    res = repo.add_expense({
+                        "category": cat_val,
+                        "description": desc_val,
+                        "amount": amount_val,
+                        "date": date_val,
+                    })
+                    if res:
+                        seen_expenses.add(exp_sig)
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                        errors.append(f"Row {row_info['_row_index']} [Expense: '{desc_val}']: Database insert failed.")
 
             elif canon_entity == "bookings":
-                cust_name = data.get("name", "").strip()
-                total_val = float(data.get("total", 0.0))
+                cust_name = str(data.get("name") or data.get("customer_name") or "").strip()
+                total_val = normalize_amount(data.get("total") or data.get("total_amount") or 0.0)
                 if not cust_name:
                     fail_count += 1
                     errors.append(f"Row {row_info['_row_index']} [Customer Name]: Booking customer name cannot be empty.")
@@ -956,13 +1049,10 @@ def execute_batch_import(
                 paid_val = normalize_amount(data.get("amount_paid") or data.get("paid") or data.get("paid_amount") or data.get("down_paid") or data.get("down_payment") or 0.0)
                 raw_status = str(data.get("payment_status") or data.get("status") or "").strip()
                 raw_upper = raw_status.upper()
-                if ("PAID" in raw_upper or "FULL" in raw_upper) and paid_val <= 0 and total_val > 0:
+                if (("PAID" in raw_upper or "FULL" in raw_upper) and "UNPAID" not in raw_upper) and paid_val <= 0 and total_val > 0:
                     paid_val = total_val
 
-                # Imports carry no customer id, so match/auto-create the
-                # customer by name so the booking links into bk_customer_id —
-                # v_customer_ledger and customer tracking key off that FK, not
-                # the free-text bk_customer_name.
+                # 1. Match or auto-create customer by name so bk_customer_id is guaranteed
                 cust_row = db.fetchone(
                     "SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1",
                     (cust_name,),
@@ -971,8 +1061,14 @@ def execute_batch_import(
                     "name": cust_name,
                     "contact": data.get("contact", "").strip(),
                     "email": data.get("email", "").strip(),
-                    "address": data.get("address", "").strip(),
+                    "address": data.get("address", "").strip() or data.get("venue", "").strip(),
+                    "status": "Active",
                 })
+
+                event_date_norm = normalize_date(data.get("date") or data.get("event_date")) or datetime.now().strftime("%Y-%m-%d")
+                pay_mode_norm = str(data.get("payment_mode") or "Cash").strip()
+                if pay_mode_norm not in ["Cash", "Bank Transfer", "GCash", "PayMaya"]:
+                    pay_mode_norm = "Cash"
 
                 bkg_payload = {
                     "name": cust_name,
@@ -981,25 +1077,23 @@ def execute_batch_import(
                     "address": data.get("address", "").strip() or data.get("venue", "").strip() or "Cebu City",
                     "occasion": data.get("occasion", "").strip() or "Catering Event",
                     "venue": data.get("venue", "").strip() or "Catering Venue",
-                    "date": data.get("date") or datetime.now().strftime("%Y-%m-%d"),
+                    "date": event_date_norm,
                     "time": data.get("time", "").strip() or "6:00 PM",
                     "pax": int(data.get("pax", 50)),
                     "notes": data.get("notes", "").strip(),
                     "menu_type": "package",
                     "total": total_val,
-                    "payment_mode": str(data.get("payment_mode") or "Cash").strip(),
+                    "payment_mode": pay_mode_norm,
                     "amount_paid": paid_val,
                     "down_payment": paid_val,
                 }
-                # Skip creating a duplicate booking if one for this customer/date
-                # already exists (e.g. the same import file was re-run after a
-                # partial failure) — update it in place instead.
-                event_date_norm = normalize_date(data.get("date")) or bkg_payload["date"]
+
                 existing_bk = db.fetchone("""
                     SELECT bk_id FROM bookings
-                    WHERE LOWER(bk_customer_name) = LOWER(%s) AND bk_event_date = %s
+                    WHERE (bk_customer_id = %s OR LOWER(bk_customer_name) = LOWER(%s))
+                      AND bk_event_date = %s
                     LIMIT 1
-                """, (cust_name, event_date_norm))
+                """, (cust_id, cust_name, event_date_norm))
 
                 b_id = existing_bk["bk_id"] if existing_bk else None
                 if not b_id:
@@ -1024,7 +1118,7 @@ def execute_batch_import(
                         except Exception:
                             pass
 
-                    # Preserve invoice payment and status (Paid / Partial / Unpaid)
+                    # 2. Update / ensure invoice balance & payment status
                     bal_val = max(0.0, total_val - paid_val)
                     inv_st = db.compute_invoice_status(total_val, paid_val)
                     if "PAID" in raw_upper and bal_val <= 0.01:
@@ -1040,6 +1134,7 @@ def execute_batch_import(
                             inv_down_payment = %s, inv_status = %s, inv_payment_verified = %s
                         WHERE inv_booking_id = %s
                     """, (total_val, paid_val, bal_val, paid_val, inv_st, 1 if paid_val > 0 else 0, b_id))
+
                     if paid_val > 0:
                         db.execute("""
                             UPDATE bookings
@@ -1047,6 +1142,37 @@ def execute_batch_import(
                                 bk_down_payment_status = 'ACCEPTED'
                             WHERE bk_id = %s
                         """, (paid_val, paid_val, b_id))
+
+                        # 3. Create or update payment_records entry for Customer Ledger & Payment History
+                        inv_row = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = %s LIMIT 1", (b_id,))
+                        if inv_row:
+                            inv_id = inv_row["inv_id"]
+                            pr_row = db.fetchone("SELECT pr_id FROM payment_records WHERE pr_invoice_id = %s LIMIT 1", (inv_id,))
+                            if pr_row:
+                                db.execute("""
+                                    UPDATE payment_records
+                                    SET pr_amount = %s, pr_payment_date = %s, pr_method = %s, pr_note = %s
+                                    WHERE pr_id = %s
+                                """, (paid_val, event_date_norm, pay_mode_norm, "Initial payment on imported booking", pr_row["pr_id"]))
+                            else:
+                                db.execute("""
+                                    INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
+                                    VALUES (%s, %s, %s, %s, %s, 1)
+                                """, (inv_id, paid_val, event_date_norm, pay_mode_norm, "Initial payment on imported booking"))
+
+                    # 4. Update customer lifetime metrics
+                    if cust_id:
+                        db.execute("""
+                            UPDATE customers
+                            SET cus_total_events = (
+                                SELECT COUNT(*) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
+                            ),
+                            cus_total_spent = (
+                                SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
+                            ),
+                            cus_updated_at = NOW()
+                            WHERE cus_id = %s
+                        """, (cust_id, cust_id, cust_id))
 
                     success_count += 1
                 else:
@@ -1060,8 +1186,26 @@ def execute_batch_import(
                 inv_ref = str(data.get("invoice_ref") or data.get("invoice") or "").strip()
                 bk_ref = str(data.get("booking_ref") or "").strip()
                 raw_st = str(data.get("status") or data.get("payment_status") or "").strip().upper()
-                if ("PAID" in raw_st or "FULL" in raw_st) and paid_val <= 0 and total_val > 0:
+                if (("PAID" in raw_st or "FULL" in raw_st) and "UNPAID" not in raw_st) and paid_val <= 0 and total_val > 0:
                     paid_val = total_val
+
+                event_date_norm = normalize_date(data.get("event_date") or data.get("date")) or datetime.now().strftime("%Y-%m-%d")
+                pay_mode_norm = str(data.get("payment_mode") or "Cash").strip()
+                if pay_mode_norm not in ["Cash", "Bank Transfer", "GCash", "PayMaya"]:
+                    pay_mode_norm = "Cash"
+
+                # 1. Match or auto-create customer by name
+                cust_row = db.fetchone(
+                    "SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1",
+                    (cust_name,),
+                )
+                cust_id = cust_row["cus_id"] if cust_row else repo.add_customer({
+                    "name": cust_name,
+                    "contact": data.get("contact", "").strip(),
+                    "email": data.get("email", "").strip(),
+                    "address": data.get("address", "").strip() or "Cebu City",
+                    "status": "Active",
+                })
 
                 # Try finding matching invoice by invoice_ref, booking_ref, or customer + date
                 existing_inv = None
@@ -1076,21 +1220,20 @@ def execute_batch_import(
                         LIMIT 1
                     """, (bk_ref,))
                 if not existing_inv and cust_name:
-                    e_date = normalize_date(data.get("event_date") or data.get("date"))
                     existing_inv = db.fetchone("""
                         SELECT inv_id, inv_booking_id
                         FROM invoices
                         WHERE LOWER(inv_customer_name) = LOWER(%s)
                           AND inv_event_date = %s
                         LIMIT 1
-                    """, (cust_name, e_date))
+                    """, (cust_name, event_date_norm))
 
                 if existing_inv:
                     inv_id = existing_inv["inv_id"]
                     bk_id = existing_inv["inv_booking_id"]
                     bal_val = max(0.0, total_val - paid_val)
                     inv_st = db.compute_invoice_status(total_val, paid_val)
-                    if "PAID" in raw_st and bal_val <= 0.01:
+                    if ("PAID" in raw_st and "UNPAID" not in raw_st) and bal_val <= 0.01:
                         inv_st = "Paid"
                     elif "PARTIAL" in raw_st:
                         inv_st = "Partial"
@@ -1107,9 +1250,25 @@ def execute_batch_import(
                         db.execute("""
                             UPDATE bookings
                             SET bk_total_amount = %s, bk_amount_paid = %s,
-                                bk_down_payment = %s, bk_down_payment_status = 'ACCEPTED'
+                                bk_down_payment = %s, bk_down_payment_status = 'ACCEPTED',
+                                bk_customer_id = COALESCE(bk_customer_id, %s)
                             WHERE bk_id = %s
-                        """, (total_val, paid_val, paid_val, bk_id))
+                        """, (total_val, paid_val, paid_val, cust_id, bk_id))
+
+                    if paid_val > 0:
+                        pr_row = db.fetchone("SELECT pr_id FROM payment_records WHERE pr_invoice_id = %s LIMIT 1", (inv_id,))
+                        if pr_row:
+                            db.execute("""
+                                UPDATE payment_records
+                                SET pr_amount = %s, pr_payment_date = %s, pr_method = %s, pr_note = %s
+                                WHERE pr_id = %s
+                            """, (paid_val, event_date_norm, pay_mode_norm, "Payment updated via Billing Import", pr_row["pr_id"]))
+                        else:
+                            db.execute("""
+                                INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
+                                VALUES (%s, %s, %s, %s, %s, 1)
+                            """, (inv_id, paid_val, event_date_norm, pay_mode_norm, "Initial payment recorded via Billing Import"))
+
                     success_count += 1
                 else:
                     if not cust_name:
@@ -1123,35 +1282,24 @@ def execute_batch_import(
                         "address": data.get("address", "").strip() or "Cebu City",
                         "occasion": "Catering Event",
                         "venue": "Catering Venue",
-                        "date": normalize_date(data.get("event_date") or data.get("date")),
+                        "date": event_date_norm,
                         "time": "6:00 PM",
                         "pax": 50,
                         "notes": data.get("notes", "").strip(),
                         "menu_type": "package",
                         "total": total_val,
-                        "payment_mode": str(data.get("payment_mode") or "Cash").strip(),
+                        "payment_mode": pay_mode_norm,
                         "amount_paid": paid_val,
                     }
                     res = repo.create_booking(bkg_payload)
                     if res and res.get("booking_id"):
                         b_id = res["booking_id"]
-
-                        cust_row = db.fetchone(
-                            "SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1",
-                            (cust_name,),
-                        )
-                        cust_id = cust_row["cus_id"] if cust_row else repo.add_customer({
-                            "name": cust_name,
-                            "contact": data.get("contact", "").strip(),
-                            "email": data.get("email", "").strip(),
-                            "address": data.get("address", "").strip(),
-                        })
                         if cust_id:
                             db.execute("UPDATE bookings SET bk_customer_id = %s WHERE bk_id = %s", (cust_id, b_id))
 
                         bal_val = max(0.0, total_val - paid_val)
                         inv_st = db.compute_invoice_status(total_val, paid_val)
-                        if "PAID" in raw_st and bal_val <= 0.01:
+                        if ("PAID" in raw_st and "UNPAID" not in raw_st) and bal_val <= 0.01:
                             inv_st = "Paid"
                         elif "PARTIAL" in raw_st:
                             inv_st = "Partial"
@@ -1164,6 +1312,7 @@ def execute_batch_import(
                                 inv_down_payment = %s, inv_status = %s, inv_payment_verified = %s
                             WHERE inv_booking_id = %s
                         """, (total_val, paid_val, bal_val, paid_val, inv_st, 1 if paid_val > 0 else 0, b_id))
+
                         if paid_val > 0:
                             db.execute("""
                                 UPDATE bookings
@@ -1171,6 +1320,14 @@ def execute_batch_import(
                                     bk_down_payment_status = 'ACCEPTED'
                                 WHERE bk_id = %s
                             """, (paid_val, paid_val, b_id))
+
+                            inv_row = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = %s LIMIT 1", (b_id,))
+                            if inv_row:
+                                db.execute("""
+                                    INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
+                                    VALUES (%s, %s, %s, %s, %s, 1)
+                                """, (inv_row["inv_id"], paid_val, event_date_norm, pay_mode_norm, "Initial payment recorded via Billing Import"))
+
                         success_count += 1
                     else:
                         fail_count += 1
@@ -1276,7 +1433,7 @@ def execute_batch_import(
                     if total_amt > 0:
                         paid_val = normalize_amount(data.get("amount_paid") or data.get("paid") or data.get("paid_amount") or data.get("down_paid") or 0.0)
                         raw_st = str(data.get("payment_status") or data.get("status") or "").strip().upper()
-                        if ("PAID" in raw_st or "FULL" in raw_st) and paid_val <= 0:
+                        if (("PAID" in raw_st or "FULL" in raw_st) and "UNPAID" not in raw_st) and paid_val <= 0:
                             paid_val = total_amt
 
                         bkg_res = repo.create_booking({
@@ -1300,7 +1457,7 @@ def execute_batch_import(
                             b_id = bkg_res["booking_id"]
                             bal_val = max(0.0, total_amt - paid_val)
                             inv_st = db.compute_invoice_status(total_amt, paid_val)
-                            if "PAID" in raw_st and bal_val <= 0.01:
+                            if ("PAID" in raw_st and "UNPAID" not in raw_st) and bal_val <= 0.01:
                                 inv_st = "Paid"
                             elif "PARTIAL" in raw_st:
                                 inv_st = "Partial"
@@ -1310,6 +1467,7 @@ def execute_batch_import(
                                     inv_down_payment = %s, inv_status = %s, inv_payment_verified = %s
                                 WHERE inv_booking_id = %s
                             """, (total_amt, paid_val, bal_val, paid_val, inv_st, 1 if paid_val > 0 else 0, b_id))
+
                             if paid_val > 0:
                                 db.execute("""
                                     UPDATE bookings
@@ -1317,18 +1475,76 @@ def execute_batch_import(
                                         bk_down_payment_status = 'ACCEPTED'
                                     WHERE bk_id = %s
                                 """, (paid_val, paid_val, b_id))
+
+                                inv_row = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = %s LIMIT 1", (b_id,))
+                                if inv_row:
+                                    db.execute("""
+                                        INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
+                                        VALUES (%s, %s, %s, %s, %s, 1)
+                                    """, (inv_row["inv_id"], paid_val, data.get("event_date") or data.get("date") or datetime.now().strftime("%Y-%m-%d"), "Cash", "Initial payment via Master File"))
+
+                            cust_row = db.fetchone("SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1", (cust_name,))
+                            if cust_row:
+                                cid = cust_row["cus_id"]
+                                db.execute("UPDATE bookings SET bk_customer_id = %s WHERE bk_id = %s", (cid, b_id))
+                                db.execute("""
+                                    UPDATE customers
+                                    SET cus_total_events = (
+                                        SELECT COUNT(*) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
+                                    ),
+                                    cus_total_spent = (
+                                        SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
+                                    ),
+                                    cus_updated_at = NOW()
+                                    WHERE cus_id = %s
+                                """, (cid, cid, cid))
                             row_success = True
 
-                # 2. Expense
+                # 2. Expense (with deduplication)
                 exp_amt = float(data.get("expense_amount") or data.get("amount", 0.0))
                 if exp_amt > 0:
-                    exp_res = repo.add_expense({
-                        "category": normalize_expense_category(data.get("expense_category") or data.get("category")),
-                        "description": data.get("expense_description", "Master File Expense").strip() or "Master File Expense",
-                        "amount": exp_amt,
-                        "date": data.get("expense_date") or data.get("date") or datetime.now().strftime("%Y-%m-%d"),
-                    })
-                    if exp_res:
+                    exp_cat = normalize_expense_category(data.get("expense_category") or data.get("category"))
+                    exp_desc = str(data.get("expense_description") or data.get("description") or "Master File Expense").strip() or "Master File Expense"
+                    exp_dt = data.get("expense_date") or data.get("date") or datetime.now().strftime("%Y-%m-%d")
+                    exp_sig = (exp_dt, exp_cat.lower(), exp_desc.lower(), round(exp_amt, 2))
+
+                    if exp_sig not in seen_expenses:
+                        existing_exp = None
+                        try:
+                            existing_exp = db.fetchone("""
+                                SELECT exp_id FROM expenses
+                                WHERE COALESCE(exp_expense_date, exp_date) = %s::DATE
+                                  AND LOWER(exp_category::TEXT) = LOWER(%s)
+                                  AND LOWER(exp_description) = LOWER(%s)
+                                  AND ABS(exp_amount - %s) < 0.01
+                                LIMIT 1
+                            """, (exp_dt, exp_cat, exp_desc, exp_amt))
+                        except Exception:
+                            pass
+
+                        if existing_exp:
+                            try:
+                                db.execute("""
+                                    UPDATE expenses
+                                    SET exp_category = %s::expense_category,
+                                        exp_description = %s,
+                                        exp_amount = %s,
+                                        exp_expense_date = %s,
+                                        exp_date = %s
+                                    WHERE exp_id = %s
+                                """, (exp_cat, exp_desc, exp_amt, exp_dt, exp_dt, existing_exp["exp_id"]))
+                                seen_expenses.add(exp_sig)
+                            except Exception:
+                                pass
+                        else:
+                            exp_res = repo.add_expense({
+                                "category": exp_cat,
+                                "description": exp_desc,
+                                "amount": exp_amt,
+                                "date": exp_dt,
+                            })
+                            if exp_res:
+                                seen_expenses.add(exp_sig)
                         row_success = True
 
                 # 3. Cash Flow (with deduplication)

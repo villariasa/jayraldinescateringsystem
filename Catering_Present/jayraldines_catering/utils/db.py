@@ -613,6 +613,155 @@ def _ensure_pg_places_and_auth(conn) -> None:
             conn.commit()
         except Exception:
             conn.rollback()
+
+        # 13. Ensure unified v_customer_ledger timeline view & enhanced sp_create_booking
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DROP VIEW IF EXISTS v_customer_ledger CASCADE;")
+                cur.execute("""
+                    CREATE OR REPLACE VIEW v_customer_ledger AS
+                    SELECT
+                        c.cus_id AS customer_id, c.cus_name AS customer_name,
+                        'Booking' AS entry_type,
+                        b.bk_created_at::DATE AS recorded_date,
+                        b.bk_event_date AS event_date, b.bk_booking_ref AS reference,
+                        COALESCE(b.bk_occasion, 'Event') AS description,
+                        0.00 AS debit, 0.00 AS credit,
+                        b.bk_status::TEXT AS entry_status, b.bk_id AS source_id
+                    FROM customers c
+                    JOIN bookings b ON b.bk_customer_id = c.cus_id
+
+                    UNION ALL
+
+                    SELECT
+                        c.cus_id, c.cus_name, 'Invoice',
+                        i.inv_created_at::DATE, i.inv_event_date, i.inv_invoice_ref,
+                        'Invoice issued', i.inv_total_amount, 0.00,
+                        i.inv_status::TEXT, i.inv_id
+                    FROM customers c
+                    JOIN bookings b ON b.bk_customer_id = c.cus_id
+                    JOIN invoices i ON i.inv_booking_id = b.bk_id
+
+                    UNION ALL
+
+                    SELECT
+                        c.cus_id, c.cus_name, 'Payment',
+                        COALESCE(pr.pr_payment_date, i.inv_created_at::DATE), i.inv_event_date,
+                        CONCAT('PMT-', pr.pr_id::TEXT),
+                        COALESCE(NULLIF(pr.pr_note, ''), NULLIF(pr.pr_method, ''), 'Payment received'),
+                        0.00, pr.pr_amount, 'Paid', pr.pr_id
+                    FROM customers c
+                    JOIN bookings b ON b.bk_customer_id = c.cus_id
+                    JOIN invoices i ON i.inv_booking_id = b.bk_id
+                    JOIN payment_records pr ON pr.pr_invoice_id = i.inv_id
+
+                    ORDER BY recorded_date DESC, entry_type;
+                """)
+            conn.commit()
+        except Exception as e_v:
+            log.warning(f"[db.py] v_customer_ledger view update note: {e_v}")
+            conn.rollback()
+
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE OR REPLACE PROCEDURE sp_create_booking(
+                        IN  p_customer_name  TEXT,
+                        IN  p_contact        TEXT,
+                        IN  p_email          TEXT,
+                        IN  p_address        TEXT,
+                        IN  p_occasion       TEXT,
+                        IN  p_venue          TEXT,
+                        IN  p_event_date     DATE,
+                        IN  p_event_time     TIME,
+                        IN  p_pax            INT,
+                        IN  p_special_notes  TEXT,
+                        IN  p_menu_type      TEXT,
+                        IN  p_package_id     INT,
+                        IN  p_custom_items   TEXT,
+                        IN  p_total_amount   NUMERIC,
+                        IN  p_payment_mode   TEXT,
+                        IN  p_amount_paid    NUMERIC,
+                        OUT p_booking_id     INT,
+                        OUT p_booking_ref    TEXT
+                    )
+                    LANGUAGE plpgsql AS $$
+                    DECLARE
+                        v_cid INT;
+                        v_inv_id INT;
+                        v_inv_ref TEXT;
+                        v_inv_st invoice_status;
+                        v_bal NUMERIC;
+                        v_paid NUMERIC;
+                    BEGIN
+                        CALL sp_next_booking_ref(p_booking_ref);
+
+                        SELECT cus_id INTO v_cid FROM customers WHERE LOWER(cus_name) = LOWER(p_customer_name) LIMIT 1;
+                        IF v_cid IS NULL AND p_customer_name IS NOT NULL AND TRIM(p_customer_name) <> '' THEN
+                            INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_loyalty_tier, cus_status, cus_total_events, cus_total_spent)
+                            VALUES (TRIM(p_customer_name), COALESCE(p_contact, ''), COALESCE(p_email, ''), COALESCE(p_address, ''), 'Bronze', 'Active', 0, 0.00)
+                            RETURNING cus_id INTO v_cid;
+                        END IF;
+
+                        v_paid := COALESCE(p_amount_paid, 0.00);
+
+                        INSERT INTO bookings (
+                            bk_booking_ref, bk_customer_id, bk_customer_name, bk_contact, bk_email, bk_address,
+                            bk_occasion, bk_venue, bk_event_date, bk_event_time, bk_pax, bk_special_notes,
+                            bk_menu_type, bk_package_id, bk_custom_items,
+                            bk_total_amount, bk_base_total, bk_payment_mode, bk_amount_paid, bk_down_payment,
+                            bk_down_payment_status, bk_status
+                        ) VALUES (
+                            p_booking_ref, v_cid, p_customer_name, p_contact, p_email, p_address,
+                            p_occasion, p_venue, p_event_date, p_event_time, p_pax, p_special_notes,
+                            p_menu_type, p_package_id, p_custom_items,
+                            p_total_amount, p_total_amount, p_payment_mode::payment_method, v_paid, v_paid,
+                            CASE WHEN v_paid > 0 THEN 'ACCEPTED' ELSE 'PENDING' END, 'PENDING'
+                        )
+                        RETURNING bk_id INTO p_booking_id;
+
+                        -- Auto generate linked invoice
+                        CALL sp_auto_create_invoice(p_booking_id, v_inv_id, v_inv_ref);
+
+                        v_bal := GREATEST(0.00, p_total_amount - v_paid);
+                        IF v_paid >= p_total_amount AND p_total_amount > 0 THEN
+                            v_inv_st := 'Paid'::invoice_status;
+                        ELSIF v_paid > 0 THEN
+                            v_inv_st := 'Partial'::invoice_status;
+                        ELSE
+                            v_inv_st := 'Unpaid'::invoice_status;
+                        END IF;
+
+                        UPDATE invoices
+                        SET inv_total_amount = p_total_amount,
+                            inv_amount_paid = v_paid,
+                            inv_balance = v_bal,
+                            inv_down_payment = v_paid,
+                            inv_status = v_inv_st,
+                            inv_payment_verified = CASE WHEN v_paid > 0 THEN 1 ELSE 0 END
+                        WHERE inv_id = v_inv_id;
+
+                        -- Record payment entry if paid
+                        IF v_paid > 0 THEN
+                            INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
+                            VALUES (v_inv_id, v_paid, p_event_date, p_payment_mode, 'Initial payment on booking', 1);
+                        END IF;
+
+                        IF v_cid IS NOT NULL THEN
+                            UPDATE customers
+                            SET cus_total_events = cus_total_events + 1,
+                                cus_total_spent = cus_total_spent + p_total_amount,
+                                cus_updated_at = NOW()
+                            WHERE cus_id = v_cid;
+                            CALL sp_recalculate_loyalty(v_cid);
+                        END IF;
+                    END;
+                    $$;
+                """)
+            conn.commit()
+        except Exception as e_sp:
+            log.warning(f"[db.py] sp_create_booking procedure update note: {e_sp}")
+            conn.rollback()
     except Exception as exc:
         try:
             conn.rollback()

@@ -1,7 +1,7 @@
 // Business logic — ported 1:1 from the original Tablet app's
 // utils/repository.py, operating on the in-browser SQLite database
 // (sqlite.js) instead of a server-side one.
-import { fetchAll, fetchOne, run, computeInvoiceStatus, getDb } from "./sqlite.js";
+import { fetchAll, fetchOne, run, computeInvoiceStatus, getDb, replaceMasterTablesWithDbIds } from "./sqlite.js";
 
 const BOOKING_REF_PREFIX = "TB";
 
@@ -155,7 +155,7 @@ export function getEntityImage(entityType, entityId) {
 
 export function getPackages() {
   const rows = fetchAll(`
-    SELECT p.*, ei.image_data AS image
+    SELECT p.*, COALESCE(NULLIF(ei.image_data, ''), NULLIF(p.image, ''), NULLIF(p.pkg_image, '')) AS image
     FROM packages p
     LEFT JOIN entity_images ei ON ei.entity_type = 'package' AND ei.entity_id = p.pkg_id
     ORDER BY p.pkg_price_per_pax ASC
@@ -195,7 +195,7 @@ export function deletePackage(pkgId) {
 
 export function getAllMenuItems() {
   const rows = fetchAll(`
-    SELECT mi.*, ei.image_data AS image
+    SELECT mi.*, COALESCE(NULLIF(ei.image_data, ''), NULLIF(mi.image, ''), NULLIF(mi.mi_image, '')) AS image
     FROM menu_items mi
     LEFT JOIN entity_images ei ON ei.entity_type = 'menu_item' AND ei.entity_id = mi.mi_id
     ORDER BY mi.mi_category, mi.mi_name
@@ -243,7 +243,7 @@ export function getMenuCategories() {
 export function getPackageMenuChoices() {
   const grouped = {};
   const rows = fetchAll(`
-    SELECT mi.*, ei.image_data AS image
+    SELECT mi.*, COALESCE(NULLIF(ei.image_data, ''), NULLIF(mi.image, ''), NULLIF(mi.mi_image, '')) AS image
     FROM menu_items mi
     LEFT JOIN entity_images ei ON ei.entity_type = 'menu_item' AND ei.entity_id = mi.mi_id
     WHERE mi.mi_status = 'Available'
@@ -581,86 +581,24 @@ export function markRecordsSynced(bookingRefs = [], customerNames = []) {
 }
 
 export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = []) {
-  if (packages && packages.length > 0) {
-    for (const p of packages) {
-      const name = p.pkg_name;
-      if (!name) continue;
-      const desc = p.pkg_description || "";
-      const price = Number(p.pkg_price_per_pax || 350.0);
-      const minPax = Number(p.pkg_min_pax || 30);
-      const existing = fetchOne("SELECT pkg_id FROM packages WHERE LOWER(pkg_name) = LOWER(?)", [name]);
-      if (existing) {
-        run("UPDATE packages SET pkg_name = ?, pkg_description = ?, pkg_price_per_pax = ?, pkg_min_pax = ? WHERE pkg_id = ?",
-          [name, desc, price, minPax, existing.pkg_id]);
-      } else {
-        run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
-          [name, desc, price, minPax]);
-      }
+  if ((packages && packages.length > 0) || (menuItems && menuItems.length > 0) || (customers && customers.length > 0)) {
+    replaceMasterTablesWithDbIds({
+      packages: packages || [],
+      menuItems: menuItems || [],
+      packageItems: packageItems || [],
+      customers: customers || []
+    });
+  }
+
+  if (typeof window !== "undefined") {
+    if (typeof window.__clearWizardCaches === "function") {
+      window.__clearWizardCaches();
     }
-  }
-
-  if (menuItems && menuItems.length > 0) {
-    for (const m of menuItems) {
-      const name = m.mi_name || m.name;
-      if (!name) continue;
-      const cat = m.mi_category || m.category || "Main Dish";
-      const price = Number(m.mi_price || m.price || 0.0);
-      const status = m.mi_status || m.status || "Available";
-      const desc = m.mi_description || m.description || "";
-      const existing = fetchOne("SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(?)", [name]);
-      if (existing) {
-        run("UPDATE menu_items SET mi_name = ?, mi_category = ?, mi_price = ?, mi_status = ?, mi_description = ? WHERE mi_id = ?",
-          [name, cat, price, status, desc, existing.mi_id]);
-      } else {
-        run("INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description) VALUES (?, ?, ?, ?, ?)",
-          [name, cat, price, status, desc]);
-      }
+    if (typeof window.__onMasterDataUpdated === "function") {
+      window.__onMasterDataUpdated();
     }
-  }
-
-  if (packageItems && packageItems.length > 0) {
-    for (const pi of packageItems) {
-      try {
-        run("INSERT OR IGNORE INTO package_items (pi_package_id, pi_menu_item_id, pi_item_name, pi_category) VALUES (?, ?, ?, ?)",
-          [pi.pi_package_id, pi.pi_item_id || null, pi.pi_item_name || "", pi.pi_category || ""]);
-      } catch (_) {}
-    }
-  }
-
-  if (customers && customers.length > 0) {
-    for (const c of customers) {
-      const name = c.cus_name || c.name;
-      if (!name) continue;
-      const contact = c.cus_contact || c.contact || "";
-      const email = c.cus_email || c.email || "";
-      const address = c.cus_address || c.address || "";
-      const tier = c.cus_loyalty_tier || c.loyalty_tier || "Bronze";
-      const status = c.cus_status || c.status || "Active";
-      const events = Number(c.cus_total_events || c.total_events || 0);
-      const spent = Number(c.cus_total_spent || c.total_spent || 0.0);
-      const notes = c.cus_notes || c.notes || "";
-
-      const existing = fetchOne("SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(?)", [name]);
-      if (existing) {
-        run("UPDATE customers SET cus_contact = ?, cus_email = ?, cus_address = ?, cus_loyalty_tier = ?, cus_status = ?, cus_total_events = ?, cus_total_spent = ?, cus_notes = ?, sync_status = 'synced' WHERE cus_id = ?",
-          [contact, email, address, tier, status, events, spent, notes, existing.cus_id]);
-      } else {
-        run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_loyalty_tier, cus_total_events, cus_total_spent, cus_status, cus_notes, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
-          [name, contact, email, address, tier, events, spent, status, notes]);
-      }
-    }
-  }
-
-  try {
-    run("INSERT INTO tablet_master_sync (tms_source_export_version, tms_packages_count, tms_menu_items_count) VALUES ('Live-PG-Sync', ?, ?)",
-      [packages.length, menuItems.length]);
-  } catch (_) {}
-
-  if (typeof window.__clearWizardCaches === "function") {
-    window.__clearWizardCaches();
-  }
-
-  if (typeof window.__onMasterDataUpdated === "function") {
-    window.__onMasterDataUpdated();
+    window.dispatchEvent(new CustomEvent("jayraldines:sync-completed", {
+      detail: { packages, menu_items: menuItems, package_items: packageItems, customers }
+    }));
   }
 }

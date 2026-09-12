@@ -338,18 +338,37 @@ if ($Mode -eq "onedir") {
 }
 
 # ------------------------------------------------------------------------------
+# 6b. Ensure tools/ngrok.exe exists for tablet sync
+# ------------------------------------------------------------------------------
+if (!(Test-Path "tools")) {
+    New-Item -ItemType Directory -Force -Path "tools" | Out-Null
+}
+if (!(Test-Path "tools\ngrok.exe")) {
+    Print-Info "Downloading Windows ngrok.exe for online tablet sync..."
+    try {
+        $ngrokZip = "$env:TEMP\ngrok_win64.zip"
+        Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile $ngrokZip -UseBasicParsing
+        Expand-Archive -Path $ngrokZip -DestinationPath "tools" -Force
+        Remove-Item -Force $ngrokZip -ErrorAction SilentlyContinue
+        Print-OK "ngrok.exe installed in tools\ngrok.exe"
+    } catch {
+        Print-Warn "Could not auto-download ngrok.exe: $_"
+    }
+}
+
+# ------------------------------------------------------------------------------
 # 7. Write Inno Setup script
 # ------------------------------------------------------------------------------
 Print-Step "Step 7 - Writing Inno Setup Installer Script"
 
 $iss  = "[Setup]`r`n"
 $iss += "AppName=Jayraldines Catering`r`n"
-$iss += "AppVersion=4.1.1`r`n"
+$iss += "AppVersion=4.1.15`r`n"
 $iss += "AppPublisher=Jayraldines Catering`r`n"
 $iss += "DefaultDirName={autopf}\JayraldinesCatering`r`n"
 $iss += "DefaultGroupName=Jayraldines Catering`r`n"
 $iss += "OutputDir=installer_output`r`n"
-$iss += "OutputBaseFilename=JayraldinesSetup_v4.1.1`r`n"
+$iss += "OutputBaseFilename=Jayraldines_Catering_Setup_v4.1.15`r`n"
 if (Test-Path "assets\logo.ico") {
     $iss += "SetupIconFile=assets\logo.ico`r`n"
 }
@@ -370,18 +389,70 @@ $iss += "Source: `"jayraldines_catering_clean.sql`"; DestDir: `"{app}`"; Flags: 
 $iss += "Source: `"cebu_address_migration.sql`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
 $iss += "Source: `"occasions_migration.sql`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
 $iss += "Source: `"confirmed_only_views_migration.sql`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
+$iss += "Source: `"analytics_functions_migration.sql`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
+$iss += "Source: `"fix_customer_ledger_view.sql`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
+$iss += "Source: `"device_monitoring_migration.sql`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
 $iss += "Source: `"setup.ps1`"; DestDir: `"{app}`"; Flags: ignoreversion`r`n"
+$iss += "Source: `"tools\ngrok.exe`"; DestDir: `"{app}\tools`"; Flags: ignoreversion skipifsourcedoesntexist`r`n"
+$iss += "Source: `"..\Tablet_PWA\frontend\*`"; DestDir: `"{app}\Tablet_PWA\frontend`"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist`r`n"
 $iss += "`r`n"
 $iss += "[Icons]`r`n"
 $iss += "Name: `"{group}\Jayraldines Catering`"; Filename: `"{app}\JayraldinesCatering.exe`"`r`n"
 $iss += "Name: `"{commondesktop}\Jayraldines Catering`"; Filename: `"{app}\JayraldinesCatering.exe`"; Tasks: desktopicon`r`n"
 $iss += 'Name: "{group}\Setup Database"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\setup.ps1"""; WorkingDir: "{app}"' + "`r`n"
+$iss += "Name: `"{group}\Tablet Kiosk Web App`"; Filename: `"{app}\Tablet_PWA\frontend\index.html`"`r`n"
 $iss += "`r`n"
 $iss += "[Tasks]`r`n"
 $iss += "Name: `"desktopicon`"; Description: `"Create a desktop shortcut`"; GroupDescription: `"Additional icons:`"`r`n"
 $iss += "`r`n"
 $iss += "[Run]`r`n"
 $iss += "Filename: `"{app}\JayraldinesCatering.exe`"; Description: `"Launch Jayraldines Catering`"; Flags: postinstall nowait skipifsilent`r`n"
+$iss += "`r`n"
+$iss += "[Code]`r`n"
+$iss += "var`r`n"
+$iss += "  NgrokPage: TInputQueryWizardPage;`r`n"
+$iss += "`r`n"
+$iss += "procedure InitializeWizard;`r`n"
+$iss += "begin`r`n"
+$iss += "  NgrokPage := CreateInputQueryPage(wpSelectTasks,`r`n"
+$iss += "    'Online Remote Tablet Sync Setup',`r`n"
+$iss += "    'Configure Ngrok to connect tablets & mobile devices online anywhere (Optional)',`r`n"
+$iss += "    'To allow tablets and mobile phones to connect over the internet without being on the same local Wi-Fi, enter your free Ngrok Authtoken below.' + #13#10 + #13#10 +`r`n"
+$iss += "    'Get your free token at: https://dashboard.ngrok.com/get-started/your-authtoken' + #13#10 + #13#10 +`r`n"
+$iss += "    'Note: You can leave this blank to skip and configure it later in Settings.');`r`n"
+$iss += "  NgrokPage.Add('Ngrok Authtoken (Optional):', False);`r`n"
+$iss += "end;`r`n"
+$iss += "`r`n"
+$iss += "procedure CurStepChanged(CurStep: TSetupStep);`r`n"
+$iss += "var`r`n"
+$iss += "  Token: string;`r`n"
+$iss += "  ResultCode: Integer;`r`n"
+$iss += "  NgrokExe: string;`r`n"
+$iss += "  EnvFile: string;`r`n"
+$iss += "  EnvContent: string;`r`n"
+$iss += "begin`r`n"
+$iss += "  if CurStep = ssPostInstall then`r`n"
+$iss += "  begin`r`n"
+$iss += "    Token := Trim(NgrokPage.Values[0]);`r`n"
+$iss += "    NgrokExe := ExpandConstant('{app}\tools\ngrok.exe');`r`n"
+$iss += "    if (Token <> '') and FileExists(NgrokExe) then`r`n"
+$iss += "    begin`r`n"
+$iss += "      Exec(NgrokExe, 'config add-authtoken ' + Token, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);`r`n"
+$iss += "      EnvFile := ExpandConstant('{app}\.env');`r`n"
+$iss += "      if FileExists(EnvFile) then`r`n"
+$iss += "      begin`r`n"
+$iss += "        LoadStringFromFile(EnvFile, EnvContent);`r`n"
+$iss += "        EnvContent := EnvContent + #13#10 + 'NGROK_AUTHTOKEN=' + Token + #13#10 + 'NGROK_ENABLED=1' + #13#10;`r`n"
+$iss += "        SaveStringToFile(EnvFile, EnvContent, False);`r`n"
+$iss += "      end`r`n"
+$iss += "      else`r`n"
+$iss += "      begin`r`n"
+$iss += "        EnvContent := 'NGROK_AUTHTOKEN=' + Token + #13#10 + 'NGROK_ENABLED=1' + #13#10;`r`n"
+$iss += "        SaveStringToFile(EnvFile, EnvContent, False);`r`n"
+$iss += "      end;`r`n"
+$iss += "    end;`r`n"
+$iss += "  end;`r`n"
+$iss += "end;`r`n"
 
 New-Item -ItemType Directory -Force -Path "installer_output" | Out-Null
 [System.IO.File]::WriteAllText("$PWD\installer.iss", $iss, [System.Text.Encoding]::UTF8)

@@ -159,7 +159,11 @@ export const api = {
         const timeoutId = setTimeout(() => controller.abort(), 20000);
         const res = await fetch(`${base}/api/sync/lan-sync`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "ngrok-skip-browser-warning": "69420"
+          },
           body: JSON.stringify(params || {}),
           signal: controller.signal,
         });
@@ -186,48 +190,69 @@ export const api = {
     const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
     if (savedHost) candidates.push(savedHost);
 
-    // If testing directly on local PC
-    candidates.push("127.0.0.1");
-
-    if (typeof window !== "undefined" && window.location && window.location.hostname) {
-      const h = window.location.hostname;
-      if (h && !h.includes("androidplatform") && !candidates.includes(h)) {
-        candidates.push(h);
+    // If opened via browser URL (e.g. ngrok tunnel, cloudflared, LAN IP), prioritize the current origin!
+    if (typeof window !== "undefined" && window.location && window.location.origin) {
+      const orig = window.location.origin;
+      if (!orig.startsWith("file:") && !orig.includes("androidplatform")) {
+        if (!candidates.includes(orig)) candidates.unshift(orig);
       }
     }
 
+    // Localhost fallback
+    candidates.push("http://127.0.0.1:8000");
+    candidates.push("127.0.0.1");
+
     // Common mobile hotspot and LAN gateway IPs
-    const commonGateways = ["192.168.1.", "192.168.0.", "192.168.43.", "192.168.137.", "10.105.101."];
+    const commonGateways = ["192.168.1.", "192.168.0.", "192.168.4.", "192.168.43.", "192.168.137.", "10.105.101."];
     for (const prefix of commonGateways) {
-      for (const lastOctet of [1, 2, 5, 10, 15, 20, 50, 100, 120]) {
+      for (const lastOctet of [1, 2, 5, 10, 15, 20, 50, 100, 120, 128]) {
         const ip = `${prefix}${lastOctet}`;
         if (!candidates.includes(ip)) candidates.push(ip);
       }
     }
 
-    const probe = async (host) => {
+    const probe = async (target) => {
       try {
-        const clean = host.replace(/^https?:\/\//i, "").split(":")[0];
-        const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 1000);
-        const res = await fetch(`http://${clean}:8000/api/sync/lan-status?host=${encodeURIComponent(clean)}&port=5432`, {
-          signal: controller.signal,
-          headers: { "Accept": "application/json" }
-        });
-        clearTimeout(tid);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.online) return clean;
+        const baseUrls = _getSyncBaseUrls(target);
+        for (const base of baseUrls) {
+          try {
+            const controller = new AbortController();
+            const tid = setTimeout(() => controller.abort(), 2000);
+            const res = await fetch(`${base}/api/sync/lan-status?host=localhost&port=5432`, {
+              signal: controller.signal,
+              headers: {
+                "Accept": "application/json",
+                "ngrok-skip-browser-warning": "69420"
+              }
+            });
+            clearTimeout(tid);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.online) {
+                return base;
+              }
+            }
+          } catch (_) {}
         }
       } catch (_) {}
       return null;
     };
 
+    // First check high-priority candidates quickly
+    for (const c of candidates.slice(0, 3)) {
+      const found = await probe(c);
+      if (found) {
+        localStorage.setItem("jayraldines_lan_host", found);
+        console.log(`[AutoDiscover] Connected to server at ${found}`);
+        return found;
+      }
+    }
+
     const results = await Promise.allSettled(candidates.map(probe));
     for (const r of results) {
       if (r.status === "fulfilled" && r.value) {
         localStorage.setItem("jayraldines_lan_host", r.value);
-        console.log(`[AutoDiscover] Successfully detected server at ${r.value}:8000`);
+        console.log(`[AutoDiscover] Successfully detected server at ${r.value}`);
         return r.value;
       }
     }
@@ -259,6 +284,10 @@ export const api = {
       if (res.synced_booking_refs || res.synced_customer_names) {
         repo.markRecordsSynced(res.synced_booking_refs || [], res.synced_customer_names || []);
       }
+      // Broadcast live sync update event
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("jayraldines:sync-completed", { detail: res }));
+      }
       return res;
     } catch (e) {
       console.warn("[AutoSync] Background push note:", e);
@@ -277,25 +306,34 @@ export const api = {
 
 function _getSyncBaseUrls(host, port) {
   const urls = [];
-  const rawHost = (host || "").trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  const trimmed = (host || "").trim();
 
-  if (rawHost) {
-    let cleanHost = rawHost;
-    let syncPort = 8000;
-    if (rawHost.includes(":")) {
-      const parts = rawHost.split(":");
-      cleanHost = parts[0];
-      syncPort = parseInt(parts[1], 10) || 8000;
-      urls.push(`http://${cleanHost}:${syncPort}`);
-    } else {
-      const p = parseInt(port, 10);
-      if (p && p !== 5432) {
-        urls.push(`http://${cleanHost}:${p}`);
+  if (trimmed) {
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+      const cleanUrl = trimmed.replace(/\/+$/, "");
+      urls.push(cleanUrl);
+      // If already a complete HTTPS URL without custom port, prioritize it directly
+      const colonCount = (cleanUrl.match(/:/g) || []).length;
+      if (cleanUrl.startsWith("https://") && colonCount === 1) {
+        return urls;
       }
-      urls.push(`http://${cleanHost}:8000`);
-      if (p && p === 5432) {
-        // Also fallback to default 8000 if user input 5432 (Postgres DB port)
-        urls.push(`http://${cleanHost}:8000`);
+    }
+
+    const rawHost = trimmed.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+    if (rawHost) {
+      if (rawHost.includes(".ngrok") || rawHost.includes(".trycloudflare.com") || rawHost.includes(".loca.lt")) {
+        if (!urls.includes(`https://${rawHost}`)) urls.unshift(`https://${rawHost}`);
+      } else if (rawHost.includes(":")) {
+        const p = `http://${rawHost}`;
+        if (!urls.includes(p)) urls.push(p);
+      } else {
+        const p = parseInt(port, 10);
+        if (p && p !== 5432 && p !== 8000) {
+          const u = `http://${rawHost}:${p}`;
+          if (!urls.includes(u)) urls.push(u);
+        }
+        const defU = `http://${rawHost}:8000`;
+        if (!urls.includes(defU)) urls.push(defU);
       }
     }
   }

@@ -279,6 +279,11 @@ async function openPackagesQuickModal() {
       <div class="packages-showcase-grid">
         ${pkgs.map((p) => `
           <div class="pkg-showcase-card">
+            ${p.image ? `
+              <div style="width:100%; height:140px; border-radius:12px; overflow:hidden; margin-bottom:12px; background:var(--input-bg);">
+                <img src="${p.image}" alt="${escapeHtml(p.name)}" style="width:100%; height:100%; object-fit:cover;">
+              </div>
+            ` : ""}
             <div class="pkg-badge">Per Guest</div>
             <h3 class="pkg-name">${escapeHtml(p.name)}</h3>
             <div class="pkg-rate">${peso(p.price_per_pax)}<span class="pkg-unit"> / pax</span></div>
@@ -323,6 +328,11 @@ async function openMenuQuickModal() {
       <div class="menu-preview-grid">
         ${(grouped[activeCat] || []).map((m) => `
           <div class="menu-preview-item">
+            ${m.image ? `
+              <div style="width:100%; height:100px; border-radius:8px; overflow:hidden; margin-bottom:8px; background:var(--input-bg);">
+                <img src="${m.image}" alt="${escapeHtml(m.name)}" style="width:100%; height:100%; object-fit:cover;">
+              </div>
+            ` : ""}
             <div class="menu-preview-title">${escapeHtml(m.name)}</div>
             <div class="menu-preview-category">${escapeHtml(m.category)}</div>
             ${m.price > 0 ? `<div class="menu-preview-price">+ ${peso(m.price)}</div>` : `<div class="menu-preview-included">Included in Package</div>`}
@@ -1187,16 +1197,50 @@ async function openDataSyncModal() {
   });
 }
 
-// Background auto-discovery and auto-sync on tablet startup
-setTimeout(() => {
-  api.autoDiscoverAndSync().then((res) => {
+// Immediate auto-discovery and auto-sync on tablet startup
+(async function initStartupSync() {
+  try {
+    const res = await api.autoDiscoverAndSync();
     if (res) {
       console.log("[AutoSync] Initial sync completed successfully:", res);
+      const landing = document.querySelector(".landing-shell");
+      if (landing && !document.querySelector(".wizard-container")) {
+        renderHome();
+      }
     }
-  }).catch(() => {});
-}, 1500);
+  } catch (e) {
+    console.warn("[AutoSync] Initial sync note:", e);
+  }
+})();
 
-// Periodically sync in the background every 60 seconds if connected
+// Listen for sync completion to immediately refresh the UI with PostgreSQL database items
+if (typeof window !== "undefined") {
+  window.addEventListener("jayraldines:sync-completed", (e) => {
+    console.log("[AutoSync] jayraldines:sync-completed event received:", e.detail);
+    const landing = document.querySelector(".landing-shell");
+    if (landing && !document.querySelector(".wizard-container")) {
+      renderHome();
+    }
+  });
+
+  // Auto-sync whenever network re-connects or tab becomes active
+  window.addEventListener("online", () => {
+    console.log("[AutoSync] Network online - syncing with central database...");
+    api.autoSyncPendingRecords().catch(() => {});
+  });
+
+  window.addEventListener("focus", () => {
+    api.autoSyncPendingRecords().catch(() => {});
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      api.autoSyncPendingRecords().catch(() => {});
+    }
+  });
+}
+
+// Periodically sync in the background every 15 seconds if connected
 setInterval(() => {
   api.autoSyncPendingRecords().catch(() => {});
-}, 60000);
+}, 15000);
