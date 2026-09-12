@@ -14,7 +14,7 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 
 HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8000}"
+PORT="${PORT:-8080}"
 LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")"
 
 echo "============================================================================"
@@ -22,6 +22,7 @@ echo "  JAYRALDINE'S CATERING — STANDALONE KIOSK PWA"
 echo "============================================================================"
 echo "  Local PC URL:   http://localhost:$PORT"
 echo "  Tablet LAN URL: http://$LAN_IP:$PORT"
+echo "  Central Server: http://$LAN_IP:8000 (Sync Hub)"
 echo "============================================================================"
 echo "  Open http://localhost:$PORT in any web browser to use it."
 echo "  Press Ctrl+C to stop."

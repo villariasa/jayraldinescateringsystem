@@ -423,6 +423,7 @@ $bat  = "@echo off`r`n"
 $bat += "cd /d `"%~dp0`"`r`n"
 $bat += "call venv\Scripts\activate`r`n"
 $bat += "set DB_PASSWORD=" + $pgPass + "`r`n"
+$bat += "set DB_ENGINE=postgres`r`n"
 $bat += "python main.py`r`n"
 $bat += "pause`r`n"
 

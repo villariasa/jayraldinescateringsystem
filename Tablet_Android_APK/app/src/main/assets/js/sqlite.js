@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS menu_items (
     status TEXT DEFAULT 'Available',
     mi_description TEXT,
     description TEXT,
+    mi_image TEXT DEFAULT '',
+    image TEXT DEFAULT '',
     mi_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -51,6 +53,8 @@ CREATE TABLE IF NOT EXISTS packages (
     pkg_description TEXT,
     pkg_price_per_pax REAL NOT NULL,
     pkg_min_pax INTEGER DEFAULT 30,
+    pkg_image TEXT DEFAULT '',
+    image TEXT DEFAULT '',
     pkg_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

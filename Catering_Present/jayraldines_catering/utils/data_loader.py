@@ -2,45 +2,19 @@
 utils/data_loader.py
 --------------------
 Reusable background data-loading worker built on QThread.
-
-Usage example in any page:
-    def _do_reload(self):
-        self._start_loader(repo.get_all_customers_with_loyalty, self._on_data_ready)
-
-    def _on_data_ready(self, data):
-        self._customers = data or []
-        self._populate_table()
+Maintains a global strong reference set so no running thread is ever prematurely
+destroyed or garbage collected by Python while the underlying OS/Qt thread executes.
 """
 
 from PySide6.QtCore import QThread, Signal, QObject
 
-
-class _LoaderWorker(QObject):
-    """Runs a callable in a background thread and emits the result."""
-    finished = Signal(object)
-    errored  = Signal(str)
-
-    def __init__(self, fn, args, kwargs):
-        super().__init__()
-        self._fn     = fn
-        self._args   = args
-        self._kwargs = kwargs
-
-    def run(self):
-        try:
-            result = self._fn(*self._args, **self._kwargs)
-            self.finished.emit(result)
-        except Exception as exc:
-            self.errored.emit(str(exc))
+_LIVE_LOADERS = set()
 
 
 class DataLoader(QThread):
     """
-    Drop-in background loader.  Creates a worker, moves it to this thread,
-    emits data_ready(result) on completion, or load_error(msg) on failure.
-
-    The caller is responsible for keeping a reference to the DataLoader
-    so it is not garbage-collected while the thread is running.
+    Drop-in background loader. Subclasses QThread directly and executes fn in run().
+    Automatically registers in _LIVE_LOADERS to guarantee it is not destroyed while running.
     """
 
     data_ready = Signal(object)
@@ -48,17 +22,35 @@ class DataLoader(QThread):
 
     def __init__(self, fn, *args, **kwargs):
         super().__init__()
-        self._worker = _LoaderWorker(fn, args, kwargs)
-        self._worker.moveToThread(self)
-        self.started.connect(self._worker.run)
-        self._worker.finished.connect(self.data_ready)
-        self._worker.errored.connect(self.load_error)
-        self._worker.finished.connect(self.quit)
-        self._worker.errored.connect(self.quit)
-        self.finished.connect(self._cleanup)
+        self._fn = fn
+        self._args = args
+        self._kwargs = kwargs
+        self._is_stopped = False
 
-    def _cleanup(self):
-        self._worker.deleteLater()
+        # Keep strong reference while thread is active
+        _LIVE_LOADERS.add(self)
+        self.finished.connect(self._on_finished)
+
+    def run(self):
+        try:
+            if self._is_stopped:
+                return
+            result = self._fn(*self._args, **self._kwargs)
+            if not self._is_stopped:
+                self.data_ready.emit(result)
+        except Exception as exc:
+            if not self._is_stopped:
+                self.load_error.emit(str(exc))
+
+    def stop(self):
+        self._is_stopped = True
+        try:
+            self.quit()
+        except Exception:
+            pass
+
+    def _on_finished(self):
+        _LIVE_LOADERS.discard(self)
 
 
 def run_async(page, fn, on_success, on_error=None, *args, **kwargs):
@@ -111,7 +103,7 @@ def run_async(page, fn, on_success, on_error=None, *args, **kwargs):
     loader = DataLoader(fn, *args, **kwargs)
     loader.data_ready.connect(_safe_success)
     loader.load_error.connect(_safe_error)
-    
+
     page._active_loaders.add(loader)
     loader.finished.connect(lambda: _clear_loader(page, loader))
     loader.start()

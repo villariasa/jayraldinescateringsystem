@@ -347,7 +347,8 @@ def get_all_menu_items() -> list[dict]:
                mi_category::TEXT          AS category,
                mi_package_tier::TEXT      AS package,
                mi_price                   AS price,
-               mi_status::TEXT            AS status
+               mi_status::TEXT            AS status,
+               COALESCE(mi_image, '')     AS image
         FROM menu_items ORDER BY mi_category, mi_name
     """)
     if not rows:
@@ -361,6 +362,7 @@ def get_all_menu_items() -> list[dict]:
             "package":     r["package"],
             "price":       float(r["price"]),
             "status":      r["status"],
+            "image":       r.get("image", "") or "",
         }
         for r in rows
     ]
@@ -374,7 +376,8 @@ def get_available_menu_items() -> list[dict]:
                mi_category::TEXT     AS category,
                mi_package_tier::TEXT AS package,
                mi_price              AS price,
-               mi_status::TEXT       AS status
+               mi_status::TEXT       AS status,
+               COALESCE(mi_image, '') AS image
         FROM menu_items
         WHERE mi_status IN ('Available','Seasonal')
         ORDER BY mi_category, mi_name
@@ -390,6 +393,7 @@ def get_available_menu_items() -> list[dict]:
             "package":     r["package"],
             "price":       float(r["price"]),
             "status":      r["status"],
+            "image":       r.get("image", "") or "",
         }
         for r in rows
     ]
@@ -399,20 +403,45 @@ def add_menu_item(data: dict) -> Optional[int]:
     item_name = data.get("item") or data.get("name", "")
     raw_st = str(data.get("status", "Available")).strip().lower()
     st = "Unavailable" if any(w in raw_st for w in ("unavail", "inact", "out", "disab", "no")) else "Available"
-    result = db.callproc_out(
-        "sp_add_menu_item",
-        in_params=(
-            item_name,
-            data.get("description", ""),
-            data.get("category", "Main Course"),
-            data.get("package", "Standard"),
-            data.get("price", 0.0),
-            st,
-        ),
-        out_names=["p_item_id"],
-    )
+    image_val = data.get("image", "") or ""
+    p_id = None
+    try:
+        result = db.callproc_out(
+            "sp_add_menu_item",
+            in_params=(
+                item_name,
+                data.get("description", ""),
+                data.get("category", "Main Course"),
+                data.get("package", "Standard"),
+                data.get("price", 0.0),
+                st,
+                image_val,
+            ),
+            out_names=["p_item_id"],
+        )
+        if result and result.get("p_item_id"):
+            p_id = result["p_item_id"]
+    except Exception as exc:
+        print(f"[repository] sp_add_menu_item call failed: {exc}")
+
+    if not p_id:
+        try:
+            row = db.fetchone("""
+                INSERT INTO menu_items (mi_name, mi_description, mi_category, mi_package_tier, mi_price, mi_status, mi_image)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (mi_name) DO UPDATE SET
+                    mi_description = COALESCE(NULLIF(EXCLUDED.mi_description, ''), menu_items.mi_description),
+                    mi_price = EXCLUDED.mi_price,
+                    mi_category = EXCLUDED.mi_category,
+                    mi_image = CASE WHEN EXCLUDED.mi_image <> '' THEN EXCLUDED.mi_image ELSE menu_items.mi_image END
+                RETURNING mi_id
+            """, (item_name, data.get("description", ""), data.get("category", "Main Course"), data.get("package", "Standard"), data.get("price", 0.0), st, image_val))
+            if row and row.get("mi_id"):
+                p_id = row["mi_id"]
+        except Exception as exc:
+            print(f"[repository] add_menu_item direct insert fallback failed: {exc}")
+
     menu_store.add_item(data)
-    p_id = result["p_item_id"] if result else None
     if p_id:
         write_audit_log(
             action="CREATE",
@@ -427,18 +456,35 @@ def update_menu_item(item_id: int, data: dict) -> None:
     item_name = data.get("item") or data.get("name", "")
     raw_st = str(data.get("status", "Available")).strip().lower()
     st = "Unavailable" if any(w in raw_st for w in ("unavail", "inact", "out", "disab", "no")) else "Available"
-    db.callproc_void(
-        "sp_update_menu_item",
-        in_params=(
-            item_id,
-            item_name,
-            data.get("description", ""),
-            data.get("category", "Main Course"),
-            data.get("package", "Standard"),
-            data.get("price", 0.0),
-            st,
-        ),
-    )
+    image_val = data.get("image", "") or ""
+    try:
+        db.callproc_void(
+            "sp_update_menu_item",
+            in_params=(
+                item_id,
+                item_name,
+                data.get("description", ""),
+                data.get("category", "Main Course"),
+                data.get("package", "Standard"),
+                data.get("price", 0.0),
+                st,
+                image_val,
+            ),
+        )
+    except Exception as exc:
+        print(f"[repository] sp_update_menu_item failed, falling back to direct UPDATE: {exc}")
+        try:
+            db.execute("""
+                UPDATE menu_items
+                SET mi_name = %s, mi_description = %s, mi_category = %s::menu_category, mi_package_tier = %s::menu_package_tier,
+                    mi_price = %s, mi_status = %s::menu_status,
+                    mi_image = CASE WHEN %s <> '' THEN %s ELSE mi_image END,
+                    mi_updated_at = NOW()
+                WHERE mi_id = %s
+            """, (item_name, data.get("description", ""), data.get("category", "Main Course"), data.get("package", "Standard"), data.get("price", 0.0), st, image_val, image_val, item_id))
+        except Exception as exc2:
+            print(f"[repository] update_menu_item direct fallback failed: {exc2}")
+
     write_audit_log(
         action="UPDATE",
         table_name="menu_items",
@@ -594,11 +640,12 @@ def delete_occasion(name: str) -> None:
 
 def get_all_packages() -> list[dict]:
     pkg_rows = db.fetchall("""
-        SELECT pkg_id            AS id,
-               pkg_name          AS name,
-               pkg_price_per_pax AS price_per_pax,
-               pkg_min_pax       AS min_pax,
-               pkg_description   AS description
+        SELECT pkg_id                  AS id,
+               pkg_name                AS name,
+               pkg_price_per_pax       AS price_per_pax,
+               pkg_min_pax             AS min_pax,
+               pkg_description         AS description,
+               COALESCE(pkg_image, '') AS image
         FROM packages
         ORDER BY pkg_price_per_pax ASC
     """)
@@ -610,8 +657,8 @@ def get_all_packages() -> list[dict]:
         SELECT pi.pi_id              AS id,
                pi.pi_package_id      AS package_id,
                pi.pi_menu_item_id    AS menu_item_id,
-               COALESCE(mi.mi_name, pi.pi_item_name, '') AS item_name,
-               COALESCE(mi.mi_category::TEXT, pi.pi_category::TEXT, 'General') AS category,
+               COALESCE(mi.mi_name, '') AS item_name,
+               COALESCE(mi.mi_category::TEXT, 'General') AS category,
                COALESCE(pi.pi_custom_price, 0.0) AS custom_price
         FROM package_items pi
         LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
@@ -638,6 +685,7 @@ def get_all_packages() -> list[dict]:
             "price_per_pax": float(r["price_per_pax"]),
             "min_pax":       int(r["min_pax"]),
             "description":   r["description"] or "",
+            "image":         r.get("image", "") or "",
             "items":         items_by_pkg.get(p_id, []),
         })
     return result
@@ -648,8 +696,8 @@ def get_package_items(package_id: int) -> list[dict]:
         """
         SELECT pi.pi_id              AS id,
                pi.pi_menu_item_id    AS menu_item_id,
-               COALESCE(mi.mi_name, pi.pi_item_name, '') AS item_name,
-               COALESCE(mi.mi_category::TEXT, pi.pi_category::TEXT, 'General') AS category,
+               COALESCE(mi.mi_name, '') AS item_name,
+               COALESCE(mi.mi_category::TEXT, 'General') AS category,
                COALESCE(pi.pi_custom_price, 0.0) AS custom_price
         FROM package_items pi
         LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
@@ -729,6 +777,7 @@ def add_package(data: dict) -> Optional[int]:
     pkg_name = str(data.get("name", "")).strip()
     if not pkg_name:
         return None
+    image_val = data.get("image", "") or ""
     try:
         existing = db.fetchone("SELECT pkg_id FROM packages WHERE LOWER(pkg_name) = LOWER(%s) LIMIT 1", (pkg_name,))
         if existing and existing.get("pkg_id"):
@@ -737,9 +786,10 @@ def add_package(data: dict) -> Optional[int]:
                 UPDATE packages
                 SET pkg_price_per_pax = %s,
                     pkg_min_pax = %s,
-                    pkg_description = COALESCE(NULLIF(%s, ''), pkg_description)
+                    pkg_description = COALESCE(NULLIF(%s, ''), pkg_description),
+                    pkg_image = CASE WHEN %s <> '' THEN %s ELSE pkg_image END
                 WHERE pkg_id = %s
-            """, (data.get("price_per_pax", 0.0), data.get("min_pax", 1), data.get("description", ""), pkg_id))
+            """, (data.get("price_per_pax", 0.0), data.get("min_pax", 1), data.get("description", ""), image_val, image_val, pkg_id))
             return pkg_id
 
         result = db.callproc_out(
@@ -749,6 +799,7 @@ def add_package(data: dict) -> Optional[int]:
                 data.get("price_per_pax", 0.0),
                 data.get("min_pax", 1),
                 data.get("description", ""),
+                image_val,
             ),
             out_names=["p_package_id"],
         )
@@ -761,14 +812,15 @@ def add_package(data: dict) -> Optional[int]:
     if not pkg_id:
         try:
             row = db.fetchone("""
-                INSERT INTO packages (pkg_name, pkg_price_per_pax, pkg_min_pax, pkg_description)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO packages (pkg_name, pkg_price_per_pax, pkg_min_pax, pkg_description, pkg_image)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (pkg_name) DO UPDATE SET
                     pkg_price_per_pax = EXCLUDED.pkg_price_per_pax,
                     pkg_min_pax = EXCLUDED.pkg_min_pax,
-                    pkg_description = COALESCE(NULLIF(EXCLUDED.pkg_description, ''), packages.pkg_description)
+                    pkg_description = COALESCE(NULLIF(EXCLUDED.pkg_description, ''), packages.pkg_description),
+                    pkg_image = CASE WHEN EXCLUDED.pkg_image <> '' THEN EXCLUDED.pkg_image ELSE packages.pkg_image END
                 RETURNING pkg_id
-            """, (pkg_name, data.get("price_per_pax", 0.0), data.get("min_pax", 1), data.get("description", "")))
+            """, (pkg_name, data.get("price_per_pax", 0.0), data.get("min_pax", 1), data.get("description", ""), image_val))
             if row and row.get("pkg_id"):
                 pkg_id = row["pkg_id"]
         except Exception as exc:
@@ -786,6 +838,7 @@ def add_package(data: dict) -> Optional[int]:
 
 
 def update_package(db_id: int, data: dict) -> bool:
+    image_val = data.get("image", "") or ""
     try:
         db.callproc_void(
             "sp_update_package",
@@ -795,6 +848,7 @@ def update_package(db_id: int, data: dict) -> bool:
                 data["price_per_pax"],
                 data.get("min_pax", 1),
                 data.get("description", ""),
+                image_val,
             ),
         )
         write_audit_log(
@@ -805,8 +859,24 @@ def update_package(db_id: int, data: dict) -> bool:
         )
         return True
     except Exception as exc:
-        print(f"[repository] update_package failed: {exc}")
-        return False
+        print(f"[repository] sp_update_package failed, trying direct UPDATE: {exc}")
+        try:
+            db.execute("""
+                UPDATE packages
+                SET pkg_name = %s, pkg_price_per_pax = %s, pkg_min_pax = %s, pkg_description = %s,
+                    pkg_image = CASE WHEN %s <> '' THEN %s ELSE pkg_image END
+                WHERE pkg_id = %s
+            """, (data["name"], data["price_per_pax"], data.get("min_pax", 1), data.get("description", ""), image_val, image_val, db_id))
+            write_audit_log(
+                action="UPDATE",
+                table_name="packages",
+                record_id=db_id,
+                new_value={"name": data["name"], "price": data.get("price_per_pax")}
+            )
+            return True
+        except Exception as exc2:
+            print(f"[repository] update_package direct fallback failed: {exc2}")
+            return False
 
 
 def delete_package(db_id: int) -> bool:

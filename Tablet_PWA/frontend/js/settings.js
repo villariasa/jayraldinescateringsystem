@@ -1164,10 +1164,15 @@ async function renderDatabaseTab(content) {
             </div>
             
             <div style="margin-bottom:12px;">
-              <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:4px;">
-                Central Server IP / Host Address *
-              </label>
-              <input type="text" id="input-lan-host" class="input" value="${localStorage.getItem('jayraldines_lan_host') || '10.105.101.120'}" placeholder="e.g. 10.105.101.120 or 192.168.1.100" style="width:100%; font-size:13.5px; font-weight:600; font-family:monospace; padding:10px 14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <label style="font-size:12px; font-weight:700; color:var(--text); margin:0;">
+                  Central Server IP / Host Address *
+                </label>
+                <button type="button" id="btn-autodiscover-host" class="btn btn-sm" style="font-size:11px; padding:3px 8px; background:rgba(225,29,72,0.1); color:var(--accent); border:1px solid rgba(225,29,72,0.25); border-radius:6px; cursor:pointer;">
+                  🔍 Auto-Detect IP
+                </button>
+              </div>
+              <input type="text" id="input-lan-host" class="input" value="${localStorage.getItem('jayraldines_lan_host') || (typeof window !== 'undefined' && window.location && window.location.hostname ? window.location.hostname : '127.0.0.1')}" placeholder="e.g. 192.168.4.128 or localhost" style="width:100%; font-size:13.5px; font-weight:600; font-family:monospace; padding:10px 14px;">
               <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
                 LAN IP of the Central PC running Jayraldine's Catering (see PC Settings → Server).
               </div>
@@ -1354,10 +1359,18 @@ async function renderDatabaseTab(content) {
       pendingInfo.textContent = `${counts.bookings} booking(s), ${counts.customers} customer(s) pending sync`;
     }
 
-    const stat = await api.checkLanStatus(host, parseInt(port, 10) || 8000);
+    let stat = await api.checkLanStatus(host, parseInt(port, 10) || 8000);
+    if (!stat.online && !showDiag) {
+      const discovered = await api.autoDiscoverServer();
+      if (discovered && discovered !== host) {
+        if (hostInput) hostInput.value = discovered;
+        localStorage.setItem("jayraldines_lan_host", discovered);
+        stat = await api.checkLanStatus(discovered, parseInt(port, 10) || 8000);
+      }
+    }
     if (statusPill) {
       if (stat.online) {
-        const displayHost = stat.host || host || "Central PC";
+        const displayHost = stat.host || (hostInput ? hostInput.value.trim() : "") || host || "Central PC";
         statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--success);"></span> 🟢 Central Server Online (${escapeHtml(displayHost)}:${stat.port || 8000})`;
         statusPill.style.background = "rgba(16,185,129,0.15)";
         statusPill.style.color = "var(--success)";
@@ -1379,16 +1392,18 @@ async function renderDatabaseTab(content) {
         statusPill.style.color = "var(--gold)";
         statusPill.style.borderColor = "rgba(245,158,11,0.35)";
 
+        const curHost = (hostInput ? hostInput.value.trim() : "") || localStorage.getItem('jayraldines_lan_host') || (typeof window !== 'undefined' && window.location && window.location.hostname ? window.location.hostname : '127.0.0.1');
         if (showDiag && diagBox) {
           diagBox.style.display = "block";
           diagBox.style.background = "rgba(239,68,68,0.1)";
           diagBox.style.border = "1px solid rgba(239,68,68,0.3)";
           diagBox.style.color = "var(--danger)";
           diagBox.innerHTML = `
-            <b>❌ Central Server Unreachable at <code>${escapeHtml(host || '10.105.101.120')}:${escapeHtml(port || '8000')}</code></b><br>
+            <b>❌ Central Server Unreachable at <code>${escapeHtml(curHost)}:${escapeHtml(port || '8000')}</code></b><br>
             <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:4px;">
               • Verify that this tablet and the PC are connected to the <b>same Wi-Fi network</b>.<br>
               • Verify that the Jayraldine's Catering desktop app or <code>run_lan_sync_server.bat</code> is running on the PC.<br>
+              • If testing locally on this PC, use host <code>localhost</code> or <code>127.0.0.1</code>.<br>
               • If Windows Firewall is active on the PC, run <code>open_firewall_ports.bat</code> as administrator.
             </span>
           `;
@@ -1398,6 +1413,20 @@ async function renderDatabaseTab(content) {
   }
 
   updateLanStatus();
+  content.querySelector("#btn-autodiscover-host")?.addEventListener("click", async () => {
+    toast("Auto-detecting Central Server on Wi-Fi/LAN…", "info");
+    const discovered = await api.autoDiscoverServer();
+    if (discovered) {
+      if (hostInput) hostInput.value = discovered;
+      localStorage.setItem("jayraldines_lan_host", discovered);
+      toast(`Found Central Server at ${discovered}!`, "success");
+      await updateLanStatus(true);
+    } else {
+      toast("Could not automatically locate server. Please verify PC IP.", "warning");
+      await updateLanStatus(true);
+    }
+  });
+
   content.querySelector("#btn-lan-check")?.addEventListener("click", async () => {
     toast("Testing Central Server connection…", "info");
     await updateLanStatus(true);
@@ -1407,7 +1436,8 @@ async function renderDatabaseTab(content) {
     const btn = content.querySelector("#btn-lan-sync");
     if (btn) { btn.disabled = true; btn.textContent = "Connecting to Central Server…"; }
     try {
-      const host = hostInput ? hostInput.value.trim() : "10.105.101.120";
+      const fallbackHost = typeof window !== 'undefined' && window.location && window.location.hostname ? window.location.hostname : "127.0.0.1";
+      const host = hostInput ? hostInput.value.trim() || fallbackHost : fallbackHost;
       const port = portInput ? parseInt(portInput.value.trim(), 10) || 8000 : 8000;
       const dbname = dbnameInput ? dbnameInput.value.trim() : "jayraldines_catering";
       const user = userInput ? userInput.value.trim() : "jayraldines_app";

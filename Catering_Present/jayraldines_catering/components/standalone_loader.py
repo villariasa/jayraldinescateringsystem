@@ -24,48 +24,66 @@ class IndependentSpinner(QWidget):
         self._arc_length = 100
 
         self._timer = QTimer(self)
-        self._timer.setInterval(16)  # 60 FPS
+        self._timer.setInterval(24)
         self._timer.timeout.connect(self._on_tick)
-        self._timer.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._timer.isActive():
+            self._timer.start()
+
+    def hideEvent(self, event):
+        self._timer.stop()
+        super().hideEvent(event)
 
     def _on_tick(self):
+        if not self.isVisible():
+            self._timer.stop()
+            return
         self._angle = (self._angle + 8) % 360
         self.update()
 
     def paintEvent(self, event):
+        if not self.isVisible():
+            return
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        if not painter.isActive():
+            return
+        try:
+            painter.setRenderHint(QPainter.Antialiasing)
 
-        w = self.width()
-        h = self.height()
-        margin = self._line_width / 2.0 + 2.0
-        rect = QRectF(margin, margin, w - 2 * margin, h - 2 * margin)
+            w = self.width()
+            h = self.height()
+            margin = self._line_width / 2.0 + 2.0
+            rect = QRectF(margin, margin, w - 2 * margin, h - 2 * margin)
 
-        # Subtle track ring
-        track_pen = QPen(QColor(255, 255, 255, 25), self._line_width)
-        track_pen.setCapStyle(Qt.RoundCap)
-        painter.setPen(track_pen)
-        painter.drawEllipse(rect)
+            # Subtle track ring
+            track_pen = QPen(QColor(255, 255, 255, 25), self._line_width)
+            track_pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(track_pen)
+            painter.drawEllipse(rect)
 
-        # Rotating gradient active arc
-        painter.save()
-        painter.translate(w / 2.0, h / 2.0)
-        painter.rotate(self._angle)
-        painter.translate(-w / 2.0, -h / 2.0)
+            # Rotating gradient active arc
+            painter.save()
+            painter.translate(w / 2.0, h / 2.0)
+            painter.rotate(self._angle)
+            painter.translate(-w / 2.0, -h / 2.0)
 
-        conical_grad = QConicalGradient(w / 2.0, h / 2.0, 0)
-        conical_grad.setColorAt(0.0, self._color_end)
-        conical_grad.setColorAt(0.25, self._color_start)
-        conical_grad.setColorAt(0.4, QColor(self._color_start.red(), self._color_start.green(), self._color_start.blue(), 20))
-        conical_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
+            conical_grad = QConicalGradient(w / 2.0, h / 2.0, 0)
+            conical_grad.setColorAt(0.0, self._color_end)
+            conical_grad.setColorAt(0.25, self._color_start)
+            conical_grad.setColorAt(0.4, QColor(self._color_start.red(), self._color_start.green(), self._color_start.blue(), 20))
+            conical_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
 
-        arc_pen = QPen(conical_grad, self._line_width)
-        arc_pen.setCapStyle(Qt.RoundCap)
-        painter.setPen(arc_pen)
+            arc_pen = QPen(conical_grad, self._line_width)
+            arc_pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(arc_pen)
 
-        span_angle = int(self._arc_length * 16)
-        painter.drawArc(rect, 0, span_angle)
-        painter.restore()
+            span_angle = int(self._arc_length * 16)
+            painter.drawArc(rect, 0, span_angle)
+            painter.restore()
+        finally:
+            painter.end()
 
 
 class StandaloneOverlayWindow(QWidget):

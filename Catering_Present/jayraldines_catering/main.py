@@ -13,8 +13,20 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from utils.logger import setup_logging, get_logger
+from utils.logger import setup_logging, get_logger, get_log_dir
 log = setup_logging()
+
+# Native crashes (segfaults) bypass Python's sys.excepthook entirely, so they
+# leave no trace in the app log. faulthandler writes a C-level stack trace to
+# a dedicated file when that happens, which is otherwise impossible to recover.
+import faulthandler
+_faulthandler_file = None
+try:
+    _crash_log_path = get_log_dir() / "crash_traces.log"
+    _faulthandler_file = open(_crash_log_path, "a", encoding="utf-8")
+    faulthandler.enable(file=_faulthandler_file, all_threads=True)
+except Exception:
+    pass
 
 _STARTUP_T0 = time.perf_counter()
 _PROFILE_STARTUP = os.environ.get("JAYRALDINES_PROFILE_STARTUP", "").lower() in {"1", "true", "yes", "on"}
@@ -326,7 +338,6 @@ def main():
         try:
             from utils.device_tracker import device_tracker
             device_tracker().start()
-            app.aboutToQuit.connect(device_tracker().mark_offline)
         except Exception as e:
             log.warning(f"[main] Could not start DeviceTracker: {e}")
 
@@ -360,12 +371,26 @@ def main():
             pass
         sys.exit(1)
 
-    app.aboutToQuit.connect(db.close)
     app.window_ref = window
-
     _profile("main window shown")
 
-    app.aboutToQuit.connect(lambda: print("[QT] aboutToQuit triggered"))
+    def _cleanup_on_quit():
+        try:
+            from utils.device_tracker import device_tracker
+            device_tracker().mark_offline()
+        except Exception:
+            pass
+        try:
+            from utils.db_sync_server import stop_sync_server
+            stop_sync_server()
+        except Exception:
+            pass
+        try:
+            db.close()
+        except Exception:
+            pass
+
+    app.aboutToQuit.connect(_cleanup_on_quit)
     sys.exit(app.exec())
 
 

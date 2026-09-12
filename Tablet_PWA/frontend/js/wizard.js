@@ -576,12 +576,21 @@ async function renderStepPackage(card) {
   }
 
   card.innerHTML = `
-    <h2 style="margin:0 0 8px; display:flex; align-items:center; gap:10px;">
-      ${icon("package")} Event Schedule &amp; Package
-    </h2>
-    <p style="color:var(--text-muted); margin:0 0 20px; font-size:14px;">
-      Select event date, expected guest count, venue, and choose or customize your package pricing.
-    </p>
+    <div class="kiosk-menu-sticky-header">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:200px;">
+          <h2 style="margin:0 0 4px; display:flex; align-items:center; gap:10px;">
+            ${icon("package")} Event Schedule &amp; Package
+          </h2>
+          <p style="color:var(--text-muted); margin:0; font-size:13px;">
+            Fill in your event details and choose a buffet package below.
+          </p>
+        </div>
+        <button type="button" class="btn btn-primary" id="sticky-pkg-next-top" style="padding:10px 20px; font-weight:800; display:inline-flex; align-items:center; gap:8px; box-shadow:0 4px 14px var(--accent-glow); flex-shrink:0;">
+          Next Step ${icon("arrowRight")}
+        </button>
+      </div>
+    </div>
 
     <div class="grid-2">
       <div class="form-group">
@@ -843,6 +852,15 @@ async function renderStepPackage(card) {
     wizard.step = 3;
     render();
   });
+
+  // Wire sticky top Next button to trigger the bottom #wiz-next (so all validation runs)
+  const stickyPkgTopBtn = card.querySelector("#sticky-pkg-next-top");
+  if (stickyPkgTopBtn) {
+    stickyPkgTopBtn.addEventListener("click", () => {
+      const wizNext = document.getElementById("wiz-next");
+      if (wizNext) wizNext.click();
+    });
+  }
 }
 
 // ── Step 3: Menu & Add-ons (Mix & Match) ─────────────────────────────

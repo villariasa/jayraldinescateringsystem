@@ -742,3 +742,20 @@ class ImportWizardDialog(QDialog):
         curr = self.stack.currentIndex()
         if curr > 0:
             self._update_step_ui(curr - 1)
+
+    def _cleanup_worker(self):
+        worker = getattr(self, "_import_worker", None)
+        if worker is not None and worker.isRunning():
+            try:
+                worker.quit()
+                worker.wait(1500)
+            except Exception:
+                pass
+
+    def closeEvent(self, event):
+        self._cleanup_worker()
+        super().closeEvent(event)
+
+    def reject(self):
+        self._cleanup_worker()
+        super().reject()

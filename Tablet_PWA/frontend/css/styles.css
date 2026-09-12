@@ -253,6 +253,8 @@ h1, h2, h3, h4, .brand h1, .hero h2 {
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
+  /* overflow-y must remain visible/unset so position:sticky works on children */
+  overflow-y: visible;
   box-sizing: border-box;
 }
 
@@ -384,7 +386,183 @@ svg {
   display: flex;
   align-items: center;
   gap: 16px;
+  position: relative;
 }
+
+/* Hide multi-button layout universally across all devices/tablets/desktops to maximize clean space */
+.header-nav-actions .nav-action-btn {
+  display: none !important;
+}
+
+/* ── Universal nav toggle button (Grid Icon) ────────────────────────── */
+.nav-mobile-toggle {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #FFF1F2;
+  border: 1.5px solid #FFE4E6;
+  color: #E11D48;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(225, 29, 72, 0.12);
+  transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  flex-shrink: 0;
+}
+
+.nav-mobile-toggle:hover {
+  background: #FFE4E6;
+  transform: scale(1.04);
+  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.18);
+}
+
+.nav-mobile-toggle:active {
+  transform: scale(0.92);
+}
+
+[data-theme="dark"] .nav-mobile-toggle {
+  background: rgba(225, 29, 72, 0.18);
+  border-color: rgba(225, 29, 72, 0.3);
+  color: #FB7185;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="dark"] .nav-mobile-toggle:hover {
+  background: rgba(225, 29, 72, 0.26);
+  border-color: rgba(225, 29, 72, 0.45);
+}
+
+[data-theme="dark"] .nav-mobile-toggle:active {
+  background: rgba(225, 29, 72, 0.32);
+}
+
+.nav-mobile-toggle .nav-action-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-mobile-toggle .nav-action-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.2;
+  stroke: currentColor;
+}
+
+/* ── Mobile nav dropdown panel ───────────────────────────────────────────── */
+.nav-mobile-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 240px;
+  background: #FFFFFF;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+  z-index: 200;
+  overflow: hidden;
+  /* Slide-down entrance */
+  transform-origin: top right;
+  transform: scale(0.92) translateY(-8px);
+  opacity: 0;
+  transition: transform 0.2s cubic-bezier(0.16,1,0.3,1), opacity 0.18s ease;
+}
+
+[data-theme="dark"] .nav-mobile-dropdown {
+  background: #131D38;
+  border-color: rgba(255,255,255,0.1);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+}
+
+.nav-mobile-dropdown.open {
+  display: block;
+  transform: scale(1) translateY(0);
+  opacity: 1;
+}
+
+.nav-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 18px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.nav-dropdown-item:hover,
+.nav-dropdown-item:active {
+  background: rgba(225, 29, 72, 0.07);
+}
+
+.nav-dropdown-item-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #FFF1F2;
+  border: 1.5px solid #FFE4E6;
+  color: #E11D48;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .nav-dropdown-item-icon {
+  background: rgba(225, 29, 72, 0.18);
+  border-color: rgba(225, 29, 72, 0.3);
+  color: #FB7185;
+}
+
+.nav-dropdown-item-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+
+.nav-dropdown-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-dropdown-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  font-family: "Outfit", sans-serif;
+}
+
+[data-theme="light"] .nav-dropdown-label {
+  color: #0F172A;
+}
+
+.nav-dropdown-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .nav-dropdown-desc {
+  color: #64748B;
+}
+
+.nav-dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0 18px;
+}
+
+[data-theme="light"] .nav-dropdown-divider {
+  background: #F1F5F9;
+}
+
 
 .nav-action-btn {
   display: flex;
@@ -2768,6 +2946,9 @@ svg {
   }
 
   .wizard-sticky-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 50 !important;
     padding: 12px 16px 14px !important;
     width: 100% !important;
     box-sizing: border-box !important;
@@ -2805,6 +2986,7 @@ svg {
 @media (max-width: 768px) {
   html, body, #app {
     overflow-x: hidden !important;
+    overflow-y: visible !important;
     max-width: 100vw !important;
     width: 100% !important;
   }
@@ -2816,6 +2998,9 @@ svg {
   }
 
   .wizard-sticky-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 50 !important;
     padding: 10px 12px !important;
     width: 100% !important;
     box-sizing: border-box !important;
@@ -3760,10 +3945,68 @@ svg {
   }
 }
 
-/* ── Mobile Phone Screen Architecture (<= 640px) ──────────────────────────── */
 @media (max-width: 640px) {
   .kiosk-header-fixed {
     padding: 12px 14px !important;
+  }
+
+  /* Mobile Header: Hide the 3 separate action buttons, show single Facebook/Menu toggle */
+  .header-nav-actions .nav-action-btn {
+    display: none !important;
+  }
+
+  .nav-mobile-toggle {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: #FFF1F2;
+    border: 1.5px solid #FFE4E6;
+    color: #E11D48;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(225, 29, 72, 0.12);
+    transition: transform 0.18s ease, background 0.18s ease;
+    flex-shrink: 0;
+  }
+
+  .nav-mobile-toggle:active {
+    transform: scale(0.92);
+    background: #FFE4E6;
+  }
+
+  [data-theme="dark"] .nav-mobile-toggle {
+    background: rgba(225, 29, 72, 0.18);
+    border-color: rgba(225, 29, 72, 0.3);
+    color: #FB7185;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  [data-theme="dark"] .nav-mobile-toggle:active {
+    background: rgba(225, 29, 72, 0.28);
+  }
+
+  .nav-mobile-toggle .nav-action-icon {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .nav-mobile-toggle .nav-action-icon svg {
+    width: 20px;
+    height: 20px;
+    stroke-width: 2.2;
+    stroke: currentColor;
+  }
+
+  .nav-mobile-dropdown {
+    right: 0 !important;
+    top: calc(100% + 8px) !important;
+    min-width: 230px !important;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22) !important;
   }
 
   .kiosk-landing-main {
@@ -3874,56 +4117,85 @@ svg {
     ) !important;
   }
 
-  /* Benefits Highlights: Horizontal swipeable row with all 4 items */
+  /* Benefits: 2×2 grid — ALL 4 cards fully visible, no scrolling */
   .kiosk-benefits-card-container {
     margin-top: 2px !important;
     margin-bottom: 10px !important;
+    position: static !important;
+    overflow: visible !important;
+    border-radius: 0 !important;
+    width: 100% !important;
   }
 
-  .kiosk-pill-highlights {
-    padding: 8px 12px !important;
-    border-radius: 16px !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    gap: 12px !important;
-    scrollbar-width: none !important;
-  }
-
-  .kiosk-pill-highlights::-webkit-scrollbar {
+  /* Remove the right-fade swipe hint — not needed with grid */
+  .kiosk-benefits-card-container::after {
     display: none !important;
   }
 
-  .kiosk-pill-item {
-    flex: 0 0 auto !important;
-    min-width: 155px !important;
-    padding: 0 !important;
+  .kiosk-pill-highlights {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
     gap: 8px !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    scroll-snap-type: none !important;
+  }
+
+  .kiosk-pill-item {
+    flex: none !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 10px !important;
+    padding: 10px 12px !important;
+    background: #FFFFFF !important;
+    border: 1px solid rgba(0,0,0,0.05) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.04) !important;
+    box-sizing: border-box !important;
+    scroll-snap-align: none !important;
+  }
+
+  [data-theme="dark"] .kiosk-pill-item {
+    background: rgba(19, 29, 56, 0.92) !important;
+    border-color: rgba(255,255,255,0.07) !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3) !important;
+  }
+
+  /* Hide the vertical dividers — grid handles spacing */
+  .kiosk-pill-item-divider {
+    display: none !important;
   }
 
   .kiosk-pill-icon-box {
-    width: 34px !important;
-    height: 34px !important;
+    width: 32px !important;
+    height: 32px !important;
     flex-shrink: 0 !important;
   }
 
   .kiosk-pill-icon-box svg {
-    width: 18px !important;
-    height: 18px !important;
+    width: 16px !important;
+    height: 16px !important;
   }
 
   .kiosk-pill-title {
-    font-size: 12.5px !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+    white-space: normal !important;
   }
 
   .kiosk-pill-desc {
     font-size: 10px !important;
-  }
-
-  .kiosk-pill-item-divider {
-    height: 30px !important;
-    margin: 0 2px !important;
+    line-height: 1.3 !important;
   }
 
   /* Quick Options: Compact cards so ALL cards are visible without clipping */

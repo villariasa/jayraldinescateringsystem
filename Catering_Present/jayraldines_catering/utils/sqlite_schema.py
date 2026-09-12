@@ -141,6 +141,8 @@ CREATE TABLE IF NOT EXISTS menu_items (
     status TEXT DEFAULT 'Available',
     mi_description TEXT,
     description TEXT,
+    mi_image TEXT DEFAULT '',
+    image TEXT DEFAULT '',
     mi_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -150,6 +152,7 @@ CREATE TABLE IF NOT EXISTS packages (
     pkg_description TEXT,
     pkg_price_per_pax REAL NOT NULL,
     pkg_min_pax INTEGER DEFAULT 30,
+    pkg_image TEXT DEFAULT '',
     pkg_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -622,6 +625,9 @@ def _ensure_columns(conn: sqlite3.Connection):
         ("invoices", "inv_payment_verified", "INTEGER DEFAULT 0"),
         ("cash_flow_transactions", "cft_actual_sales", "REAL DEFAULT 0.0"),
         ("bookings", "bk_base_total", "REAL"),
+        ("menu_items", "mi_image", "TEXT DEFAULT ''"),
+        ("menu_items", "image", "TEXT DEFAULT ''"),
+        ("packages", "pkg_image", "TEXT DEFAULT ''"),
     ]
     for table, col, col_def in cols_to_add:
         try:

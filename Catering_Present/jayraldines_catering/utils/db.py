@@ -384,13 +384,17 @@ def _ensure_pg_places_and_auth(conn) -> None:
                     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_color_theme VARCHAR(100) DEFAULT '#2563EB';
                     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_notes TEXT DEFAULT '';
                     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_cancellation_reason TEXT DEFAULT '';
+                    ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS mi_image TEXT DEFAULT '';
+                    ALTER TABLE packages ADD COLUMN IF NOT EXISTS pkg_image TEXT DEFAULT '';
+                    ALTER TABLE customers ADD COLUMN IF NOT EXISTS cus_notes TEXT DEFAULT '';
                 """)
             conn.commit()
         except Exception:
             conn.rollback()
 
-            # 4. Ensure occasions table & occ_is_active column
-            try:
+        # 4. Ensure occasions table & occ_is_active column
+        try:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS occasions (
                         occ_id SERIAL PRIMARY KEY,
@@ -399,12 +403,13 @@ def _ensure_pg_places_and_auth(conn) -> None:
                     );
                     ALTER TABLE occasions ADD COLUMN IF NOT EXISTS occ_is_active INT DEFAULT 1;
                 """)
-                conn.commit()
-            except Exception:
-                conn.rollback()
+            conn.commit()
+        except Exception:
+            conn.rollback()
 
-            # 5. Ensure monthly_sales_targets table
-            try:
+        # 5. Ensure monthly_sales_targets table
+        try:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS monthly_sales_targets (
                         mst_year INT NOT NULL,
@@ -414,12 +419,13 @@ def _ensure_pg_places_and_auth(conn) -> None:
                         PRIMARY KEY (mst_year, mst_month)
                     );
                 """)
-                conn.commit()
-            except Exception:
-                conn.rollback()
+            conn.commit()
+        except Exception:
+            conn.rollback()
 
-            # 6. Ensure cash_flow_transactions table
-            try:
+        # 6. Ensure cash_flow_transactions table
+        try:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS cash_flow_transactions (
                         cft_id SERIAL PRIMARY KEY,
@@ -434,12 +440,13 @@ def _ensure_pg_places_and_auth(conn) -> None:
                         cft_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
-                conn.commit()
-            except Exception:
-                conn.rollback()
+            conn.commit()
+        except Exception:
+            conn.rollback()
 
-            # 7. Ensure expenses table & columns
-            try:
+        # 7. Ensure expenses table & columns
+        try:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS expenses (
                         exp_id SERIAL PRIMARY KEY,
@@ -457,12 +464,13 @@ def _ensure_pg_places_and_auth(conn) -> None:
                     UPDATE expenses SET exp_date = exp_expense_date WHERE exp_date IS NULL AND exp_expense_date IS NOT NULL;
                     UPDATE expenses SET exp_expense_date = exp_date WHERE exp_expense_date IS NULL AND exp_date IS NOT NULL;
                 """)
-                conn.commit()
-            except Exception:
-                conn.rollback()
+            conn.commit()
+        except Exception:
+            conn.rollback()
 
-            # 8. Ensure booking_additional_charges table
-            try:
+        # 8. Ensure booking_additional_charges table
+        try:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS booking_additional_charges (
                         ac_id SERIAL PRIMARY KEY,
@@ -474,12 +482,13 @@ def _ensure_pg_places_and_auth(conn) -> None:
                         ac_created_at TIMESTAMPTZ DEFAULT NOW()
                     );
                 """)
-                conn.commit()
-            except Exception:
-                conn.rollback()
+            conn.commit()
+        except Exception:
+            conn.rollback()
 
-            # 9. Ensure device_sessions table for monitoring connected client devices
-            try:
+        # 9. Ensure device_sessions table for monitoring connected client devices
+        try:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS device_sessions (
                         device_id VARCHAR(64) PRIMARY KEY,
@@ -497,73 +506,79 @@ def _ensure_pg_places_and_auth(conn) -> None:
                     CREATE INDEX IF NOT EXISTS idx_device_sessions_status ON device_sessions(status);
                     CREATE INDEX IF NOT EXISTS idx_device_sessions_heartbeat ON device_sessions(last_heartbeat);
                 """)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+        # 10. Ensure invoices & payment_records columns
+        for stmt in [
+            "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS inv_balance NUMERIC(12, 2) DEFAULT 0.00;",
+            "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS inv_down_payment NUMERIC(12, 2) DEFAULT 0.00;",
+            "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS inv_payment_verified INT DEFAULT 0;",
+            "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS inv_invoice_number VARCHAR(50);",
+            "ALTER TABLE payment_records ADD COLUMN IF NOT EXISTS pr_is_downpayment INT DEFAULT 0;",
+            "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_down_payment NUMERIC(12, 2) DEFAULT 0.00;",
+            "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_color_theme VARCHAR(50) DEFAULT '#2563EB';",
+            "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_item_name VARCHAR(255) DEFAULT '';",
+            "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_category VARCHAR(100) DEFAULT '';",
+            "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_quantity INT DEFAULT 1;",
+            "ALTER TABLE customers ADD COLUMN IF NOT EXISTS cus_total_spent NUMERIC(12, 2) DEFAULT 0.00;",
+            "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_date DATE;",
+            "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_expense_date DATE;"
+        ]:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(stmt)
                 conn.commit()
             except Exception:
                 conn.rollback()
 
-            # 8. Ensure invoices & payment_records columns
-            for stmt in [
-                "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS inv_balance NUMERIC(12, 2) DEFAULT 0.00;",
-                "ALTER TABLE payment_records ADD COLUMN IF NOT EXISTS pr_is_downpayment INT DEFAULT 0;",
-                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_down_payment NUMERIC(12, 2) DEFAULT 0.00;",
-                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_color_theme VARCHAR(50) DEFAULT '#2563EB';",
-                "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_item_name VARCHAR(255) DEFAULT '';",
-                "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_category VARCHAR(100) DEFAULT '';",
-                "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_quantity INT DEFAULT 1;",
-                "ALTER TABLE customers ADD COLUMN IF NOT EXISTS cus_total_spent NUMERIC(12, 2) DEFAULT 0.00;",
-                "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_date DATE;",
-                "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_expense_date DATE;"
-            ]:
-                try:
-                    cur.execute(stmt)
-                    conn.commit()
-                except Exception:
-                    conn.rollback()
+        # Ensure invoice_status enum values
+        try:
+            old_iso = conn.isolation_level
+            conn.set_isolation_level(0)
+            with conn.cursor() as cur_enum:
+                cur_enum.execute("ALTER TYPE invoice_status ADD VALUE IF NOT EXISTS 'CANCELLED';")
+                cur_enum.execute("ALTER TYPE invoice_status ADD VALUE IF NOT EXISTS 'Cancelled';")
+            conn.set_isolation_level(old_iso)
+        except Exception as e_enum:
+            log.warning(f"Could not add CANCELLED to invoice_status enum: {e_enum}")
 
-            # Ensure invoice_status enum values
+        # 11. Ensure helper tables
+        for create_stmt in [
+            """CREATE TABLE IF NOT EXISTS customer_loyalty_tiers (
+                cl_id SERIAL PRIMARY KEY,
+                cl_customer_id INT NOT NULL REFERENCES customers(cus_id) ON DELETE CASCADE,
+                cl_tier VARCHAR(50) DEFAULT 'Bronze',
+                cl_points INT DEFAULT 0,
+                cl_last_recalculated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );""",
+            """CREATE TABLE IF NOT EXISTS inventory (
+                inv_id SERIAL PRIMARY KEY,
+                inv_ingredient VARCHAR(150) NOT NULL,
+                inv_category VARCHAR(100) DEFAULT '',
+                inv_stock NUMERIC(12, 2) DEFAULT 0.0,
+                inv_unit VARCHAR(50) DEFAULT 'kg',
+                inv_cost_per_unit NUMERIC(12, 2) DEFAULT 0.0,
+                inv_min_stock NUMERIC(12, 2) DEFAULT 5.0,
+                inv_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );""",
+            """CREATE TABLE IF NOT EXISTS customer_addresses (
+                ca_id SERIAL PRIMARY KEY,
+                ca_customer_id INT NOT NULL,
+                ca_address_id INT NOT NULL
+            );"""
+        ]:
             try:
-                old_iso = conn.isolation_level
-                conn.set_isolation_level(0)
-                with conn.cursor() as cur_enum:
-                    cur_enum.execute("ALTER TYPE invoice_status ADD VALUE IF NOT EXISTS 'CANCELLED';")
-                    cur_enum.execute("ALTER TYPE invoice_status ADD VALUE IF NOT EXISTS 'Cancelled';")
-                conn.set_isolation_level(old_iso)
-            except Exception as e_enum:
-                log.warning(f"Could not add CANCELLED to invoice_status enum: {e_enum}")
-
-            # 9. Ensure helper tables
-            for create_stmt in [
-                """CREATE TABLE IF NOT EXISTS customer_loyalty_tiers (
-                    cl_id SERIAL PRIMARY KEY,
-                    cl_customer_id INT NOT NULL REFERENCES customers(cus_id) ON DELETE CASCADE,
-                    cl_tier VARCHAR(50) DEFAULT 'Bronze',
-                    cl_points INT DEFAULT 0,
-                    cl_last_recalculated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );""",
-                """CREATE TABLE IF NOT EXISTS inventory (
-                    inv_id SERIAL PRIMARY KEY,
-                    inv_ingredient VARCHAR(150) NOT NULL,
-                    inv_category VARCHAR(100) DEFAULT '',
-                    inv_stock NUMERIC(12, 2) DEFAULT 0.0,
-                    inv_unit VARCHAR(50) DEFAULT 'kg',
-                    inv_cost_per_unit NUMERIC(12, 2) DEFAULT 0.0,
-                    inv_min_stock NUMERIC(12, 2) DEFAULT 5.0,
-                    inv_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );""",
-                """CREATE TABLE IF NOT EXISTS customer_addresses (
-                    ca_id SERIAL PRIMARY KEY,
-                    ca_customer_id INT NOT NULL,
-                    ca_address_id INT NOT NULL
-                );"""
-            ]:
-                try:
+                with conn.cursor() as cur:
                     cur.execute(create_stmt)
-                    conn.commit()
-                except Exception:
-                    conn.rollback()
+                conn.commit()
+            except Exception:
+                conn.rollback()
 
-            # 10. PostgreSQL strftime compatibility functions
-            try:
+        # 12. PostgreSQL strftime compatibility functions
+        try:
+            with conn.cursor() as cur:
                 cur.execute("""
                     CREATE OR REPLACE FUNCTION strftime(format text, d date) RETURNS text AS $$
                     BEGIN
@@ -595,9 +610,9 @@ def _ensure_pg_places_and_auth(conn) -> None:
                     END;
                     $$ LANGUAGE plpgsql IMMUTABLE;
                 """)
-                conn.commit()
-            except Exception:
-                conn.rollback()
+            conn.commit()
+        except Exception:
+            conn.rollback()
     except Exception as exc:
         try:
             conn.rollback()

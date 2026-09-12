@@ -87,7 +87,8 @@ CREATE TABLE packages (
     pkg_name            VARCHAR(100)    NOT NULL UNIQUE,
     pkg_price_per_pax   NUMERIC(10,2)   NOT NULL CHECK (pkg_price_per_pax > 0),
     pkg_min_pax         INT             NOT NULL DEFAULT 1 CHECK (pkg_min_pax >= 1),
-    pkg_description     TEXT
+    pkg_description     TEXT,
+    pkg_image           TEXT            NOT NULL DEFAULT ''
 );
 
 -- =============================================================================
@@ -101,6 +102,7 @@ CREATE TABLE menu_items (
     mi_package_tier menu_package_tier   NOT NULL DEFAULT 'Standard',
     mi_price        NUMERIC(10,2)       NOT NULL CHECK (mi_price >= 0),
     mi_status       menu_status         NOT NULL DEFAULT 'Available',
+    mi_image        TEXT                NOT NULL DEFAULT '',
     mi_created_at   TIMESTAMPTZ         NOT NULL DEFAULT NOW(),
     mi_updated_at   TIMESTAMPTZ         NOT NULL DEFAULT NOW()
 );
@@ -111,9 +113,11 @@ CREATE TABLE menu_items (
 CREATE TABLE package_items (
     pi_id              SERIAL          PRIMARY KEY,
     pi_package_id      INT             NOT NULL REFERENCES packages(pkg_id) ON DELETE CASCADE,
-    pi_menu_item_id    INT             NOT NULL REFERENCES menu_items(mi_id) ON DELETE CASCADE,
-    pi_custom_price    NUMERIC(10,2)   NOT NULL CHECK (pi_custom_price >= 0),
-    CONSTRAINT uq_package_menu_item UNIQUE (pi_package_id, pi_menu_item_id)
+    pi_menu_item_id    INT             REFERENCES menu_items(mi_id) ON DELETE SET NULL,
+    pi_item_name       VARCHAR(255)    DEFAULT '',
+    pi_category        VARCHAR(100)    DEFAULT '',
+    pi_custom_price    NUMERIC(10,2)   NOT NULL DEFAULT 0 CHECK (pi_custom_price >= 0),
+    pi_quantity        INT             NOT NULL DEFAULT 1
 );
 
 CREATE INDEX idx_package_items_pkg ON package_items (pi_package_id);
@@ -138,9 +142,14 @@ CREATE TABLE bookings (
     bk_menu_type           VARCHAR(10)     NOT NULL DEFAULT 'package' CHECK (bk_menu_type IN ('package','custom')),
     bk_package_id          INT             REFERENCES packages(pkg_id) ON DELETE SET NULL,
     bk_custom_items        TEXT,
+    bk_base_total          NUMERIC(12,2)   NOT NULL DEFAULT 0.00 CHECK (bk_base_total >= 0),
     bk_total_amount        NUMERIC(12,2)   NOT NULL CHECK (bk_total_amount >= 0),
     bk_payment_mode        payment_method  NOT NULL DEFAULT 'Cash',
     bk_amount_paid         NUMERIC(12,2)   NOT NULL DEFAULT 0 CHECK (bk_amount_paid >= 0),
+    bk_down_payment        NUMERIC(12,2)   NOT NULL DEFAULT 0.00 CHECK (bk_down_payment >= 0),
+    bk_down_payment_status VARCHAR(50)     NOT NULL DEFAULT 'PENDING',
+    bk_color_theme         VARCHAR(100)    NOT NULL DEFAULT '#2563EB',
+    bk_notes               TEXT            DEFAULT '',
     bk_status              booking_status  NOT NULL DEFAULT 'PENDING',
     bk_cancellation_reason TEXT,
     bk_created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -165,16 +174,20 @@ CREATE TABLE booking_menu_items (
 -- TABLE: invoices
 -- =============================================================================
 CREATE TABLE invoices (
-    inv_id              SERIAL          PRIMARY KEY,
-    inv_invoice_ref     VARCHAR(12)     NOT NULL UNIQUE,
-    inv_booking_id      INT             REFERENCES bookings(bk_id) ON DELETE SET NULL,
-    inv_customer_name   VARCHAR(150)    NOT NULL,
-    inv_event_date      DATE            NOT NULL,
-    inv_total_amount    NUMERIC(12,2)   NOT NULL CHECK (inv_total_amount >= 0),
-    inv_amount_paid     NUMERIC(12,2)   NOT NULL DEFAULT 0 CHECK (inv_amount_paid >= 0),
-    inv_status          invoice_status  NOT NULL DEFAULT 'Unpaid',
-    inv_created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    inv_updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    inv_id               SERIAL          PRIMARY KEY,
+    inv_invoice_ref      VARCHAR(12)     NOT NULL UNIQUE,
+    inv_invoice_number   VARCHAR(50)     DEFAULT '',
+    inv_booking_id       INT             REFERENCES bookings(bk_id) ON DELETE SET NULL,
+    inv_customer_name    VARCHAR(150)    NOT NULL,
+    inv_event_date       DATE            NOT NULL,
+    inv_total_amount     NUMERIC(12,2)   NOT NULL CHECK (inv_total_amount >= 0),
+    inv_amount_paid      NUMERIC(12,2)   NOT NULL DEFAULT 0 CHECK (inv_amount_paid >= 0),
+    inv_balance          NUMERIC(12,2)   NOT NULL DEFAULT 0 CHECK (inv_balance >= 0),
+    inv_down_payment     NUMERIC(12,2)   NOT NULL DEFAULT 0 CHECK (inv_down_payment >= 0),
+    inv_payment_verified INT             NOT NULL DEFAULT 0,
+    inv_status           invoice_status  NOT NULL DEFAULT 'Unpaid',
+    inv_created_at       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    inv_updated_at       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     CONSTRAINT chk_inv_paid_lte_total CHECK (inv_amount_paid <= inv_total_amount)
 );
 
@@ -189,6 +202,7 @@ CREATE TABLE payment_records (
     pr_amount          NUMERIC(12,2)   NOT NULL CHECK (pr_amount > 0),
     pr_payment_date    DATE            NOT NULL DEFAULT CURRENT_DATE,
     pr_method          VARCHAR(50)     NOT NULL DEFAULT 'Cash',
+    pr_is_downpayment  INT             NOT NULL DEFAULT 0,
     pr_note            TEXT,
     pr_created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
@@ -303,6 +317,26 @@ CREATE TABLE notifications (
     notif_is_read     BOOLEAN         NOT NULL DEFAULT FALSE,
     notif_created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
+
+-- =============================================================================
+-- TABLE: device_sessions
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS device_sessions (
+    device_id VARCHAR(64) PRIMARY KEY,
+    hostname VARCHAR(128) NOT NULL,
+    ip_address VARCHAR(45),
+    os_info VARCHAR(128),
+    app_version VARCHAR(32),
+    username VARCHAR(64),
+    user_role VARCHAR(32),
+    active_module VARCHAR(64) DEFAULT 'Dashboard',
+    status VARCHAR(20) DEFAULT 'online',
+    first_connected_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_heartbeat TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_sessions_status ON device_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_device_sessions_heartbeat ON device_sessions(last_heartbeat);
 
 -- =============================================================================
 -- TABLE: calendar_events
@@ -932,22 +966,25 @@ CREATE OR REPLACE PROCEDURE sp_add_menu_item(
     IN  p_package     TEXT,
     IN  p_price       NUMERIC,
     IN  p_status      TEXT,
+    IN  p_image       TEXT,
     OUT p_item_id     INT
 )
 LANGUAGE plpgsql AS $$
 BEGIN
-    INSERT INTO menu_items (mi_name, mi_description, mi_category, mi_package_tier, mi_price, mi_status)
+    INSERT INTO menu_items (mi_name, mi_description, mi_category, mi_package_tier, mi_price, mi_status, mi_image)
     VALUES (
         p_name, p_description,
         p_category::menu_category,
         p_package::menu_package_tier,
         p_price,
-        p_status::menu_status
+        p_status::menu_status,
+        COALESCE(p_image, '')
     )
     ON CONFLICT (mi_name) DO UPDATE SET
         mi_description = COALESCE(NULLIF(EXCLUDED.mi_description, ''), menu_items.mi_description),
         mi_price = EXCLUDED.mi_price,
-        mi_category = EXCLUDED.mi_category
+        mi_category = EXCLUDED.mi_category,
+        mi_image = CASE WHEN EXCLUDED.mi_image <> '' THEN EXCLUDED.mi_image ELSE menu_items.mi_image END
     RETURNING mi_id INTO p_item_id;
 
     IF p_item_id IS NULL THEN
@@ -966,7 +1003,8 @@ CREATE OR REPLACE PROCEDURE sp_update_menu_item(
     IN p_category     TEXT,
     IN p_package      TEXT,
     IN p_price        NUMERIC,
-    IN p_status       TEXT
+    IN p_status       TEXT,
+    IN p_image        TEXT DEFAULT ''
 )
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -978,6 +1016,7 @@ BEGIN
         mi_package_tier = p_package::menu_package_tier,
         mi_price        = p_price,
         mi_status       = p_status::menu_status,
+        mi_image        = CASE WHEN p_image IS NOT NULL AND p_image <> '' THEN p_image ELSE mi_image END,
         mi_updated_at   = NOW()
     WHERE mi_id = p_item_id;
 END;
@@ -1510,12 +1549,13 @@ CREATE OR REPLACE PROCEDURE sp_add_package(
     IN  p_price_per_pax NUMERIC,
     IN  p_min_pax       INT,
     IN  p_description   TEXT,
+    IN  p_image         TEXT,
     OUT p_package_id    INT
 )
 LANGUAGE plpgsql AS $$
 BEGIN
-    INSERT INTO packages (pkg_name, pkg_price_per_pax, pkg_min_pax, pkg_description)
-    VALUES (p_name, p_price_per_pax, COALESCE(p_min_pax, 1), p_description)
+    INSERT INTO packages (pkg_name, pkg_price_per_pax, pkg_min_pax, pkg_description, pkg_image)
+    VALUES (p_name, p_price_per_pax, COALESCE(p_min_pax, 1), p_description, COALESCE(p_image, ''))
     RETURNING pkg_id INTO p_package_id;
 END;
 $$;
@@ -1528,7 +1568,8 @@ CREATE OR REPLACE PROCEDURE sp_update_package(
     IN p_name           TEXT,
     IN p_price_per_pax  NUMERIC,
     IN p_min_pax        INT,
-    IN p_description    TEXT
+    IN p_description    TEXT,
+    IN p_image          TEXT DEFAULT ''
 )
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -1539,7 +1580,8 @@ BEGIN
     SET pkg_name          = p_name,
         pkg_price_per_pax = p_price_per_pax,
         pkg_min_pax       = COALESCE(p_min_pax, 1),
-        pkg_description   = p_description
+        pkg_description   = p_description,
+        pkg_image         = CASE WHEN p_image IS NOT NULL AND p_image <> '' THEN p_image ELSE pkg_image END
     WHERE pkg_id = p_package_id;
 END;
 $$;

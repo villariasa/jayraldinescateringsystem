@@ -677,3 +677,27 @@ class MainWindow(QMainWindow):
     @property
     def kitchen_page(self):
         return self._pages[5]
+
+    def closeEvent(self, event):
+        # Stop floating AI threads/timers
+        if hasattr(self, "_floating_ai") and self._floating_ai:
+            try:
+                self._floating_ai.hide()
+                if hasattr(self._floating_ai, "_stop_thread"):
+                    self._floating_ai._stop_thread()
+            except Exception:
+                pass
+
+        # Stop any active background data loaders on pages
+        for p in getattr(self, "_pages", []):
+            if p is not None and hasattr(p, "_active_loaders"):
+                try:
+                    for loader in list(p._active_loaders):
+                        if hasattr(loader, "quit"):
+                            loader.quit()
+                            loader.wait(300)
+                    p._active_loaders.clear()
+                except Exception:
+                    pass
+
+        super().closeEvent(event)

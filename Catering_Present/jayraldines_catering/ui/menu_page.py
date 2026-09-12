@@ -1,12 +1,15 @@
+import os
+import shutil
+import time
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
     QDialog, QFormLayout, QComboBox, QLineEdit, QDoubleSpinBox,
     QTabWidget, QTextEdit, QMessageBox, QScrollArea, QSpinBox,
-    QCheckBox, QSizePolicy, QGridLayout
+    QCheckBox, QSizePolicy, QGridLayout, QFileDialog
 )
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QPixmap
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
 from components.dialogs import confirm, success, prompt_file_saved
@@ -21,15 +24,60 @@ _PACKAGES   = ["Budget", "Standard", "Premium", "Custom"]
 _STATUSES   = ["Available", "Unavailable", "Out of Stock", "Seasonal"]
 
 
+def save_uploaded_image(file_path: str, subfolder: str = "menu") -> str:
+    """Copies an image into assets/images/<subfolder>/ and returns the relative path."""
+    if not file_path:
+        return ""
+    if not os.path.exists(file_path):
+        return file_path
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    target_dir = os.path.join(base_dir, "assets", "images", subfolder)
+    os.makedirs(target_dir, exist_ok=True)
+
+    try:
+        rel = os.path.relpath(file_path, base_dir)
+        if not rel.startswith(".."):
+            return rel.replace("\\", "/")
+    except Exception:
+        pass
+
+    ext = os.path.splitext(file_path)[1].lower() or ".png"
+    clean_name = f"{subfolder}_{int(time.time() * 1000)}{ext}"
+    target_path = os.path.join(target_dir, clean_name)
+    try:
+        shutil.copy2(file_path, target_path)
+        return os.path.join("assets", "images", subfolder, clean_name).replace("\\", "/")
+    except Exception as exc:
+        print(f"[menu_page] Failed to copy uploaded image: {exc}")
+        return file_path
+
+
+def load_item_pixmap(image_path: str, size: int = 48) -> QPixmap:
+    """Loads a QPixmap from relative or absolute image path, scaled nicely."""
+    if not image_path:
+        return QPixmap()
+    full_path = image_path
+    if not os.path.isabs(full_path):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        full_path = os.path.join(base_dir, image_path)
+    if os.path.exists(full_path):
+        pm = QPixmap(full_path)
+        if not pm.isNull():
+            return pm.scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+    return QPixmap()
+
+
 class MenuItemDialog(QDialog):
     def __init__(self, parent=None, item_data=None):
         super().__init__(parent)
         self._edit_mode = item_data is not None
         self._item_data = item_data or {}
+        self._image_path = self._item_data.get("image", "") or ""
         self.setWindowTitle("Edit Menu Item" if self._edit_mode else "Add Menu Item")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(420)
+        self.setFixedWidth(440)
         self.setModal(True)
         self._result = None
         self._build_ui()
@@ -42,7 +90,7 @@ class MenuItemDialog(QDialog):
         container.setObjectName("card")
         lay = QVBoxLayout(container)
         lay.setContentsMargins(24, 24, 24, 24)
-        lay.setSpacing(16)
+        lay.setSpacing(14)
 
         header = QHBoxLayout()
         title = QLabel("Edit Menu Item" if self._edit_mode else "Add Menu Item")
@@ -107,6 +155,37 @@ class MenuItemDialog(QDialog):
             if idx >= 0:
                 self.status_field.setCurrentIndex(idx)
 
+        # Image Upload Row
+        img_row = QHBoxLayout()
+        img_row.setSpacing(12)
+
+        self.img_preview = QLabel()
+        self.img_preview.setFixedSize(54, 54)
+        self.img_preview.setAlignment(Qt.AlignCenter)
+        img_row.addWidget(self.img_preview)
+
+        img_btns = QVBoxLayout()
+        img_btns.setSpacing(4)
+
+        browse_btn = QPushButton("📷 Upload Image")
+        browse_btn.setObjectName("secondaryButton")
+        browse_btn.setFixedHeight(28)
+        browse_btn.setCursor(Qt.PointingHandCursor)
+        browse_btn.clicked.connect(self._browse_image)
+        img_btns.addWidget(browse_btn)
+
+        self.remove_img_btn = QPushButton("Remove Image")
+        self.remove_img_btn.setFixedHeight(22)
+        self.remove_img_btn.setStyleSheet("background: transparent; border: none; color: #EF4444; font-size: 11px; text-align: left;")
+        self.remove_img_btn.setCursor(Qt.PointingHandCursor)
+        self.remove_img_btn.clicked.connect(self._remove_image)
+        img_btns.addWidget(self.remove_img_btn)
+
+        img_row.addLayout(img_btns)
+        img_row.addStretch()
+
+        self._update_preview()
+
         for lbl, widget in [
             ("Item Name *",  self.item_field),
             ("Description",  self.desc_field),
@@ -114,6 +193,7 @@ class MenuItemDialog(QDialog):
             ("Package",      self.pkg_field),
             ("Price",        self.price_field),
             ("Status",       self.status_field),
+            ("Dish Photo",   img_row),
         ]:
             form.addRow(QLabel(lbl), widget)
 
@@ -143,6 +223,35 @@ class MenuItemDialog(QDialog):
 
         outer.addWidget(container)
 
+    def _update_preview(self):
+        if self._image_path:
+            pm = load_item_pixmap(self._image_path, size=54)
+            if not pm.isNull():
+                self.img_preview.setPixmap(pm)
+                self.img_preview.setStyleSheet("border: 1.5px solid #E11D48; border-radius: 8px; background: transparent;")
+                if hasattr(self, "remove_img_btn"):
+                    self.remove_img_btn.show()
+                return
+        self.img_preview.setText("No Image")
+        self.img_preview.setStyleSheet("border: 1.5px dashed #4B5563; border-radius: 8px; color: #6B7280; font-size: 10px; background: rgba(255,255,255,0.03);")
+        if hasattr(self, "remove_img_btn"):
+            self.remove_img_btn.hide()
+
+    def _browse_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Dish Image",
+            "",
+            "Image Files (*.png *.jpg *.jpeg *.webp *.bmp)"
+        )
+        if file_path:
+            self._image_path = file_path
+            self._update_preview()
+
+    def _remove_image(self):
+        self._image_path = ""
+        self._update_preview()
+
     def _save(self):
         name = self.item_field.text().strip()
         if not name:
@@ -150,6 +259,7 @@ class MenuItemDialog(QDialog):
             self._err.show()
             self.item_field.setStyleSheet("border: 1px solid #E11D48;")
             return
+        saved_img = save_uploaded_image(self._image_path, "menu") if self._image_path else ""
         self._result = {
             "item":        name,
             "description": self.desc_field.text().strip(),
@@ -157,6 +267,7 @@ class MenuItemDialog(QDialog):
             "package":     self.pkg_field.currentText(),
             "price":       self.price_field.value(),
             "status":      self.status_field.currentText(),
+            "image":       saved_img,
         }
         self.accept()
 
@@ -389,6 +500,7 @@ class PackageDialog(QDialog):
         self._edit_mode = pkg_data is not None
         self._pkg_data = pkg_data or {}
         self._pkg_id = self._pkg_data.get("id") or self._pkg_data.get("pkg_id")
+        self._image_path = self._pkg_data.get("image", "") or ""
         self.setWindowTitle("Edit Package" if self._edit_mode else "Add Package")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -483,9 +595,41 @@ class PackageDialog(QDialog):
         if self._edit_mode:
             self.desc_field.setPlainText(self._pkg_data.get("description", ""))
 
+        # Image Upload Row for Package
+        pkg_img_row = QHBoxLayout()
+        pkg_img_row.setSpacing(12)
+
+        self.img_preview = QLabel()
+        self.img_preview.setFixedSize(54, 54)
+        self.img_preview.setAlignment(Qt.AlignCenter)
+        pkg_img_row.addWidget(self.img_preview)
+
+        pkg_img_btns = QVBoxLayout()
+        pkg_img_btns.setSpacing(4)
+
+        browse_btn = QPushButton("📷 Upload Image")
+        browse_btn.setObjectName("secondaryButton")
+        browse_btn.setFixedHeight(28)
+        browse_btn.setCursor(Qt.PointingHandCursor)
+        browse_btn.clicked.connect(self._browse_image)
+        pkg_img_btns.addWidget(browse_btn)
+
+        self.remove_img_btn = QPushButton("Remove Image")
+        self.remove_img_btn.setFixedHeight(22)
+        self.remove_img_btn.setStyleSheet("background: transparent; border: none; color: #EF4444; font-size: 11px; text-align: left;")
+        self.remove_img_btn.setCursor(Qt.PointingHandCursor)
+        self.remove_img_btn.clicked.connect(self._remove_image)
+        pkg_img_btns.addWidget(self.remove_img_btn)
+
+        pkg_img_row.addLayout(pkg_img_btns)
+        pkg_img_row.addStretch()
+
+        self._update_preview()
+
         form.addRow(QLabel("Package Name *"), self.name_field)
         form.addRow(QLabel("Price / Pax *"), price_min_row)
         form.addRow(QLabel("Description"), self.desc_field)
+        form.addRow(QLabel("Package Photo"), pkg_img_row)
         lay.addLayout(form)
 
         # Header for Items section with counter & quick-add
@@ -661,6 +805,35 @@ class PackageDialog(QDialog):
         self._items_layout.addStretch()
         self._update_count_badge()
 
+    def _update_preview(self):
+        if self._image_path:
+            pm = load_item_pixmap(self._image_path, size=54)
+            if not pm.isNull():
+                self.img_preview.setPixmap(pm)
+                self.img_preview.setStyleSheet("border: 1.5px solid #E11D48; border-radius: 8px; background: transparent;")
+                if hasattr(self, "remove_img_btn"):
+                    self.remove_img_btn.show()
+                return
+        self.img_preview.setText("No Image")
+        self.img_preview.setStyleSheet("border: 1.5px dashed #4B5563; border-radius: 8px; color: #6B7280; font-size: 10px; background: rgba(255,255,255,0.03);")
+        if hasattr(self, "remove_img_btn"):
+            self.remove_img_btn.hide()
+
+    def _browse_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Package Image",
+            "",
+            "Image Files (*.png *.jpg *.jpeg *.webp *.bmp)"
+        )
+        if file_path:
+            self._image_path = file_path
+            self._update_preview()
+
+    def _remove_image(self):
+        self._image_path = ""
+        self._update_preview()
+
     def _save(self):
         name = self.name_field.text().strip()
         if not name:
@@ -673,11 +846,13 @@ class PackageDialog(QDialog):
             for r in self._item_rows
             if r["chk"].isChecked()
         ]
+        saved_img = save_uploaded_image(self._image_path, "packages") if self._image_path else ""
         self._result = {
             "name":          name,
             "price_per_pax": self.price_field.value(),
             "min_pax":       self.min_pax_field.value(),
             "description":   self.desc_field.toPlainText().strip(),
+            "image":         saved_img,
             "items":         selected_items,
         }
         self.accept()
@@ -1458,6 +1633,24 @@ class MenuPage(QWidget):
             self._item_checkboxes[item_id] = chk
         lay.addWidget(chk)
 
+        # Thumbnail preview
+        img_val = item.get("image", "") or ""
+        thumb_lbl = QLabel()
+        thumb_lbl.setFixedSize(44, 44)
+        thumb_lbl.setAlignment(Qt.AlignCenter)
+        if img_val:
+            pm = load_item_pixmap(img_val, size=44)
+            if not pm.isNull():
+                thumb_lbl.setPixmap(pm)
+                thumb_lbl.setStyleSheet("border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);")
+            else:
+                thumb_lbl.setText("🍽️")
+                thumb_lbl.setStyleSheet("background: rgba(225, 29, 72, 0.08); border-radius: 8px; font-size: 16px;")
+        else:
+            thumb_lbl.setText("🍽️")
+            thumb_lbl.setStyleSheet("background: rgba(255, 255, 255, 0.04); border-radius: 8px; font-size: 16px;")
+        lay.addWidget(thumb_lbl)
+
         c1 = QVBoxLayout()
         c1.setSpacing(2)
         name_lbl = QLabel(item["item"])
@@ -1710,6 +1903,24 @@ class MenuPage(QWidget):
         if pkg_id:
             self._pkg_checkboxes[pkg_id] = chk
         lay.addWidget(chk)
+
+        # Package image thumbnail
+        pkg_img = pkg.get("image", "") or ""
+        pkg_thumb = QLabel()
+        pkg_thumb.setFixedSize(48, 48)
+        pkg_thumb.setAlignment(Qt.AlignCenter)
+        if pkg_img:
+            pm = load_item_pixmap(pkg_img, size=48)
+            if not pm.isNull():
+                pkg_thumb.setPixmap(pm)
+                pkg_thumb.setStyleSheet("border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);")
+            else:
+                pkg_thumb.setText("📦")
+                pkg_thumb.setStyleSheet("background: rgba(225, 29, 72, 0.08); border-radius: 8px; font-size: 18px;")
+        else:
+            pkg_thumb.setText("📦")
+            pkg_thumb.setStyleSheet("background: rgba(255, 255, 255, 0.04); border-radius: 8px; font-size: 18px;")
+        lay.addWidget(pkg_thumb)
 
         c1 = QVBoxLayout()
         c1.setSpacing(2)

@@ -6,6 +6,9 @@ import { openOwnerSettings, openOrderDetailModal } from "./settings.js";
 import { icon } from "./icons.js";
 import { mountLandingSlider } from "./slider.js";
 import { mountLottie, mountHoverLottie, playTapBurst } from "./lottie-helper.js";
+// Side-effect import: auto-scroll focused inputs/selects above the software keyboard
+import "./keyboard-scroll.js";
+
 
 const app = document.getElementById("app");
 
@@ -35,6 +38,12 @@ export function applyTheme(theme) {
       labelEl.textContent = theme === "light" ? "Dark Mode" : "Light Mode";
     }
     btn.title = theme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode";
+    // Update static SVG icon in the nav-action-icon wrapper (landing page header)
+    const iconWrap = btn.querySelector(".nav-action-icon");
+    if (iconWrap && !iconWrap.querySelector(".lottie-icon-container")) {
+      // Only update if it's a static icon (no Lottie container inside)
+      iconWrap.innerHTML = icon(theme === "light" ? "moon" : "sun");
+    }
   });
 }
 
@@ -473,21 +482,59 @@ async function renderHome() {
       <div class="header-nav-actions">
         <button class="nav-action-btn theme-toggle-btn" id="theme-btn" title="Toggle Theme">
           <div class="nav-action-icon">
-            <div class="lottie-icon-container" id="lottie-nav-theme">${icon("sun")}</div>
+            ${icon(currentTheme === "light" ? "moon" : "sun")}
           </div>
           <span class="nav-action-label">${currentTheme === "light" ? "Dark Mode" : "Light Mode"}</span>
         </button>
         <button class="nav-action-btn" id="fullscreen-btn" title="Toggle Fullscreen">
           <div class="nav-action-icon" id="fullscreen-icon-wrap">
-            <div class="lottie-icon-container" id="lottie-nav-fullscreen">${icon("fullscreen")}</div>
+            ${icon("fullscreen")}
           </div>
           <span class="nav-action-label">Fullscreen</span>
         </button>
         <button class="nav-action-btn" id="owner-settings-btn" title="Admin Settings">
           <div class="nav-action-icon">
-            <div class="lottie-icon-container" id="lottie-nav-settings">${icon("settings")}</div>
+            ${icon("settings")}
           </div>
           <span class="nav-action-label">Settings</span>
+        </button>
+        <!-- Mobile-only: single toggle button that opens the dropdown -->
+        <button class="nav-mobile-toggle" id="nav-mobile-toggle-btn" title="Menu" aria-expanded="false">
+          <div class="nav-action-icon">
+            ${icon("grid")}
+          </div>
+        </button>
+      </div>
+      <!-- Mobile dropdown panel (hidden by default, shown via .open class) -->
+      <div class="nav-mobile-dropdown" id="nav-mobile-dropdown" role="menu">
+        <button class="nav-dropdown-item theme-toggle-btn" id="theme-btn-mob" title="Toggle Theme">
+          <div class="nav-dropdown-item-icon">
+            ${icon(currentTheme === "light" ? "moon" : "sun")}
+          </div>
+          <div class="nav-dropdown-item-text">
+            <span class="nav-dropdown-label">${currentTheme === "light" ? "Dark Mode" : "Light Mode"}</span>
+            <span class="nav-dropdown-desc">${currentTheme === "light" ? "Switch to dark theme" : "Switch to light theme"}</span>
+          </div>
+        </button>
+        <div class="nav-dropdown-divider"></div>
+        <button class="nav-dropdown-item" id="fullscreen-btn-mob" title="Toggle Fullscreen">
+          <div class="nav-dropdown-item-icon">
+            ${icon("fullscreen")}
+          </div>
+          <div class="nav-dropdown-item-text">
+            <span class="nav-dropdown-label">Fullscreen</span>
+            <span class="nav-dropdown-desc">Expand to full screen</span>
+          </div>
+        </button>
+        <div class="nav-dropdown-divider"></div>
+        <button class="nav-dropdown-item" id="settings-btn-mob" title="Admin Settings">
+          <div class="nav-dropdown-item-icon">
+            ${icon("settings")}
+          </div>
+          <div class="nav-dropdown-item-text">
+            <span class="nav-dropdown-label">Settings</span>
+            <span class="nav-dropdown-desc">Admin &amp; configuration</span>
+          </div>
         </button>
       </div>
     </header>
@@ -673,26 +720,68 @@ async function renderHome() {
   mountHoverLottie(document.getElementById("lottie-quick-events"), "icon-calendar", { speed: 1.2 });
   mountHoverLottie(document.getElementById("lottie-quick-addons"), "icon-utensils", { speed: 1.2 });
   mountHoverLottie(document.getElementById("lottie-quick-orders"), "icon-filetext", { speed: 1.2 });
-  // Mount Header Nav Lottie animated icons (Dark/Light mode, Fullscreen, Settings)
-  const navThemeAnim = await mountLottie(document.getElementById("lottie-nav-theme"), "icon-theme-toggle", { loop: true, speed: 0.65 });
-  const navFsAnim = await mountLottie(document.getElementById("lottie-nav-fullscreen"), "icon-fullscreen", { loop: true, speed: 0.65 });
-  const navSettingsAnim = await mountLottie(document.getElementById("lottie-nav-settings"), "icon-settings-gear", { loop: true, speed: 0.65 });
+  // ── Mobile dropdown toggle wiring ──────────────────────────────────────
+  const mobileToggleBtn = document.getElementById("nav-mobile-toggle-btn");
+  const mobileDropdown = document.getElementById("nav-mobile-dropdown");
 
-  document.getElementById("theme-btn")?.addEventListener("mouseenter", () => navThemeAnim?.setSpeed(1.4));
-  document.getElementById("theme-btn")?.addEventListener("mouseleave", () => navThemeAnim?.setSpeed(0.65));
-  document.getElementById("fullscreen-btn")?.addEventListener("mouseenter", () => navFsAnim?.setSpeed(1.4));
-  document.getElementById("fullscreen-btn")?.addEventListener("mouseleave", () => navFsAnim?.setSpeed(0.65));
-  document.getElementById("owner-settings-btn")?.addEventListener("mouseenter", () => navSettingsAnim?.setSpeed(1.4));
-  document.getElementById("owner-settings-btn")?.addEventListener("mouseleave", () => navSettingsAnim?.setSpeed(0.65));
+  function closeMobileDropdown() {
+    mobileDropdown?.classList.remove("open");
+    mobileToggleBtn?.setAttribute("aria-expanded", "false");
+  }
 
-  // Mount listeners
-  document.getElementById("theme-btn").addEventListener("click", () => {
-    navThemeAnim?.goToAndPlay?.(0, true);
+  mobileToggleBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isOpen = mobileDropdown.classList.toggle("open");
+    mobileToggleBtn.setAttribute("aria-expanded", String(isOpen));
+  });
+
+  // Close when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!mobileDropdown?.contains(e.target) && e.target !== mobileToggleBtn) {
+      closeMobileDropdown();
+    }
+  });
+
+  // Mobile dropdown: theme
+  document.getElementById("theme-btn-mob")?.addEventListener("click", () => {
     toggleTheme();
+    const isLight = getTheme() === "light";
+    // Sync desktop button icon
+    const iconWrap = document.querySelector("#theme-btn .nav-action-icon");
+    if (iconWrap) iconWrap.innerHTML = icon(isLight ? "moon" : "sun");
+    // Sync mobile dropdown icon + labels
+    const mobIcon = document.querySelector("#theme-btn-mob .nav-dropdown-item-icon");
+    if (mobIcon) mobIcon.innerHTML = icon(isLight ? "moon" : "sun");
+    const mobLabel = document.querySelector("#theme-btn-mob .nav-dropdown-label");
+    const mobDesc = document.querySelector("#theme-btn-mob .nav-dropdown-desc");
+    if (mobLabel) mobLabel.textContent = isLight ? "Dark Mode" : "Light Mode";
+    if (mobDesc) mobDesc.textContent = isLight ? "Switch to dark theme" : "Switch to light theme";
+    closeMobileDropdown();
+  });
+
+  // Mobile dropdown: fullscreen
+  document.getElementById("fullscreen-btn-mob")?.addEventListener("click", () => {
+    toggleFullscreen();
+    closeMobileDropdown();
+  });
+
+  // Mobile dropdown: settings
+  document.getElementById("settings-btn-mob")?.addEventListener("click", () => {
+    openOwnerSettings("bookings");
+    closeMobileDropdown();
+  });
+
+  // Header Nav buttons (theme/fullscreen/settings) use static SVG icons — no Lottie animation.
+
+  // Update theme icon statically when toggled (desktop buttons)
+  document.getElementById("theme-btn").addEventListener("click", () => {
+    toggleTheme();
+    const isLight = getTheme() === "light";
+    const iconWrap = document.querySelector("#theme-btn .nav-action-icon");
+    if (iconWrap) iconWrap.innerHTML = icon(isLight ? "moon" : "sun");
   });
   document.getElementById("fullscreen-btn").addEventListener("click", toggleFullscreen);
   document.getElementById("owner-settings-btn").addEventListener("click", () => {
-    navSettingsAnim?.goToAndPlay?.(0, true);
     openOwnerSettings("bookings");
   });
 

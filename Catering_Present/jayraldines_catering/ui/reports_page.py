@@ -945,7 +945,7 @@ class ReportsPage(QWidget):
             ev.expense_saved.connect(self._mark_dirty_and_reload)
             ev.booking_saved.connect(self._mark_dirty_and_reload)
             ev.payment_saved.connect(self._mark_dirty_and_reload)
-            ev.data_changed.connect(self._mark_dirty)
+            ev.data_changed.connect(self._mark_dirty_and_reload)
         except Exception:
             pass
 
@@ -959,7 +959,7 @@ class ReportsPage(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        if getattr(self, "_dirty", False):
+        if getattr(self, "_dirty", True) or getattr(self, "_cached_data", None) is None:
             self.reload()
 
         # ── Final assembly ────────────────────────────────────────────────────
@@ -984,10 +984,16 @@ class ReportsPage(QWidget):
                     "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
                     "background:transparent;color:#9CA3AF;border:1px solid #374151;"
                 )
-        self._reload_kpis()
-        self._reload_table()
-        self._load_expenses()
-        self._locations_chart_layout.reload()
+        if getattr(self, "_cached_data", None):
+            d = dict(self._cached_data)
+            d["period"] = period
+            self._reload_kpis(d)
+            self._reload_table(d.get("bookings", []))
+            self._load_expenses(d.get("expenses", []), d.get("profit", []))
+            if hasattr(self, "_locations_chart_layout") and hasattr(self._locations_chart_layout, "reload"):
+                self._locations_chart_layout.reload()
+        else:
+            self.reload()
 
     def _period_sql_filter(self) -> str:
         p = getattr(self, "_period", "All Time")
@@ -1040,6 +1046,7 @@ class ReportsPage(QWidget):
                 return
         except Exception:
             pass
+        self._cached_data = data
         self._reload_kpis(data)
         self._reload_table(data.get("bookings", []))
         self._load_expenses(data.get("expenses", []), data.get("profit", []))
@@ -1245,6 +1252,8 @@ class ReportsPage(QWidget):
     def _reload_kpis(self, data: dict = None):
         """Update KPI cards from pre-fetched data dict (safe to call on GUI thread)."""
         if data is None:
+            data = getattr(self, "_cached_data", None)
+        if data is None:
             return  # No data yet; wait for async load
         p = data.get("period", getattr(self, "_period", "All Time"))
         all_bookings = data.get("bookings", [])
@@ -1325,6 +1334,7 @@ class ReportsPage(QWidget):
         total_revenue = sum(_parse_amount(b.get("total", 0)) for b in target_b)
         total_expenses = sum(float(e.get("amount", 0) or 0) for e in filtered_e)
         profit = total_revenue - total_expenses
+        total_unpaid = sum(float(b.get("balance", 0) or 0) for b in target_b)
 
         # Calculate today, week, and month bookings from all bookings
         start_w = today - timedelta(days=today.weekday())
@@ -1339,14 +1349,14 @@ class ReportsPage(QWidget):
             f"PHP {total_expenses:,.0f}",
             f"PHP {profit:,.0f}",
             f"{total_pax:,}",
-            f"PHP 0",
+            f"PHP {total_unpaid:,.0f}",
         ]
         subs = [
             f"{today_bk} Today • {week_bk} Week • {month_bk} Month",
-            "Confirmed income",
+            f"{total_bookings} Confirmed booking(s)" if total_bookings > 0 else "No income for period",
             "All operational costs",
             "Revenue − Expenses",
-            "All confirmed bookings",
+            f"{total_pax:,} Pax booked" if total_pax > 0 else "No guests for period",
             "Outstanding balance",
         ]
         for card, val, sub in zip(self._kpi_cards, vals, subs):
@@ -1366,7 +1376,10 @@ class ReportsPage(QWidget):
                 item.widget().deleteLater()
 
         if all_bookings is None:
-            return  # Async data not ready yet
+            if getattr(self, "_cached_data", None):
+                all_bookings = self._cached_data.get("bookings", [])
+            else:
+                return  # Async data not ready yet
 
         p = getattr(self, "_period", "All Time")
         from datetime import datetime, date, timedelta
@@ -1472,10 +1485,9 @@ class ReportsPage(QWidget):
         lay.addWidget(lbl_v)
 
         lbl_s = QLabel(sub, card)
+        lbl_s.setObjectName("subtitle")
         if sub_color:
             lbl_s.setStyleSheet(f"color: {sub_color}; font-weight: 600; font-size: 12px;")
-        else:
-            lbl_s.setObjectName("subtitle")
         lay.addWidget(lbl_s)
         lay.addStretch()
         return card

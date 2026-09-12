@@ -109,6 +109,7 @@ class NotifScheduler(QObject):
                 push_loader.data_ready.connect(
                     lambda items: [self.new_notification.emit(t, m, c) for _, t, m, c in items]
                 )
+                self._push_loader = push_loader
                 push_loader.start()
         finally:
             self._done()

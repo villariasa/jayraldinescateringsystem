@@ -4,8 +4,10 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 PYSTAND="$HOME/.local/pystand/bin/python3"
 PYTHON="$PYSTAND"
 
+export DB_ENGINE=postgres
 export DB_HOST=localhost
 export DB_PORT=5432
+export DB_NAME=jayraldines_catering
 export DB_USER=villarias
 export DB_PASSWORD=12345678
 

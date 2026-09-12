@@ -959,6 +959,21 @@ def execute_batch_import(
                 if ("PAID" in raw_upper or "FULL" in raw_upper) and paid_val <= 0 and total_val > 0:
                     paid_val = total_val
 
+                # Imports carry no customer id, so match/auto-create the
+                # customer by name so the booking links into bk_customer_id —
+                # v_customer_ledger and customer tracking key off that FK, not
+                # the free-text bk_customer_name.
+                cust_row = db.fetchone(
+                    "SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1",
+                    (cust_name,),
+                )
+                cust_id = cust_row["cus_id"] if cust_row else repo.add_customer({
+                    "name": cust_name,
+                    "contact": data.get("contact", "").strip(),
+                    "email": data.get("email", "").strip(),
+                    "address": data.get("address", "").strip(),
+                })
+
                 bkg_payload = {
                     "name": cust_name,
                     "contact": data.get("contact", "").strip(),
@@ -976,9 +991,26 @@ def execute_batch_import(
                     "amount_paid": paid_val,
                     "down_payment": paid_val,
                 }
-                res = repo.create_booking(bkg_payload)
-                if res and res.get("booking_id"):
-                    b_id = res["booking_id"]
+                # Skip creating a duplicate booking if one for this customer/date
+                # already exists (e.g. the same import file was re-run after a
+                # partial failure) — update it in place instead.
+                event_date_norm = normalize_date(data.get("date")) or bkg_payload["date"]
+                existing_bk = db.fetchone("""
+                    SELECT bk_id FROM bookings
+                    WHERE LOWER(bk_customer_name) = LOWER(%s) AND bk_event_date = %s
+                    LIMIT 1
+                """, (cust_name, event_date_norm))
+
+                b_id = existing_bk["bk_id"] if existing_bk else None
+                if not b_id:
+                    res = repo.create_booking(bkg_payload)
+                    if res and res.get("booking_id"):
+                        b_id = res["booking_id"]
+
+                if b_id:
+                    if cust_id:
+                        db.execute("UPDATE bookings SET bk_customer_id = %s WHERE bk_id = %s", (cust_id, b_id))
+
                     target_status = normalize_booking_status(data.get("status"))
                     if target_status == "COMPLETED":
                         try:
@@ -1103,6 +1135,20 @@ def execute_batch_import(
                     res = repo.create_booking(bkg_payload)
                     if res and res.get("booking_id"):
                         b_id = res["booking_id"]
+
+                        cust_row = db.fetchone(
+                            "SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1",
+                            (cust_name,),
+                        )
+                        cust_id = cust_row["cus_id"] if cust_row else repo.add_customer({
+                            "name": cust_name,
+                            "contact": data.get("contact", "").strip(),
+                            "email": data.get("email", "").strip(),
+                            "address": data.get("address", "").strip(),
+                        })
+                        if cust_id:
+                            db.execute("UPDATE bookings SET bk_customer_id = %s WHERE bk_id = %s", (cust_id, b_id))
+
                         bal_val = max(0.0, total_val - paid_val)
                         inv_st = db.compute_invoice_status(total_val, paid_val)
                         if "PAID" in raw_st and bal_val <= 0.01:

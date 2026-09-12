@@ -18,31 +18,49 @@ class SpinnerWidget(QWidget):
         self.setFixedSize(size, size)
         self._angle = 0
         self._timer = QTimer(self)
-        self._timer.setInterval(16) # ~60 FPS
+        self._timer.setInterval(24)
         self._timer.timeout.connect(self._rotate)
-        self._timer.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._timer.isActive():
+            self._timer.start()
+
+    def hideEvent(self, event):
+        self._timer.stop()
+        super().hideEvent(event)
 
     def _rotate(self):
+        if not self.isVisible():
+            self._timer.stop()
+            return
         self._angle = (self._angle + 6) % 360
         self.update()
 
     def paintEvent(self, event):
+        if not self.isVisible():
+            return
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        rect = self.rect().adjusted(4, 4, -4, -4)
-        
-        color_current = QColor(AccentManager().current)
+        if not painter.isActive():
+            return
+        try:
+            painter.setRenderHint(QPainter.Antialiasing)
+            rect = self.rect().adjusted(4, 4, -4, -4)
+            
+            color_current = QColor(AccentManager().current)
 
-        # Draw track
-        track_pen = QPen(QColor(148, 163, 184, 40), 3)
-        painter.setPen(track_pen)
-        painter.drawEllipse(rect)
+            # Draw track
+            track_pen = QPen(QColor(148, 163, 184, 40), 3)
+            painter.setPen(track_pen)
+            painter.drawEllipse(rect)
 
-        # Draw arc
-        arc_pen = QPen(color_current, 3)
-        arc_pen.setCapStyle(Qt.RoundCap)
-        painter.setPen(arc_pen)
-        painter.drawArc(rect, int(-self._angle * 16), int(120 * 16))
+            # Draw arc
+            arc_pen = QPen(color_current, 3)
+            arc_pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(arc_pen)
+            painter.drawArc(rect, int(-self._angle * 16), int(120 * 16))
+        finally:
+            painter.end()
 
 
 class LoadingOverlay(QWidget):
