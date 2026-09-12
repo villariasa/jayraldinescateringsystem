@@ -170,27 +170,57 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         from pathlib import Path
         import mimetypes
         import os
-
-        base_dir = Path(__file__).resolve().parent.parent.parent.parent / "Tablet_PWA" / "frontend"
-        if not base_dir.exists():
-            return False
+        import sys
 
         clean_path = rel_path.lstrip("/")
         if not clean_path:
             clean_path = "index.html"
 
-        target = (base_dir / clean_path).resolve()
-        # Security: ensure file resides inside base_dir
-        if not str(target).startswith(str(base_dir.resolve())):
-            return False
+        candidate_dirs = []
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            meipass = Path(sys._MEIPASS)
+            candidate_dirs.extend([
+                meipass / "Tablet_PWA" / "frontend",
+                meipass / "frontend",
+                meipass / "assets",
+            ])
 
-        if not target.is_file():
+        this_file = Path(__file__).resolve()
+        candidate_dirs.extend([
+            this_file.parent.parent.parent.parent / "Tablet_PWA" / "frontend",
+            this_file.parent.parent.parent / "Tablet_PWA" / "frontend",
+            this_file.parent.parent / "Tablet_PWA" / "frontend",
+            this_file.parent.parent.parent.parent / "Tablet_Android_APK" / "app" / "src" / "main" / "assets",
+            Path.cwd() / "Tablet_PWA" / "frontend",
+            Path.cwd().parent / "Tablet_PWA" / "frontend",
+            Path.cwd().parent.parent / "Tablet_PWA" / "frontend",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "JayraldinesCatering" / "Tablet_PWA" / "frontend",
+        ])
+
+        target = None
+        for base_dir in candidate_dirs:
+            if base_dir.exists() and base_dir.is_dir():
+                t = (base_dir / clean_path).resolve()
+                try:
+                    if str(t).startswith(str(base_dir.resolve())) and t.is_file():
+                        target = t
+                        break
+                except Exception:
+                    pass
+
+        if not target or not target.is_file():
             return False
 
         mime, _ = mimetypes.guess_type(str(target))
         if not mime:
             if target.suffix == ".wasm":
                 mime = "application/wasm"
+            elif target.suffix == ".js":
+                mime = "application/javascript"
+            elif target.suffix == ".css":
+                mime = "text/css"
+            elif target.suffix in (".html", ".htm"):
+                mime = "text/html; charset=utf-8"
             elif target.suffix in (".db", ".sqlite"):
                 mime = "application/octet-stream"
             else:
