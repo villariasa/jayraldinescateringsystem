@@ -11,11 +11,12 @@ set "PY_EXE=%~dp0Catering_Present\jayraldines_catering\venv\Scripts\python.exe"
 if not exist "%PY_EXE%" set "PY_EXE=python"
 
 echo [1/3] Detecting Local Wi-Fi / Hotspot IP address...
-for /f "tokens=*" %%a in ('"%PY_EXE%" -c "import utils.db_sync_server as s; print(s.get_local_ip())"') do set "SERVER_IP=%%a"
+for /f "tokens=*" %%a in ('"%PY_EXE%" -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); (s.connect(('8.8.8.8', 80)) if True else None); print(s.getsockname()[0]); s.close()"') do set "SERVER_IP=%%a"
+if "%SERVER_IP%"=="" set "SERVER_IP=127.0.0.1"
 
 echo.
 echo ====================================================================
-echo   STATUS: SERVER IS ACTIVE AND BROADCASTING ON YOUR HOTSPOT!
+echo   STATUS: SERVER IS ACTIVE AND BROADCASTING ON YOUR HOTSPOT / WI-FI!
 echo ====================================================================
 echo.
 echo   - Local Server IP Address : %SERVER_IP%
