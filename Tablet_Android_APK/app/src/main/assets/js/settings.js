@@ -133,10 +133,6 @@ function promptAdminPassword(onSuccess) {
             <button type="submit" class="btn btn-primary" id="btn-submit-auth" style="min-width:140px;">${icon("check")} Unlock Access</button>
           </div>
         </form>
-
-        <p style="font-size:12px; color:var(--text-faint); margin:14px 0 0;">
-          <span style="opacity:0.8;">Default owner password is</span> <b>12345678</b>
-        </p>
       </div>
     `,
   });
@@ -174,7 +170,7 @@ function promptAdminPassword(onSuccess) {
       toast("Admin access unlocked", "success");
       onSuccess();
     } else {
-      errorMsg.textContent = "Incorrect passcode. Please try again.";
+      errorMsg.textContent = "Incorrect access key. Please try again.";
       passInput.classList.add("input-error");
       passInput.style.borderColor = "var(--danger)";
       passInput.style.animation = "shake 0.35s ease";
@@ -216,7 +212,7 @@ function promptAdminPassword(onSuccess) {
 
     // If entered characters equal or exceed current password length and did not match
     if (inputVal.length >= currentPass.length) {
-      errorMsg.textContent = "Incorrect passcode. Please try again.";
+      errorMsg.textContent = "Incorrect access key. Please try again.";
       passInput.classList.add("input-error");
       passInput.style.borderColor = "var(--danger)";
       passInput.style.animation = "shake 0.35s ease";
@@ -1832,4 +1828,263 @@ function renderSecurityTab(content) {
     confPassInp.value = "";
   });
 }
+
+/**
+ * Standalone Connection & Credentials Setup Modal
+ * Protected with Admin Access Key Verification before opening.
+ */
+export function openLiveDbConfigModal() {
+  promptAdminPassword(() => {
+    _renderLiveDbConfigModal();
+  });
+}
+
+function _renderLiveDbConfigModal() {
+  const currentHost = localStorage.getItem("jayraldines_lan_host") || "192.168.1.10";
+  const currentPort = localStorage.getItem("jayraldines_lan_port") || "8000";
+  const currentDbName = localStorage.getItem("jayraldines_lan_dbname") || "jayraldines_catering";
+  const currentUser = localStorage.getItem("jayraldines_lan_user") || "jayraldines_app";
+  const currentPassword = localStorage.getItem("jayraldines_lan_password") || "12345678";
+
+  openModal({
+    id: "livedb-config-modal",
+    title: `${icon("database")} Central Database Connection &amp; Credentials Setup`,
+    large: true,
+    bodyHtml: `
+      <div style="margin-bottom:18px;">
+        <div style="background:rgba(37,99,235,0.08); border:1.5px solid rgba(37,99,235,0.25); border-radius:var(--radius-md); padding:14px 18px; color:var(--text); font-size:13.5px; line-height:1.5;">
+          <b>📡 Live Central Database Setup:</b> Connect this tablet directly to the central PostgreSQL database on your laptop over Wi-Fi. All menu packages, dishes, and booking transactions synchronize in real time.
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(290px, 1fr)); gap:18px; margin-bottom:20px;">
+        
+        <!-- Server Network Host & Port -->
+        <div style="background:var(--input-bg); padding:18px; border-radius:var(--radius-md); border:1px solid var(--border);">
+          <div style="font-size:12px; font-weight:800; color:var(--accent); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+            ${icon("wifi")} 1. Central Laptop / Server Address
+          </div>
+
+          <div style="margin-bottom:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <label style="font-size:12.5px; font-weight:700; color:var(--text); margin:0;">
+                Server LAN IP Address
+              </label>
+              <button type="button" id="cfg-btn-autodetect" class="btn btn-sm" style="font-size:11px; padding:3px 10px; background:rgba(37,99,235,0.15); color:#3B82F6; border:1px solid rgba(37,99,235,0.3); border-radius:6px; cursor:pointer; font-weight:700;">
+                🔍 Auto-Detect IP
+              </button>
+            </div>
+            <input type="text" id="cfg-lan-host" class="input" value="${escapeHtml(currentHost)}" placeholder="e.g. 192.168.1.10" style="width:100%; font-size:14px; font-weight:700; font-family:monospace; padding:11px 14px;">
+            
+            <!-- Quick Preset IP Pills -->
+            <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+              <button type="button" class="cfg-quick-ip btn btn-sm" data-ip="192.168.1.10" style="font-size:11px; padding:2px 8px; background:var(--card); border:1px solid var(--border); border-radius:4px; color:var(--text-muted); cursor:pointer;">
+                192.168.1.10
+              </button>
+              <button type="button" class="cfg-quick-ip btn btn-sm" data-ip="192.168.1.1" style="font-size:11px; padding:2px 8px; background:var(--card); border:1px solid var(--border); border-radius:4px; color:var(--text-muted); cursor:pointer;">
+                192.168.1.1
+              </button>
+              <button type="button" class="cfg-quick-ip btn btn-sm" data-ip="127.0.0.1" style="font-size:11px; padding:2px 8px; background:var(--card); border:1px solid var(--border); border-radius:4px; color:var(--text-muted); cursor:pointer;">
+                127.0.0.1
+              </button>
+            </div>
+            <div style="font-size:11.5px; color:var(--text-muted); margin-top:6px;">
+              The IP address of the laptop running Jayraldine's Catering (usually <b>192.168.1.10</b>).
+            </div>
+          </div>
+
+          <div>
+            <label style="font-size:12.5px; font-weight:700; color:var(--text); display:block; margin-bottom:6px;">
+              HTTP Sync Port
+            </label>
+            <input type="number" id="cfg-lan-port" class="input" value="${escapeHtml(currentPort)}" placeholder="8000" style="width:100%; font-size:14px; font-weight:700; font-family:monospace; padding:11px 14px;">
+            <div style="font-size:11.5px; color:var(--text-muted); margin-top:4px;">
+              Default Sync Hub port is <b>8000</b>.
+            </div>
+          </div>
+        </div>
+
+        <!-- Database Credentials -->
+        <div style="background:var(--input-bg); padding:18px; border-radius:var(--radius-md); border:1px solid var(--border);">
+          <div style="font-size:12px; font-weight:800; color:var(--accent); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+            ${icon("shield")} 2. Database Credentials (PostgreSQL)
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:6px;">
+                Database Name
+              </label>
+              <input type="text" id="cfg-lan-dbname" class="input" value="${escapeHtml(currentDbName)}" placeholder="jayraldines_catering" style="width:100%; font-size:13px; font-weight:600; padding:10px 12px;">
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:6px;">
+                DB Username
+              </label>
+              <input type="text" id="cfg-lan-user" class="input" value="${escapeHtml(currentUser)}" placeholder="jayraldines_app" style="width:100%; font-size:13px; font-weight:600; padding:10px 12px;">
+            </div>
+          </div>
+
+          <div>
+            <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:6px;">
+              DB Password
+            </label>
+            <div style="position:relative;">
+              <input type="password" id="cfg-lan-password" class="input" value="${escapeHtml(currentPassword)}" placeholder="Default: 12345678" style="width:100%; font-size:13.5px; padding:10px 42px 10px 12px; font-family:monospace;">
+              <button type="button" id="cfg-btn-toggle-pw" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; padding:6px; display:flex; align-items:center;" title="Show/Hide Password">
+                ${icon("eye")}
+              </button>
+            </div>
+            <div style="font-size:11.5px; color:var(--text-muted); margin-top:4px;">
+              Standard default password is <b>12345678</b>.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Live Diagnostics Box -->
+      <div id="cfg-diag-box" style="display:none; margin-bottom:20px; padding:14px 18px; border-radius:var(--radius-md); font-size:13.5px; line-height:1.5;"></div>
+    `,
+    footerHtml: `
+      <button class="btn btn-secondary" data-close>Cancel</button>
+      <button class="btn btn-outline" id="cfg-btn-test" style="border:1.5px solid var(--border); font-weight:700;">
+        ⚡ Test Connection
+      </button>
+      <button class="btn btn-primary" id="cfg-btn-save" style="font-weight:800; padding:11px 22px; box-shadow:0 4px 14px rgba(225,29,72,0.3);">
+        💾 Save &amp; Connect Live DB
+      </button>
+    `,
+  });
+
+  const modal = document.getElementById("livedb-config-modal");
+  if (!modal) return;
+
+  const hostInp = modal.querySelector("#cfg-lan-host");
+  const portInp = modal.querySelector("#cfg-lan-port");
+  const dbInp = modal.querySelector("#cfg-lan-dbname");
+  const userInp = modal.querySelector("#cfg-lan-user");
+  const passInp = modal.querySelector("#cfg-lan-password");
+  const diagBox = modal.querySelector("#cfg-diag-box");
+  const testBtn = modal.querySelector("#cfg-btn-test");
+  const saveBtn = modal.querySelector("#cfg-btn-save");
+
+  // Toggle password visibility
+  modal.querySelector("#cfg-btn-toggle-pw")?.addEventListener("click", () => {
+    if (passInp.type === "password") {
+      passInp.type = "text";
+    } else {
+      passInp.type = "password";
+    }
+  });
+
+  // Quick Preset IP button clicks
+  modal.querySelectorAll(".cfg-quick-ip").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (hostInp) hostInp.value = btn.dataset.ip;
+    });
+  });
+
+  // Auto-Detect IP button
+  modal.querySelector("#cfg-btn-autodetect")?.addEventListener("click", async () => {
+    toast("Auto-detecting Central Server on Wi-Fi…", "info");
+    const found = await api.autoDiscoverServer();
+    if (found) {
+      if (hostInp) hostInp.value = found;
+      toast(`Detected Central Server at ${found}!`, "success");
+    } else {
+      toast("Auto-detect finished. Please verify Server IP manually.", "warning");
+    }
+  });
+
+  // Test Connection
+  testBtn?.addEventListener("click", async () => {
+    testBtn.disabled = true;
+    testBtn.textContent = "Testing...";
+    diagBox.style.display = "block";
+    diagBox.style.background = "rgba(37,99,235,0.08)";
+    diagBox.style.border = "1px solid rgba(37,99,235,0.25)";
+    diagBox.style.color = "var(--text)";
+    diagBox.innerHTML = `⏳ Probing server at <code>http://${escapeHtml(hostInp.value.trim())}:${escapeHtml(portInp.value.trim() || '8000')}</code>…`;
+
+    try {
+      const host = hostInp.value.trim() || "127.0.0.1";
+      const port = parseInt(portInp.value.trim(), 10) || 8000;
+      const stat = await api.checkLanStatus(host, port);
+
+      if (stat && stat.online) {
+        diagBox.style.background = "rgba(16,185,129,0.12)";
+        diagBox.style.border = "1.5px solid rgba(16,185,129,0.4)";
+        diagBox.style.color = "var(--success)";
+        diagBox.innerHTML = `
+          <b>✅ Connection Successful!</b><br>
+          Connected to Central Server at <code>${escapeHtml(stat.host || host)}:${stat.port || port}</code>.<br>
+          Database Engine: <b>${escapeHtml(stat.db_engine || 'PostgreSQL')}</b> (${escapeHtml(stat.db_name || 'jayraldines_catering')}).<br>
+          Live Database is online and accessible.
+        `;
+        toast("Central Server is online!", "success");
+      } else {
+        diagBox.style.background = "rgba(239,68,68,0.1)";
+        diagBox.style.border = "1.5px solid rgba(239,68,68,0.35)";
+        diagBox.style.color = "var(--danger)";
+        diagBox.innerHTML = `
+          <b>❌ Cannot reach Central Server at <code>http://${escapeHtml(host)}:${escapeHtml(port)}</code></b><br>
+          <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:6px;">
+            1. Confirm that both tablet and laptop are connected to the exact same Wi-Fi (e.g. <b>ARISE!</b>).<br>
+            2. Make sure Jayraldine's Catering or <code>START_SERVER_FOR_TABLET.bat</code> is running on the laptop.<br>
+            3. Verify the laptop LAN IP address (default: <code>192.168.1.10</code>).
+          </span>
+        `;
+        toast("Could not reach Central Server.", "error");
+      }
+    } catch (e) {
+      diagBox.style.background = "rgba(239,68,68,0.1)";
+      diagBox.style.border = "1.5px solid rgba(239,68,68,0.35)";
+      diagBox.style.color = "var(--danger)";
+      diagBox.innerHTML = `<b>Error:</b> ${escapeHtml(e.message)}`;
+    } finally {
+      testBtn.disabled = false;
+      testBtn.innerHTML = `⚡ Test Connection`;
+    }
+  });
+
+  // Save & Connect Live DB
+  saveBtn?.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Connecting & Synchronizing…";
+
+    const host = hostInp.value.trim() || "192.168.1.10";
+    const port = portInp.value.trim() || "8000";
+    const dbname = dbInp.value.trim() || "jayraldines_catering";
+    const user = userInp.value.trim() || "jayraldines_app";
+    const password = passInp.value || "12345678";
+
+    localStorage.setItem("jayraldines_lan_host", host);
+    localStorage.setItem("jayraldines_lan_port", port);
+    localStorage.setItem("jayraldines_lan_dbname", dbname);
+    localStorage.setItem("jayraldines_lan_user", user);
+    localStorage.setItem("jayraldines_lan_password", password);
+
+    toast("Connecting to Live Database…", "info");
+
+    try {
+      const ok = await api.ensureLiveConnection(true);
+      if (ok) {
+        toast("Connected to Live Central Database! Loaded live packages & dishes.", "success");
+        closeModal("livedb-config-modal");
+        window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: host } }));
+        window.dispatchEvent(new CustomEvent("kiosk:home"));
+      } else {
+        toast("Credentials saved, but Central Server is offline. Check Wi-Fi connection.", "warning");
+        closeModal("livedb-config-modal");
+        window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: false } }));
+      }
+    } catch (err) {
+      toast("Connection note: " + err.message, "error");
+      saveBtn.disabled = false;
+      saveBtn.textContent = "💾 Save & Connect Live DB";
+    }
+  });
+}
+
 

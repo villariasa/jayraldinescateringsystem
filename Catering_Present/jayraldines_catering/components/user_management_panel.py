@@ -407,7 +407,7 @@ class CreateUserDialog(QDialog):
         lay.addWidget(self.display_edit)
 
         self.role_combo = QComboBox()
-        self.role_combo.addItems(["staff", "admin"])
+        self.role_combo.addItems(["staff", "admin", "owner"])
         self.role_combo.setStyleSheet(input_style)
         l_r = QLabel("Role:")
         l_r.setStyleSheet(lbl_style)

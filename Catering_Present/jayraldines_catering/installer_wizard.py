@@ -113,7 +113,7 @@ class ExtractWorker(QThread):
         create_start: bool,
         server_mode: str = "server",
         client_config: Optional[dict] = None,
-        clean_db: bool = True,
+        clean_db: bool = False,
         sqlite_source_path: Optional[Path] = None
     ):
         super().__init__()
@@ -193,36 +193,81 @@ class ExtractWorker(QThread):
         env["PGPASSWORD"] = "12345678"  # Default superuser password
 
         try:
-            # 1. Terminate existing connections and recreate database if requested or missing
-            kill_sql = "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'jayraldines_catering' AND pid <> pg_backend_pid();"
-            subprocess.run(
-                [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-c", kill_sql],
-                env=env, capture_output=True, text=True,
+            # 1. Check if jayraldines_catering database already exists and has active tables
+            chk_db_cmd = [
+                psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-tAc",
+                "SELECT 1 FROM pg_database WHERE datname = 'jayraldines_catering';"
+            ]
+            chk_db = subprocess.run(
+                chk_db_cmd, env=env, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=10
             )
+            db_exists = bool(chk_db.returncode == 0 and "1" in chk_db.stdout)
+
+            has_tables = False
+            if db_exists:
+                chk_tbl_cmd = [
+                    psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-tAc",
+                    "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';"
+                ]
+                chk_tbl = subprocess.run(
+                    chk_tbl_cmd, env=env, capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=10
+                )
+                if chk_tbl.returncode == 0:
+                    try:
+                        has_tables = int(chk_tbl.stdout.strip()) > 0
+                    except Exception:
+                        pass
 
             main_sql = self._find_asset_file("jayraldines_catering_clean.sql")
-            if self.clean_db and main_sql and main_sql.exists():
-                # Clean install: run clean schema directly which recreates database, tables, and places dropdown
-                self.progress.emit(74, "Applying full database schema & seeding places dropdown...")
+
+            if self.clean_db:
+                # Explicit clean install requested: drop and recreate
+                self.progress.emit(74, "Clean install: resetting database...")
+                kill_sql = "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'jayraldines_catering' AND pid <> pg_backend_pid();"
                 subprocess.run(
-                    [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-f", str(main_sql)],
+                    [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-c", kill_sql],
                     env=env, capture_output=True, text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=45
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=10
                 )
-            else:
-                # Ensure database exists
+                subprocess.run(
+                    [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-c", "DROP DATABASE IF EXISTS jayraldines_catering;"],
+                    env=env, capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=15
+                )
                 subprocess.run(
                     [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-c", "CREATE DATABASE jayraldines_catering;"],
                     env=env, capture_output=True, text=True,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=15
                 )
                 if main_sql and main_sql.exists():
+                    self.progress.emit(74, "Applying full database schema & seeding places dropdown...")
                     subprocess.run(
-                        [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-f", str(main_sql)],
+                        [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-f", str(main_sql)],
                         env=env, capture_output=True, text=True,
                         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=45
                     )
+            elif not db_exists or not has_tables:
+                # Brand new database required
+                self.progress.emit(74, "Creating new Central PostgreSQL database...")
+                if not db_exists:
+                    subprocess.run(
+                        [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-c", "CREATE DATABASE jayraldines_catering;"],
+                        env=env, capture_output=True, text=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=15
+                    )
+                if main_sql and main_sql.exists():
+                    self.progress.emit(74, "Applying initial schema...")
+                    subprocess.run(
+                        [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-f", str(main_sql)],
+                        env=env, capture_output=True, text=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=45
+                    )
+            else:
+                # SAFE UPGRADE: Database exists and has tables -> NEVER drop or overwrite!
+                self.progress.emit(74, "Existing database detected with active data. Preserving all records...")
+                print("[installer] Existing jayraldines_catering database found with active records. Preserving database data and applying incremental migrations.")
 
             # 2. Create scoped application DB user: jayraldines_app and grant permissions
             user_sql = f"""
@@ -310,7 +355,7 @@ class ExtractWorker(QThread):
             INSERT INTO users (username, password_hash, display_name, role, is_active)
             VALUES ('admin', '{admin_hash}', 'System Administrator', 'admin', TRUE)
             ON CONFLICT (username) DO UPDATE
-            SET password_hash = '{admin_hash}', is_active = TRUE;
+            SET is_active = TRUE;
             """
             subprocess.run(
                 [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-c", auth_sql],
@@ -1143,6 +1188,11 @@ class ModernInstallerWindow(QWidget):
         detected_sqlite_dbs = find_candidate_sqlite_databases()
         default_sqlite = detected_sqlite_dbs[0] if detected_sqlite_dbs else None
 
+        self.cb_preserve_db = QCheckBox("Preserve existing database records (Keep all bookings, customers & packages)")
+        self.cb_preserve_db.setChecked(True)
+        self.cb_preserve_db.setStyleSheet(cb_style)
+        s_inf_lay.addWidget(self.cb_preserve_db)
+
         self.cb_migrate_sqlite = QCheckBox("Import existing local SQLite client data into PostgreSQL server")
         self.cb_migrate_sqlite.setChecked(bool(default_sqlite))
         self.cb_migrate_sqlite.setStyleSheet(cb_style)
@@ -1471,13 +1521,14 @@ class ModernInstallerWindow(QWidget):
                 sqlite_source = Path(path_str)
 
         self.set_step(3)
+        preserve_db = hasattr(self, "cb_preserve_db") and self.cb_preserve_db.isChecked()
         self.worker = ExtractWorker(
             dest_dir=dest_dir,
             create_desktop=create_desktop,
             create_start=create_start,
             server_mode=self._server_mode,
             client_config=client_cfg,
-            clean_db=True,
+            clean_db=not preserve_db,
             sqlite_source_path=sqlite_source
         )
         self.worker.progress.connect(self._on_install_progress)

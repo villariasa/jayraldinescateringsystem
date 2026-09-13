@@ -836,12 +836,12 @@ def _answer_communication_history(q: str, customer: dict) -> dict:
     if not logs:
         return {"ok": True, "chart": None, "error": "",
                 "answer": f"No communication history recorded for {customer['name']} yet."}
-    listing = "; ".join(
-        f"{str(l['log_type']).replace('_', ' ')} via {l['method']} on {l['created_at']}"
-        for l in logs)
+    bullets = "\n".join(
+        f"• **{str(l['log_type']).replace('_', ' ').title()}** — via {l['method']} on {l['created_at']}"
+        for l in logs
+    )
     return {"ok": True, "chart": None, "error": "",
-            "answer": f"Communication history with {customer['name']} "
-                      f"({len(logs)} most recent): {listing}."}
+            "answer": f"Communication history with **{customer['name']}** ({len(logs)} most recent):\n\n{bullets}"}
 
 
 def _answer_top_customers(q: str) -> dict:
@@ -850,12 +850,12 @@ def _answer_top_customers(q: str) -> dict:
     if not rows:
         return {"ok": True, "chart": None, "error": "",
                 "answer": "No confirmed bookings yet, so there are no top customers to show."}
-    listing = ", ".join(f"{r['name']} ({r['count']} bookings)" for r in rows)
+    bullets = "\n".join(f"• **{r['name']}** — {r['count']} bookings" for r in rows)
     chart = {"type": "bar", "title": "Top Customers by Bookings",
              "labels": [r["name"] for r in rows],
              "series": [{"name": "Bookings", "values": [r["count"] for r in rows]}]}
     return {"ok": True, "chart": chart, "error": "",
-            "answer": f"Your top customers are: {listing}. Full details are in the Customers page."}
+            "answer": f"Here are your top customers by bookings:\n\n{bullets}\n\nFull details are available in the Customers page."}
 
 
 def _answer_unpaid(q: str) -> dict:
@@ -867,13 +867,12 @@ def _answer_unpaid(q: str) -> dict:
     total_due = sum(float(i.get("amount", 0)) - float(i.get("paid", 0)) for i in unpaid)
     top = sorted(unpaid, key=lambda i: float(i.get("amount", 0)) - float(i.get("paid", 0)),
                  reverse=True)[:5]
-    listing = "; ".join(
-        f"{i.get('customer', '?')} — {i.get('invoice', '')} "
-        f"({_peso(float(i.get('amount', 0)) - float(i.get('paid', 0)))} due)"
-        for i in top)
+    bullets = "\n".join(
+        f"• **{i.get('customer', '?')}** — {i.get('invoice', '')} ({_peso(float(i.get('amount', 0)) - float(i.get('paid', 0)))} due)"
+        for i in top
+    )
     return {"ok": True, "chart": None, "error": "",
-            "answer": f"There are {len(unpaid)} unpaid invoice(s) with {_peso(total_due)} "
-                      f"outstanding. Largest: {listing}. Manage them in the Billing page."}
+            "answer": f"There are {len(unpaid)} unpaid invoice(s) with {_peso(total_due)} outstanding:\n\n{bullets}\n\nYou can manage them in the Billing page."}
 
 
 def _answer_upcoming(q: str) -> dict:
@@ -883,8 +882,6 @@ def _answer_upcoming(q: str) -> dict:
                 "answer": "No upcoming events on the calendar. New bookings appear here automatically."}
     formatted_items = []
     for e in events:
-        # v_upcoming_events returns raw prefixed columns (bk_customer_name,
-        # bk_event_date, bk_pax) — accept aliased forms as fallbacks.
         name = (e.get("bk_customer_name") or e.get("customer_name")
                 or e.get("name") or "Unknown")
         raw_d = e.get("bk_event_date") or e.get("event_date") or e.get("date")
@@ -895,10 +892,10 @@ def _answer_upcoming(q: str) -> dict:
         pax = e.get("bk_pax") or e.get("pax") or 0
         occasion = e.get("bk_occasion") or e.get("occasion") or ""
         occ = f", {occasion}" if occasion else ""
-        formatted_items.append(f"{name} on {date_str} ({pax} pax{occ})")
-    listing = "; ".join(formatted_items)
+        formatted_items.append(f"• **{name}** — {date_str} ({pax} pax{occ})")
+    bullets = "\n".join(formatted_items)
     return {"ok": True, "chart": None, "error": "",
-            "answer": f"Next events: {listing}. See the Calendar page for the full schedule."}
+            "answer": f"Here are your upcoming scheduled events:\n\n{bullets}\n\nSee the Calendar page for the full schedule."}
 
 
 def _answer_events_on(q: str, month: int, day: int) -> dict:
@@ -911,11 +908,12 @@ def _answer_events_on(q: str, month: int, day: int) -> dict:
     if not hits:
         return {"ok": True, "chart": None, "error": "",
                 "answer": f"No bookings found on {label}."}
-    listing = "; ".join(
-        f"{b.get('name', '?')} ({b.get('pax', '?')} pax, {b.get('status', '')}, {b.get('date')})"
-        for b in hits[:6])
+    bullets = "\n".join(
+        f"• **{b.get('name', '?')}** — {b.get('pax', '?')} pax ({b.get('status', 'PENDING')})"
+        for b in hits[:6]
+    )
     return {"ok": True, "chart": None, "error": "",
-            "answer": f"On {label}: {listing}."}
+            "answer": f"Events scheduled on {label}:\n\n{bullets}"}
 
 
 def _answer_bookings_count(q: str) -> dict:
@@ -1532,13 +1530,12 @@ def _answer_payment_methods(q: str) -> dict:
                 "answer": "No payment data recorded yet."}
     total = sum(r["total"] for r in rows)
     top = max(rows, key=lambda r: r["total"])
-    listing = ", ".join(f"{r['method']} ({r['total']})" for r in rows)
+    bullets = "\n".join(f"• **{r['method']}** — {r['total']} booking(s)" for r in rows)
     chart = {"type": "bar", "title": "Bookings by Payment Method",
              "labels": [r["method"] for r in rows],
              "series": [{"name": "Bookings", "values": [r["total"] for r in rows]}]}
     return {"ok": True, "chart": chart, "error": "",
-            "answer": f"Payment methods used: {listing}. Most popular: {top['method']} "
-                      f"({top['total'] / total * 100:.0f}% of bookings)."}
+            "answer": f"Payment methods breakdown:\n\n{bullets}\n\nMost popular: **{top['method']}** ({top['total'] / total * 100:.0f}% of bookings)."}
 
 
 def _answer_top_locations(q: str) -> dict:
@@ -1548,11 +1545,11 @@ def _answer_top_locations(q: str) -> dict:
                 "answer": "No location data yet — it comes from booking addresses."}
     labels = [str(r.get("location") or r.get("name") or "?") for r in rows]
     counts = [int(r.get("count") or r.get("total") or 0) for r in rows]
-    listing = ", ".join(f"{l} ({c})" for l, c in zip(labels, counts))
+    bullets = "\n".join(f"• **{l}** — {c} booking(s)" for l, c in zip(labels, counts))
     chart = {"type": "bar", "title": "Top Event Locations",
              "labels": labels, "series": [{"name": "Bookings", "values": counts}]}
     return {"ok": True, "chart": chart, "error": "",
-            "answer": f"Most common event locations: {listing}."}
+            "answer": f"Most common event locations:\n\n{bullets}"}
 
 
 def _answer_occasions(q: str) -> dict:
@@ -1567,11 +1564,11 @@ def _answer_occasions(q: str) -> dict:
         if label.lower() in q:
             return {"ok": True, "chart": None, "error": "",
                     "answer": f"There are {count} {label} booking(s) on record."}
-    listing = ", ".join(f"{l} ({c})" for l, c in zip(labels, counts))
+    bullets = "\n".join(f"• **{l}** — {c} booking(s)" for l, c in zip(labels, counts))
     chart = {"type": "bar", "title": "Bookings by Occasion",
              "labels": labels, "series": [{"name": "Bookings", "values": counts}]}
     return {"ok": True, "chart": chart, "error": "",
-            "answer": f"Bookings by occasion: {listing}."}
+            "answer": f"Bookings breakdown by occasion:\n\n{bullets}"}
 
 
 def _answer_top_menu(q: str) -> dict:
@@ -1579,12 +1576,12 @@ def _answer_top_menu(q: str) -> dict:
     if not rows:
         return {"ok": True, "chart": None, "error": "",
                 "answer": "No menu order data yet — top dishes appear once bookings include menu items."}
-    listing = ", ".join(f"{r['item']} ({r['count']} orders)" for r in rows)
+    bullets = "\n".join(f"• **{r['item']}** — {r['count']} orders" for r in rows)
     chart = {"type": "bar", "title": "Top Menu Items",
              "labels": [r["item"] for r in rows],
              "series": [{"name": "Orders", "values": [r["count"] for r in rows]}]}
     return {"ok": True, "chart": chart, "error": "",
-            "answer": f"Best sellers: {listing}."}
+            "answer": f"Best-selling menu items:\n\n{bullets}"}
 
 
 def _answer_weekly(q: str) -> dict:
@@ -1613,11 +1610,12 @@ def _answer_packages(q: str) -> dict:
     if not rows:
         return {"ok": True, "chart": None, "error": "",
                 "answer": "No packages defined yet. Add them in the Menu page."}
-    listing = "; ".join(
-        f"{r['name']} — {_peso(float(r.get('price_per_pax', 0)))}/pax"
-        f" (min {r.get('min_pax', 1)} pax)" for r in rows[:6])
+    bullets = "\n".join(
+        f"• **{r['name']}** — {_peso(float(r.get('price_per_pax', 0)))} / pax (Min. {r.get('min_pax', 1)} pax)"
+        for r in rows
+    )
     return {"ok": True, "chart": None, "error": "",
-            "answer": f"Current packages: {listing}. Edit them in the Menu page."}
+            "answer": f"Here are the current catering packages available:\n\n{bullets}\n\nYou can edit and customize packages in the Menu page."}
 
 
 def _answer_counts(q: str) -> dict:
@@ -3682,6 +3680,48 @@ def _handle_alarm_and_reminder(q: str, raw: str) -> dict | None:
     return None
 
 
+def _format_as_formal_bullets(text: str) -> str:
+    """Ensures Chef Jay responses containing lists are formatted as formal bullet points."""
+    if not text or not isinstance(text, str):
+        return text
+
+    # If already using bullet formatting on newlines, keep as is
+    if "\n•" in text or "\n- " in text or text.startswith("•"):
+        return text
+
+    # Handle semicolon-separated lists (e.g. "Title: item 1; item 2; item 3. Notes")
+    if ";" in text:
+        parts = text.split(":", 1)
+        if len(parts) == 2:
+            intro, rest = parts[0].strip(), parts[1].strip()
+            sub_items = [s.strip() for s in rest.split(";") if s.strip()]
+            if len(sub_items) >= 2:
+                footer = ""
+                last = sub_items[-1]
+                dot_idx = last.find(". ")
+                if dot_idx != -1:
+                    footer = "\n\n" + last[dot_idx + 2:].strip()
+                    sub_items[-1] = last[:dot_idx].strip()
+                elif last.endswith("."):
+                    sub_items[-1] = last[:-1].strip()
+
+                bullet_lines = []
+                for item in sub_items:
+                    item_clean = item.strip().rstrip(".")
+                    if " — " in item_clean:
+                        hd, tl = item_clean.split(" — ", 1)
+                        bullet_lines.append(f"• **{hd.strip()}** — {tl.strip()}")
+                    elif " - " in item_clean:
+                        hd, tl = item_clean.split(" - ", 1)
+                        bullet_lines.append(f"• **{hd.strip()}** — {tl.strip()}")
+                    else:
+                        bullet_lines.append(f"• {item_clean}")
+
+                return f"{intro}:\n\n" + "\n".join(bullet_lines) + footer
+
+    return text
+
+
 def ask(question: str) -> dict:
     """Answer a business question from live data. Fully offline, with conversation history."""
     global _LAST_ACTION
@@ -3696,7 +3736,9 @@ def ask(question: str) -> dict:
 
     res = _ask_internal(q, raw)
     if res and isinstance(res, dict) and "answer" in res:
-        _CONVERSATION_HISTORY.append({"role": "assistant", "text": res.get("answer", "")})
+        formatted_answer = _format_as_formal_bullets(res.get("answer", ""))
+        res["answer"] = formatted_answer
+        _CONVERSATION_HISTORY.append({"role": "assistant", "text": formatted_answer})
         if len(_CONVERSATION_HISTORY) > 60:
             _CONVERSATION_HISTORY.pop(0)
     return res

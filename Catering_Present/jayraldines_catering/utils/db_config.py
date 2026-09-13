@@ -52,17 +52,17 @@ def load_db_config() -> Dict[str, Any]:
             engine = cfg.get("engine", "postgres")
             if not isinstance(engine, str):
                 engine = "postgres"
-            os.environ.setdefault("DB_ENGINE", engine)
+            os.environ["DB_ENGINE"] = engine
             if "host" in cfg:
-                os.environ.setdefault("DB_HOST", str(cfg["host"]))
+                os.environ["DB_HOST"] = str(cfg["host"])
             if "port" in cfg:
-                os.environ.setdefault("DB_PORT", str(cfg["port"]))
+                os.environ["DB_PORT"] = str(cfg["port"])
             if "dbname" in cfg:
-                os.environ.setdefault("DB_NAME", str(cfg["dbname"]))
+                os.environ["DB_NAME"] = str(cfg["dbname"])
             if "user" in cfg:
-                os.environ.setdefault("DB_USER", str(cfg["user"]))
+                os.environ["DB_USER"] = str(cfg["user"])
             if "password" in cfg:
-                os.environ.setdefault("DB_PASSWORD", str(cfg["password"]))
+                os.environ["DB_PASSWORD"] = str(cfg["password"])
             return cfg
     except Exception as exc:
         print(f"[db_config] Warning: Failed to load db_config.json: {exc}")

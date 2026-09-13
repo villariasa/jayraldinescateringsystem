@@ -7,31 +7,7 @@ const BOOKING_REF_PREFIX = "TB";
 
 // ── Customers ────────────────────────────────────────────────────────
 
-export function ensureCustomersSeeded() {
-  try {
-    const c = fetchOne("SELECT COUNT(*) as cnt FROM customers");
-    if (!c || c.cnt === 0) {
-      const DEFAULT_CUSTOMERS = [
-        ["Ichigo Kurosaki", "+63 999 111 2233", "ichigo@bleach.com", "Karakura Town, Cebu"],
-        ["Angela Reyes", "+63 945 777 8899", "angela.reyes@gmail.com", "Mandaue City, Cebu"],
-        ["Maria Santos", "+63 912 345 6789", "maria.santos@yahoo.com", "Lahug, Cebu City"],
-        ["Juan Dela Cruz", "+63 917 123 4567", "juan.delacruz@gmail.com", "Guadalupe, Cebu City"],
-        ["Roberto Tan", "+63 922 888 9900", "roberto.tan@outlook.com", "Banilad, Cebu City"],
-        ["Cruz Family", "+63 920 111 2222", "cruz.events@gmail.com", "Talamban, Cebu City"],
-        ["Smith Wedding", "+63 932 555 6666", "smith.wedding@yahoo.com", "Mactan, Lapu-Lapu City"],
-        ["TechCorp Inc.", "+63 917 000 1234", "events@techcorp.ph", "IT Park, Cebu City"]
-      ];
-      for (const [name, contact, email, address] of DEFAULT_CUSTOMERS) {
-        try {
-          run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_status, sync_status) VALUES (?, ?, ?, ?, 'Active', 'synced')", [name, contact, email, address]);
-        } catch (_) {}
-      }
-    }
-  } catch (_) {}
-}
-
 export function searchCustomers(query) {
-  ensureCustomersSeeded();
   query = (query || "").trim();
   let rows;
   if (!query) {
@@ -154,16 +130,29 @@ export function getEntityImage(entityType, entityId) {
 // ── Master data: packages / menu ────────────────────────────────────
 
 export function getPackages() {
-  const rows = fetchAll(`
-    SELECT p.*, COALESCE(NULLIF(ei.image_data, ''), NULLIF(p.image, ''), NULLIF(p.pkg_image, '')) AS image
-    FROM packages p
-    LEFT JOIN entity_images ei ON ei.entity_type = 'package' AND ei.entity_id = p.pkg_id
-    ORDER BY p.pkg_price_per_pax ASC
-  `);
+  let rows = [];
+  try {
+    rows = fetchAll(`
+      SELECT p.*, COALESCE(NULLIF(ei.image_data, ''), '') AS entity_image_data
+      FROM packages p
+      LEFT JOIN entity_images ei ON ei.entity_type = 'package' AND ei.entity_id = p.pkg_id
+      ORDER BY p.pkg_price_per_pax ASC
+    `);
+  } catch (e) {
+    try {
+      rows = fetchAll("SELECT * FROM packages ORDER BY pkg_price_per_pax ASC");
+    } catch (_) {
+      rows = [];
+    }
+  }
+
   return rows.map((r) => ({
-    id: r.pkg_id, name: r.pkg_name, description: r.pkg_description || "",
-    price_per_pax: Number(r.pkg_price_per_pax), min_pax: Number(r.pkg_min_pax || 30),
-    image: r.image || null,
+    id: r.pkg_id,
+    name: r.pkg_name,
+    description: r.pkg_description || "",
+    price_per_pax: Number(r.pkg_price_per_pax),
+    min_pax: Number(r.pkg_min_pax || 30),
+    image: r.entity_image_data || r.image || r.pkg_image || null,
   }));
 }
 
@@ -194,16 +183,30 @@ export function deletePackage(pkgId) {
 }
 
 export function getAllMenuItems() {
-  const rows = fetchAll(`
-    SELECT mi.*, COALESCE(NULLIF(ei.image_data, ''), NULLIF(mi.image, ''), NULLIF(mi.mi_image, '')) AS image
-    FROM menu_items mi
-    LEFT JOIN entity_images ei ON ei.entity_type = 'menu_item' AND ei.entity_id = mi.mi_id
-    ORDER BY mi.mi_category, mi.mi_name
-  `);
+  let rows = [];
+  try {
+    rows = fetchAll(`
+      SELECT mi.*, COALESCE(NULLIF(ei.image_data, ''), '') AS entity_image_data
+      FROM menu_items mi
+      LEFT JOIN entity_images ei ON ei.entity_type = 'menu_item' AND ei.entity_id = mi.mi_id
+      ORDER BY mi.mi_category, mi.mi_name
+    `);
+  } catch (e) {
+    try {
+      rows = fetchAll("SELECT * FROM menu_items ORDER BY mi_category, mi_name");
+    } catch (_) {
+      rows = [];
+    }
+  }
+
   return rows.map((r) => ({
-    id: r.mi_id, name: r.mi_name, category: r.mi_category || "Other",
-    price: Number(r.mi_price || 0), status: r.mi_status || "Available", description: r.mi_description || "",
-    image: r.image || null,
+    id: r.mi_id,
+    name: r.mi_name,
+    category: r.mi_category || "Other",
+    price: Number(r.mi_price || 0),
+    status: r.mi_status || "Available",
+    description: r.mi_description || "",
+    image: r.entity_image_data || r.image || r.mi_image || null,
   }));
 }
 

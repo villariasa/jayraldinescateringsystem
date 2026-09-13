@@ -20,6 +20,14 @@ from utils.signals import app_events
 from utils.auth import SessionManager
 from components.user_management_panel import UserManagementPanel, ChangeOwnPasswordDialog
 from utils.db_config import get_db_config, save_db_config, test_postgres_connection
+from utils.db_server_service import (
+    is_central_db_server_machine,
+    get_local_db_server_status,
+    restart_local_db_server,
+    start_local_db_server,
+    verify_owner_authorization,
+)
+from components.owner_auth_dialog import OwnerAuthDialog
 
 
 _BUSINESS_INFO = {
@@ -292,44 +300,148 @@ class SettingsPage(QWidget):
         sec_title.setObjectName("h3")
         lay.addWidget(sec_title)
 
-        hint = QLabel("View current PostgreSQL server connectivity, export backup connection credentials, or test live LAN link.")
+        hint = QLabel("View live PostgreSQL server status, inspect connectivity, export backup connection credentials, or perform authorized server maintenance.")
         hint.setObjectName("subtitle")
         hint.setWordWrap(True)
         lay.addWidget(hint)
 
-        cfg = get_db_config()
+        # ── Status Container Box ───────────────────────────────────────────
         details_box = QFrame()
-        details_box.setStyleSheet("background: #1E293B; border-radius: 8px; padding: 12px;")
+        details_box.setStyleSheet("background: #1E293B; border: 1px solid #334155; border-radius: 8px; padding: 14px;")
         d_lay = QVBoxLayout(details_box)
-        d_lay.setSpacing(6)
+        d_lay.setSpacing(8)
 
-        info_lbl = QLabel(
-            f"• Engine: {cfg.get('engine', 'postgres').upper()}\n"
-            f"• Server Host IP: {cfg.get('host', 'localhost')}\n"
-            f"• Port: {cfg.get('port', 5432)}\n"
-            f"• Database Name: {cfg.get('dbname', 'jayraldines_catering')}\n"
-            f"• App User: {cfg.get('user', 'jayraldines_app')}"
-        )
-        info_lbl.setStyleSheet("color: #F8FAFC; font-family: monospace; font-size: 12px;")
-        d_lay.addWidget(info_lbl)
+        top_status_row = QHBoxLayout()
+        top_status_row.setSpacing(10)
+
+        self._machine_role_lbl = QLabel()
+        self._machine_role_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #F8FAFC;")
+        top_status_row.addWidget(self._machine_role_lbl)
+
+        top_status_row.addStretch()
+
+        self._live_status_badge = QLabel("Checking...")
+        self._live_status_badge.setStyleSheet("""
+            background-color: #065F46;
+            color: #34D399;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 10px;
+            border: 1px solid #10B981;
+        """)
+        top_status_row.addWidget(self._live_status_badge)
+
+        refresh_status_btn = QPushButton("🔄 Refresh Status")
+        refresh_status_btn.setCursor(Qt.PointingHandCursor)
+        refresh_status_btn.setStyleSheet("""
+            QPushButton {
+                background: #334155;
+                color: #E2E8F0;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 4px 12px;
+                border-radius: 6px;
+                border: 1px solid #475569;
+            }
+            QPushButton:hover {
+                background: #475569;
+                color: #FFFFFF;
+            }
+        """)
+        top_status_row.addWidget(refresh_status_btn)
+        d_lay.addLayout(top_status_row)
+
+        self._db_info_lbl = QLabel()
+        self._db_info_lbl.setStyleSheet("color: #94A3B8; font-family: monospace; font-size: 12px; line-height: 1.4;")
+        d_lay.addWidget(self._db_info_lbl)
+
         lay.addWidget(details_box)
 
+        def _refresh_server_and_db_info():
+            stat = get_local_db_server_status()
+            is_central = stat.get("is_central_server", False)
+            is_running = stat.get("is_running", False)
+            state = stat.get("service_state", "UNKNOWN")
+            port = stat.get("port", 5432)
+            svc = stat.get("service_name", "postgresql-x64-18")
+            local_ip = stat.get("local_ip", "127.0.0.1")
+            sync_up = stat.get("sync_running", False)
+
+            if is_central:
+                self._machine_role_lbl.setText("🖥️ Machine Role: Central Database Server Host (Primary Server)")
+            else:
+                self._machine_role_lbl.setText(f"💻 Machine Role: Client Workstation (Connected to {stat.get('host')})")
+
+            if is_running:
+                self._live_status_badge.setText(f"🟢 DB SERVER: RUNNING (Port {port})")
+                self._live_status_badge.setStyleSheet("""
+                    background-color: #064E3B;
+                    color: #34D399;
+                    font-size: 11px;
+                    font-weight: 700;
+                    padding: 4px 12px;
+                    border-radius: 12px;
+                    border: 1px solid #059669;
+                """)
+            else:
+                self._live_status_badge.setText(f"🔴 DB SERVER: {state}")
+                self._live_status_badge.setStyleSheet("""
+                    background-color: #7F1D1D;
+                    color: #F87171;
+                    font-size: 11px;
+                    font-weight: 700;
+                    padding: 4px 12px;
+                    border-radius: 12px;
+                    border: 1px solid #DC2626;
+                """)
+
+            sync_str = "🟢 ACTIVE (Port 8000)" if sync_up else "⚪ INACTIVE"
+            port_str = "🟢 LISTENING" if stat.get("port_listening") else "🔴 CLOSED"
+            self._db_info_lbl.setText(
+                f"• Database Engine      : {stat.get('engine', 'postgres').upper()}\n"
+                f"• PostgreSQL Service   : {svc} ({state})\n"
+                f"• Service Port (5432)  : {port_str}\n"
+                f"• LAN Sync Server (Hub): {sync_str}\n"
+                f"• Local Server LAN IP  : {local_ip}\n"
+                f"• Database Name        : {stat.get('dbname', 'jayraldines_catering')}\n"
+                f"• Last Status Probe    : {stat.get('timestamp', '--:--:--')}"
+            )
+
+        refresh_status_btn.clicked.connect(_refresh_server_and_db_info)
+        _refresh_server_and_db_info()
+
+        # ── Buttons Row ────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        test_btn = QPushButton("Test Server Connection")
+        btn_row.setSpacing(10)
+
+        edit_conn_btn = QPushButton("⚙ Update Connection Settings")
+        edit_conn_btn.setCursor(Qt.PointingHandCursor)
+        edit_conn_btn.setStyleSheet("background-color: #D97706; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
+        def _open_edit_conn():
+            from components.db_connection_dialog import EditDbConnectionDialog
+            dlg = EditDbConnectionDialog(self, on_saved=_refresh_server_and_db_info)
+            dlg.exec()
+        edit_conn_btn.clicked.connect(_open_edit_conn)
+        btn_row.addWidget(edit_conn_btn)
+
+        test_btn = QPushButton("⚡ Test Server Connection")
         test_btn.setCursor(Qt.PointingHandCursor)
         test_btn.setStyleSheet("background-color: #0284C7; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
         def _test_conn():
+            c = get_db_config()
             ok, msg = test_postgres_connection(
-                host=cfg.get("host", "localhost"),
-                port=int(cfg.get("port", 5432)),
-                dbname=cfg.get("dbname", "jayraldines_catering"),
-                user=cfg.get("user", "jayraldines_app"),
-                password=cfg.get("password", ""),
+                host=c.get("host", "localhost"),
+                port=int(c.get("port", 5432)),
+                dbname=c.get("dbname", "jayraldines_catering"),
+                user=c.get("user", "jayraldines_app"),
+                password=c.get("password", ""),
             )
             if ok:
                 QMessageBox.information(self, "Connection Test", "✅ Successfully connected to Central PostgreSQL Server!")
             else:
                 QMessageBox.warning(self, "Connection Test", f"❌ Failed to connect:\n{msg}")
+            _refresh_server_and_db_info()
         test_btn.clicked.connect(_test_conn)
         btn_row.addWidget(test_btn)
 
@@ -338,15 +450,16 @@ class SettingsPage(QWidget):
         export_creds_btn.setStyleSheet("background-color: #10B981; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
         def _export_creds():
             from pathlib import Path
+            c = get_db_config()
             content = (
                 "=====================================================\n"
                 "  JAYRALDINE'S CATERING - SERVER CREDENTIALS BACKUP\n"
                 "=====================================================\n\n"
-                f"Server Host IP : {cfg.get('host', 'localhost')}\n"
-                f"Port           : {cfg.get('port', 5432)}\n"
-                f"Database Name  : {cfg.get('dbname', 'jayraldines_catering')}\n"
-                f"DB User        : {cfg.get('user', 'jayraldines_app')}\n"
-                f"DB Password    : {cfg.get('password', '')}\n\n"
+                f"Server Host IP : {c.get('host', 'localhost')}\n"
+                f"Port           : {c.get('port', 5432)}\n"
+                f"Database Name  : {c.get('dbname', 'jayraldines_catering')}\n"
+                f"DB User        : {c.get('user', 'jayraldines_app')}\n"
+                f"DB Password    : {c.get('password', '')}\n\n"
                 f"Generated on   : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             )
             file_path, _ = QFileDialog.getSaveFileName(
@@ -363,8 +476,93 @@ class SettingsPage(QWidget):
                     QMessageBox.warning(self, "Error", f"Could not write file: {exc}")
         export_creds_btn.clicked.connect(_export_creds)
         btn_row.addWidget(export_creds_btn)
+
         btn_row.addStretch()
         lay.addLayout(btn_row)
+
+        # ── Central Server Host Controls (Restart / Start) ──────────────────
+        if is_central_db_server_machine():
+            server_ctrl_box = QFrame()
+            server_ctrl_box.setStyleSheet("background: #0B1329; border: 1px dashed #334155; border-radius: 8px; padding: 14px;")
+            sc_lay = QVBoxLayout(server_ctrl_box)
+            sc_lay.setSpacing(10)
+
+            sc_title = QLabel("🖥️ Central Server Maintenance Controls")
+            sc_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #F8FAFC;")
+            sc_lay.addWidget(sc_title)
+
+            sc_row = QHBoxLayout()
+            sc_row.setSpacing(10)
+
+            is_owner = SessionManager.is_owner_or_superadmin()
+
+            restart_btn = QPushButton("🔄 Restart DB Server")
+            restart_btn.setCursor(Qt.PointingHandCursor)
+
+            def _do_restart():
+                confirm_reply = QMessageBox.question(
+                    self, "Confirm Server Restart",
+                    "Are you sure you want to restart the Central PostgreSQL Database Server?\n\n"
+                    "Connected tablet kiosks and client computers will briefly reconnect.",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                )
+                if confirm_reply != QMessageBox.Yes:
+                    return
+
+                ok, msg = restart_local_db_server()
+                if ok:
+                    QMessageBox.information(self, "Server Restarted", f"✅ {msg}")
+                else:
+                    QMessageBox.warning(self, "Restart Failed", f"❌ {msg}")
+                _refresh_server_and_db_info()
+
+            if is_owner:
+                # Full direct access for Owner / Super Admin
+                restart_btn.setStyleSheet("background-color: #DC2626; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
+                restart_btn.clicked.connect(_do_restart)
+                sc_row.addWidget(restart_btn)
+            else:
+                # ADMIN ACCOUNT: Status is visible, but direct restart or start server is NOT permitted!
+                # Restricted mode with Owner Authorization passkey required.
+                restart_btn.setText("🔒 Restart DB Server (Owner Only)")
+                restart_btn.setStyleSheet("background-color: #334155; color: #94A3B8; font-weight: 700; padding: 8px 16px; border-radius: 6px; border: 1px solid #475569;")
+
+                def _handle_admin_restart():
+                    dlg = OwnerAuthDialog(self, operation_name="Restart Central Database Server")
+                    if dlg.exec():
+                        _do_restart()
+
+                restart_btn.clicked.connect(_handle_admin_restart)
+                sc_row.addWidget(restart_btn)
+
+                unlock_btn = QPushButton("🔑 Authorize as Owner")
+                unlock_btn.setCursor(Qt.PointingHandCursor)
+                unlock_btn.setStyleSheet("background-color: #D97706; color: #FFFFFF; font-weight: 600; padding: 8px 14px; border-radius: 6px;")
+                def _unlock_owner():
+                    dlg = OwnerAuthDialog(self, operation_name="Unlock Server Maintenance Controls")
+                    if dlg.exec():
+                        restart_btn.setText("🔄 Restart DB Server")
+                        restart_btn.setStyleSheet("background-color: #DC2626; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
+                        restart_btn.clicked.disconnect()
+                        restart_btn.clicked.connect(_do_restart)
+                        unlock_btn.setVisible(False)
+                        security_notice.setText("✅ Master Owner authorized for this session. Restart DB Server is now unlocked.")
+                        security_notice.setStyleSheet("font-size: 11px; color: #34D399; font-style: italic;")
+                unlock_btn.clicked.connect(_unlock_owner)
+                sc_row.addWidget(unlock_btn)
+
+            sc_row.addStretch()
+            sc_lay.addLayout(sc_row)
+
+            security_notice = QLabel(
+                "ℹ️ Server Control Policy: Administrator accounts can view live server status and test connectivity. "
+                "Restarting or starting the central database requires Master Owner authorization."
+            )
+            security_notice.setStyleSheet("font-size: 11px; color: #94A3B8; font-style: italic;")
+            security_notice.setWordWrap(True)
+            sc_lay.addWidget(security_notice)
+
+            lay.addWidget(server_ctrl_box)
 
         # ── Connected Devices & Server Activity Telemetry ──────────────────
         from components.connected_devices_panel import ConnectedDevicesPanel
@@ -1381,6 +1579,18 @@ class SettingsPage(QWidget):
         sec_title.setObjectName("h3")
         head.addWidget(sec_title)
         head.addStretch()
+
+        filter_lbl = QLabel("Filter:")
+        filter_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px; font-weight: 600;")
+        head.addWidget(filter_lbl)
+
+        self.audit_device_filter = QComboBox()
+        self.audit_device_filter.addItems(["All Logs & Devices", "Tablet Kiosks", "Desktop / Server"])
+        self.audit_device_filter.setFixedHeight(30)
+        self.audit_device_filter.setCursor(Qt.PointingHandCursor)
+        self.audit_device_filter.currentIndexChanged.connect(self._load_audit_log)
+        head.addWidget(self.audit_device_filter)
+
         refresh_btn = QPushButton("  Refresh")
         refresh_btn.setObjectName("secondaryButton")
         refresh_btn.setFixedHeight(30)
@@ -1409,7 +1619,13 @@ class SettingsPage(QWidget):
 
     def _load_audit_log(self):
         from utils.data_loader import run_async
-        run_async(self, lambda: repo.get_audit_log(50), self._on_audit_logs_loaded)
+        dev_choice = self.audit_device_filter.currentText() if hasattr(self, "audit_device_filter") else "All Logs & Devices"
+        dev_filter = None
+        if "Tablet" in dev_choice:
+            dev_filter = "Tablet"
+        elif "Desktop" in dev_choice:
+            dev_filter = "Desktop"
+        run_async(self, lambda: repo.get_audit_log(50, device_filter=dev_filter), self._on_audit_logs_loaded)
 
     def _on_audit_logs_loaded(self, logs):
         try:
@@ -1427,7 +1643,7 @@ class SettingsPage(QWidget):
             empty_card = QFrame()
             empty_card.setObjectName("entryCard")
             el = QVBoxLayout(empty_card)
-            item = QLabel("No audit entries yet.")
+            item = QLabel("No audit entries found for this filter.")
             item.setObjectName("subtitle")
             item.setAlignment(Qt.AlignCenter)
             el.addWidget(item)
@@ -1449,15 +1665,24 @@ class SettingsPage(QWidget):
                 cl.setSpacing(14)
 
                 c1 = QVBoxLayout()
-                c1.setSpacing(2)
+                c1.setSpacing(3)
                 act_str = log.get("action", "LOG")
                 act_color = action_colors.get(act_str, "#9CA3AF")
                 act_lbl = QLabel(act_str)
                 act_lbl.setStyleSheet(f"font-weight: 800; font-size: 11px; color: {act_color}; padding: 2px 6px; background: rgba(255,255,255,0.05); border-radius: 4px;")
                 actor_lbl = QLabel(f"By: {log.get('actor', 'User')}")
                 actor_lbl.setObjectName("subtitle")
+                
+                dev_val = str(log.get("device") or "Desktop / Server")
+                is_tablet = "tablet" in dev_val.lower() or "kiosk" in dev_val.lower()
+                dev_icon = "📱" if is_tablet else "💻"
+                dev_color = "#38BDF8" if is_tablet else "#10B981"
+                dev_badge = QLabel(f"{dev_icon} {dev_val}")
+                dev_badge.setStyleSheet(f"font-size: 10px; font-weight: 700; color: {dev_color};")
+                
                 c1.addWidget(act_lbl, alignment=Qt.AlignLeft)
                 c1.addWidget(actor_lbl)
+                c1.addWidget(dev_badge)
                 cl.addLayout(c1, 1)
 
                 desc_lbl = QLabel(log.get("description", ""))

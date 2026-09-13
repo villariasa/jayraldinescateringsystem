@@ -827,11 +827,15 @@ def add_package(data: dict) -> Optional[int]:
             print(f"[repository] add_package direct insert fallback failed: {exc}")
 
     if pkg_id:
+        try:
+            db.execute("UPDATE packages SET pkg_image = %s WHERE pkg_id = %s", (image_val, pkg_id))
+        except Exception:
+            pass
         write_audit_log(
             action="CREATE",
             table_name="packages",
             record_id=pkg_id,
-            new_value={"name": pkg_name, "price": data.get("price_per_pax")}
+            new_value={"name": pkg_name, "price": data.get("price_per_pax"), "image": image_val}
         )
         return pkg_id
     return None
@@ -851,32 +855,26 @@ def update_package(db_id: int, data: dict) -> bool:
                 image_val,
             ),
         )
+    except Exception as exc:
+        print(f"[repository] sp_update_package note: {exc}")
+
+    try:
+        db.execute("""
+            UPDATE packages
+            SET pkg_name = %s, pkg_price_per_pax = %s, pkg_min_pax = %s, pkg_description = %s,
+                pkg_image = %s
+            WHERE pkg_id = %s
+        """, (data["name"], data["price_per_pax"], data.get("min_pax", 1), data.get("description", ""), image_val, db_id))
         write_audit_log(
             action="UPDATE",
             table_name="packages",
             record_id=db_id,
-            new_value={"name": data["name"], "price": data.get("price_per_pax")}
+            new_value={"name": data["name"], "price": data.get("price_per_pax"), "image": image_val}
         )
         return True
-    except Exception as exc:
-        print(f"[repository] sp_update_package failed, trying direct UPDATE: {exc}")
-        try:
-            db.execute("""
-                UPDATE packages
-                SET pkg_name = %s, pkg_price_per_pax = %s, pkg_min_pax = %s, pkg_description = %s,
-                    pkg_image = CASE WHEN %s <> '' THEN %s ELSE pkg_image END
-                WHERE pkg_id = %s
-            """, (data["name"], data["price_per_pax"], data.get("min_pax", 1), data.get("description", ""), image_val, image_val, db_id))
-            write_audit_log(
-                action="UPDATE",
-                table_name="packages",
-                record_id=db_id,
-                new_value={"name": data["name"], "price": data.get("price_per_pax")}
-            )
-            return True
-        except Exception as exc2:
-            print(f"[repository] update_package direct fallback failed: {exc2}")
-            return False
+    except Exception as exc2:
+        print(f"[repository] update_package direct fallback failed: {exc2}")
+        return False
 
 
 def delete_package(db_id: int) -> bool:
@@ -914,8 +912,8 @@ def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> l
         SELECT b.bk_id                   AS id,
                b.bk_booking_ref          AS booking_ref,
                b.bk_customer_name        AS customer_name,
-               COALESCE(c.cus_contact, '') AS contact,
-               COALESCE(c.cus_email, '')   AS email,
+               COALESCE(NULLIF(b.bk_contact, ''), NULLIF(c.cus_contact, ''), '') AS contact,
+               COALESCE(NULLIF(b.bk_email, ''), NULLIF(c.cus_email, ''), '')   AS email,
                b.bk_event_date           AS event_date,
                b.bk_event_time           AS event_time,
                b.bk_venue                AS venue,
@@ -923,9 +921,10 @@ def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> l
                b.bk_pax                  AS pax,
                b.bk_total_amount         AS total_amount,
                b.bk_amount_paid          AS amount_paid,
+               COALESCE(b.bk_down_payment, b.bk_amount_paid, 0.0) AS down_payment,
                b.bk_status               AS status,
                b.bk_color_theme          AS color_theme,
-               b.bk_notes                AS notes,
+               COALESCE(NULLIF(b.bk_special_notes, ''), NULLIF(b.bk_notes, ''), '') AS notes,
                b.bk_menu_type            AS menu_type,
                b.bk_payment_mode         AS payment_mode,
                b.bk_cancellation_reason  AS cancellation_reason,
@@ -1004,8 +1003,8 @@ def get_all_bookings_for_export() -> list[dict]:
         SELECT b.bk_id              AS id,
                b.bk_booking_ref    AS booking_ref,
                b.bk_customer_name  AS customer_name,
-               COALESCE(c.cus_contact, '') AS contact,
-               COALESCE(c.cus_email, '')   AS email,
+               COALESCE(NULLIF(b.bk_contact, ''), NULLIF(c.cus_contact, ''), '') AS contact,
+               COALESCE(NULLIF(b.bk_email, ''), NULLIF(c.cus_email, ''), '')   AS email,
                b.bk_event_date     AS event_date,
                b.bk_event_time     AS event_time,
                b.bk_venue          AS venue,
@@ -1013,9 +1012,10 @@ def get_all_bookings_for_export() -> list[dict]:
                b.bk_pax            AS pax,
                b.bk_total_amount   AS total_amount,
                b.bk_amount_paid    AS amount_paid,
+               COALESCE(b.bk_down_payment, b.bk_amount_paid, 0.0) AS down_payment,
                b.bk_status         AS status,
                b.bk_color_theme    AS color_theme,
-               b.bk_notes          AS notes,
+               COALESCE(NULLIF(b.bk_special_notes, ''), NULLIF(b.bk_notes, ''), '') AS notes,
                b.bk_menu_type      AS menu_type,
                b.bk_payment_mode   AS payment_mode,
                p.pkg_name          AS package_name
@@ -1034,6 +1034,7 @@ def get_all_bookings_for_export() -> list[dict]:
             time_val = r.get("event_time") or ""
             total_amt = float(r["total_amount"] or 0.0)
             paid_amt = float(r["amount_paid"] or 0.0)
+            down_amt = float(r.get("down_payment") or paid_amt)
             balance = max(0.0, total_amt - paid_amt)
             result.append({
                 "id":           r["booking_ref"] or "",
@@ -1055,7 +1056,7 @@ def get_all_bookings_for_export() -> list[dict]:
                 "total":        total_amt,
                 "total_amount": total_amt,
                 "amount_paid":  paid_amt,
-                "down_payment": paid_amt,
+                "down_payment": down_amt,
                 "balance":      balance,
                 "status":       r["status"] or "",
                 "color_theme":  r.get("color_theme") or "#2563EB",
@@ -1087,14 +1088,14 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
                b.bk_total_amount AS total,
                b.bk_payment_mode AS payment_mode,
                b.bk_amount_paid AS amount_paid,
-               b.bk_down_payment AS down_payment,
+               COALESCE(b.bk_down_payment, b.bk_amount_paid, 0.0) AS down_payment,
                b.bk_menu_type AS menu_type,
                b.bk_package_id AS package_id,
-               b.bk_notes AS notes,
+               COALESCE(NULLIF(b.bk_special_notes, ''), NULLIF(b.bk_notes, ''), '') AS notes,
                b.bk_status AS status,
                b.bk_color_theme AS color_theme,
-               c.cus_contact AS contact,
-               c.cus_email AS email
+               COALESCE(NULLIF(b.bk_contact, ''), NULLIF(c.cus_contact, ''), '') AS contact,
+               COALESCE(NULLIF(b.bk_email, ''), NULLIF(c.cus_email, ''), '') AS email
         FROM bookings b
         LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
         WHERE b.bk_id = %s
@@ -2857,7 +2858,8 @@ def get_overdue_follow_ups() -> list[dict]:
 _last_audit_entry = {"key": None, "time": 0.0}
 
 def write_audit_log(actor: str = None, action: str = "LOG", table_name: str = "general",
-                    record_id: int = 0, old_value: dict = None, new_value: dict = None) -> None:
+                    record_id: int = 0, old_value: dict = None, new_value: dict = None,
+                    device: str = "Desktop / Server") -> None:
     import json
     import time
     global _last_audit_entry
@@ -2873,9 +2875,10 @@ def write_audit_log(actor: str = None, action: str = "LOG", table_name: str = "g
     action = str(action or "LOG").strip().upper()
     table_name = str(table_name or "general").strip().lower()
     record_id = int(record_id or 0)
+    device = str(device or "Desktop / Server").strip()
 
     # 1.0s deduplication guard
-    dedup_key = (actor, action, table_name, record_id, str(new_value))
+    dedup_key = (actor, action, table_name, record_id, str(new_value), device)
     now = time.time()
     if dedup_key == _last_audit_entry["key"] and (now - _last_audit_entry["time"]) < 1.0:
         return
@@ -2888,19 +2891,19 @@ def write_audit_log(actor: str = None, action: str = "LOG", table_name: str = "g
     try:
         res = db.callproc_out(
             "sp_write_audit_log",
-            in_params=(actor, action, table_name, record_id, old_json, new_json),
+            in_params=(actor, action, table_name, record_id, old_json, new_json, device),
             out_names=["p_log_id"],
         )
     except Exception as exc:
-        print(f"[audit] sp_write_audit_log failed: {exc}")
+        print(f"[audit] sp_write_audit_log note: {exc}")
 
     # Fallback direct insert if procedure failed or didn't return an ID
     if not res or not res.get("p_log_id"):
         try:
             db.execute("""
-                INSERT INTO audit_logs (al_actor, al_action, al_table_name, al_record_id, al_old_value, al_new_value)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (actor, action, table_name, record_id, old_json, new_json))
+                INSERT INTO audit_logs (al_actor, al_action, al_table_name, al_record_id, al_old_value, al_new_value, al_device)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (actor, action, table_name, record_id, old_json, new_json, device))
         except Exception as exc2:
             print(f"[audit] direct insert fallback failed: {exc2}")
 
@@ -3103,10 +3106,10 @@ def _format_audit_description(action: str, old_value, new_value, table_name: str
     return (" ".join(parts) + amount_str).strip()
 
 
-def get_audit_log(limit: int = 50, start_date=None, end_date=None, table_name=None) -> list[dict]:
+def get_audit_log(limit: int = 50, start_date=None, end_date=None, table_name=None, device_filter=None) -> list[dict]:
     """Recent activity log. If start_date/end_date are given, returns every
     matching entry in that range (used by the Daily Activity Report) instead
-    of only the most recent `limit` rows."""
+    of only the most recent `limit` rows. Supports filtering by device (Tablet / Desktop / Server)."""
     sql = """
         SELECT al_id          AS id,
                al_actor       AS actor,
@@ -3115,6 +3118,7 @@ def get_audit_log(limit: int = 50, start_date=None, end_date=None, table_name=No
                al_record_id   AS record_id,
                al_old_value,
                al_new_value,
+               COALESCE(al_device, 'Desktop / Server') AS device,
                al_created_at  AS created_at
         FROM audit_logs
     """
@@ -3132,6 +3136,13 @@ def get_audit_log(limit: int = 50, start_date=None, end_date=None, table_name=No
     if table_name:
         where_clauses.append("LOWER(al_table_name) = LOWER(%s)")
         params.append(str(table_name).strip().lower())
+
+    if device_filter:
+        df = str(device_filter).strip().lower()
+        if "tablet" in df or "kiosk" in df:
+            where_clauses.append("(LOWER(al_device) LIKE '%tablet%' OR LOWER(al_device) LIKE '%kiosk%')")
+        elif "desktop" in df or "server" in df:
+            where_clauses.append("(LOWER(al_device) NOT LIKE '%tablet%' AND LOWER(al_device) NOT LIKE '%kiosk%')")
 
     if where_clauses:
         sql += " WHERE " + " AND ".join(where_clauses)
@@ -3164,6 +3175,7 @@ def get_audit_log(limit: int = 50, start_date=None, end_date=None, table_name=No
             "action":      r["action"],
             "table":       r["table_name"],
             "record_id":   r["record_id"],
+            "device":      r.get("device") or "Desktop / Server",
             "description": _format_audit_description(
                 r["action"],
                 r.get("al_old_value"),

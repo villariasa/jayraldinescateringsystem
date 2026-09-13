@@ -4,6 +4,7 @@ import { toast, escapeHtml, statusPill, openModal, closeModal } from "./views.js
 import { icon } from "./icons.js";
 import { getTheme, toggleTheme } from "./app.js";
 import { mountLottie } from "./lottie-helper.js";
+import { openLiveDbConfigModal } from "./settings.js";
 
 const STEPS = [
   { step: 1, label: "Customer", title: "Customer Info", subtitle: "Enter client contact details" },
@@ -510,7 +511,7 @@ function renderStepCustomer(card) {
     const renderSearchResults = async (query = "") => {
       const results = await api.searchCustomers(query);
       if (!results || results.length === 0) {
-        resultsEl.innerHTML = `<p style="color:var(--text-muted); padding:10px;">No customers found.</p>`;
+        resultsEl.innerHTML = `<p style="color:var(--text-muted); padding:10px;">No matching customers found.</p>`;
         return;
       }
       resultsEl.innerHTML = results.map((r) => `
@@ -557,8 +558,27 @@ function renderStepCustomer(card) {
 
 async function renderStepPackage(card) {
   const d = wizard.draft;
-  card.innerHTML = `<h2 style="margin:0 0 10px;">${icon("package")} Event &amp; Package</h2><p style="color:var(--text-muted);">Loading packages…</p>`;
-  packagesCache = await api.getPackages();
+  card.innerHTML = `<h2 style="margin:0 0 10px;">${icon("package")} Event &amp; Package</h2><p style="color:var(--text-muted);">Fetching packages from Live Database…</p>`;
+  try {
+    packagesCache = await api.getPackages();
+  } catch (err) {
+    card.innerHTML = `
+      <div style="padding:36px; text-align:center;">
+        <div style="font-size:42px; margin-bottom:12px;">🔴</div>
+        <h3 style="color:#EF4444; margin:0 0 8px;">Live Central Database Disconnected</h3>
+        <p style="color:var(--text-muted); max-width:480px; margin:0 auto 20px; font-size:14px; line-height:1.5;">
+          Tablet is configured to <b>strictly fetch data only from the Live Central Database</b>. Ensure your laptop is connected to Wi-Fi and the central server is running.
+        </p>
+        <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap;">
+          <button class="btn btn-outline" id="setup-live-packages" style="font-weight:700; border:1.5px solid var(--border); padding:10px 20px;">⚙️ Setup IP &amp; Credentials</button>
+          <button class="btn btn-primary" id="retry-live-packages" style="font-weight:700; padding:10px 20px;">⚡ Retry Connection</button>
+        </div>
+      </div>
+    `;
+    card.querySelector("#setup-live-packages")?.addEventListener("click", () => openLiveDbConfigModal());
+    card.querySelector("#retry-live-packages")?.addEventListener("click", () => renderStepPackage(card));
+    return;
+  }
 
   // If a package was pre-selected from Quick Options, ensure its full data is synced
   if (d.package.id && packagesCache.length) {
@@ -867,8 +887,23 @@ async function renderStepPackage(card) {
 
 async function renderStepMenu(card) {
   const d = wizard.draft;
-  card.innerHTML = `<h2 style="margin:0 0 10px;">${icon("utensils")} Menu Selection</h2><p style="color:var(--text-muted);">Loading menu items…</p>`;
-  menuGroupedCache = await api.getMenuItemsGrouped();
+  card.innerHTML = `<h2 style="margin:0 0 10px;">${icon("utensils")} Menu Selection</h2><p style="color:var(--text-muted);">Fetching dishes from Live Database…</p>`;
+  try {
+    menuGroupedCache = await api.getMenuItemsGrouped();
+  } catch (err) {
+    card.innerHTML = `
+      <div style="padding:36px; text-align:center;">
+        <div style="font-size:42px; margin-bottom:12px;">🔴</div>
+        <h3 style="color:#EF4444; margin:0 0 8px;">Live Central Database Disconnected</h3>
+        <p style="color:var(--text-muted); max-width:460px; margin:0 auto 20px; font-size:14px; line-height:1.5;">
+          Tablet is configured to <b>strictly fetch data only from the Live Central Database</b>. Local offline dishes are disabled. Ensure Wi-Fi ARISE! is active and server is running at 192.168.1.10.
+        </p>
+        <button class="btn btn-primary" id="retry-live-menu">⚡ Retry Live Connection</button>
+      </div>
+    `;
+    card.querySelector("#retry-live-menu")?.addEventListener("click", () => renderStepMenu(card));
+    return;
+  }
 
   const selectedIds = new Set(d.menuSelections.map((m) => m.menu_item_id));
   const categories = Object.keys(menuGroupedCache);

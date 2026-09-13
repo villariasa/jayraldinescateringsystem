@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { openModal, closeModal, toast, escapeHtml, statusPill } from "./views.js";
 import { wizard, peso } from "./state.js";
 import { mountWizard } from "./wizard.js";
-import { openOwnerSettings, openOrderDetailModal } from "./settings.js";
+import { openOwnerSettings, openOrderDetailModal, openLiveDbConfigModal } from "./settings.js";
 import { icon } from "./icons.js";
 import { mountLandingSlider } from "./slider.js";
 import { mountLottie, mountHoverLottie, playTapBurst } from "./lottie-helper.js";
@@ -141,32 +141,38 @@ function mountLanding() {
         </div>
       </header>
 
+      <!-- Live DB Offline Warning Banner -->
+      <div id="live-db-alert-bar" style="display:none; background:linear-gradient(90deg, rgba(245, 158, 11, 0.2) 0%, rgba(217, 119, 6, 0.2) 100%); border-bottom:1.5px solid #F59E0B; padding:10px 24px; color:#FEF3C7; font-size:13px; font-weight:600; align-items:center; justify-content:space-between; gap:12px;">
+        <span>📡 <b>Offline Mode Active</b>: Operating with local offline catalog. Bookings will automatically synchronize once reconnected.</span>
+        <button id="btn-reconnect-live-db" class="btn btn-sm" style="background:#D97706; color:#fff; border:none; padding:5px 14px; border-radius:6px; font-weight:700; cursor:pointer;">⚡ Connect Live DB</button>
+      </div>
+
       <!-- Split Interactive Hero Stage -->
       <main class="landing-stage">
         <!-- Left: Marketing Showcase & Catering Pitch -->
         <section class="stage-left">
           <div class="hero-badge">
-            ${icon("sparkles")} Premium Catering Experience
+            ${icon("sparkles")} Live Centralized Catering System
           </div>
           <h1 class="hero-headline">
             Delightful Bites,<br>
             <span class="text-gold">Unforgettable Memories.</span>
           </h1>
           <p class="hero-lead">
-            Welcome to Cebu's premier catering service. Create your custom event package, choose your favorite dishes, and confirm your booking in minutes.
+            Welcome to Cebu's premier catering service. Connected directly to the live PostgreSQL central server for real-time dish availability and instant billing.
           </p>
 
           <div class="hero-cta-group">
             <button class="btn btn-cta btn-lg" id="btn-start-order">
               <div class="lottie-icon-container" id="lottie-cloche-idle"></div>
-              <span>Start Event Booking</span>
+              <span id="btn-start-order-text">Start Event Booking</span>
               ${icon("arrowRight")}
             </button>
           </div>
 
           <div class="hero-perks">
             <div class="perk-pill">
-              ${icon("checkCircle")} 100% Offline Standalone
+              ${icon("checkCircle")} Live PostgreSQL Sync
             </div>
             <div class="perk-pill">
               ${icon("checkCircle")} Instant PDF Receipt
@@ -234,9 +240,34 @@ function mountLanding() {
   mountHoverLottie(document.getElementById("quick-menu"), document.getElementById("quick-lottie-menu"), "utensils-cross");
   mountHoverLottie(document.getElementById("quick-terms"), document.getElementById("quick-lottie-terms"), "signature-draw");
 
-  // Wire CTA buttons
+  // Wire Live DB Reconnect button
+  document.getElementById("btn-reconnect-live-db")?.addEventListener("click", async () => {
+    toast("Connecting to Central PostgreSQL Server…", "info");
+    const ok = await api.ensureLiveConnection(true);
+    if (ok) {
+      toast("Connected to Live Central Database! Loaded live menu & packages.", "success");
+      renderHome();
+    } else {
+      toast("Could not reach server at 192.168.1.10:8000. Check Wi-Fi ARISE!.", "error");
+    }
+  });
+
+  document.getElementById("nav-live-db-status")?.addEventListener("click", async () => {
+    toast("Checking Live Central Database link…", "info");
+    const ok = await api.ensureLiveConnection(true);
+    if (ok) {
+      toast("Live Central Database is connected and synchronized!", "success");
+    } else {
+      toast("Live Central Database is offline. Ensure server is running.", "error");
+    }
+  });
+
+  // Wire CTA buttons with Live DB validation
   const startOrderBtn = document.getElementById("btn-start-order");
-  startOrderBtn?.addEventListener("click", (e) => {
+  startOrderBtn?.addEventListener("click", async (e) => {
+    if (!api.isLiveConnected()) {
+      api.ensureLiveConnection(false).catch(() => {});
+    }
     playTapBurst(e.clientX, e.clientY);
     wizard.reset();
     showScreen("wizard");
@@ -246,7 +277,7 @@ function mountLanding() {
     toggleTheme();
   });
 
-  document.getElementById("landing-open-orders")?.addEventListener("click", () => {
+  document.getElementById("landing-open-orders")?.addEventListener("click", async () => {
     openRecentOrdersModal();
   });
 
@@ -254,17 +285,68 @@ function mountLanding() {
     openOwnerSettings("bookings");
   });
 
-  document.getElementById("quick-packages")?.addEventListener("click", () => {
+  document.getElementById("quick-packages")?.addEventListener("click", async () => {
     openPackagesQuickModal();
   });
 
-  document.getElementById("quick-menu")?.addEventListener("click", () => {
+  document.getElementById("quick-menu")?.addEventListener("click", async () => {
     openMenuQuickModal();
   });
 
   document.getElementById("quick-terms")?.addEventListener("click", () => {
     openTermsQuickModal();
   });
+}
+
+export function updateLiveDbBadge(connected, server = "") {
+  const dot = document.getElementById("live-dot");
+  const text = document.getElementById("live-status-text");
+  const alertBar = document.getElementById("live-db-alert-bar");
+  const startBtn = document.getElementById("btn-start-order");
+  const startText = document.getElementById("btn-start-order-text");
+
+  if (dot && text) {
+    if (connected) {
+      dot.style.background = "#10B981";
+      dot.style.boxShadow = "0 0 10px rgba(16, 185, 129, 0.8)";
+      text.textContent = "Live DB: Connected";
+      text.style.color = "#34D399";
+      if (alertBar) alertBar.style.display = "none";
+      if (startBtn) {
+        startBtn.removeAttribute("disabled");
+        startBtn.style.opacity = "1";
+        startBtn.style.cursor = "pointer";
+      }
+      if (startText) startText.textContent = "Start Event Booking";
+      const clocheCta = document.getElementById("start-order");
+      if (clocheCta) {
+        clocheCta.style.opacity = "1";
+        clocheCta.style.filter = "none";
+      }
+    } else {
+      dot.style.background = "#F59E0B";
+      dot.style.boxShadow = "0 0 10px rgba(245, 158, 11, 0.8)";
+      text.textContent = "Offline Mode";
+      text.style.color = "#FBBF24";
+      if (alertBar) {
+        alertBar.style.display = "flex";
+        alertBar.style.background = "linear-gradient(90deg, rgba(245, 158, 11, 0.2) 0%, rgba(217, 119, 6, 0.2) 100%)";
+        alertBar.style.borderBottom = "1.5px solid #F59E0B";
+        alertBar.style.color = "#FEF3C7";
+      }
+      if (startBtn) {
+        startBtn.removeAttribute("disabled");
+        startBtn.style.opacity = "1";
+        startBtn.style.cursor = "pointer";
+      }
+      if (startText) startText.textContent = "Start Event Booking (Offline)";
+      const clocheCta = document.getElementById("start-order");
+      if (clocheCta) {
+        clocheCta.style.opacity = "1";
+        clocheCta.style.filter = "none";
+      }
+    }
+  }
 }
 
 // ── Quick Modals ─────────────────────────────────────────────────────
@@ -517,6 +599,16 @@ async function renderHome() {
       </div>
       <!-- Mobile dropdown panel (hidden by default, shown via .open class) -->
       <div class="nav-mobile-dropdown" id="nav-mobile-dropdown" role="menu">
+        <button class="nav-dropdown-item" id="connection-btn-mob" title="Database Connection &amp; Credentials">
+          <div class="nav-dropdown-item-icon">
+            ${icon("database")}
+          </div>
+          <div class="nav-dropdown-item-text">
+            <span class="nav-dropdown-label">Database Connection</span>
+            <span class="nav-dropdown-desc">Setup Server IP &amp; Credentials</span>
+          </div>
+        </button>
+        <div class="nav-dropdown-divider"></div>
         <button class="nav-dropdown-item theme-toggle-btn" id="theme-btn-mob" title="Toggle Theme">
           <div class="nav-dropdown-item-icon">
             ${icon(currentTheme === "light" ? "moon" : "sun")}
@@ -548,6 +640,16 @@ async function renderHome() {
         </button>
       </div>
     </header>
+    <!-- Live DB Offline Warning Banner -->
+    <div id="live-db-alert-bar" style="display:none; background:linear-gradient(90deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.15) 100%); border-bottom:1.5px solid #F59E0B; padding:10px 24px; color:#B45309; font-size:13px; font-weight:600; align-items:center; justify-content:space-between; gap:12px; z-index:99; position:relative; flex-wrap:wrap;">
+      <span style="display:flex; align-items:center; gap:8px;">
+        📡 <b>Offline Mode Active</b>: Browsing offline menu. Bookings will automatically synchronize once connected to the server.
+      </span>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button id="btn-setup-live-db" class="btn btn-sm" style="background:#2563EB; color:#fff; border:none; padding:7px 16px; border-radius:8px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">⚙️ Setup IP &amp; Credentials</button>
+        <button id="btn-reconnect-live-db" class="btn btn-sm" style="background:#D97706; color:#fff; border:none; padding:7px 16px; border-radius:8px; font-weight:700; cursor:pointer;">⚡ Connect Server</button>
+      </div>
+    </div>
 
     <main class="main kiosk-landing-main" id="home-main">
       <div class="kiosk-landing-wrapper">
@@ -709,13 +811,41 @@ async function renderHome() {
     mountLottie(clocheWrap, "cloche-idle", { loop: true });
   }
 
-  // START ORDER tap with particle burst
+  // START ORDER tap with live connection validation and particle burst
   const startOrderBtn = document.getElementById("start-order");
-  startOrderBtn?.addEventListener("click", () => {
+  startOrderBtn?.addEventListener("click", async () => {
+    if (!api.isLiveConnected()) {
+      api.ensureLiveConnection(false).catch(() => {});
+    }
     playTapBurst(document.getElementById("hero-cloche-icon-box") || startOrderBtn, "cloche-tap-burst");
     setTimeout(() => {
       openTermsModal();
     }, 180);
+  });
+
+  // Setup Live DB Connection & Credentials button wiring
+  document.getElementById("btn-setup-live-db")?.addEventListener("click", () => {
+    openLiveDbConfigModal();
+  });
+
+  // Reconnect Live DB button wiring in warning banner
+  document.getElementById("btn-reconnect-live-db")?.addEventListener("click", async () => {
+    toast("Connecting to Live Central Database…", "info");
+    const ok = await api.ensureLiveConnection(true);
+    if (ok) {
+      toast("Connected to Live Central Database! Loaded live packages & dishes.", "success");
+      updateLiveDbBadge(true);
+      window.dispatchEvent(new CustomEvent("kiosk:home"));
+    } else {
+      toast("Could not reach Live Central Database (192.168.1.10:8000). Check Wi-Fi.", "error");
+      updateLiveDbBadge(false);
+      openLiveDbConfigModal();
+    }
+  });
+
+  // Live DB badge in header click handler opens Setup modal directly
+  document.getElementById("nav-live-db-status")?.addEventListener("click", () => {
+    openLiveDbConfigModal();
   });
 
   // Mount Benefit card icons (constrained icon box divs only)
@@ -772,6 +902,12 @@ async function renderHome() {
   // Mobile dropdown: fullscreen
   document.getElementById("fullscreen-btn-mob")?.addEventListener("click", () => {
     toggleFullscreen();
+    closeMobileDropdown();
+  });
+
+  // Mobile dropdown: connection setup
+  document.getElementById("connection-btn-mob")?.addEventListener("click", () => {
+    openLiveDbConfigModal();
     closeMobileDropdown();
   });
 
@@ -900,7 +1036,16 @@ function startOrderWizard() {
 
 // ── Quick Option: View Packages Modal ────────────────────────────────
 async function openQuickPackagesModal() {
-  const packages = await api.getPackages();
+  if (!api.isLiveConnected()) {
+    api.ensureLiveConnection(false).catch(() => {});
+  }
+  let packages = [];
+  try {
+    packages = await api.getPackages();
+  } catch (err) {
+    toast("❌ " + err.message, "error");
+    return;
+  }
   openModal({
     id: "quick-packages-modal",
     title: `${icon("package")} Catering Buffet Packages (${packages.length})`,
@@ -1027,7 +1172,16 @@ function openQuickEventTypesModal() {
 
 // ── Quick Option: Add-ons & Signature Dishes Modal ───────────────────
 async function openQuickAddonsModal() {
-  const items = await api.getMenuItems();
+  if (!api.isLiveConnected()) {
+    api.ensureLiveConnection(false).catch(() => {});
+  }
+  let items = [];
+  try {
+    items = await api.getMenuItems();
+  } catch (err) {
+    toast("❌ " + err.message, "error");
+    return;
+  }
   const categories = [...new Set(items.map(i => i.category || "Specialty"))];
 
   openModal({
@@ -1197,26 +1351,34 @@ async function openDataSyncModal() {
   });
 }
 
-// Immediate auto-discovery and auto-sync on tablet startup
+// Immediate auto-discovery and live sync on tablet startup
 (async function initStartupSync() {
   try {
-    const res = await api.autoDiscoverAndSync();
-    if (res) {
-      console.log("[AutoSync] Initial sync completed successfully:", res);
+    const isLive = await api.ensureLiveConnection(true);
+    if (isLive) {
+      console.log("[LiveDB] Live PostgreSQL Central Database connected!");
       const landing = document.querySelector(".landing-shell");
       if (landing && !document.querySelector(".wizard-container")) {
         renderHome();
       }
+    } else {
+      console.warn("[LiveDB] Central Server offline. Local data blocked.");
+      updateLiveDbBadge(false);
     }
   } catch (e) {
-    console.warn("[AutoSync] Initial sync note:", e);
+    console.warn("[LiveDB] Startup connection note:", e);
+    updateLiveDbBadge(false);
   }
 })();
 
-// Listen for sync completion to immediately refresh the UI with PostgreSQL database items
+// Listen for sync completion and live connection status events
 if (typeof window !== "undefined") {
+  window.addEventListener("jayraldines:live-status", (e) => {
+    updateLiveDbBadge(!!e.detail?.connected, e.detail?.server || "");
+  });
+
   window.addEventListener("jayraldines:sync-completed", (e) => {
-    console.log("[AutoSync] jayraldines:sync-completed event received:", e.detail);
+    console.log("[LiveDB] Live data refreshed from PostgreSQL:", e.detail);
     const landing = document.querySelector(".landing-shell");
     if (landing && !document.querySelector(".wizard-container")) {
       renderHome();
@@ -1225,22 +1387,22 @@ if (typeof window !== "undefined") {
 
   // Auto-sync whenever network re-connects or tab becomes active
   window.addEventListener("online", () => {
-    console.log("[AutoSync] Network online - syncing with central database...");
-    api.autoSyncPendingRecords().catch(() => {});
+    console.log("[LiveDB] Network online - connecting to Live Central Database...");
+    api.ensureLiveConnection(true).catch(() => {});
   });
 
   window.addEventListener("focus", () => {
-    api.autoSyncPendingRecords().catch(() => {});
+    api.ensureLiveConnection().catch(() => {});
   });
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      api.autoSyncPendingRecords().catch(() => {});
+      api.ensureLiveConnection().catch(() => {});
     }
   });
 }
 
-// Periodically sync in the background every 15 seconds if connected
+// Periodically check live connection every 15 seconds
 setInterval(() => {
-  api.autoSyncPendingRecords().catch(() => {});
+  api.ensureLiveConnection().catch(() => {});
 }, 15000);

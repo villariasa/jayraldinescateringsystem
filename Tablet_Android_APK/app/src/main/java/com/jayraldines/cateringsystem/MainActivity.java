@@ -62,6 +62,10 @@ public class MainActivity extends AppCompatActivity {
         requestAppPermissions();
 
         webView = new WebView(this);
+        webView.setVerticalScrollBarEnabled(true);
+        webView.setHorizontalScrollBarEnabled(false);
+        webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
+        webView.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
         setContentView(webView);
 
         final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()

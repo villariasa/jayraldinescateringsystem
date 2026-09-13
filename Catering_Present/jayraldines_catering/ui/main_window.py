@@ -360,6 +360,11 @@ class MainWindow(QMainWindow):
                 from utils.auth import SessionManager
                 self._floating_ai.setVisible(index != 9 and SessionManager.has_permission("ai_chef_jay", "view"))
 
+            # Reset scroll position to top whenever navigating to any page
+            self._reset_page_scroll(page)
+            QTimer.singleShot(0, lambda p=page: self._reset_page_scroll(p))
+            QTimer.singleShot(60, lambda p=page: self._reset_page_scroll(p))
+
             # Telemetry: Update active screen on server
             try:
                 from utils.device_tracker import device_tracker
@@ -373,6 +378,44 @@ class MainWindow(QMainWindow):
                 pass
         finally:
             self.stack.setUpdatesEnabled(True)
+
+    def _reset_page_scroll(self, page):
+        """Resets all scrollbars inside the page to top (0) so switching tabs always starts at the top."""
+        if not page:
+            return
+        try:
+            from PySide6.QtWidgets import QAbstractScrollArea
+            if isinstance(page, QAbstractScrollArea):
+                vbar = page.verticalScrollBar()
+                if vbar:
+                    vbar.setValue(0)
+                hbar = page.horizontalScrollBar()
+                if hbar:
+                    hbar.setValue(0)
+
+            for sa in page.findChildren(QAbstractScrollArea):
+                try:
+                    vbar = sa.verticalScrollBar()
+                    if vbar:
+                        vbar.setValue(0)
+                    hbar = sa.horizontalScrollBar()
+                    if hbar:
+                        hbar.setValue(0)
+                except Exception:
+                    pass
+
+            if hasattr(page, "reset_scroll") and callable(page.reset_scroll):
+                try:
+                    page.reset_scroll()
+                except Exception:
+                    pass
+            elif hasattr(page, "scroll_to_top") and callable(page.scroll_to_top):
+                try:
+                    page.scroll_to_top()
+                except Exception:
+                    pass
+        except Exception as exc:
+            print(f"[MainWindow] _reset_page_scroll note: {exc}")
 
     def eventFilter(self, obj, event):
         if event.type() in (QEvent.MouseButtonPress, QEvent.KeyPress, QEvent.Wheel):

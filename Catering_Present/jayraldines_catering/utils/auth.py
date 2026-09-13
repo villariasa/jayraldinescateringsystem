@@ -547,7 +547,16 @@ class SessionManager:
         with cls._lock:
             if not cls._current_user:
                 return False
-            return cls._current_user.get("role") == "admin"
+            role = str(cls._current_user.get("role") or "").lower()
+            return role in ("admin", "owner", "super_admin", "superadmin", "master_admin")
+
+    @classmethod
+    def is_owner_or_superadmin(cls) -> bool:
+        with cls._lock:
+            if not cls._current_user:
+                return False
+            role = str(cls._current_user.get("role") or "").lower()
+            return role in ("owner", "super_admin", "superadmin", "master_admin")
 
     @classmethod
     def has_permission(cls, module: str, action: str = "view") -> bool:

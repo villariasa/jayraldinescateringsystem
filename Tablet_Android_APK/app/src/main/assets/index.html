@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Jayraldine's Catering Kiosk</title>
 <meta name="theme-color" content="#0B1220">
 <link rel="manifest" href="manifest.json">
@@ -33,6 +33,18 @@
 <script src="vendor/sql-wasm.js" defer></script>
 <script src="vendor/jspdf.umd.min.js" defer></script>
 <script src="vendor/xlsx.full.min.js" defer></script>
+<script>
+  // Fail-safe auto-dismiss: ensure splash screen NEVER traps the user on a blank screen
+  window.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      const splash = document.getElementById("app-splash");
+      if (splash && !splash.classList.contains("hidden")) {
+        splash.classList.add("hidden");
+        setTimeout(() => splash.remove(), 400);
+      }
+    }, 1500);
+  });
+</script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

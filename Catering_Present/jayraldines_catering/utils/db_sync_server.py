@@ -101,6 +101,81 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.end_headers()
 
+    def _record_client_session(self, payload=None, query_params=None):
+        """Auto-registers and tracks connecting mobile/tablet/client devices into device_sessions table."""
+        try:
+            client_ip = self.client_address[0] if self.client_address else "127.0.0.1"
+            user_agent = self.headers.get("User-Agent", "") or ""
+
+            dev_id = None
+            hostname = None
+            os_info = None
+            app_version = "v1.26.12"
+            active_module = "Customer Booking Kiosk"
+
+            if payload and isinstance(payload, dict):
+                dev_id = payload.get("device_id")
+                hostname = payload.get("hostname")
+                os_info = payload.get("os_info")
+                app_version = payload.get("app_version") or app_version
+                active_module = payload.get("active_module") or active_module
+
+            if not dev_id and query_params:
+                dev_id = query_params.get("device_id", [None])[0]
+                hostname = query_params.get("hostname", [None])[0]
+                os_info = query_params.get("os_info", [None])[0]
+                app_version = query_params.get("app_version", [app_version])[0]
+                active_module = query_params.get("active_module", [active_module])[0]
+
+            # Also inspect incoming custom HTTP headers if present
+            if not dev_id and self.headers.get("X-Device-Id"):
+                dev_id = self.headers.get("X-Device-Id")
+            if not hostname and self.headers.get("X-Device-Host"):
+                hostname = self.headers.get("X-Device-Host")
+            if not os_info and self.headers.get("X-Device-OS"):
+                os_info = self.headers.get("X-Device-OS")
+
+            # Accurate detection: Mobile Phone vs Tablet
+            is_android = "Android" in user_agent or "com.jayraldines" in user_agent
+            is_ios = "iPhone" in user_agent or "iPad" in user_agent
+            # Android smartphones include "Mobile" token; tablets omit "Mobile"
+            is_mobile_phone = "Mobile" in user_agent or "iPhone" in user_agent
+            is_tablet = "Tablet" in user_agent or "iPad" in user_agent or (is_android and not is_mobile_phone)
+
+            device_type = "Tablet" if is_tablet else ("Mobile Phone" if is_mobile_phone else "Mobile Device")
+            platform_name = "Android" if is_android else ("iOS" if is_ios else "Mobile")
+            clean_ip = client_ip.replace(":", "_").replace(".", "_")
+
+            if not dev_id:
+                prefix = "phone" if device_type == "Mobile Phone" else "tablet"
+                dev_id = f"{prefix}-{clean_ip}"
+
+            if not hostname:
+                hostname = f"📱 {platform_name} {device_type} ({client_ip})"
+
+            if not os_info:
+                if is_android:
+                    tag = "APK" if "com.jayraldines" in user_agent else "Web/PWA"
+                    os_info = f"Android {device_type} ({tag})"
+                elif is_ios:
+                    os_info = f"iOS {device_type} (Safari/PWA)"
+                else:
+                    os_info = f"{device_type} ({user_agent[:60]})" if user_agent else "Client Terminal"
+
+            db.upsert_device_session(
+                device_id=dev_id,
+                hostname=hostname,
+                ip_address=client_ip,
+                os_info=os_info,
+                app_version=app_version,
+                username="Mobile Kiosk Guest",
+                user_role="Kiosk Terminal",
+                active_module=active_module,
+                status="online"
+            )
+        except Exception as exc:
+            logger.debug(f"[SyncServer] Device registration ignored: {exc}")
+
     def do_OPTIONS(self):
         self._set_cors_headers(204)
 
@@ -114,6 +189,10 @@ class SyncServerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        query_params = parse_qs(parsed.query)
+
+        # Track device session on every incoming tablet request
+        self._record_client_session(query_params=query_params)
 
         if path in ("/health", "/api/health"):
             self._set_cors_headers(200)
@@ -135,11 +214,19 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self._handle_lan_status(parsed)
             return
 
+        if path == "/api/sync/device-offline":
+            self._handle_device_offline(query_params=query_params)
+            return
+
+        if path in ("/", "/index.html"):
+            if self._serve_static_file("index.html"):
+                return
+
         # Attempt to serve static files from Tablet_PWA/frontend or desktop assets
         if self._serve_static_file(path):
             return
 
-        if path == "/":
+        if path == "/api/info":
             self._set_cors_headers(200)
             res = {
                 "status": "ok",
@@ -228,7 +315,16 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             clean_path = "index.html"
 
         this_file = Path(__file__).resolve()
-        candidate_dirs = []
+        candidate_dirs = [
+            Path(r"C:\Testing\jayraldinescateringsystem\Tablet_PWA\frontend"),
+            Path(r"C:\Testing\jayraldinescateringsystem\Tablet_Android_APK\app\src\main\assets"),
+        ]
+        for p in this_file.parents:
+            if (p / "Tablet_PWA" / "frontend").is_dir():
+                candidate_dirs.append(p / "Tablet_PWA" / "frontend")
+            if (p / "Tablet_Android_APK" / "app" / "src" / "main" / "assets").is_dir():
+                candidate_dirs.append(p / "Tablet_Android_APK" / "app" / "src" / "main" / "assets")
+
         if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
             meipass = Path(sys._MEIPASS)
             candidate_dirs.extend([
@@ -239,12 +335,6 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             ])
 
         candidate_dirs.extend([
-            this_file.parent.parent / "Tablet_PWA" / "frontend",
-            this_file.parent.parent.parent / "Tablet_PWA" / "frontend",
-            this_file.parent.parent.parent.parent / "Tablet_PWA" / "frontend",
-            this_file.parent.parent / "Tablet_Android_APK" / "app" / "src" / "main" / "assets",
-            this_file.parent.parent.parent / "Tablet_Android_APK" / "app" / "src" / "main" / "assets",
-            this_file.parent.parent,
             Path.cwd() / "Tablet_PWA" / "frontend",
             Path.cwd(),
             Path(os.environ.get("LOCALAPPDATA", "")) / "JayraldinesCatering" / "Tablet_PWA" / "frontend",
@@ -297,6 +387,10 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self._handle_lan_sync()
             return
 
+        if path == "/api/sync/device-offline":
+            self._handle_device_offline()
+            return
+
         self._set_cors_headers(404)
         self.wfile.write(json.dumps({"error": "Not Found"}).encode("utf-8"))
 
@@ -339,6 +433,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             return
 
         try:
+            self._record_client_session(payload=payload)
             result = perform_server_sync(payload)
             self._set_cors_headers(200)
             self.wfile.write(json.dumps(result).encode("utf-8"))
@@ -346,6 +441,33 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             logger.error(f"[SyncServer] Sync execution failed: {exc}", exc_info=True)
             self._set_cors_headers(500)
             self.wfile.write(json.dumps({"detail": str(exc)}).encode("utf-8"))
+
+    def _handle_device_offline(self, query_params=None):
+        try:
+            dev_id = None
+            if query_params:
+                dev_id = query_params.get("device_id", [None])[0]
+            if not dev_id:
+                content_len = int(self.headers.get("Content-Length", 0))
+                if content_len > 0:
+                    body = self.rfile.read(content_len).decode("utf-8")
+                    payload = json.loads(body) if body else {}
+                    dev_id = payload.get("device_id")
+
+            client_ip = self.client_address[0] if self.client_address else "127.0.0.1"
+            clean_ip = client_ip.replace(":", "_").replace(".", "_")
+
+            if dev_id:
+                db.set_device_offline(dev_id)
+            else:
+                db.set_device_offline(f"phone-{clean_ip}")
+                db.set_device_offline(f"tablet-{clean_ip}")
+
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({"ok": True, "status": "offline", "device_id": dev_id}).encode("utf-8"))
+        except Exception as exc:
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode("utf-8"))
 
 
 def perform_server_sync(payload: dict) -> dict:
@@ -427,10 +549,19 @@ def perform_server_sync(payload: dict) -> dict:
             pay_mode = b.get("bk_payment_mode") or b.get("payment_mode") or "Cash"
             if pay_mode not in ["Cash", "Bank Transfer", "GCash", "PayMaya"]:
                 pay_mode = "Cash"
-            paid = float(b.get("bk_amount_paid") or b.get("amount_paid") or 0.0)
-            down_pay = float(b.get("bk_down_payment") or b.get("down_payment") or 0.0)
+            down_pay = float(b.get("bk_down_payment") or b.get("down_payment") or b.get("bk_amount_paid") or b.get("amount_paid") or 0.0)
+            paid = down_pay
             dp_status = b.get("bk_down_payment_status") or b.get("down_payment_status") or ("PAID" if down_pay > 0 else "PENDING")
-            notes = b.get("bk_notes") or b.get("notes") or "Tablet Kiosk Sync"
+            
+            # Extract customer notes / special instructions
+            notes = (b.get("bk_special_notes") or b.get("special_notes") or b.get("bk_notes") or b.get("notes") or "").strip()
+            
+            # Lookup customer id and contact info
+            cust_row = db.fetchone("SELECT cus_id, cus_contact, cus_email FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1", (cust_name,))
+            cust_id = cust_row["cus_id"] if cust_row else None
+            cust_contact = (b.get("bk_contact") or b.get("contact") or b.get("phone") or (cust_row.get("cus_contact") if cust_row else "") or "").strip()
+            cust_email = (b.get("bk_email") or b.get("email") or (cust_row.get("cus_email") if cust_row else "") or "").strip()
+
             pkg_id = b.get("bk_package_id") or b.get("package_id") or None
             if pkg_id:
                 try:
@@ -440,25 +571,33 @@ def perform_server_sync(payload: dict) -> dict:
                 except Exception:
                     pkg_id = None
 
-            # Lookup customer id
-            cust_row = db.fetchone("SELECT cus_id FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1", (cust_name,))
-            cust_id = cust_row["cus_id"] if cust_row else None
-
             try:
                 row = db.fetchone("""
                     INSERT INTO bookings (
-                        bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date,
-                        bk_event_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
+                        bk_booking_ref, bk_customer_id, bk_customer_name, bk_contact, bk_email, bk_address,
+                        bk_event_date, bk_event_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
                         bk_base_total, bk_payment_mode, bk_amount_paid, bk_down_payment,
-                        bk_down_payment_status, bk_status, bk_notes, bk_package_id
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::payment_method, %s, %s, %s, %s::booking_status, %s, %s)
-                    ON CONFLICT (bk_booking_ref) DO NOTHING
+                        bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s::payment_method, %s, %s,
+                        %s, %s::booking_status, %s, %s, %s
+                    )
+                    ON CONFLICT (bk_booking_ref) DO UPDATE SET
+                        bk_special_notes = EXCLUDED.bk_special_notes,
+                        bk_notes = EXCLUDED.bk_notes,
+                        bk_contact = COALESCE(NULLIF(EXCLUDED.bk_contact, ''), bookings.bk_contact),
+                        bk_email = COALESCE(NULLIF(EXCLUDED.bk_email, ''), bookings.bk_email),
+                        bk_amount_paid = EXCLUDED.bk_amount_paid,
+                        bk_down_payment = EXCLUDED.bk_down_payment,
+                        bk_down_payment_status = EXCLUDED.bk_down_payment_status
                     RETURNING bk_id;
                 """, (
-                    ref, cust_id, cust_name, addr, ev_date,
-                    ev_time, venue, occ, pax, total,
+                    ref, cust_id, cust_name, cust_contact, cust_email, addr,
+                    ev_date, ev_time, venue, occ, pax, total,
                     base_tot, pay_mode, paid, down_pay,
-                    dp_status, "PENDING", notes, pkg_id
+                    dp_status, "PENDING", notes, notes, pkg_id
                 ))
                 if row:
                     pushed_bookings += 1
@@ -499,11 +638,15 @@ def perform_server_sync(payload: dict) -> dict:
                         inv_balance = max(0.0, total - paid)
                         inv_status = "Paid" if paid >= total and total > 0 else ("Partial" if paid > 0 else "Unpaid")
                         inv_row = db.fetchone("""
-                            INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_status)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s::invoice_status)
+                            INSERT INTO invoices (
+                                inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name,
+                                inv_event_date, inv_total_amount, inv_amount_paid, inv_balance,
+                                inv_down_payment, inv_status, inv_payment_verified
+                            )
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::invoice_status, %s)
                             ON CONFLICT DO NOTHING
                             RETURNING inv_id;
-                        """, (bk_id, inv_num, cust_name, ev_date, total, paid, inv_balance, inv_status))
+                        """, (bk_id, inv_num, inv_num, cust_name, ev_date, total, paid, inv_balance, down_pay, inv_status, 1 if paid > 0 else 0))
                         
                         inv_id = inv_row["inv_id"] if inv_row else None
                         if not inv_id:
@@ -514,7 +657,7 @@ def perform_server_sync(payload: dict) -> dict:
                             db.execute("""
                                 INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
                                 VALUES (%s, %s, %s, %s, %s, 1)
-                            """, (inv_id, paid, ev_date, pay_mode, "Tablet Kiosk Initial Payment"))
+                            """, (inv_id, paid, ev_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
 
                         if cust_id:
                             db.execute("""
@@ -528,6 +671,26 @@ def perform_server_sync(payload: dict) -> dict:
                                 cus_updated_at = NOW()
                                 WHERE cus_id = %s
                             """, (cust_id, cust_id, cust_id))
+
+                        # Log creation in Audit Logs by Tablet Kiosk
+                        try:
+                            import utils.repository as repo
+                            repo.write_audit_log(
+                                actor=f"Kiosk ({cust_name})",
+                                action="CREATE",
+                                table_name="bookings",
+                                record_id=bk_id,
+                                new_value={
+                                    "ref": ref,
+                                    "customer": cust_name,
+                                    "total": total,
+                                    "down_payment": down_pay,
+                                    "notes": notes
+                                },
+                                device="Tablet Kiosk"
+                            )
+                        except Exception:
+                            pass
                     except Exception as ie:
                         logger.warning(f"[SyncServer] Invoice insert note: {ie}")
             except Exception as e:

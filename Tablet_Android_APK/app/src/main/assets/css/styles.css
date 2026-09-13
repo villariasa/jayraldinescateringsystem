@@ -211,20 +211,40 @@ html[data-theme="light"] body,
   box-sizing: border-box;
 }
 
-html, body {
+html {
   margin: 0;
   padding: 0;
   width: 100%;
   max-width: 100vw;
-  min-height: 100vh;
+  height: 100%;
   overflow-x: hidden;
+  overflow-y: auto !important;
   box-sizing: border-box;
   background-color: var(--bg);
   color: var(--text);
   font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
   -webkit-tap-highlight-color: transparent;
-  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 100vw;
+  min-height: 100%;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: visible !important;
+  box-sizing: border-box;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 html[data-theme="dark"],
@@ -249,13 +269,13 @@ h1, h2, h3, h4, .brand h1, .hero h2 {
 #app {
   width: 100%;
   max-width: 100vw;
-  min-height: 100vh;
+  min-height: 100%;
+  height: auto;
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
-  /* overflow-y must remain visible/unset so position:sticky works on children */
-  overflow-y: visible;
+  overflow: visible !important;
   box-sizing: border-box;
+  touch-action: pan-y;
 }
 
 button {
@@ -2984,11 +3004,20 @@ svg {
 
 /* ── Mobile / Portrait Mode (< 768px) ─────────────────────────────────────── */
 @media (max-width: 768px) {
-  html, body, #app {
+  html {
     overflow-x: hidden !important;
-    overflow-y: visible !important;
+    overflow-y: auto !important;
+    height: 100% !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-y !important;
+  }
+
+  body, #app {
+    overflow: visible !important;
     max-width: 100vw !important;
     width: 100% !important;
+    height: auto !important;
+    touch-action: pan-y !important;
   }
 
   .app-container {
@@ -3950,8 +3979,9 @@ svg {
     padding: 12px 14px !important;
   }
 
-  /* Mobile Header: Hide the 3 separate action buttons, show single Facebook/Menu toggle */
-  .header-nav-actions .nav-action-btn {
+  /* Mobile Header: Hide standard action buttons and technical badges for clean customer kiosk header */
+  .header-nav-actions .nav-action-btn,
+  .live-db-badge {
     display: none !important;
   }
 
@@ -4010,7 +4040,7 @@ svg {
   }
 
   .kiosk-landing-main {
-    padding: 10px 12px 28px !important;
+    padding: 10px 12px 80px !important;
   }
 
   .kiosk-landing-wrapper {

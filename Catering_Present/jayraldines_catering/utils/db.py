@@ -290,6 +290,7 @@ def _ensure_pg_places_and_auth(conn) -> None:
                         ip_address      VARCHAR(50),
                         created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
+                    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS al_device VARCHAR(100) DEFAULT 'Desktop / Server';
                 """)
             conn.commit()
         except Exception:
@@ -761,6 +762,54 @@ def _ensure_pg_places_and_auth(conn) -> None:
             conn.commit()
         except Exception as e_sp:
             log.warning(f"[db.py] sp_create_booking procedure update note: {e_sp}")
+            conn.rollback()
+
+        # 14. Ensure default packages and menu items if empty
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM packages;")
+                if cur.fetchone()[0] == 0:
+                    for name, desc, price, min_pax in [
+                        ('Classic Celebration Package', 'Standard catering buffet package with 4 main dishes, rice, dessert, and drinks.', 350.0, 30),
+                        ('Premium Grand Feast', 'Deluxe buffet with 6 main dishes, roast pork lechon belly, 2 desserts, and beverage bar.', 550.0, 50),
+                        ('Executive VIP Buffet', 'Top-tier package with live carving station, 7 signature mains, seafood, and full dessert table.', 850.0, 50),
+                    ]:
+                        cur.execute("""
+                            INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax)
+                            VALUES (%s, %s, %s, %s)
+                            ON CONFLICT (pkg_name) DO NOTHING;
+                        """, (name, desc, price, min_pax))
+
+                cur.execute("SELECT COUNT(*) FROM menu_items;")
+                if cur.fetchone()[0] == 0:
+                    for name, cat, price, status, desc in [
+                        ('Special Pork Humba', 'Main Course', 450.0, 'Available', 'Slow cooked pork belly with banana blossoms'),
+                        ('Lechon Belly Roast', 'Main Course', 1200.0, 'Available', 'Crispy rolled pork belly with herbs'),
+                        ('Chicken Pandan', 'Main Course', 380.0, 'Available', 'Wrapped savory fried chicken'),
+                        ('Garlic Butter Buttered Shrimp', 'Main Course', 550.0, 'Available', 'Fresh prawns in savory garlic butter'),
+                        ('Sweet & Sour Fish Fillet', 'Main Course', 360.0, 'Available', 'Crispy fish fillet in pineapple sweet sauce'),
+                        ('Beef with Broccoli', 'Main Course', 480.0, 'Available', 'Tender beef slices in oyster glaze'),
+                        ('Biko with Latik', 'Dessert', 250.0, 'Available', 'Traditional sweet sticky rice'),
+                        ('Mango Tapioca', 'Dessert', 220.0, 'Available', 'Chilled mango cubes with sago pearls'),
+                        ('Refillable Iced Tea', 'Drinks', 150.0, 'Available', 'House blend lemon iced tea'),
+                    ]:
+                        cur.execute("""
+                            INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description)
+                            VALUES (%s, %s::menu_category, %s, %s::menu_status, %s)
+                            ON CONFLICT (mi_name) DO NOTHING;
+                        """, (name, cat, price, status, desc))
+
+                cur.execute("SELECT COUNT(*) FROM package_items;")
+                if cur.fetchone()[0] == 0:
+                    cur.execute("""
+                        INSERT INTO package_items (pi_package_id, pi_menu_item_id, pi_item_name, pi_category, pi_quantity)
+                        SELECT p.pkg_id, m.mi_id, m.mi_name, m.mi_category::TEXT, 1
+                        FROM packages p CROSS JOIN menu_items m
+                        ON CONFLICT DO NOTHING;
+                    """)
+            conn.commit()
+        except Exception as e_seed:
+            log.warning(f"[db.py] Package / menu item auto-seed note: {e_seed}")
             conn.rollback()
     except Exception as exc:
         try:
@@ -1307,11 +1356,12 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         out_dict["p_expense_id"] = cur.lastrowid
 
     elif proc == "sp_add_package":
-        # in_params: (name, price_per_pax, min_pax, description)
+        # in_params: (name, price_per_pax, min_pax, description, [image])
+        img = str(p[4]) if len(p) > 4 and p[4] is not None else ""
         cur.execute("""
-            INSERT INTO packages (pkg_name, pkg_price_per_pax, pkg_min_pax, pkg_description)
-            VALUES (?, ?, ?, ?)
-        """, p)
+            INSERT INTO packages (pkg_name, pkg_price_per_pax, pkg_min_pax, pkg_description, pkg_image)
+            VALUES (?, ?, ?, ?, ?)
+        """, (p[0], p[1], p[2], p[3], img))
         _sqlite_conn.commit()
         out_dict["p_package_id"] = cur.lastrowid
 
@@ -1578,11 +1628,12 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         out_dict["p_new_paid"] = paid
 
     elif proc == "sp_write_audit_log":
-        # in_params: (actor, action, table_name, record_id, old_value_json, new_value_json)
+        # in_params: (actor, action, table_name, record_id, old_value_json, new_value_json, [device])
+        dev = str(p[6]) if len(p) > 6 and p[6] else "Desktop / Server"
         cur.execute("""
-            INSERT INTO audit_logs (al_actor, al_action, al_table_name, al_record_id, al_old_value, al_new_value)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (p[0], p[1], p[2], p[3], str(p[4]) if p[4] is not None else None, str(p[5]) if p[5] is not None else None))
+            INSERT INTO audit_logs (al_actor, al_action, al_table_name, al_record_id, al_old_value, al_new_value, al_device)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (p[0], p[1], p[2], p[3], str(p[4]) if p[4] is not None else None, str(p[5]) if p[5] is not None else None, dev))
         _sqlite_conn.commit()
         out_dict["p_log_id"] = cur.lastrowid
 
@@ -1620,12 +1671,13 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
         cur.execute("DELETE FROM menu_items WHERE mi_id = ?", (p[0],))
 
     elif proc == "sp_update_package":
-        # (db_id, name, price_per_pax, min_pax, description)
+        # (db_id, name, price_per_pax, min_pax, description, [image])
+        img = str(p[5]) if len(p) > 5 and p[5] is not None else ""
         cur.execute("""
             UPDATE packages
-            SET pkg_name = ?, pkg_price_per_pax = ?, pkg_min_pax = ?, pkg_description = ?
+            SET pkg_name = ?, pkg_price_per_pax = ?, pkg_min_pax = ?, pkg_description = ?, pkg_image = ?
             WHERE pkg_id = ?
-        """, (p[1], p[2], p[3], p[4], p[0]))
+        """, (p[1], p[2], p[3], p[4], img, p[0]))
 
     elif proc == "sp_delete_package":
         cur.execute("DELETE FROM packages WHERE pkg_id = ?", (p[0],))
@@ -1948,22 +2000,59 @@ def update_device_heartbeat(
 
 
 def set_device_offline(device_id: str) -> bool:
-    """Mark a client device as disconnected / offline."""
-    return update_device_heartbeat(device_id, status="offline")
+    """Mark a client device as disconnected / offline immediately without updating heartbeat."""
+    _ensure_connected()
+    if _engine_type == "postgres":
+        sql = "UPDATE device_sessions SET status = 'offline' WHERE device_id = %s"
+    else:
+        sql = "UPDATE device_sessions SET status = 'offline' WHERE device_id = ?"
+    try:
+        execute(sql, (device_id,))
+        return True
+    except Exception as e:
+        log.warning(f"[DB] set_device_offline failed: {e}")
+        return False
 
 
 def get_connected_devices() -> List[Dict[str, Any]]:
     """Retrieve list of all monitored devices with computed live status."""
     _ensure_connected()
     if _engine_type == "postgres":
+        # Auto-discover any active remote PostgreSQL client connections
+        try:
+            direct_conns = fetchall("""
+                SELECT DISTINCT client_addr::text AS c_ip, usename, application_name
+                FROM pg_stat_activity
+                WHERE client_addr IS NOT NULL
+                  AND client_addr != '127.0.0.1'::inet
+                  AND datname = current_database()
+            """)
+            for dc in direct_conns:
+                ip = dc.get("c_ip") if isinstance(dc, dict) else str(dc[0])
+                if ip:
+                    clean_ip = ip.replace(":", "_").replace(".", "_")
+                    upsert_device_session(
+                        device_id=f"direct-db-{clean_ip}",
+                        hostname=f"📱 Remote Mobile / Client ({ip})",
+                        ip_address=ip,
+                        os_info="PostgreSQL Direct Client Connection",
+                        app_version="v1.26.12",
+                        username="Mobile Client",
+                        user_role="Database Client",
+                        active_module="Live Database",
+                        status="online"
+                    )
+        except Exception:
+            pass
+
         sql = """
             SELECT 
                 device_id, hostname, ip_address, os_info, app_version,
                 username, user_role, active_module,
                 CASE 
                     WHEN status = 'offline' THEN 'offline'
-                    WHEN last_heartbeat >= NOW() - INTERVAL '2 minutes' THEN 'online'
-                    WHEN last_heartbeat >= NOW() - INTERVAL '10 minutes' THEN 'idle'
+                    WHEN last_heartbeat >= NOW() - INTERVAL '35 seconds' THEN 'online'
+                    WHEN last_heartbeat >= NOW() - INTERVAL '90 seconds' THEN 'idle'
                     ELSE 'offline'
                 END AS live_status,
                 status AS raw_status,
@@ -1980,8 +2069,8 @@ def get_connected_devices() -> List[Dict[str, Any]]:
                 username, user_role, active_module,
                 CASE 
                     WHEN status = 'offline' THEN 'offline'
-                    WHEN (julianday('now') - julianday(last_heartbeat)) * 86400 <= 120 THEN 'online'
-                    WHEN (julianday('now') - julianday(last_heartbeat)) * 86400 <= 600 THEN 'idle'
+                    WHEN (julianday('now') - julianday(last_heartbeat)) * 86400 <= 35 THEN 'online'
+                    WHEN (julianday('now') - julianday(last_heartbeat)) * 86400 <= 90 THEN 'idle'
                     ELSE 'offline'
                 END AS live_status,
                 status AS raw_status,

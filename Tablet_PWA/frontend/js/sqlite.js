@@ -214,48 +214,9 @@ const CEBU_CITIES = [
   ["Liloan", ["Catarman", "Cotcot", "Jubay", "Poblacion", "San Roque", "San Vicente", "Yati"]],
 ];
 
-const DEFAULT_PACKAGES = [
-  ["Budget Fiesta Package", "Affordable complete catering package perfect for intimate birthdays and family gatherings.", 350.0, 30],
-  ["Standard Celebration Package", "Most popular catering option for debuts, baptismals, anniversaries, and reunions.", 550.0, 50],
-  ["Grand Fiesta Package", "Grand banquet package featuring Lechon de Cebu, full buffet setup, and table skirts.", 850.0, 80],
-  ["VIP Executive Package", "Top-tier luxury experience for corporate galas and high-end weddings with waiter service.", 1200.0, 100],
-];
-
-const DEFAULT_MENU_ITEMS = [
-  ["Lechon de Cebu (Whole Roast Pig)", "Main Course", 8500.0, "Available", "Crispy skin, roasted with lemongrass, garlic, and native herbs."],
-  ["Beef Caldereta Special", "Main Course", 280.0, "Available", "Tender beef chunks stewed in rich tomato liver sauce with bell peppers."],
-  ["Pork Humba Bisaya", "Main Course", 240.0, "Available", "Slow-cooked pork belly in soy-vinegar sauce with banana blossoms."],
-  ["Chicken Inasal Bacolod", "Main Course", 210.0, "Available", "Grilled marinated chicken quarters brushed with annatto oil."],
-  ["Kare-Kare with Homemade Bagoong", "Main Course", 260.0, "Available", "Rich peanut stew with ox tripe, vegetables, and savory shrimp paste."],
-  ["Fish Fillet in Tartar Sauce", "Main Course", 220.0, "Available", "Crispy golden dory fillets served with creamy homemade tartar sauce."],
-  ["Sweet & Sour Pork Ribs", "Main Course", 250.0, "Available", "Crispy pork ribs tossed in vibrant sweet and sour pineapple glaze."],
-  ["Garlic Butter Shrimp", "Main Course", 320.0, "Available", "Fresh tiger prawns sauteed in rich garlic butter and herbs."],
-  ["Beef Broccoli in Oyster Sauce", "Main Course", 270.0, "Available", "Tender sliced beef sirloin sauteed with fresh broccoli florets."],
-  ["Pancit Canton Special", "Noodles", 160.0, "Available", "Stir-fried egg noodles with pork, chicken liver, and mixed vegetables."],
-  ["Pancit Palabok Supreme", "Noodles", 180.0, "Available", "Rice noodles topped with shrimp sauce, crushed chicharon, and boiled eggs."],
-  ["Creamy Carbonara with Bacon", "Noodles", 190.0, "Available", "Fettuccine in rich cream sauce topped with crispy bacon bits."],
-  ["Baked Macaroni Cheese Delight", "Noodles", 200.0, "Available", "Elbow macaroni baked in rich meat sauce and topped with melted cheese."],
-  ["Sinigang na Baboy sa Sampalok", "Soup", 180.0, "Available", "Pork ribs in sour tamarind broth with kangkong, radish, and taro."],
-  ["Classic Chicken Tinola sa Gabi", "Soup", 150.0, "Available", "Native chicken in ginger papaya soup with chili leaves."],
-  ["Cream of Mushroom Soup", "Soup", 130.0, "Available", "Velvety mushroom soup served with garlic croutons."],
-  ["Special Pinakbet sa Bagoong", "Vegetables", 140.0, "Available", "Sauteed squash, eggplant, okra, and ampalaya with crispy pork bagnet."],
-  ["Chopsuey Special with Seafood", "Vegetables", 160.0, "Available", "Crispy stir-fried vegetables with shrimp, squid balls, and quail eggs."],
-  ["Biko sa Latik", "Dessert", 90.0, "Available", "Sticky sweet rice cake topped with caramelized coconut cream latik."],
-  ["Buko Pandan Salad", "Dessert", 110.0, "Available", "Young coconut strips and pandan jelly cubes in sweetened cream."],
-  ["Leche Flan Supreme", "Dessert", 120.0, "Available", "Rich and silky caramel custard cooked with fresh egg yolks."],
-  ["Mango Float Deluxe", "Dessert", 130.0, "Available", "Chilled Graham crackers layered with fresh Cebu mangoes and cream."],
-  ["Unli Steamed Jasmine Rice", "Other", 50.0, "Available", "Fragrant steamed white Jasmine rice."],
-  ["Signature Iced Tea (Per Gallon)", "Drinks", 150.0, "Available", "House-blend citrus iced tea served chilled."]
-];
-
-const DEFAULT_CUSTOMERS = [
-  ["Alexander Wright", "09170001111", "alexander@example.com", "Cebu Business Park", "Silver", 1, 50000.0, "Active"],
-  ["Beatriz Mendoza", "09180002222", "beatriz@example.com", "Mandaue City", "Bronze", 1, 35000.0, "Active"],
-  ["Capt. Juanito Dela Cruz", "09182223344", "juanito.dc@example.com", "Mandaue City", "Bronze", 1, 28000.0, "Active"],
-  ["Carlos De Guzman", "09190003333", "carlos@example.com", "Talisay City", "Bronze", 1, 20000.0, "Active"],
-  ["Engr. Rodrigo Tan", "09178889900", "rodrigo.tan@example.com", "Cebu City", "Bronze", 1, 45000.0, "Active"],
-  ["Larry", "09234234032", "4234@gmail.com", "street, Apas, Cebu City, Cebu", "Bronze", 1, 27000.0, "Active"]
-];
+// STRICT LIVE DB REQUIREMENT:
+// All packages, menu items, and customer data MUST come strictly from the
+// Live PostgreSQL Database over LAN sync. No mock or fallback records allowed.
 
 let SQL = null;
 let db = null;
@@ -313,34 +274,57 @@ function seedDefaults() {
     }
   }
 
-  // Clear legacy placeholder tables if present
+  // Seed Default Offline Packages if empty
   try {
-    const legacyPkg = db.exec("SELECT COUNT(*) FROM packages WHERE pkg_name LIKE '%Silver Buffet%'")[0]?.values[0][0];
-    if (legacyPkg > 0) {
-      db.run("DELETE FROM package_items");
-      db.run("DELETE FROM packages");
-      db.run("DELETE FROM menu_items");
-      db.run("DELETE FROM customers WHERE cus_name LIKE '%Ichigo%' OR cus_name LIKE '%Angela Reyes%'");
+    if (countOf("packages") === 0) {
+      const defaultPkgs = [
+        ["Classic Celebration Package", "Standard catering buffet package with 4 main dishes, rice, dessert, and drinks.", 350.0, 30],
+        ["Premium Grand Feast", "Deluxe buffet with 6 main dishes, roast pork lechon belly, 2 desserts, and beverage bar.", 550.0, 50],
+        ["Executive VIP Buffet", "Top-tier package with live carving station, 7 signature mains, seafood, and full dessert table.", 850.0, 50],
+      ];
+      for (const [name, desc, price, min_pax] of defaultPkgs) {
+        db.run("INSERT OR IGNORE INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)", [name, desc, price, min_pax]);
+      }
     }
-  } catch (_) {}
-
-  if (countOf("packages") === 0) {
-    for (const [name, desc, price, minPax] of DEFAULT_PACKAGES) {
-      db.run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)", [name, desc, price, minPax]);
-    }
+  } catch (err) {
+    console.warn("[SQLite] Package seed note:", err);
   }
 
-  if (countOf("menu_items") === 0) {
-    for (const [name, category, price, status, desc] of DEFAULT_MENU_ITEMS) {
-      db.run("INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description) VALUES (?, ?, ?, ?, ?)", [name, category, price, status, desc]);
+  // Seed Default Offline Menu Items if empty
+  try {
+    if (countOf("menu_items") === 0) {
+      const defaultItems = [
+        ["Special Pork Humba", "Main Course", "Standard", 450.0, "Available", "Slow cooked pork belly with banana blossoms"],
+        ["Lechon Belly Roast", "Main Course", "Premium", 1200.0, "Available", "Crispy rolled pork belly with herbs"],
+        ["Chicken Pandan", "Main Course", "Standard", 380.0, "Available", "Wrapped savory fried chicken"],
+        ["Garlic Butter Buttered Shrimp", "Main Course", "Premium", 550.0, "Available", "Fresh prawns in savory garlic butter"],
+        ["Sweet & Sour Fish Fillet", "Main Course", "Standard", 360.0, "Available", "Crispy fish fillet in pineapple sweet sauce"],
+        ["Beef with Broccoli", "Main Course", "Standard", 480.0, "Available", "Tender beef slices in oyster glaze"],
+        ["Biko with Latik", "Dessert", "Standard", 250.0, "Available", "Traditional sweet sticky rice"],
+        ["Mango Tapioca", "Dessert", "Standard", 220.0, "Available", "Chilled mango cubes with sago pearls"],
+        ["Refillable Iced Tea", "Drinks", "Standard", 150.0, "Available", "House blend lemon iced tea"],
+      ];
+      for (const [name, cat, pkg, price, status, desc] of defaultItems) {
+        db.run("INSERT OR IGNORE INTO menu_items (mi_name, name, mi_category, category, mi_package_tier, mi_package, mi_price, price, mi_status, status, mi_description, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [name, name, cat, cat, pkg, pkg, price, price, status, status, desc, desc]);
+      }
     }
+  } catch (err) {
+    console.warn("[SQLite] Menu items seed note:", err);
   }
 
-  if (countOf("customers") === 0) {
-    for (const [name, contact, email, address, tier, events, spent, status] of DEFAULT_CUSTOMERS) {
-      db.run("INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address, cus_loyalty_tier, cus_total_events, cus_total_spent, cus_status, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
-        [name, contact, email, address, tier, events, spent, status]);
+  // Seed Default Package Items if empty
+  try {
+    if (countOf("package_items") === 0) {
+      const pkgs = db.exec("SELECT pkg_id FROM packages")[0]?.values || [];
+      const items = db.exec("SELECT mi_id, mi_name, mi_category FROM menu_items")[0]?.values || [];
+      for (const [pkgId] of pkgs) {
+        for (const [miId, miName, miCat] of items) {
+          db.run("INSERT INTO package_items (pi_package_id, pi_menu_item_id, pi_item_name, pi_category, pi_quantity) VALUES (?, ?, ?, ?, 1)", [pkgId, miId, miName, miCat]);
+        }
+      }
     }
+  } catch (err) {
+    console.warn("[SQLite] Package items seed note:", err);
   }
 }
 
@@ -352,6 +336,10 @@ export async function initDb() {
   db.run(SCHEMA_SQL);
   try { db.run("ALTER TABLE bookings ADD COLUMN sync_status TEXT DEFAULT 'pending';"); } catch (_) {}
   try { db.run("ALTER TABLE customers ADD COLUMN sync_status TEXT DEFAULT 'pending';"); } catch (_) {}
+  try { db.run("ALTER TABLE packages ADD COLUMN pkg_image TEXT DEFAULT '';"); } catch (_) {}
+  try { db.run("ALTER TABLE packages ADD COLUMN image TEXT DEFAULT '';"); } catch (_) {}
+  try { db.run("ALTER TABLE menu_items ADD COLUMN mi_image TEXT DEFAULT '';"); } catch (_) {}
+  try { db.run("ALTER TABLE menu_items ADD COLUMN image TEXT DEFAULT '';"); } catch (_) {}
   seedDefaults();
   scheduleSave();
   return db;
