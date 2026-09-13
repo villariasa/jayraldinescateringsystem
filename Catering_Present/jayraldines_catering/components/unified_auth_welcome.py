@@ -12,7 +12,8 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QCheckBox, QFrame, QGraphicsDropShadowEffect,
-    QGraphicsOpacityEffect, QApplication, QMessageBox, QStackedLayout
+    QGraphicsOpacityEffect, QApplication, QMessageBox, QStackedLayout,
+    QProgressBar
 )
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, Signal, QThread
 from PySide6.QtGui import QPixmap, QColor, QIcon
@@ -32,7 +33,7 @@ class DataWarmupWorker(QThread):
     DataCache while the user views the welcome screen animation.
     Eliminates cold-load query latency across all tabs.
     """
-    step_progress = Signal(str)
+    step_progress = Signal(str, int)  # (status_message, percentage)
     warmup_finished = Signal()
 
     def run(self):
@@ -42,7 +43,7 @@ class DataWarmupWorker(QThread):
 
             # Step 1: Bookings & Calendar
             try:
-                self.step_progress.emit("📊  Pre-loading catering bookings & reservations...")
+                self.step_progress.emit("📊  Loading catering bookings & reservations...", 15)
                 bookings = repo.get_all_bookings()
                 DataCache.set("bookings", bookings, ttl_seconds=600.0)
             except Exception as e:
@@ -50,7 +51,7 @@ class DataWarmupWorker(QThread):
 
             # Step 2: Customers & Loyalty Tiers
             try:
-                self.step_progress.emit("👥  Loading client directory & loyalty tiers...")
+                self.step_progress.emit("👥  Loading client directory & loyalty tiers...", 30)
                 customers = repo.get_all_customers_with_loyalty()
                 DataCache.set("customers_loyalty", customers, ttl_seconds=600.0)
                 DataCache.set("customers", customers, ttl_seconds=600.0)
@@ -59,7 +60,7 @@ class DataWarmupWorker(QThread):
 
             # Step 3: Billing & Invoices
             try:
-                self.step_progress.emit("💳  Loading billing records & invoices...")
+                self.step_progress.emit("💳  Loading billing records & invoices...", 45)
                 invoices = repo.get_all_invoices()
                 DataCache.set("invoices", invoices, ttl_seconds=600.0)
             except Exception as e:
@@ -67,7 +68,7 @@ class DataWarmupWorker(QThread):
 
             # Step 4: Menu Items & Packages
             try:
-                self.step_progress.emit("🍽️  Pre-warming catering menus & packages...")
+                self.step_progress.emit("🍽️  Pre-warming catering menus & packages...", 60)
                 menu_items = repo.get_all_menu_items()
                 packages = repo.get_all_packages()
                 DataCache.set("menu_items", menu_items, ttl_seconds=600.0)
@@ -77,7 +78,7 @@ class DataWarmupWorker(QThread):
 
             # Step 5: Dashboard Analytics & Charts
             try:
-                self.step_progress.emit("📈  Computing dashboard KPIs & analytics...")
+                self.step_progress.emit("📈  Computing dashboard KPIs & analytics...", 72)
                 now = datetime.now()
                 rows = repo.get_monthly_revenue_chart_data(now.year)
                 chart_data = [(r["month"], r["revenue"], r["expense"]) for r in rows] if rows else []
@@ -95,7 +96,7 @@ class DataWarmupWorker(QThread):
 
             # Step 6: Expenses & Cash Flow
             try:
-                self.step_progress.emit("💰  Loading expenses & cash flow transactions...")
+                self.step_progress.emit("💰  Loading expenses & cash flow transactions...", 80)
                 expenses = repo.get_all_expenses()
                 DataCache.set("expenses", expenses, ttl_seconds=600.0)
                 summary = repo.get_cash_flow_summary()
@@ -104,8 +105,8 @@ class DataWarmupWorker(QThread):
             except Exception as e:
                 print(f"[DataWarmupWorker] Cashflow/expenses pre-load note: {e}")
 
-            self.step_progress.emit("🚀  Ready! Launching workspace...")
-            self.msleep(300)
+            self.step_progress.emit("⚙️  Database records cached! Preparing workspaces...", 82)
+            self.msleep(150)
         except Exception as exc:
             print(f"[DataWarmupWorker] General note: {exc}")
         finally:
@@ -118,6 +119,7 @@ class UnifiedAuthWelcome(QWidget):
     Operates inside the main application window without any window cutouts.
     """
     auth_and_welcome_finished = Signal()
+    request_prebuild_pages = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -391,11 +393,52 @@ class UnifiedAuthWelcome(QWidget):
         # Dynamic Status Label
         self.loading_status_lbl = QLabel("Authenticating credentials...")
         self.loading_status_lbl.setAlignment(Qt.AlignCenter)
-        self.loading_status_lbl.setStyleSheet("color: #94A3B8; font-size: 13px; font-weight: 600; border: none; background: transparent;")
+        self.loading_status_lbl.setStyleSheet("color: #F8FAFC; font-size: 13.5px; font-weight: 700; border: none; background: transparent;")
         c_lay.addWidget(self.loading_status_lbl)
+
+        # Visual Animated Progress Bar
+        self.loading_progress = QProgressBar()
+        self.loading_progress.setFixedHeight(8)
+        self.loading_progress.setRange(0, 100)
+        self.loading_progress.setValue(0)
+        self.loading_progress.setTextVisible(False)
+        self.loading_progress.setStyleSheet("""
+            QProgressBar {
+                background: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 4px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #E11D48, stop:0.6 #FB7185, stop:1 #38BDF8);
+                border-radius: 4px;
+            }
+        """)
+        c_lay.addWidget(self.loading_progress)
+
+        # Percentage Subtitle
+        self.loading_pct_lbl = QLabel("0% Complete")
+        self.loading_pct_lbl.setAlignment(Qt.AlignCenter)
+        self.loading_pct_lbl.setStyleSheet("color: #64748B; font-size: 11px; font-weight: 700; border: none; background: transparent;")
+        c_lay.addWidget(self.loading_pct_lbl)
 
         lay.addWidget(self.welcome_card)
         return container
+
+    def update_progress(self, text: str, pct: int):
+        """Updates the status text, animated progress bar, and percentage counter."""
+        try:
+            self.loading_status_lbl.setText(text)
+            self.loading_progress.setValue(min(100, max(0, pct)))
+            self.loading_pct_lbl.setText(f"{pct}% Complete")
+            QApplication.processEvents()
+        except Exception:
+            pass
+
+    def finish_and_fade_out(self):
+        """Transitions out of the welcome view once all data and workspaces are loaded."""
+        if not getattr(self, "_finishing", False):
+            self._finishing = True
+            self._fade_out_and_finish()
 
     # -----------------------------------------------------------------------
     # Authentication & Transition Logic
@@ -437,7 +480,7 @@ class UnifiedAuthWelcome(QWidget):
         # Transition to Welcome View
         self._stacked.setCurrentIndex(1)
         self.spinner.start()
-        self.loading_status_lbl.setText("🔐  Verifying permissions & security tokens...")
+        self.update_progress("🔐  Verifying permissions & security tokens...", 5)
 
         # Start active background data pre-loader
         self._warmup_worker = DataWarmupWorker(self)
@@ -445,24 +488,19 @@ class UnifiedAuthWelcome(QWidget):
         self._warmup_worker.warmup_finished.connect(self._on_warmup_finished)
         self._warmup_worker.start()
 
-        # Safety fallback timeout: max 12 seconds in case of severe network latency
+        # Safety fallback timeout: max 15 seconds in case of severe network latency
         self._fallback_timer = QTimer(self)
         self._fallback_timer.setSingleShot(True)
-        self._fallback_timer.timeout.connect(self._on_warmup_finished)
-        self._fallback_timer.start(12000)
+        self._fallback_timer.timeout.connect(self.finish_and_fade_out)
+        self._fallback_timer.start(15000)
 
-    def _on_warmup_progress(self, text: str):
-        try:
-            self.loading_status_lbl.setText(text)
-        except Exception:
-            pass
+    def _on_warmup_progress(self, text: str, pct: int):
+        self.update_progress(text, pct)
 
     def _on_warmup_finished(self):
         if hasattr(self, "_fallback_timer") and self._fallback_timer.isActive():
             self._fallback_timer.stop()
-        if not getattr(self, "_finishing", False):
-            self._finishing = True
-            self._fade_out_and_finish()
+        self.request_prebuild_pages.emit()
 
     def _fade_out_and_finish(self):
         """Smoothly fades out the overlay to reveal MainWindow."""

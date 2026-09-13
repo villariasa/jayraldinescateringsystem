@@ -40,6 +40,222 @@ _BUSINESS_INFO = {
 }
 
 
+class DatabaseRestoreWorker(QThread):
+    progress_update = Signal(str)
+    restore_finished = Signal(bool, str)
+
+    def __init__(self, file_path: str, parent=None):
+        super().__init__(parent)
+        self.file_path = file_path
+
+    def run(self):
+        try:
+            import utils.db as db
+            import shutil
+            import os
+            import sqlite3
+            from pathlib import Path
+
+            path = self.file_path
+            self.progress_update.emit("Inspecting database backup structure...")
+
+            # Detect whether SQLite binary
+            is_sqlite_binary = False
+            with open(path, "rb") as f:
+                header = f.read(16)
+                if header.startswith(b"SQLite format 3"):
+                    is_sqlite_binary = True
+
+            engine = db.get_engine_type()
+
+            if is_sqlite_binary:
+                if engine == "sqlite":
+                    self.progress_update.emit("Closing active connections & cleaning cache...")
+                    db.close()
+                    dst = db.get_sqlite_db_path()
+                    for ext in ["-wal", "-shm", "-journal"]:
+                        wal = Path(str(dst) + ext)
+                        if wal.exists():
+                            try:
+                                wal.unlink()
+                            except Exception:
+                                pass
+
+                    self.progress_update.emit("Copying backup database files...")
+                    shutil.copy2(path, dst)
+
+                    self.progress_update.emit("Applying schema upgrades & missing columns...")
+                    conn = sqlite3.connect(str(dst))
+                    cur = conn.cursor()
+
+                    # 1. Bookings columns
+                    cur.execute("PRAGMA table_info(bookings)")
+                    bk_cols = [r[1] for r in cur.fetchall()]
+                    for col, defn in [
+                        ("bk_contact", "TEXT DEFAULT ''"),
+                        ("bk_email", "TEXT DEFAULT ''"),
+                        ("bk_special_notes", "TEXT DEFAULT ''"),
+                        ("bk_down_payment", "REAL DEFAULT 0.0"),
+                        ("bk_down_payment_status", "TEXT DEFAULT 'PENDING'"),
+                        ("bk_base_total", "REAL DEFAULT 0.0"),
+                        ("bk_color_theme", "TEXT DEFAULT '#2563EB'"),
+                    ]:
+                        if col not in bk_cols:
+                            cur.execute(f"ALTER TABLE bookings ADD COLUMN {col} {defn}")
+
+                    # Backfill contact and email from customer records if empty
+                    cur.execute("""
+                        UPDATE bookings
+                        SET bk_contact = (SELECT cus_contact FROM customers WHERE customers.cus_id = bookings.bk_customer_id)
+                        WHERE (bk_contact IS NULL OR bk_contact = '') AND bk_customer_id IS NOT NULL
+                    """)
+                    cur.execute("""
+                        UPDATE bookings
+                        SET bk_email = (SELECT cus_email FROM customers WHERE customers.cus_id = bookings.bk_customer_id)
+                        WHERE (bk_email IS NULL OR bk_email = '') AND bk_customer_id IS NOT NULL
+                    """)
+
+                    # 2. Audit logs columns
+                    cur.execute("PRAGMA table_info(audit_logs)")
+                    al_cols = [r[1] for r in cur.fetchall()]
+                    if "al_device" not in al_cols:
+                        cur.execute("ALTER TABLE audit_logs ADD COLUMN al_device TEXT DEFAULT 'Desktop / Server'")
+
+                    conn.commit()
+
+                    self.progress_update.emit("Counting restored records...")
+                    cur.execute("SELECT count(*) FROM bookings")
+                    bk_cnt = cur.fetchone()[0]
+                    cur.execute("SELECT count(*) FROM customers")
+                    cus_cnt = cur.fetchone()[0]
+                    cur.execute("SELECT count(*) FROM invoices")
+                    inv_cnt = cur.fetchone()[0]
+                    conn.close()
+
+                    self.progress_update.emit("Reconnecting to restored database...")
+                    db.connect()
+
+                    self.restore_finished.emit(
+                        True,
+                        f"Database restored successfully!\n\n"
+                        f"• Confirmed Bookings / Orders: {bk_cnt}\n"
+                        f"• Customers: {cus_cnt}\n"
+                        f"• Invoices / Billings: {inv_cnt}\n\n"
+                        f"Please restart the application to refresh all views."
+                    )
+                else:
+                    self.progress_update.emit("Migrating SQLite backup tables into PostgreSQL...")
+                    from utils.sqlite_to_postgres import migrate_sqlite_to_postgres
+                    from utils.db_config import get_db_config
+                    cfg = get_db_config()
+                    ok, stats, err = migrate_sqlite_to_postgres(
+                        Path(path), cfg,
+                        progress_callback=lambda pct, msg: self.progress_update.emit(f"PostgreSQL [{pct}%]: {msg}")
+                    )
+                    if ok:
+                        total_rows = sum(stats.values())
+                        bk_cnt = stats.get("bookings", 0)
+                        cus_cnt = stats.get("customers", 0)
+                        inv_cnt = stats.get("invoices", 0)
+                        self.restore_finished.emit(
+                            True,
+                            f"Client backup successfully migrated into PostgreSQL!\n\n"
+                            f"• Total records restored: {total_rows}\n"
+                            f"• Bookings / Orders: {bk_cnt}\n"
+                            f"• Customers: {cus_cnt}\n"
+                            f"• Invoices / Billings: {inv_cnt}\n\n"
+                            f"Please restart the application to refresh all views."
+                        )
+                    else:
+                        self.restore_finished.emit(False, f"Migration failed:\n\n{err}")
+            else:
+                self.progress_update.emit("Executing SQL script...")
+                if engine == "sqlite":
+                    with open(path, "r", encoding="utf-8", errors="replace") as f:
+                        sql_script = f.read()
+                    conn = db.get_connection()
+                    conn.executescript(sql_script)
+                    self.restore_finished.emit(True, "SQL script restored into SQLite successfully. Please restart the application.")
+                else:
+                    from utils.db_config import get_db_config
+                    cfg = get_db_config()
+                    try:
+                        import psycopg2
+                        pg = psycopg2.connect(
+                            host=cfg.get("host", "localhost"),
+                            port=int(cfg.get("port", 5432)),
+                            dbname=cfg.get("dbname", "jayraldines_catering"),
+                            user=cfg.get("user", "postgres"),
+                            password=cfg.get("password", "12345678"),
+                            connect_timeout=15
+                        )
+                        with open(path, "r", encoding="utf-8", errors="replace") as f:
+                            sql_script = f.read()
+                        with pg.cursor() as cur:
+                            cur.execute(sql_script)
+                        pg.commit()
+                        pg.close()
+                        self.restore_finished.emit(True, "SQL script restored into PostgreSQL successfully. Please restart the application.")
+                    except Exception as p_err:
+                        result = subprocess.run(
+                            ["psql", "-U", cfg.get("user", "postgres"), "-d", cfg.get("dbname", "jayraldines_catering"), "-f", path],
+                            capture_output=True, text=True, timeout=120
+                        )
+                        if result.returncode == 0:
+                            self.restore_finished.emit(True, "Database restored successfully via psql. Please restart the application.")
+                        else:
+                            self.restore_finished.emit(False, f"psql error:\n{result.stderr or p_err}")
+        except Exception as exc:
+            self.restore_finished.emit(False, f"An error occurred during restore:\n{exc}")
+
+
+class DatabaseRestoreProgressDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Restoring Database")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(440, 220)
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        card = QFrame()
+        card.setObjectName("loaderCard")
+        card.setStyleSheet("""
+            QFrame#loaderCard {
+                background: #0F172A;
+                border: 1.5px solid #334155;
+                border-radius: 16px;
+            }
+            QLabel {
+                color: #F8FAFC;
+            }
+        """)
+        c_lay = QVBoxLayout(card)
+        c_lay.setAlignment(Qt.AlignCenter)
+        c_lay.setSpacing(14)
+
+        self.spinner = CircularSpinner(size=52, line_width=4, color_start="#E11D48", color_end="#38BDF8", parent=card)
+        c_lay.addWidget(self.spinner, alignment=Qt.AlignCenter)
+
+        title = QLabel("Restoring Database Backup...", card)
+        title.setStyleSheet("font-size: 16px; font-weight: 700; color: #F8FAFC;")
+        title.setAlignment(Qt.AlignCenter)
+        c_lay.addWidget(title)
+
+        self.status_lbl = QLabel("Please wait while records are being imported...", card)
+        self.status_lbl.setStyleSheet("font-size: 13px; color: #94A3B8;")
+        self.status_lbl.setAlignment(Qt.AlignCenter)
+        c_lay.addWidget(self.status_lbl)
+
+        layout.addWidget(card)
+
+    def set_status(self, text: str):
+        self.status_lbl.setText(text)
+
+
 class SettingsPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1995,222 +2211,6 @@ class SettingsPage(QWidget):
                     "pg_dump not found. Make sure PostgreSQL is installed and in your PATH.")
             except Exception as exc:
                 QMessageBox.warning(self, "Backup Error", str(exc))
-
-class DatabaseRestoreWorker(QThread):
-    progress_update = Signal(str)
-    restore_finished = Signal(bool, str)
-
-    def __init__(self, file_path: str, parent=None):
-        super().__init__(parent)
-        self.file_path = file_path
-
-    def run(self):
-        try:
-            import utils.db as db
-            import shutil
-            import os
-            import sqlite3
-            from pathlib import Path
-
-            path = self.file_path
-            self.progress_update.emit("Inspecting database backup structure...")
-
-            # Detect whether SQLite binary
-            is_sqlite_binary = False
-            with open(path, "rb") as f:
-                header = f.read(16)
-                if header.startswith(b"SQLite format 3"):
-                    is_sqlite_binary = True
-
-            engine = db.get_engine_type()
-
-            if is_sqlite_binary:
-                if engine == "sqlite":
-                    self.progress_update.emit("Closing active connections & cleaning cache...")
-                    db.close()
-                    dst = db.get_sqlite_db_path()
-                    for ext in ["-wal", "-shm", "-journal"]:
-                        wal = Path(str(dst) + ext)
-                        if wal.exists():
-                            try:
-                                wal.unlink()
-                            except Exception:
-                                pass
-
-                    self.progress_update.emit("Copying backup database files...")
-                    shutil.copy2(path, dst)
-
-                    self.progress_update.emit("Applying schema upgrades & missing columns...")
-                    conn = sqlite3.connect(str(dst))
-                    cur = conn.cursor()
-
-                    # 1. Bookings columns
-                    cur.execute("PRAGMA table_info(bookings)")
-                    bk_cols = [r[1] for r in cur.fetchall()]
-                    for col, defn in [
-                        ("bk_contact", "TEXT DEFAULT ''"),
-                        ("bk_email", "TEXT DEFAULT ''"),
-                        ("bk_special_notes", "TEXT DEFAULT ''"),
-                        ("bk_down_payment", "REAL DEFAULT 0.0"),
-                        ("bk_down_payment_status", "TEXT DEFAULT 'PENDING'"),
-                        ("bk_base_total", "REAL DEFAULT 0.0"),
-                        ("bk_color_theme", "TEXT DEFAULT '#2563EB'"),
-                    ]:
-                        if col not in bk_cols:
-                            cur.execute(f"ALTER TABLE bookings ADD COLUMN {col} {defn}")
-
-                    # Backfill contact and email from customer records if empty
-                    cur.execute("""
-                        UPDATE bookings
-                        SET bk_contact = (SELECT cus_contact FROM customers WHERE customers.cus_id = bookings.bk_customer_id)
-                        WHERE (bk_contact IS NULL OR bk_contact = '') AND bk_customer_id IS NOT NULL
-                    """)
-                    cur.execute("""
-                        UPDATE bookings
-                        SET bk_email = (SELECT cus_email FROM customers WHERE customers.cus_id = bookings.bk_customer_id)
-                        WHERE (bk_email IS NULL OR bk_email = '') AND bk_customer_id IS NOT NULL
-                    """)
-
-                    # 2. Audit logs columns
-                    cur.execute("PRAGMA table_info(audit_logs)")
-                    al_cols = [r[1] for r in cur.fetchall()]
-                    if "al_device" not in al_cols:
-                        cur.execute("ALTER TABLE audit_logs ADD COLUMN al_device TEXT DEFAULT 'Desktop / Server'")
-
-                    conn.commit()
-
-                    self.progress_update.emit("Counting restored records...")
-                    cur.execute("SELECT count(*) FROM bookings")
-                    bk_cnt = cur.fetchone()[0]
-                    cur.execute("SELECT count(*) FROM customers")
-                    cus_cnt = cur.fetchone()[0]
-                    cur.execute("SELECT count(*) FROM invoices")
-                    inv_cnt = cur.fetchone()[0]
-                    conn.close()
-
-                    self.progress_update.emit("Reconnecting to restored database...")
-                    db.connect()
-
-                    self.restore_finished.emit(
-                        True,
-                        f"Database restored successfully!\n\n"
-                        f"• Confirmed Bookings / Orders: {bk_cnt}\n"
-                        f"• Customers: {cus_cnt}\n"
-                        f"• Invoices / Billings: {inv_cnt}\n\n"
-                        f"Please restart the application to refresh all views."
-                    )
-                else:
-                    self.progress_update.emit("Migrating SQLite backup tables into PostgreSQL...")
-                    from utils.sqlite_to_postgres import migrate_sqlite_to_postgres
-                    from utils.db_config import get_db_config
-                    cfg = get_db_config()
-                    ok, stats, err = migrate_sqlite_to_postgres(
-                        Path(path), cfg,
-                        progress_callback=lambda pct, msg: self.progress_update.emit(f"PostgreSQL [{pct}%]: {msg}")
-                    )
-                    if ok:
-                        total_rows = sum(stats.values())
-                        bk_cnt = stats.get("bookings", 0)
-                        cus_cnt = stats.get("customers", 0)
-                        inv_cnt = stats.get("invoices", 0)
-                        self.restore_finished.emit(
-                            True,
-                            f"Client backup successfully migrated into PostgreSQL!\n\n"
-                            f"• Total records restored: {total_rows}\n"
-                            f"• Bookings / Orders: {bk_cnt}\n"
-                            f"• Customers: {cus_cnt}\n"
-                            f"• Invoices / Billings: {inv_cnt}\n\n"
-                            f"Please restart the application to refresh all views."
-                        )
-                    else:
-                        self.restore_finished.emit(False, f"Migration failed:\n\n{err}")
-            else:
-                self.progress_update.emit("Executing SQL script...")
-                if engine == "sqlite":
-                    with open(path, "r", encoding="utf-8", errors="replace") as f:
-                        sql_script = f.read()
-                    conn = db.get_connection()
-                    conn.executescript(sql_script)
-                    self.restore_finished.emit(True, "SQL script restored into SQLite successfully. Please restart the application.")
-                else:
-                    from utils.db_config import get_db_config
-                    cfg = get_db_config()
-                    try:
-                        import psycopg2
-                        pg = psycopg2.connect(
-                            host=cfg.get("host", "localhost"),
-                            port=int(cfg.get("port", 5432)),
-                            dbname=cfg.get("dbname", "jayraldines_catering"),
-                            user=cfg.get("user", "postgres"),
-                            password=cfg.get("password", "12345678"),
-                            connect_timeout=15
-                        )
-                        with open(path, "r", encoding="utf-8", errors="replace") as f:
-                            sql_script = f.read()
-                        with pg.cursor() as cur:
-                            cur.execute(sql_script)
-                        pg.commit()
-                        pg.close()
-                        self.restore_finished.emit(True, "SQL script restored into PostgreSQL successfully. Please restart the application.")
-                    except Exception as p_err:
-                        result = subprocess.run(
-                            ["psql", "-U", cfg.get("user", "postgres"), "-d", cfg.get("dbname", "jayraldines_catering"), "-f", path],
-                            capture_output=True, text=True, timeout=120
-                        )
-                        if result.returncode == 0:
-                            self.restore_finished.emit(True, "Database restored successfully via psql. Please restart the application.")
-                        else:
-                            self.restore_finished.emit(False, f"psql error:\n{result.stderr or p_err}")
-        except Exception as exc:
-            self.restore_finished.emit(False, f"An error occurred during restore:\n{exc}")
-
-
-class DatabaseRestoreProgressDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Restoring Database")
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(440, 220)
-        self.setModal(True)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-
-        card = QFrame()
-        card.setObjectName("loaderCard")
-        card.setStyleSheet("""
-            QFrame#loaderCard {
-                background: #0F172A;
-                border: 1.5px solid #334155;
-                border-radius: 16px;
-            }
-            QLabel {
-                color: #F8FAFC;
-            }
-        """)
-        c_lay = QVBoxLayout(card)
-        c_lay.setAlignment(Qt.AlignCenter)
-        c_lay.setSpacing(14)
-
-        self.spinner = CircularSpinner(size=52, line_width=4, color_start="#E11D48", color_end="#38BDF8", parent=card)
-        c_lay.addWidget(self.spinner, alignment=Qt.AlignCenter)
-
-        title = QLabel("Restoring Database Backup...", card)
-        title.setStyleSheet("font-size: 16px; font-weight: 700; color: #F8FAFC;")
-        title.setAlignment(Qt.AlignCenter)
-        c_lay.addWidget(title)
-
-        self.status_lbl = QLabel("Please wait while records are being imported...", card)
-        self.status_lbl.setStyleSheet("font-size: 13px; color: #94A3B8;")
-        self.status_lbl.setAlignment(Qt.AlignCenter)
-        c_lay.addWidget(self.status_lbl)
-
-        layout.addWidget(card)
-
-    def set_status(self, text: str):
-        self.status_lbl.setText(text)
-
 
     def _restore_db(self):
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):

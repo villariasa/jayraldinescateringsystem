@@ -59,6 +59,7 @@ class MainWindow(QMainWindow):
         from components.unified_auth_welcome import UnifiedAuthWelcome
         self._auth_welcome = UnifiedAuthWelcome(parent=self.root_stack)
         self._auth_welcome.auth_and_welcome_finished.connect(self._on_auth_and_welcome_finished)
+        self._auth_welcome.request_prebuild_pages.connect(self._prebuild_all_pages_before_entry)
         self.root_stack.addWidget(self._auth_welcome)
 
         # Layer 1: Main Application Shell (Sidebar + Topbar + Content Pages)
@@ -159,32 +160,47 @@ class MainWindow(QMainWindow):
             self._floating_ai.hide()
             self.root_stack.setCurrentWidget(self._auth_welcome)
 
+    def _prebuild_all_pages_before_entry(self):
+        """
+        Pre-builds and pre-populates all authorized pages BEFORE revealing MainWindow
+        so that every module is 100% loaded in memory and tab switching is 0ms instant.
+        """
+        from utils.auth import SessionManager
+        page_configs = [
+            (0, "Dashboard", 84),
+            (1, "Bookings", 87),
+            (2, "Customers", 90),
+            (3, "Menu & Packages", 93),
+            (4, "Calendar", 95),
+            (5, "Cash Flow", 97),
+            (6, "Billing & Invoices", 98),
+            (8, "Expenses", 99),
+            (10, "Settings", 100),
+        ]
+        for idx, title, pct in page_configs:
+            try:
+                perm_key = self.PAGE_MODULE_PERM.get(idx, "dashboard")
+                if idx == 0 or (SessionManager.is_logged_in() and SessionManager.has_permission(perm_key, "view")):
+                    if hasattr(self, "_auth_welcome") and self._auth_welcome:
+                        self._auth_welcome.update_progress(f"⚙️  Preparing {title} workspace...", pct)
+                    QApplication.processEvents()
+                    if self._pages[idx] is None:
+                        self._get_page(idx)
+                        QApplication.processEvents()
+            except Exception as exc:
+                print(f"[MainWindow] Pre-building {title} error: {exc}")
+
+        if hasattr(self, "_auth_welcome") and self._auth_welcome:
+            self._auth_welcome.update_progress("🚀  All workspaces ready! Entering system...", 100)
+            QApplication.processEvents()
+            QTimer.singleShot(150, self._auth_welcome.finish_and_fade_out)
+        else:
+            self._on_auth_and_welcome_finished()
+
     def _on_auth_and_welcome_finished(self):
         self.root_stack.setCurrentWidget(self.app_shell)
         self._reload_user_session()
         self._navigate(0)
-        QTimer.singleShot(250, self._start_page_prewarming)
-
-    def _start_page_prewarming(self):
-        """Pre-warms pages sequentially in the background during idle time to make tab switching instant."""
-        self._prewarm_queue = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        self._prewarm_next_page()
-
-    def _prewarm_next_page(self):
-        if not getattr(self, "_prewarm_queue", None):
-            return
-        idx = self._prewarm_queue.pop(0)
-        try:
-            from utils.auth import SessionManager
-            perm_key = self.PAGE_MODULE_PERM.get(idx, "dashboard")
-            if SessionManager.is_logged_in() and SessionManager.has_permission(perm_key, "view"):
-                if self._pages[idx] is None:
-                    self._get_page(idx)
-        except Exception as e:
-            print(f"[MainWindow] Pre-warming page {idx} error: {e}")
-        
-        if self._prewarm_queue:
-            QTimer.singleShot(35, self._prewarm_next_page)
 
     def _show_welcome_greeting(self):
         from utils.auth import SessionManager
