@@ -1316,7 +1316,10 @@ class SettingsPage(QWidget):
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot merge external database files.")
             return
-        path, _ = QFileDialog.getOpenFileName(self, "Select Backup Database File to Merge", "", "SQLite Database (*.db);;All Files (*)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Backup Database File to Merge", "",
+            "All Supported Files (*.db *.bak *.sql);;SQLite Database (*.db *.bak);;SQL Dump (*.sql);;All Files (*.*)"
+        )
         if not path:
             return
         if not confirm(
@@ -1330,25 +1333,47 @@ class SettingsPage(QWidget):
             confirm_label="Merge",
         ):
             return
-        import utils.importer as importer
-        from utils.session import get_actor
-        stats = importer.merge_database_file(path, actor=get_actor())
-        if stats.get("errors"):
-            QMessageBox.warning(self, "Merge Completed With Warnings",
-                "Merge finished, but some issues occurred:\n\n" + "\n".join(stats["errors"][:10]))
-        summary = (
-            f"New customers added: {stats.get('new_customers', 0)}\n"
-            f"Existing customers matched: {stats.get('matched_customers', 0)}\n"
-            f"New bookings added: {stats['new_bookings']}\n"
-            f"Existing bookings matched: {stats['matched_bookings']}\n"
-            f"New payments merged: {stats['new_payments']}\n"
-            f"New additional charges merged: {stats['new_charges']}\n"
-            f"Terms acknowledgements merged: {stats.get('terms_merged', 0)}\n"
-            f"Invoices recalculated: {stats['invoices_recalculated']}"
-        )
-        success(self, message=f"Database merge complete.\n\n{summary}")
-        app_events().data_changed.emit()
-        app_events().booking_updated.emit()
+
+        dlg = DatabaseRestoreProgressDialog(self)
+        dlg.set_status("Analyzing and merging database records...")
+
+        class MergeWorker(QThread):
+            merge_finished = Signal(dict)
+            def run(self):
+                import utils.importer as importer
+                from utils.session import get_actor
+                stats = importer.merge_database_file(path, actor=get_actor())
+                self.merge_finished.emit(stats)
+
+        worker = MergeWorker(self)
+
+        def _on_merge_done(stats):
+            dlg.accept()
+            if stats.get("errors"):
+                QMessageBox.warning(self, "Merge Completed With Warnings",
+                    "Merge finished, but some issues occurred:\n\n" + "\n".join(stats["errors"][:10]))
+            summary = (
+                f"New customers added: {stats.get('new_customers', 0)}\n"
+                f"Existing customers matched: {stats.get('matched_customers', 0)}\n"
+                f"New bookings added: {stats.get('new_bookings', 0)}\n"
+                f"Existing bookings matched: {stats.get('matched_bookings', 0)}\n"
+                f"New payments merged: {stats.get('new_payments', 0)}\n"
+                f"New additional charges merged: {stats.get('new_charges', 0)}\n"
+                f"Terms acknowledgements merged: {stats.get('terms_merged', 0)}\n"
+                f"Invoices recalculated: {stats.get('invoices_recalculated', 0)}"
+            )
+            success(self, message=f"Database merge complete.\n\n{summary}")
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+                app_events().booking_saved.emit()
+                app_events().booking_updated.emit()
+            except Exception:
+                pass
+
+        worker.merge_finished.connect(_on_merge_done)
+        worker.start()
+        dlg.exec()
 
     def _build_tablet_sync_card(self):
         card = QFrame()

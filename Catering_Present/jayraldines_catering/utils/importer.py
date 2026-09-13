@@ -1901,11 +1901,19 @@ def merge_database_file(source_path: str, actor: str = "staff") -> dict:
         }
 
         try:
-            src_bookings = db.fetchall("""
+            cur = db.get_connection().cursor()
+            cur.execute("PRAGMA src.table_info(bookings)")
+            src_cols = {r[1] for r in cur.fetchall()}
+            base_tot_expr = "COALESCE(bk_base_total, bk_total_amount)" if "bk_base_total" in src_cols else "bk_total_amount"
+            menu_type_expr = "bk_menu_type" if "bk_menu_type" in src_cols else "''"
+            contact_expr = "bk_contact" if "bk_contact" in src_cols else "''"
+            email_expr = "bk_email" if "bk_email" in src_cols else "''"
+            src_bookings = db.fetchall(f"""
                 SELECT bk_id, bk_booking_ref, bk_customer_name, bk_address, bk_event_date, bk_event_time,
-                       bk_venue, bk_occasion, bk_pax, bk_notes, bk_menu_type, bk_total_amount,
-                       COALESCE(bk_base_total, bk_total_amount) AS base_total,
-                       bk_payment_mode, bk_status
+                       bk_venue, bk_occasion, bk_pax, bk_notes, {menu_type_expr} AS bk_menu_type, bk_total_amount,
+                       {base_tot_expr} AS base_total,
+                       bk_payment_mode, bk_status,
+                       {contact_expr} AS bk_contact, {email_expr} AS bk_email
                 FROM src.bookings
             """)
         except Exception as exc:
