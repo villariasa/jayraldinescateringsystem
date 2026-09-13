@@ -16,6 +16,7 @@ from utils.theme import ThemeManager
 from components.booking_modal import BookingModal
 from components.dialogs import confirm, success, prompt_file_saved
 from components.filter_popover import FilterPopover
+from components.loading_overlay import LoadingOverlay
 import utils.repository as repo
 import utils.db as _db
 from utils.session import get_actor
@@ -1036,10 +1037,14 @@ class BookingPage(QWidget):
             return
         self._dirty = False
         self._refreshing = True
+        if hasattr(self, "_loader") and self.isVisible():
+            self._loader.show_overlay("Loading bookings & reservations...")
         run_async(self, repo.get_all_bookings, self._on_bookings_loaded, self._on_bookings_error)
 
     def _on_bookings_error(self, err):
         self._refreshing = False
+        if hasattr(self, "_loader"):
+            self._loader.hide_overlay()
         print(f"[BookingPage] Background refresh error: {err}")
 
     def _on_bookings_loaded(self, data):
@@ -1048,17 +1053,18 @@ class BookingPage(QWidget):
             from shiboken6 import isValid
             if not isValid(self):
                 return
-        except Exception:
-            pass
-        if data is not None:
-            new_sig = [(b.get("id"), b.get("status"), b.get("total"), b.get("date"), b.get("event_time"), b.get("pax")) for b in data]
-            if getattr(self, "_last_loaded_sig", None) == new_sig and getattr(self, "_has_loaded_once", False):
-                return
-            self._last_loaded_sig = new_sig
-            self._has_loaded_once = True
-            self._bookings = data
-            self._selected_refs.clear()
-            self._populate_table()
+            if data is not None:
+                new_sig = [(b.get("id"), b.get("status"), b.get("total"), b.get("date"), b.get("event_time"), b.get("pax")) for b in data]
+                if getattr(self, "_last_loaded_sig", None) == new_sig and getattr(self, "_has_loaded_once", False):
+                    return
+                self._last_loaded_sig = new_sig
+                self._has_loaded_once = True
+                self._bookings = data
+                self._selected_refs.clear()
+                self._populate_table()
+        finally:
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -1147,6 +1153,7 @@ class BookingPage(QWidget):
 
         self._tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self._tabs, 1)
+        self._loader = LoadingOverlay(self, "Loading bookings & reservations...")
         self._populate_table()
 
     def _create_booking_tab(self, tab_type: str):
@@ -1328,12 +1335,33 @@ class BookingPage(QWidget):
             empty_lbl.setAlignment(Qt.AlignCenter)
             empty_lbl.setStyleSheet("font-size: 13px; color: #64748B; padding: 24px;")
             layout.addWidget(empty_lbl)
+            layout.addStretch()
         else:
-            for b in rows:
+            BATCH_SIZE = 35
+            first_batch = rows[:BATCH_SIZE]
+            for b in first_batch:
                 card = self._create_booking_card(b, can_edit, can_delete)
                 layout.addWidget(card)
 
-        layout.addStretch()
+            layout.addStretch()
+
+            remaining = rows[BATCH_SIZE:]
+            if remaining:
+                def _append_booking_chunk(offset=0):
+                    if not layout:
+                        return
+                    chunk = remaining[offset:offset + BATCH_SIZE]
+                    for b in chunk:
+                        card = self._create_booking_card(b, can_edit, can_delete)
+                        cnt = layout.count()
+                        if cnt > 1:
+                            layout.insertWidget(cnt - 1, card)
+                        else:
+                            layout.addWidget(card)
+                    if offset + BATCH_SIZE < len(remaining):
+                        QTimer.singleShot(2, lambda: _append_booking_chunk(offset + BATCH_SIZE))
+
+                QTimer.singleShot(2, lambda: _append_booking_chunk(0))
 
     def _create_booking_card(self, b: dict, can_edit: bool = True, can_delete: bool = True) -> QFrame:
         bref = b["id"]

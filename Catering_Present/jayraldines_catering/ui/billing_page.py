@@ -13,6 +13,7 @@ from PySide6.QtGui import QColor
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
 from components.dialogs import confirm, success, prompt_file_saved
+from components.loading_overlay import LoadingOverlay
 import utils.repository as repo
 import utils.exporter as exporter
 from utils.session import get_actor
@@ -652,6 +653,8 @@ class BillingPage(QWidget):
     def reload(self):
         self._dirty = False
         self.refresh_permissions()
+        if hasattr(self, "_loader") and self.isVisible():
+            self._loader.show_overlay("Loading billing records & invoices...")
         run_async(self, repo.get_all_invoices, self._on_invoices_loaded)
 
     def refresh_permissions(self):
@@ -663,15 +666,16 @@ class BillingPage(QWidget):
             from shiboken6 import isValid
             if not isValid(self):
                 return
-        except Exception:
-            pass
-        new_rows = data or []
-        old_sig = [(i.get("db_id"), i.get("paid"), i.get("status")) for i in self._invoices]
-        new_sig = [(i.get("db_id"), i.get("paid"), i.get("status")) for i in new_rows]
-        if old_sig == new_sig:
-            return
-        self._invoices = new_rows
-        self._populate_table()
+            new_rows = data or []
+            old_sig = [(i.get("db_id"), i.get("paid"), i.get("status")) for i in self._invoices]
+            new_sig = [(i.get("db_id"), i.get("paid"), i.get("status")) for i in new_rows]
+            if old_sig == new_sig:
+                return
+            self._invoices = new_rows
+            self._populate_table()
+        finally:
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -770,8 +774,14 @@ class BillingPage(QWidget):
         self.ledger_table.setSelectionBehavior(QTableWidget.SelectRows)
         ledger_lay.addWidget(self.ledger_table)
         self.tabs.addTab(ledger_tab, "Ledger")
+        self.tabs.currentChanged.connect(self._on_billing_tab_changed)
 
         root.addWidget(self.tabs)
+        self._loader = LoadingOverlay(self, "Loading billing records & invoices...")
+
+    def _on_billing_tab_changed(self, idx: int):
+        if idx == 1:
+            self._populate_ledger()
 
     def _populate_table(self):
         # Refresh Billing summary metrics directly from active invoice records
@@ -804,13 +814,38 @@ class BillingPage(QWidget):
             empty_lbl.setObjectName("subtitle")
             empty_lbl.setAlignment(Qt.AlignCenter)
             self.cards_layout.addWidget(empty_lbl)
+            self.cards_layout.addStretch()
         else:
-            for inv in self._invoices:
+            BATCH_SIZE = 35
+            first_batch = self._invoices[:BATCH_SIZE]
+            for inv in first_batch:
                 i_card = self._create_invoice_card(inv)
                 self.cards_layout.addWidget(i_card)
 
-        self.cards_layout.addStretch()
-        self._populate_ledger()
+            self.cards_layout.addStretch()
+
+            remaining = self._invoices[BATCH_SIZE:]
+            if remaining:
+                def _append_invoice_chunk(offset=0):
+                    if not hasattr(self, "cards_layout") or not self.cards_layout:
+                        return
+                    chunk = remaining[offset:offset + BATCH_SIZE]
+                    for inv in chunk:
+                        i_card = self._create_invoice_card(inv)
+                        cnt = self.cards_layout.count()
+                        if cnt > 1:
+                            self.cards_layout.insertWidget(cnt - 1, i_card)
+                        else:
+                            self.cards_layout.addWidget(i_card)
+                    if offset + BATCH_SIZE < len(remaining):
+                        from PySide6.QtCore import QTimer
+                        QTimer.singleShot(2, lambda: _append_invoice_chunk(offset + BATCH_SIZE))
+
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(2, lambda: _append_invoice_chunk(0))
+
+        if hasattr(self, "tabs") and self.tabs.currentIndex() == 1:
+            self._populate_ledger()
 
     def _populate_ledger(self):
         try:

@@ -15,6 +15,7 @@ from PySide6.QtGui import QColor, QPainter
 
 from utils.theme import ThemeManager
 from utils.icons import btn_icon_secondary, btn_icon_red, get_icon
+from components.loading_overlay import LoadingOverlay
 import utils.repository as repo
 from components.dialogs import confirm, success, error
 from utils.session import SessionManager
@@ -230,9 +231,7 @@ class ExpensesPage(QWidget):
 
         scroll.setWidget(content)
         root.addWidget(scroll)
-
-        self._dirty = True
-        self.reload()
+        self._loader = LoadingOverlay(self, "Loading expenses & analytics...")
 
         try:
             from utils.signals import app_events
@@ -319,6 +318,8 @@ class ExpensesPage(QWidget):
     def reload(self):
         self._dirty = False
         self.refresh_permissions()
+        if hasattr(self, "_loader") and self.isVisible():
+            self._loader.show_overlay("Loading expenses & analytics...")
         run_async(self, repo.get_all_expenses, self._on_expenses_loaded)
 
     def _on_expenses_loaded(self, data):
@@ -326,14 +327,15 @@ class ExpensesPage(QWidget):
             from shiboken6 import isValid
             if not isValid(self):
                 return
-        except Exception:
-            pass
-        all_exp = data or []
-        self._expenses = all_exp
-        self._filtered_expenses = self._filter_expenses_list(all_exp)
-        self._load_table()
-        self._load_kpis()
-        self._load_breakdown()
+            all_exp = data or []
+            self._expenses = all_exp
+            self._filtered_expenses = self._filter_expenses_list(all_exp)
+            self._load_table()
+            self._load_kpis()
+            self._load_breakdown()
+        finally:
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
 
     def _load_table(self):
         if hasattr(self, "exp_cards_container"):
@@ -358,12 +360,36 @@ class ExpensesPage(QWidget):
                 empty_lbl.setAlignment(Qt.AlignCenter)
                 el.addWidget(empty_lbl)
                 self.exp_cards_layout.addWidget(empty_card)
+                self.exp_cards_layout.addStretch()
             else:
-                for exp in expenses:
+                BATCH_SIZE = 35
+                first_batch = expenses[:BATCH_SIZE]
+                for exp in first_batch:
                     card = self._create_expense_card(exp)
                     self.exp_cards_layout.addWidget(card)
 
-            self.exp_cards_layout.addStretch()
+                self.exp_cards_layout.addStretch()
+
+                remaining = expenses[BATCH_SIZE:]
+                if remaining:
+                    def _append_exp_chunk(offset=0):
+                        if not hasattr(self, "exp_cards_layout") or not self.exp_cards_layout:
+                            return
+                        chunk = remaining[offset:offset + BATCH_SIZE]
+                        for exp in chunk:
+                            card = self._create_expense_card(exp)
+                            cnt = self.exp_cards_layout.count()
+                            if cnt > 1:
+                                self.exp_cards_layout.insertWidget(cnt - 1, card)
+                            else:
+                                self.exp_cards_layout.addWidget(card)
+                        if offset + BATCH_SIZE < len(remaining):
+                            from PySide6.QtCore import QTimer
+                            QTimer.singleShot(2, lambda: _append_exp_chunk(offset + BATCH_SIZE))
+
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(2, lambda: _append_exp_chunk(0))
+
             n = len(expenses)
             self._count_lbl.setText(f"{n} record{'s' if n != 1 else ''}")
         finally:

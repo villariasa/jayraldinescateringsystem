@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor
 from components.address_search import AddressSearchWidget
+from components.loading_overlay import LoadingOverlay
 from utils.data_loader import run_async
 
 
@@ -961,6 +962,8 @@ class CustomersPage(QWidget):
         self._dirty = False
         self._reload_generation += 1
         gen = self._reload_generation
+        if hasattr(self, "_loader") and self.isVisible():
+            self._loader.show_overlay("Loading customer records...")
         run_async(self, repo.get_all_customers_with_loyalty,
                   lambda data, gen=gen: self._on_customers_loaded(data, gen))
 
@@ -969,19 +972,20 @@ class CustomersPage(QWidget):
             from shiboken6 import isValid
             if not isValid(self):
                 return
-        except Exception:
-            pass
-        if gen is not None and gen != self._reload_generation:
-            return
-        rows = data if data is not None else []
-        old_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in self._customers]
-        new_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in rows]
-        if old_sig == new_sig and getattr(self, "_has_populated_once", False):
-            return
-        self._has_populated_once = True
-        self._customers = rows
-        self._selected_ids.clear()
-        self._populate_table()
+            if gen is not None and gen != self._reload_generation:
+                return
+            rows = data if data is not None else []
+            old_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in self._customers]
+            new_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in rows]
+            if old_sig == new_sig and getattr(self, "_has_populated_once", False):
+                return
+            self._has_populated_once = True
+            self._customers = rows
+            self._selected_ids.clear()
+            self._populate_table()
+        finally:
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -1102,6 +1106,8 @@ class CustomersPage(QWidget):
         card_layout.addWidget(self.scroll_area)
         root.addWidget(card)
 
+        self._loader = LoadingOverlay(self, "Loading customer records...")
+
     def _populate_table(self, customers=None):
         if hasattr(self, "cards_container"):
             self.cards_container.setUpdatesEnabled(False)
@@ -1122,16 +1128,42 @@ class CustomersPage(QWidget):
 
             if not data:
                 self._empty_lbl.show()
+                self._update_selection_ui()
+                self._filter_table_now()
             else:
                 self._empty_lbl.hide()
-                for c in data:
+                BATCH_SIZE = 40
+                first_batch = data[:BATCH_SIZE]
+                for c in first_batch:
                     c_card = self._create_customer_card(c)
                     self.cards_layout.addWidget(c_card)
                     self._customer_cards.append((c, c_card))
 
-            self.cards_layout.addStretch()
-            self._update_selection_ui()
-            self._filter_table_now()
+                self.cards_layout.addStretch()
+                self._update_selection_ui()
+                self._filter_table_now()
+
+                remaining = data[BATCH_SIZE:]
+                if remaining:
+                    def _append_chunk(offset=0):
+                        if not hasattr(self, "cards_layout") or not self.cards_layout:
+                            return
+                        chunk = remaining[offset:offset + BATCH_SIZE]
+                        for c in chunk:
+                            c_card = self._create_customer_card(c)
+                            cnt = self.cards_layout.count()
+                            if cnt > 1:
+                                self.cards_layout.insertWidget(cnt - 1, c_card)
+                            else:
+                                self.cards_layout.addWidget(c_card)
+                            self._customer_cards.append((c, c_card))
+                        if offset + BATCH_SIZE < len(remaining):
+                            QTimer.singleShot(2, lambda: _append_chunk(offset + BATCH_SIZE))
+                        else:
+                            self._update_selection_ui()
+                            self._filter_table_now()
+
+                    QTimer.singleShot(2, lambda: _append_chunk(0))
         finally:
             if hasattr(self, "cards_container"):
                 self.cards_container.setUpdatesEnabled(True)

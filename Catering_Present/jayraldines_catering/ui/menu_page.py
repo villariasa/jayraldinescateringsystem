@@ -15,6 +15,7 @@ from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_
 from components.dialogs import confirm, success, prompt_file_saved
 from utils.animations import animate_dialog_open
 from utils.theme import ThemeManager
+from components.loading_overlay import LoadingOverlay
 import utils.menu_store as menu_store
 import utils.repository as repo
 from utils.data_loader import run_async
@@ -1276,6 +1277,9 @@ class MenuPage(QWidget):
 
     def _do_reload(self):
         self._dirty = False
+        self._pending_loads = 2
+        if hasattr(self, "_loader") and self.isVisible():
+            self._loader.show_overlay("Loading menu items & packages...")
         run_async(self, repo.get_all_menu_items, self._on_menu_items_loaded)
         run_async(self, repo.get_all_packages, self._on_packages_loaded)
 
@@ -1284,20 +1288,24 @@ class MenuPage(QWidget):
             from shiboken6 import isValid
             if not isValid(self):
                 return
-        except Exception:
-            pass
-        self._menu_items_data = data if data else (menu_store.all_items() if hasattr(menu_store, "all_items") else [])
-        self._populate_table()
+            self._menu_items_data = data if data else (menu_store.all_items() if hasattr(menu_store, "all_items") else [])
+            self._populate_table()
+        finally:
+            self._pending_loads = getattr(self, "_pending_loads", 1) - 1
+            if self._pending_loads <= 0 and hasattr(self, "_loader"):
+                self._loader.hide_overlay()
 
     def _on_packages_loaded(self, data):
         try:
             from shiboken6 import isValid
             if not isValid(self):
                 return
-        except Exception:
-            pass
-        self._packages_cache = data or []
-        self._populate_packages_table()
+            self._packages_cache = data or []
+            self._populate_packages_table()
+        finally:
+            self._pending_loads = getattr(self, "_pending_loads", 1) - 1
+            if self._pending_loads <= 0 and hasattr(self, "_loader"):
+                self._loader.hide_overlay()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -1316,6 +1324,7 @@ class MenuPage(QWidget):
 
         self._build_menu_items_tab()
         self._build_packages_tab()
+        self._loader = LoadingOverlay(self, "Loading menu items & packages...")
 
     def _build_menu_items_tab(self):
         tab = QWidget()
@@ -1606,12 +1615,38 @@ class MenuPage(QWidget):
                 empty_lbl.setObjectName("subtitle")
                 empty_lbl.setAlignment(Qt.AlignCenter)
                 self.menu_cards_layout.addWidget(empty_lbl)
+                self.menu_cards_layout.addStretch()
             else:
-                for item in items:
+                BATCH_SIZE = 35
+                first_batch = items[:BATCH_SIZE]
+                for item in first_batch:
                     m_card = self._create_menu_item_card(item)
                     self.menu_cards_layout.addWidget(m_card)
 
-            self.menu_cards_layout.addStretch()
+                self.menu_cards_layout.addStretch()
+
+                remaining = items[BATCH_SIZE:]
+                if remaining:
+                    def _append_menu_chunk(offset=0):
+                        if not hasattr(self, "menu_cards_layout") or not self.menu_cards_layout:
+                            return
+                        chunk = remaining[offset:offset + BATCH_SIZE]
+                        for item in chunk:
+                            m_card = self._create_menu_item_card(item)
+                            cnt = self.menu_cards_layout.count()
+                            if cnt > 1:
+                                self.menu_cards_layout.insertWidget(cnt - 1, m_card)
+                            else:
+                                self.menu_cards_layout.addWidget(m_card)
+                        if offset + BATCH_SIZE < len(remaining):
+                            from PySide6.QtCore import QTimer
+                            QTimer.singleShot(2, lambda: _append_menu_chunk(offset + BATCH_SIZE))
+                        else:
+                            self._update_items_selection_ui()
+
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(2, lambda: _append_menu_chunk(0))
+
             self._update_items_selection_ui()
         finally:
             self.menu_container.setUpdatesEnabled(True)

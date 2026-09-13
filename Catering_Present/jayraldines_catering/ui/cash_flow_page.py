@@ -20,6 +20,7 @@ from PySide6.QtGui import QColor, QFont
 import utils.repository as repo
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
 from components.dialogs import confirm, success, prompt_file_saved, error
+from components.loading_overlay import LoadingOverlay
 from utils.session import SessionManager
 from utils.signals import app_events
 from utils.data_loader import run_async
@@ -434,6 +435,7 @@ class CashFlowPage(QWidget):
         self.table.setMinimumHeight(450)
         t_lay.addWidget(self.table, 1)
         root.addWidget(table_card, 1)
+        self._loader = LoadingOverlay(self, "Loading cash flow transactions...")
 
     def _make_stat_card(self, title: str, val: str, color: str, icon_name: str) -> QFrame:
         card = QFrame()
@@ -472,6 +474,8 @@ class CashFlowPage(QWidget):
         self._load_data()
 
     def _load_data(self):
+        if hasattr(self, "_loader") and self.isVisible():
+            self._loader.show_overlay("Loading cash flow transactions...")
         run_async(self, self._fetch_data, self._on_data_ready)
 
     def _fetch_data(self):
@@ -480,28 +484,32 @@ class CashFlowPage(QWidget):
         return {"transactions": txs, "summary": summary}
 
     def _on_data_ready(self, data):
-        self._transactions = data.get("transactions", [])
-        summary = data.get("summary", {})
+        try:
+            self._transactions = data.get("transactions", [])
+            summary = data.get("summary", {})
 
-        dep = summary.get("total_deposits", 0.0)
-        withd = summary.get("total_withdrawals", 0.0)
-        bal = summary.get("current_balance", 0.0)
-        sales = summary.get("total_actual_sales", 0.0)
-        diff = summary.get("total_difference", bal - sales)
+            dep = summary.get("total_deposits", 0.0)
+            withd = summary.get("total_withdrawals", 0.0)
+            bal = summary.get("current_balance", 0.0)
+            sales = summary.get("total_actual_sales", 0.0)
+            diff = summary.get("total_difference", bal - sales)
 
-        self._card_deposit._val_lbl.setText(f"₱ {dep:,.2f}")
-        self._card_withd._val_lbl.setText(f"₱ {withd:,.2f}")
-        bal_color = "#22C55E" if bal >= 0 else "#EF4444"
-        self._card_balance._val_lbl.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {bal_color};")
-        self._card_balance._val_lbl.setText(f"₱ {bal:,.2f}")
+            self._card_deposit._val_lbl.setText(f"₱ {dep:,.2f}")
+            self._card_withd._val_lbl.setText(f"₱ {withd:,.2f}")
+            bal_color = "#22C55E" if bal >= 0 else "#EF4444"
+            self._card_balance._val_lbl.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {bal_color};")
+            self._card_balance._val_lbl.setText(f"₱ {bal:,.2f}")
 
-        self._card_sales._val_lbl.setText(f"₱ {sales:,.2f}")
-        diff_color = "#22C55E" if diff >= 0 else "#EF4444"
-        diff_str = f"₱ {diff:,.2f}" if diff >= 0 else f"(₱ {abs(diff):,.2f})"
-        self._card_diff._val_lbl.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {diff_color};")
-        self._card_diff._val_lbl.setText(diff_str)
+            self._card_sales._val_lbl.setText(f"₱ {sales:,.2f}")
+            diff_color = "#22C55E" if diff >= 0 else "#EF4444"
+            diff_str = f"₱ {diff:,.2f}" if diff >= 0 else f"(₱ {abs(diff):,.2f})"
+            self._card_diff._val_lbl.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {diff_color};")
+            self._card_diff._val_lbl.setText(diff_str)
 
-        self._populate_table()
+            self._populate_table()
+        finally:
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
 
     def _populate_table(self):
         self.table.setUpdatesEnabled(False)
