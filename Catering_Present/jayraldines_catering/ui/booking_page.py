@@ -2177,7 +2177,7 @@ class BookingPage(QWidget):
     def _export_csv(self):
         bookings = self._visible_bookings()
         if not bookings:
-            bookings = self._all_bookings or []
+            bookings = getattr(self, "_bookings", []) or []
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Bookings", "jayraldines_bookings_export.xlsx", "Excel Spreadsheet (*.xlsx);;CSV Files (*.csv)"

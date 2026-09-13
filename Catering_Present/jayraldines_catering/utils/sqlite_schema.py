@@ -829,14 +829,38 @@ def init_sqlite_db(conn: sqlite3.Connection):
                 )
         cursor.execute("INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES ('expenses_initial_seed_done', '1')")
 
-    # Ensure bk_color_theme column exists in bookings table
+    # Ensure all required columns exist in bookings table
     try:
         cursor.execute("PRAGMA table_info(bookings)")
         bk_cols = [r[1] for r in cursor.fetchall()]
         if "bk_color_theme" not in bk_cols:
             cursor.execute("ALTER TABLE bookings ADD COLUMN bk_color_theme TEXT DEFAULT '#2563EB'")
+        if "bk_contact" not in bk_cols:
+            cursor.execute("ALTER TABLE bookings ADD COLUMN bk_contact TEXT DEFAULT ''")
+        if "bk_email" not in bk_cols:
+            cursor.execute("ALTER TABLE bookings ADD COLUMN bk_email TEXT DEFAULT ''")
+        if "bk_special_notes" not in bk_cols:
+            cursor.execute("ALTER TABLE bookings ADD COLUMN bk_special_notes TEXT DEFAULT ''")
+        if "bk_down_payment" not in bk_cols:
+            cursor.execute("ALTER TABLE bookings ADD COLUMN bk_down_payment REAL DEFAULT 0.0")
+        if "bk_down_payment_status" not in bk_cols:
+            cursor.execute("ALTER TABLE bookings ADD COLUMN bk_down_payment_status TEXT DEFAULT 'PENDING'")
+        if "bk_base_total" not in bk_cols:
+            cursor.execute("ALTER TABLE bookings ADD COLUMN bk_base_total REAL DEFAULT 0.0")
+
+        # Backfill contact and email from customer records if empty
+        cursor.execute("""
+            UPDATE bookings
+            SET bk_contact = (SELECT cus_contact FROM customers WHERE customers.cus_id = bookings.bk_customer_id)
+            WHERE (bk_contact IS NULL OR bk_contact = '') AND bk_customer_id IS NOT NULL
+        """)
+        cursor.execute("""
+            UPDATE bookings
+            SET bk_email = (SELECT cus_email FROM customers WHERE customers.cus_id = bookings.bk_customer_id)
+            WHERE (bk_email IS NULL OR bk_email = '') AND bk_customer_id IS NOT NULL
+        """)
     except Exception as exc:
-        log.warning(f"Error checking/adding bk_color_theme column: {exc}")
+        log.warning(f"Error checking/adding booking columns: {exc}")
 
     # Ensure al_device column exists in audit_logs table
     try:
