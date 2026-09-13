@@ -351,6 +351,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     al_record_id INTEGER DEFAULT 1,
     al_old_value TEXT,
     al_new_value TEXT,
+    al_device TEXT DEFAULT 'Desktop / Server',
     al_user TEXT DEFAULT 'System',
     al_details TEXT,
     al_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -836,6 +837,15 @@ def init_sqlite_db(conn: sqlite3.Connection):
             cursor.execute("ALTER TABLE bookings ADD COLUMN bk_color_theme TEXT DEFAULT '#2563EB'")
     except Exception as exc:
         log.warning(f"Error checking/adding bk_color_theme column: {exc}")
+
+    # Ensure al_device column exists in audit_logs table
+    try:
+        cursor.execute("PRAGMA table_info(audit_logs)")
+        al_cols = [r[1] for r in cursor.fetchall()]
+        if "al_device" not in al_cols:
+            cursor.execute("ALTER TABLE audit_logs ADD COLUMN al_device TEXT DEFAULT 'Desktop / Server'")
+    except Exception as exc:
+        log.warning(f"Error checking/adding al_device column: {exc}")
 
     # Automatically and silently merge any duplicate customers and remove duplicate bookings
     try:
