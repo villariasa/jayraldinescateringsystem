@@ -85,6 +85,7 @@ def create_installer():
         "--add-data", "analytics_functions_migration.sql;.",
         "--add-data", "fix_customer_ledger_view.sql;.",
         "--add-data", "device_monitoring_migration.sql;.",
+        "--add-data", "setup.ps1;.",
         "--uac-admin",
         "--distpath", str(output_dir),
         "--exclude-module", "reportlab",

@@ -311,16 +311,19 @@ def migrate_sqlite_to_postgres(
                     ON CONFLICT ({pk_col}) DO NOTHING
                 """
 
-            # Batch insert rows
+            # Batch insert rows safely using savepoints to isolate individual errors
             inserted_count = 0
             for r_data in converted_rows:
                 try:
+                    p_cur.execute("SAVEPOINT row_savepoint")
                     p_cur.execute(insert_sql, r_data)
+                    p_cur.execute("RELEASE SAVEPOINT row_savepoint")
                     inserted_count += p_cur.rowcount if p_cur.rowcount > 0 else 0
                 except Exception as row_err:
-                    # Ignore duplicate foreign keys or constraint violations
-                    pg_conn.rollback()
-                    # Re-enable sub-transaction
+                    try:
+                        p_cur.execute("ROLLBACK TO SAVEPOINT row_savepoint")
+                    except Exception:
+                        pass
                     continue
 
             pg_conn.commit()
@@ -363,3 +366,35 @@ def migrate_sqlite_to_postgres(
     except Exception as exc:
         log.exception(f"[Migrate] SQLite to PostgreSQL migration failed: {exc}")
         return False, stats, str(exc)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Migrate SQLite DB to PostgreSQL")
+    parser.add_argument("sqlite_path", help="Path to SQLite database file")
+    parser.add_argument("--host", default="localhost")
+    parser.add_argument("--port", type=int, default=5432)
+    parser.add_argument("--dbname", default="jayraldines_catering")
+    parser.add_argument("--user", default="postgres")
+    parser.add_argument("--password", default="12345678")
+    args = parser.parse_args()
+
+    sq_path = Path(args.sqlite_path)
+    if not sq_path.exists():
+        print(f"Error: file not found: {sq_path}")
+        sys.exit(1)
+
+    print(f"Starting migration from {sq_path} to PostgreSQL {args.host}:{args.port}/{args.dbname}...")
+    ok, st, err = migrate_sqlite_to_postgres(
+        sq_path,
+        {"host": args.host, "port": args.port, "dbname": args.dbname, "user": args.user, "password": args.password},
+        progress_callback=lambda p, m: print(f"[{p}%] {m}")
+    )
+    if ok:
+        print("\nSUCCESS! Migration Summary:")
+        for t, cnt in st.items():
+            if cnt > 0:
+                print(f"  • {t}: {cnt} records")
+    else:
+        print(f"\nFAILED: {err}")
+        sys.exit(1)

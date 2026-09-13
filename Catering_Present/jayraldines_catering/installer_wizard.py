@@ -130,43 +130,110 @@ class ExtractWorker(QThread):
     def _find_psql_static() -> Optional[str]:
         if shutil.which("psql"):
             return "psql"
-        for ver in ["17", "16", "15", "14", "13"]:
-            for pf in [r"C:\Program Files\PostgreSQL", r"C:\Program Files (x86)\PostgreSQL"]:
+        for ver in ["18", "17", "16", "15", "14", "13", "12"]:
+            for pf in [r"C:\Program Files\PostgreSQL", r"C:\Program Files (x86)\PostgreSQL", r"D:\PostgreSQL", r"E:\PostgreSQL"]:
                 cand = os.path.join(pf, ver, "bin", "psql.exe")
                 if os.path.exists(cand):
                     return cand
+        import glob
+        for cand in glob.glob(r"C:\Program Files*\PostgreSQL\*\bin\psql.exe"):
+            if os.path.exists(cand):
+                return cand
+        if os.name == "nt":
+            try:
+                res = subprocess.run(
+                    ["powershell", "-NoProfile", "-Command",
+                     "(Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\postgresql*' -ErrorAction SilentlyContinue).ImagePath"],
+                    capture_output=True, text=True, timeout=3,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                for line in res.stdout.splitlines():
+                    line = line.strip().strip('"')
+                    if "bin" in line.lower():
+                        bin_dir = Path(line).parent
+                        p = bin_dir / "psql.exe"
+                        if p.exists():
+                            return str(p)
+            except Exception:
+                pass
         return None
 
     def _auto_install_postgresql(self) -> Tuple[bool, str]:
         """Attempts to install PostgreSQL silently if not found."""
-        self.progress.emit(15, "PostgreSQL not detected. Installing PostgreSQL database engine silently...")
+        self.progress.emit(15, "PostgreSQL not detected. Installing PostgreSQL 16 database engine...")
+        
+        # 1. Try winget with unattended parameters
         try:
             cmd = [
                 "winget", "install", "--id", "PostgreSQL.PostgreSQL",
-                "-e", "--silent", "--accept-package-agreements", "--accept-source-agreements"
+                "-e", "--silent", "--accept-package-agreements", "--accept-source-agreements",
+                "--override", "--mode unattended --superpassword 12345678 --serverport 5432"
             ]
             res = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=300,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             )
             if res.returncode == 0:
-                return True, "Installed via winget."
+                time.sleep(5)
+                if self._find_psql_static():
+                    return True, "Installed via winget."
         except Exception:
             pass
 
-        setup_ps1 = self.dest_dir / "setup.ps1"
-        if setup_ps1.exists():
+        # 2. Download and execute official EnterpriseDB unattended installer directly
+        try:
+            import urllib.request
+            import tempfile
+            self.progress.emit(20, "Downloading official PostgreSQL 16 installer (EnterpriseDB)...")
+            installer_url = "https://get.enterprisedb.com/postgresql/postgresql-16.3-1-windows-x64.exe"
+            temp_installer = Path(tempfile.gettempdir()) / "postgresql-16-installer.exe"
+
+            def _dl_progress(block_num, block_size, total_size):
+                if total_size > 0:
+                    pct = 20 + int((block_num * block_size / total_size) * 30)
+                    self.progress.emit(min(50, pct), f"Downloading PostgreSQL installer ({int(block_num*block_size/1048576)} MB)...")
+
+            urllib.request.urlretrieve(installer_url, temp_installer, _dl_progress)
+            self.progress.emit(52, "Executing silent PostgreSQL installation (please wait 1-2 minutes)...")
+            
+            run_cmd = [
+                str(temp_installer),
+                "--mode", "unattended",
+                "--unattendedmodeui", "none",
+                "--superpassword", "12345678",
+                "--serverport", "5432"
+            ]
+            subprocess.run(
+                run_cmd, timeout=360,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            )
+            try:
+                temp_installer.unlink()
+            except Exception:
+                pass
+
+            time.sleep(6)
+            if self._find_psql_static():
+                return True, "Installed via official unattended installer."
+        except Exception as exc:
+            pass
+
+        # 3. Fallback: check setup.ps1
+        setup_ps1 = self._find_asset_file("setup.ps1") or (self.dest_dir / "setup.ps1")
+        if setup_ps1 and Path(setup_ps1).exists():
             try:
                 ps_cmd = f'powershell -NoProfile -ExecutionPolicy Bypass -File "{setup_ps1}"'
                 subprocess.run(
                     ps_cmd, shell=True, timeout=300,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                 )
-                return True, "Installed via setup.ps1."
-            except Exception as exc:
-                return False, f"Failed setup.ps1: {exc}"
+                time.sleep(5)
+                if self._find_psql_static():
+                    return True, "Installed via setup.ps1."
+            except Exception:
+                pass
 
-        return False, "PostgreSQL silent installation was unable to complete automatically."
+        return False, "PostgreSQL installation was unable to complete automatically."
 
     def _find_asset_file(self, filename: str) -> Optional[Path]:
         """Locates bundled or repository SQL/asset files across multiple candidate directories."""
@@ -581,7 +648,8 @@ class ExtractWorker(QThread):
                     pass
 
             uninstaller = self.dest_dir / "uninstall.bat"
-            desktop_lnks_cmd = "\n".join([f'del /F /Q "{d / "Jayraldine\'s Catering.lnk"}" 2>nul' for d in get_desktop_directories()])
+            lnk_name = "Jayraldine's Catering.lnk"
+            desktop_lnks_cmd = "\n".join([f'del /F /Q "{d / lnk_name}" 2>nul' for d in get_desktop_directories()])
             start_menu_dir = Path(os.environ.get("APPDATA", str(Path.home()))) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Jayraldine's Catering"
 
             uninstall_content = f"""@echo off
