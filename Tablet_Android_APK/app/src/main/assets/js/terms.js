@@ -1,5 +1,5 @@
 // Terms & Conditions data with structured HTML rendering for the kiosk UI.
-const CURRENT_TERMS_VERSION = "1.0";
+const CURRENT_TERMS_VERSION = "1.1";
 const TERMS_TITLE = "Jayraldine's Catering Services — Terms & Conditions";
 
 const TERMS_TEXT = `JAYRALDINE'S CATERING SERVICES
@@ -20,15 +20,14 @@ SERVICE INFORMATION:
 11. A porterage fee of P500.00 applies for venues not easily accessible by commercial vehicles, or located on the 3rd floor and above without elevator access.
 12. In case of loss or damage of any caterer's equipment not due to handling by the food service personnel, a corresponding price shall be charged.
 13. Jayraldine's Catering Event Place is optionally available as a venue for parties.
-14. Our 2 function rooms are fully air-conditioned, with 80–100 person and 50–60 person capacity. A built-in sound system with microphone is available for free use. Function room maintenance fee is only P2,000 and P1,000 for 3 hours.
+14. Our 2 function rooms are fully air-conditioned, with 80–100 person and 50–60 person capacity. A built-in sound system with microphone is available for free use. Function room rate is P1,000–P1,500 per hour.
 15. One elegant buffet table can be added for every hundred persons:
     • 100 persons = 1 Buffet Table
     • 200 persons = Maximum of 2 Buffet Tables
     • Additional Buffet Table: P500.00 each
-16. One complimentary Presidential Table for a minimum of 100 persons. Additional Presidential Table: P500.00.
-17. A reservation fee is required: minimum P2,000, or P5,000 for Weddings and Debuts. The reservation fee is non-refundable but will be deducted from the total bill. Half payment shall be made one week before the event.
-18. Full payment shall be made before the start of the function. We only accept CASH PAYMENT.
-19. NOTE: For the Wedding rate, an additional P30.00/head is charged for a minimum of 100 persons.`;
+16. One complimentary Presidential Table for a minimum of 100 persons. Additional Presidential Table: P1,000.00.
+17. A reservation fee of P5,000.00 is required (non-refundable but will be deducted from the total bill). 50% down payment must be made 1–2 weeks before the event date.
+18. Full payment shall be made before the start of the function. We only accept CASH PAYMENT.`;
 
 const TERMS_ACKNOWLEDGEMENT_LABEL = "I have read and understood the Catering Rules and Terms and Conditions.";
 
@@ -105,9 +104,9 @@ export function getTermsHtml() {
           <h4>Function Rooms &amp; Buffet Tables</h4>
         </div>
         <ul class="terms-list">
-          <li><b>Event Place Function Rooms:</b> 2 fully air-conditioned rooms (80–100 pax and 50–60 pax capacity) with free built-in sound system &amp; mic. Maintenance fee: <b>₱2,000 / ₱1,000</b> for 3 hours.</li>
+          <li><b>Event Place Function Rooms:</b> 2 fully air-conditioned rooms (80–100 pax and 50–60 pax capacity) with free built-in sound system &amp; mic. Function room rate: <b>₱1,000 – ₱1,500 per hour</b>.</li>
           <li><b>Buffet Tables:</b> 100 pax = 1 Buffet Table · 200 pax = Max 2 Tables (Additional Buffet Table: <b>₱500.00</b> each).</li>
-          <li><b>Presidential Table:</b> 1 complimentary table for minimum 100 pax (Additional: <b>₱500.00</b> each).</li>
+          <li><b>Presidential Table:</b> 1 complimentary table for minimum 100 pax (Additional: <b>₱1,000.00</b> each).</li>
         </ul>
       </div>
 
@@ -115,13 +114,12 @@ export function getTermsHtml() {
       <div class="terms-section">
         <div class="terms-section-header">
           <span class="sec-badge">5</span>
-          <h4>Payment, Reservation &amp; Wedding Policy</h4>
+          <h4>Payment &amp; Reservation Policy</h4>
         </div>
         <ul class="terms-list">
-          <li><b>Reservation Fee:</b> Minimum <b>₱2,000.00</b> (or <b>₱5,000.00</b> for Weddings/Debuts). Non-refundable but deducted from the total balance.</li>
-          <li><b>50% Payment:</b> Half payment is required <b>1 week prior</b> to the event date.</li>
+          <li><b>Reservation Fee:</b> <b>₱5,000.00</b> reservation fee is required (non-refundable but deducted from the total balance).</li>
+          <li><b>50% Down Payment:</b> 50% payment is required <b>1–2 weeks before</b> the event date.</li>
           <li><b>Full Balance:</b> Full payment must be settled before the start of the function. <span class="terms-highlight">Cash or verified electronic payment only.</span></li>
-          <li><b>Wedding Rate:</b> Additional <b>₱30.00 / head</b> for wedding bookings (minimum 100 persons).</li>
         </ul>
       </div>
     </div>

@@ -69,6 +69,16 @@ function readAndCompressImage(file, maxWidth = 2560, maxHeight = 1920, quality =
   });
 }
 
+if (typeof window !== "undefined") {
+  window.addEventListener("jayraldines:sync-completed", () => {
+    const modal = document.getElementById(MODAL_ID);
+    if (!modal || modal.dataset.activeSettingsTab !== "packages") return;
+    if (document.getElementById("pkg-form-modal")) return;
+    const content = modal.querySelector("#tab-content");
+    if (content) renderPackagesTab(content);
+  });
+}
+
 /**
  * Entry point when user clicks "Admin Access" / "Settings".
  * Enforces security password check before granting access.
@@ -273,6 +283,8 @@ function showOwnerSettingsModal(initialTab = "bookings") {
 async function renderTabs(body, active) {
   let tabsBar = body.querySelector(".settings-tabs-sticky");
   let content = body.querySelector("#tab-content");
+  body.dataset.activeSettingsTab = active;
+  body.closest(`#${MODAL_ID}`)?.setAttribute("data-active-settings-tab", active);
 
   // Create the persistent tabs header once if not already rendered
   if (!tabsBar || !content) {
@@ -286,6 +298,9 @@ async function renderTabs(body, active) {
         </button>
         <button class="btn btn-secondary" data-tab="menu">
           ${icon("utensils")} Menu Dishes &amp; Add-ons
+        </button>
+        <button class="btn btn-secondary" data-tab="events">
+          ${icon("calendar")} Event Types
         </button>
         <button class="btn btn-secondary" data-tab="customers">
           ${icon("user")} Customer Directory
@@ -338,6 +353,7 @@ async function renderTabs(body, active) {
   if (active === "bookings") return renderBookingsTab(content);
   if (active === "packages") return renderPackagesTab(content);
   if (active === "menu") return renderMenuTab(content);
+  if (active === "events") return renderEventsTab(content);
   if (active === "customers") return renderCustomersTab(content);
   if (active === "landing") return renderLandingTab(content);
   if (active === "security") return renderSecurityTab(content);
@@ -698,6 +714,7 @@ async function renderPackagesTab(content) {
 function openPackageForm(content, pkg) {
   const formId = "pkg-form-modal";
   let currentImage = pkg?.image || null;
+  let imageChanged = false;
 
   openModal({
     id: formId,
@@ -753,7 +770,8 @@ function openPackageForm(content, pkg) {
     if (!file) return;
     try {
       toast("Processing photo…", "info");
-      currentImage = await readAndCompressImage(file, 1920, 1440, 0.95);
+      currentImage = await readAndCompressImage(file, 960, 720, 0.86);
+      imageChanged = true;
       previewWrap.innerHTML = `<img src="${currentImage}" alt="preview" class="image-preview">`;
       removeBtn.style.display = "inline-flex";
       toast("Photo loaded successfully!", "success");
@@ -764,6 +782,7 @@ function openPackageForm(content, pkg) {
 
   removeBtn.addEventListener("click", () => {
     currentImage = null;
+    imageChanged = true;
     fileInput.value = "";
     previewWrap.innerHTML = `<div class="image-placeholder-icon">${icon("package")}<span>No photo chosen</span></div>`;
     removeBtn.style.display = "none";
@@ -776,12 +795,13 @@ function openPackageForm(content, pkg) {
       price_per_pax: Number(modal.querySelector("#f-price").value || 0),
       min_pax: Number(modal.querySelector("#f-min").value || 30),
       image: currentImage,
+      image_changed: imageChanged || (!pkg && !!currentImage),
     };
     if (!payload.name) { toast("Package Name is required.", "error"); return; }
     try {
-      if (pkg) await api.updatePackage(pkg.id, payload);
-      else await api.createPackage(payload);
-      toast("Package saved successfully!", "success");
+      const result = pkg ? await api.updatePackage(pkg.id, payload) : await api.createPackage(payload);
+      const pendingImage = result?.image_sync === "pending";
+      toast(pendingImage ? "Package saved. Image will sync with Central DB when connected." : "Package saved successfully!", "success");
       closeModal(formId);
       renderPackagesTab(content);
     } catch (err) {
@@ -951,6 +971,148 @@ function openMenuItemForm(content, item, categories) {
       renderMenuTab(content);
     } catch (err) {
       toast(err.message, "error");
+    }
+  });
+}
+
+// ── Event Types (Occasions) Tab ──────────────────────────────────────
+
+async function renderEventsTab(content) {
+  content.innerHTML = `<p style="color:var(--text-muted); padding:20px; text-align:center;">Loading event types…</p>`;
+  const occasions = await api.getOccasions();
+
+  content.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
+      <div>
+        <div style="font-size:16px; font-weight:800; color:var(--text); display:flex; align-items:center; gap:8px;">
+          ${icon("calendar")} Catering Event Types &amp; Occasions (${occasions.length})
+        </div>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-top:2px;">
+          Add or edit events that customers can select during tablet booking (e.g. Wedding, Birthday, Debut, Corporate).
+        </div>
+      </div>
+      <button class="btn btn-primary" id="add-occasion-btn" style="padding:9px 16px; font-weight:700; display:inline-flex; align-items:center; gap:6px;">
+        ${icon("plus")} Add Event Type
+      </button>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px;" id="occasions-grid">
+      ${occasions.map((o) => `
+        <div class="management-card" style="padding:14px 16px; justify-content:space-between; min-height:110px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:40px; height:40px; border-radius:10px; background:rgba(225,29,72,0.12); color:var(--accent); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+              ${icon("calendar")}
+            </div>
+            <div style="flex:1; min-width:0;">
+              <h4 style="font-size:15px; font-weight:700; color:var(--text); margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                ${escapeHtml(o.name)}
+              </h4>
+              <span style="font-size:11px; color:var(--text-muted); font-weight:600;">ID #${o.id || "—"} &bull; Active Occasion</span>
+            </div>
+          </div>
+          <div class="management-card-actions" style="margin-top:10px; padding-top:8px;">
+            <button class="btn btn-secondary" data-edit-occ="${o.id}" data-name="${escapeHtml(o.name)}" style="padding:6px 10px; font-size:12.5px;">
+              ${icon("edit")} Edit
+            </button>
+            <button class="btn btn-danger" data-del-occ="${o.id}" data-name="${escapeHtml(o.name)}" style="padding:6px 10px; font-size:12.5px;">
+              ${icon("trash")} Delete
+            </button>
+          </div>
+        </div>
+      `).join("") || `<div style="grid-column: 1 / -1; padding:36px; text-align:center; color:var(--text-muted);">No event types configured. Click "Add Event Type" above.</div>`}
+    </div>
+  `;
+
+  content.querySelector("#add-occasion-btn")?.addEventListener("click", () => openEventForm(content, null));
+
+  content.querySelectorAll("[data-edit-occ]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.editOcc;
+      const name = btn.dataset.name;
+      openEventForm(content, { id, name });
+    });
+  });
+
+  content.querySelectorAll("[data-del-occ]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.delOcc;
+      const name = btn.dataset.name;
+      if (!confirm(`Are you sure you want to delete the event type "${name}"?`)) return;
+      try {
+        await api.deleteOccasion(id, name);
+        if (typeof window.__clearWizardCaches === "function") window.__clearWizardCaches();
+        toast(`Event type "${name}" deleted.`, "success");
+        renderEventsTab(content);
+      } catch (err) {
+        toast("Failed to delete: " + err.message, "error");
+      }
+    });
+  });
+}
+
+function openEventForm(content, occ) {
+  const formId = "occasion-form-modal";
+  const isEdit = Boolean(occ && occ.id);
+
+  openModal({
+    id: formId,
+    title: isEdit ? `${icon("edit")} Edit Event Type` : `${icon("plus")} Add New Event Type`,
+    bodyHtml: `
+      <div style="padding:6px 0;">
+        <div class="form-group">
+          <label style="font-weight:700; color:var(--text); font-size:13px; margin-bottom:6px; display:block;">Event / Occasion Name *</label>
+          <input type="text" class="form-control" id="f-occ-name" placeholder="e.g. Wedding Reception, Debut, Corporate Gala" value="${escapeHtml(occ?.name || "")}" autofocus style="font-size:15px; padding:10px 14px;">
+          <small style="color:var(--text-muted); font-size:11.5px; margin-top:4px; display:block;">
+            This event name will appear in the tablet booking wizard dropdown.
+          </small>
+        </div>
+      </div>
+    `,
+    footerHtml: `
+      <button class="btn btn-secondary" data-close>Cancel</button>
+      <button class="btn btn-primary" id="save-occ-btn" style="font-weight:700; display:inline-flex; align-items:center; gap:6px;">
+        ${icon("check")} ${isEdit ? "Update Event" : "Save Event"}
+      </button>
+    `,
+  });
+
+  const modal = document.getElementById(formId);
+  const nameInput = modal?.querySelector("#f-occ-name");
+  const saveBtn = modal?.querySelector("#save-occ-btn");
+
+  setTimeout(() => nameInput?.focus(), 150);
+
+  const handleSave = async () => {
+    const name = (nameInput?.value || "").trim();
+    if (!name) {
+      toast("Event name cannot be empty.", "error");
+      nameInput?.focus();
+      return;
+    }
+
+    try {
+      if (isEdit) {
+        await api.updateOccasion(occ.id, { name });
+        toast(`Event type updated to "${name}".`, "success");
+      } else {
+        await api.createOccasion({ name });
+        toast(`Event type "${name}" added successfully!`, "success");
+      }
+      if (typeof window.__clearWizardCaches === "function") {
+        window.__clearWizardCaches();
+      }
+      closeModal(formId);
+      renderEventsTab(content);
+    } catch (err) {
+      toast("Failed to save: " + err.message, "error");
+    }
+  };
+
+  saveBtn?.addEventListener("click", handleSave);
+  nameInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSave();
     }
   });
 }
@@ -1180,35 +1342,35 @@ async function renderDatabaseTab(content) {
               </label>
               <input type="number" id="input-lan-port" class="input" value="${localStorage.getItem('jayraldines_lan_port') || '8000'}" placeholder="8000" style="width:100%; font-size:13.5px; font-weight:600; font-family:monospace; padding:10px 14px;">
               <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
-                Default Sync Hub port is <b>8000</b>. (PostgreSQL runs on port 5432).
+                Default Sync Hub port is <b>8000</b> (HTTP LAN Sync Server &amp; SQLite DB).
               </div>
             </div>
           </div>
 
-          <!-- Column 2: Database Credentials (PostgreSQL on Central PC) -->
+          <!-- Column 2: Database Info (Central SQLite on Central PC) -->
           <div style="background:var(--input-bg); padding:16px; border-radius:var(--radius-md); border:1px solid var(--border);">
             <div style="font-size:12px; font-weight:800; color:var(--accent); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
-              ${icon("database")} 2. Central PostgreSQL Database
+              ${icon("database")} 2. Central SQLite Database &amp; Hub
             </div>
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
               <div>
                 <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:4px;">
-                  Database Name
+                  Database File
                 </label>
-                <input type="text" id="input-lan-dbname" class="input" value="${localStorage.getItem('jayraldines_lan_dbname') || 'jayraldines_catering'}" placeholder="jayraldines_catering" style="width:100%; font-size:13px; padding:10px 12px;">
+                <input type="text" id="input-lan-dbname" class="input" value="${localStorage.getItem('jayraldines_lan_dbname') || 'catering.db'}" placeholder="catering.db" style="width:100%; font-size:13px; padding:10px 12px;">
               </div>
               <div>
                 <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:4px;">
-                  DB User
+                  Sync User
                 </label>
-                <input type="text" id="input-lan-user" class="input" value="${localStorage.getItem('jayraldines_lan_user') || 'jayraldines_app'}" placeholder="jayraldines_app" style="width:100%; font-size:13px; padding:10px 12px;">
+                <input type="text" id="input-lan-user" class="input" value="${localStorage.getItem('jayraldines_lan_user') || 'admin'}" placeholder="admin" style="width:100%; font-size:13px; padding:10px 12px;">
               </div>
             </div>
 
             <div>
               <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:4px;">
-                DB Password
+                Sync Security Key
               </label>
               <div style="position:relative;">
                 <input type="password" id="input-lan-password" class="input" value="${localStorage.getItem('jayraldines_lan_password') || '12345678'}" placeholder="Default: 12345678" style="width:100%; font-size:13px; padding:10px 42px 10px 12px;">
@@ -1217,7 +1379,7 @@ async function renderDatabaseTab(content) {
                 </button>
               </div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
-                Password configured during server setup (default is 12345678).
+                Server authentication key (default is 12345678).
               </div>
             </div>
           </div>
@@ -1365,9 +1527,10 @@ async function renderDatabaseTab(content) {
       }
     }
     if (statusPill) {
-      if (stat.online) {
+      const isDbOnline = Boolean(stat.online && (stat.db_connected !== false));
+      if (isDbOnline) {
         const displayHost = stat.host || (hostInput ? hostInput.value.trim() : "") || host || "Central PC";
-        statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--success);"></span> 🟢 Central Server Online (${escapeHtml(displayHost)}:${stat.port || 8000})`;
+        statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--success);"></span> 🟢 Central Server &amp; SQLite DB Online (${escapeHtml(displayHost)}:${stat.port || 8000})`;
         statusPill.style.background = "rgba(16,185,129,0.15)";
         statusPill.style.color = "var(--success)";
         statusPill.style.borderColor = "rgba(16,185,129,0.35)";
@@ -1379,7 +1542,23 @@ async function renderDatabaseTab(content) {
           diagBox.style.color = "var(--success)";
           diagBox.innerHTML = `
             <b>✅ Connection Verified:</b> Successfully reached Central Server at <code>${escapeHtml(displayHost)}:${stat.port || 8000}</code>.<br>
-            Database engine: <b>${escapeHtml(stat.db_engine || 'PostgreSQL')}</b> (${escapeHtml(stat.db_name || 'jayraldines_catering')}). Ready to synchronize!
+            Database engine: <b>${escapeHtml((stat.db_engine || 'SQLite').toUpperCase())}</b> (${escapeHtml(stat.db_name || 'catering.db')}). Server and Database are Online and ready to synchronize!
+          `;
+        }
+      } else if (stat.online) {
+        const displayHost = stat.host || (hostInput ? hostInput.value.trim() : "") || host || "Central PC";
+        statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--gold);"></span> 🟡 HTTP Hub Online (${escapeHtml(displayHost)}:8000), Checking DB…`;
+        statusPill.style.background = "rgba(245,158,11,0.15)";
+        statusPill.style.color = "var(--gold)";
+        statusPill.style.borderColor = "rgba(245,158,11,0.35)";
+
+        if (showDiag && diagBox) {
+          diagBox.style.display = "block";
+          diagBox.style.background = "rgba(245,158,11,0.1)";
+          diagBox.style.border = "1px solid rgba(245,158,11,0.3)";
+          diagBox.style.color = "var(--gold)";
+          diagBox.innerHTML = `
+            <b>🟡 Sync Hub Online:</b> Reached server on port 8000. Database initialization in progress (${escapeHtml(stat.error || 'Standby')}).
           `;
         }
       } else {
@@ -1435,8 +1614,8 @@ async function renderDatabaseTab(content) {
       const fallbackHost = typeof window !== 'undefined' && window.location && window.location.hostname ? window.location.hostname : "127.0.0.1";
       const host = hostInput ? hostInput.value.trim() || fallbackHost : fallbackHost;
       const port = portInput ? parseInt(portInput.value.trim(), 10) || 8000 : 8000;
-      const dbname = dbnameInput ? dbnameInput.value.trim() : "jayraldines_catering";
-      const user = userInput ? userInput.value.trim() : "jayraldines_app";
+      const dbname = dbnameInput ? dbnameInput.value.trim() : "catering.db";
+      const user = userInput ? userInput.value.trim() : "admin";
       const password = passInput ? passInput.value : "12345678";
 
       localStorage.setItem("jayraldines_lan_host", host);
@@ -1448,26 +1627,13 @@ async function renderDatabaseTab(content) {
       if (btn) btn.textContent = "Synchronizing database records…";
       toast("Connecting and synchronizing with Central Server…", "info");
 
-      const { bookings, customers } = repo.getPendingSyncRecords();
-      const res = await api.performLanSync({
+      const res = await api.syncWithServer({
         host,
-        port: 5432, // target PostgreSQL port on host
+        port,
         dbname,
         user,
         password,
-        bookings,
-        customers,
       });
-
-      // Update tablet's local IndexedDB with live dishes, packages, menu items, and customers
-      if (res.packages || res.menu_items || res.customers) {
-        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || []);
-      }
-
-      // Mark pushed records as synced
-      if (res.synced_booking_refs || res.synced_customer_names) {
-        repo.markRecordsSynced(res.synced_booking_refs || [], res.synced_customer_names || []);
-      }
 
       toast(res.message || "Sync completed successfully!", "success");
       if (diagBox) {
@@ -1840,20 +2006,22 @@ export function openLiveDbConfigModal() {
 }
 
 function _renderLiveDbConfigModal() {
-  const currentHost = localStorage.getItem("jayraldines_lan_host") || "192.168.1.10";
+  const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
+  const autoIp = (typeof window !== "undefined" && window.location && window.location.hostname && !window.location.origin.startsWith("file:")) ? window.location.hostname : "192.168.1.32";
+  const currentHost = savedHost || "192.168.1.32";
   const currentPort = localStorage.getItem("jayraldines_lan_port") || "8000";
-  const currentDbName = localStorage.getItem("jayraldines_lan_dbname") || "jayraldines_catering";
-  const currentUser = localStorage.getItem("jayraldines_lan_user") || "jayraldines_app";
+  const currentDbName = localStorage.getItem("jayraldines_lan_dbname") || "catering.db";
+  const currentUser = localStorage.getItem("jayraldines_lan_user") || "admin";
   const currentPassword = localStorage.getItem("jayraldines_lan_password") || "12345678";
 
   openModal({
     id: "livedb-config-modal",
-    title: `${icon("database")} Central Database Connection &amp; Credentials Setup`,
+    title: `${icon("database")} Central Database Connection &amp; Sync Setup`,
     large: true,
     bodyHtml: `
       <div style="margin-bottom:18px;">
         <div style="background:rgba(37,99,235,0.08); border:1.5px solid rgba(37,99,235,0.25); border-radius:var(--radius-md); padding:14px 18px; color:var(--text); font-size:13.5px; line-height:1.5;">
-          <b>📡 Live Central Database Setup:</b> Connect this tablet directly to the central PostgreSQL database on your laptop over Wi-Fi. All menu packages, dishes, and booking transactions synchronize in real time.
+          <b>📡 Live Central Database Setup:</b> Connect this tablet directly to the central SQLite database on your laptop over Wi-Fi. All menu packages, dishes, and booking transactions synchronize in real time via Port 8000.
         </div>
       </div>
 
@@ -1874,22 +2042,25 @@ function _renderLiveDbConfigModal() {
                 🔍 Auto-Detect IP
               </button>
             </div>
-            <input type="text" id="cfg-lan-host" class="input" value="${escapeHtml(currentHost)}" placeholder="e.g. 192.168.1.10" style="width:100%; font-size:14px; font-weight:700; font-family:monospace; padding:11px 14px;">
+            <input type="text" id="cfg-lan-host" class="input" value="${escapeHtml(currentHost)}" placeholder="e.g. 192.168.1.32" style="width:100%; font-size:14px; font-weight:700; font-family:monospace; padding:11px 14px;">
             
             <!-- Quick Preset IP Pills -->
             <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
-              <button type="button" class="cfg-quick-ip btn btn-sm" data-ip="192.168.1.10" style="font-size:11px; padding:2px 8px; background:var(--card); border:1px solid var(--border); border-radius:4px; color:var(--text-muted); cursor:pointer;">
-                192.168.1.10
+              <button type="button" class="cfg-quick-ip btn btn-sm" data-ip="192.168.1.32" style="font-size:11px; padding:2px 8px; background:rgba(37,99,235,0.15); border:1px solid rgba(37,99,235,0.4); border-radius:4px; color:#3B82F6; cursor:pointer; font-weight:700;">
+                192.168.1.32 (PC Server)
               </button>
-              <button type="button" class="cfg-quick-ip btn btn-sm" data-ip="192.168.1.1" style="font-size:11px; padding:2px 8px; background:var(--card); border:1px solid var(--border); border-radius:4px; color:var(--text-muted); cursor:pointer;">
-                192.168.1.1
+              <button type="button" class="cfg-quick-ip btn btn-sm" data-ip="192.168.1.34" style="font-size:11px; padding:2px 8px; background:var(--card); border:1px solid var(--border); border-radius:4px; color:var(--text-muted); cursor:pointer;">
+                192.168.1.34
+              </button>
+              <button type="button" class="cfg-quick-ip btn btn-sm" data-ip="${escapeHtml(autoIp)}" style="font-size:11px; padding:2px 8px; background:var(--card); border:1px solid var(--border); border-radius:4px; color:var(--text-muted); cursor:pointer;">
+                ${escapeHtml(autoIp)} (Origin)
               </button>
               <button type="button" class="cfg-quick-ip btn btn-sm" data-ip="127.0.0.1" style="font-size:11px; padding:2px 8px; background:var(--card); border:1px solid var(--border); border-radius:4px; color:var(--text-muted); cursor:pointer;">
                 127.0.0.1
               </button>
             </div>
             <div style="font-size:11.5px; color:var(--text-muted); margin-top:6px;">
-              The IP address of the laptop running Jayraldine's Catering (usually <b>192.168.1.10</b>).
+              The IP address of the laptop / PC server running Jayraldine's Catering.
             </div>
           </div>
 
@@ -1904,10 +2075,10 @@ function _renderLiveDbConfigModal() {
           </div>
         </div>
 
-        <!-- Database Credentials -->
+        <!-- Database Information -->
         <div style="background:var(--input-bg); padding:18px; border-radius:var(--radius-md); border:1px solid var(--border);">
           <div style="font-size:12px; font-weight:800; color:var(--accent); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
-            ${icon("shield")} 2. Database Credentials (PostgreSQL)
+            ${icon("shield")} 2. Database Information (Central SQLite)
           </div>
 
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
@@ -1915,19 +2086,19 @@ function _renderLiveDbConfigModal() {
               <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:6px;">
                 Database Name
               </label>
-              <input type="text" id="cfg-lan-dbname" class="input" value="${escapeHtml(currentDbName)}" placeholder="jayraldines_catering" style="width:100%; font-size:13px; font-weight:600; padding:10px 12px;">
+              <input type="text" id="cfg-lan-dbname" class="input" value="${escapeHtml(currentDbName)}" placeholder="catering.db" style="width:100%; font-size:13px; font-weight:600; padding:10px 12px;">
             </div>
             <div>
               <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:6px;">
-                DB Username
+                Sync Username
               </label>
-              <input type="text" id="cfg-lan-user" class="input" value="${escapeHtml(currentUser)}" placeholder="jayraldines_app" style="width:100%; font-size:13px; font-weight:600; padding:10px 12px;">
+              <input type="text" id="cfg-lan-user" class="input" value="${escapeHtml(currentUser)}" placeholder="admin" style="width:100%; font-size:13px; font-weight:600; padding:10px 12px;">
             </div>
           </div>
 
           <div>
             <label style="font-size:12px; font-weight:700; color:var(--text); display:block; margin-bottom:6px;">
-              DB Password
+              Sync Security Key
             </label>
             <div style="position:relative;">
               <input type="password" id="cfg-lan-password" class="input" value="${escapeHtml(currentPassword)}" placeholder="Default: 12345678" style="width:100%; font-size:13.5px; padding:10px 42px 10px 12px; font-family:monospace;">
@@ -1936,7 +2107,7 @@ function _renderLiveDbConfigModal() {
               </button>
             </div>
             <div style="font-size:11.5px; color:var(--text-muted); margin-top:4px;">
-              Standard default password is <b>12345678</b>.
+              Standard default security key is <b>12345678</b>.
             </div>
           </div>
         </div>
@@ -2008,21 +2179,22 @@ function _renderLiveDbConfigModal() {
     diagBox.innerHTML = `⏳ Probing server at <code>http://${escapeHtml(hostInp.value.trim())}:${escapeHtml(portInp.value.trim() || '8000')}</code>…`;
 
     try {
-      const host = hostInp.value.trim() || "127.0.0.1";
+      const host = hostInp.value.trim() || autoIp || "127.0.0.1";
       const port = parseInt(portInp.value.trim(), 10) || 8000;
       const stat = await api.checkLanStatus(host, port);
 
-      if (stat && stat.online) {
+      const isLive = Boolean(stat && stat.online && (stat.db_connected !== false));
+      if (isLive) {
         diagBox.style.background = "rgba(16,185,129,0.12)";
         diagBox.style.border = "1.5px solid rgba(16,185,129,0.4)";
         diagBox.style.color = "var(--success)";
         diagBox.innerHTML = `
           <b>✅ Connection Successful!</b><br>
           Connected to Central Server at <code>${escapeHtml(stat.host || host)}:${stat.port || port}</code>.<br>
-          Database Engine: <b>${escapeHtml(stat.db_engine || 'PostgreSQL')}</b> (${escapeHtml(stat.db_name || 'jayraldines_catering')}).<br>
+          Database Engine: <b>${escapeHtml((stat.db_engine || 'SQLite').toUpperCase())}</b> (${escapeHtml(stat.db_name || 'catering.db')}).<br>
           Live Database is online and accessible.
         `;
-        toast("Central Server is online!", "success");
+        toast("Central Server & Database are online!", "success");
       } else {
         diagBox.style.background = "rgba(239,68,68,0.1)";
         diagBox.style.border = "1.5px solid rgba(239,68,68,0.35)";
@@ -2030,9 +2202,9 @@ function _renderLiveDbConfigModal() {
         diagBox.innerHTML = `
           <b>❌ Cannot reach Central Server at <code>http://${escapeHtml(host)}:${escapeHtml(port)}</code></b><br>
           <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:6px;">
-            1. Confirm that both tablet and laptop are connected to the exact same Wi-Fi (e.g. <b>ARISE!</b>).<br>
+            1. Confirm that both tablet and laptop are connected to the exact same Wi-Fi.<br>
             2. Make sure Jayraldine's Catering or <code>START_SERVER_FOR_TABLET.bat</code> is running on the laptop.<br>
-            3. Verify the laptop LAN IP address (default: <code>192.168.1.10</code>).
+            3. Verify the laptop LAN IP address (default: <code>192.168.1.34</code>).
           </span>
         `;
         toast("Could not reach Central Server.", "error");
@@ -2068,8 +2240,9 @@ function _renderLiveDbConfigModal() {
     toast("Connecting to Live Database…", "info");
 
     try {
-      const ok = await api.ensureLiveConnection(true);
-      if (ok) {
+      const stat = await api.checkLanStatus(host, Number(port) || 8000);
+      if (stat && stat.online && (stat.db_connected !== false)) {
+        await api.syncWithServer({ host, port: Number(port) || 8000, dbname, user, password });
         toast("Connected to Live Central Database! Loaded live packages & dishes.", "success");
         closeModal("livedb-config-modal");
         window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: host } }));

@@ -40,6 +40,7 @@ class TestCentralizedServerAndSync(unittest.TestCase):
         SessionManager.logout()
         SessionManager._auto_lock_minutes = None
         db.close()
+        db.set_sqlite_db_path(None)
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_session_manager_auto_lock_configuration(self):

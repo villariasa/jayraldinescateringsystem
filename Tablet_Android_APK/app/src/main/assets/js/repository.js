@@ -127,6 +127,64 @@ export function getEntityImage(entityType, entityId) {
   return row ? row.image_data : null;
 }
 
+export function queuePackageImageUpload(pkgId, imageData = "", removeImage = false) {
+  if (!pkgId) return false;
+  const img = removeImage ? "" : (imageData || "");
+  run(`
+    INSERT INTO pending_package_images (pkg_id, image_data, remove_image, sync_status, last_error, updated_at)
+    VALUES (?, ?, ?, 'pending', '', CURRENT_TIMESTAMP)
+    ON CONFLICT(pkg_id) DO UPDATE SET
+      image_data = excluded.image_data,
+      remove_image = excluded.remove_image,
+      sync_status = 'pending',
+      last_error = '',
+      updated_at = CURRENT_TIMESTAMP
+  `, [pkgId, img, removeImage ? 1 : 0]);
+  run("UPDATE packages SET pkg_image = ?, image = ? WHERE pkg_id = ?", [img, img, pkgId]);
+  saveEntityImage("package", pkgId, img);
+  return true;
+}
+
+export function getPendingPackageImageUploads() {
+  try {
+    return fetchAll(`
+      SELECT pkg_id, image_data, remove_image, sync_status, last_error, updated_at
+      FROM pending_package_images
+      WHERE sync_status = 'pending' OR sync_status = 'failed' OR sync_status IS NULL
+      ORDER BY updated_at ASC
+    `);
+  } catch (_) {
+    return [];
+  }
+}
+
+function getPendingPackageImageMap() {
+  const map = new Map();
+  for (const row of getPendingPackageImageUploads()) {
+    map.set(Number(row.pkg_id), row);
+  }
+  return map;
+}
+
+export function markPackageImageSynced(pkgId, serverPath = "", serverImage = "") {
+  if (!pkgId) return false;
+  run("DELETE FROM pending_package_images WHERE pkg_id = ?", [pkgId]);
+  const img = serverImage || serverPath || "";
+  run("UPDATE packages SET pkg_image = ?, image = ? WHERE pkg_id = ?", [serverPath || img, img, pkgId]);
+  saveEntityImage("package", pkgId, img);
+  return true;
+}
+
+export function markPackageImageUploadFailed(pkgId, error = "") {
+  if (!pkgId) return false;
+  run(`
+    UPDATE pending_package_images
+    SET sync_status = 'failed', last_error = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE pkg_id = ?
+  `, [String(error || "Upload failed.").slice(0, 500), pkgId]);
+  return true;
+}
+
 // ── Master data: packages / menu ────────────────────────────────────
 
 export function getPackages() {
@@ -159,8 +217,9 @@ export function getPackages() {
 export function addPackage(name, description = "", pricePerPax = 350.0, minPax = 30, imageData = null) {
   name = (name || "").trim();
   if (!name) throw new Error("Package name is required.");
-  const pkgId = run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
-    [name, (description || "").trim(), Number(pricePerPax) || 0, Number(minPax) || 30]);
+  const img = imageData || "";
+  const pkgId = run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image) VALUES (?, ?, ?, ?, ?, ?)",
+    [name, (description || "").trim(), Number(pricePerPax) || 0, Number(minPax) || 30, img, img]);
   if (imageData) saveEntityImage("package", pkgId, imageData);
   return pkgId;
 }
@@ -170,7 +229,11 @@ export function updatePackage(pkgId, name, description = "", pricePerPax = 350.0
   if (!name || !pkgId) return false;
   run("UPDATE packages SET pkg_name=?, pkg_description=?, pkg_price_per_pax=?, pkg_min_pax=? WHERE pkg_id=?",
     [name, (description || "").trim(), Number(pricePerPax) || 0, Number(minPax) || 30, pkgId]);
-  if (imageData !== undefined) saveEntityImage("package", pkgId, imageData);
+  if (imageData !== undefined) {
+    const img = imageData || "";
+    run("UPDATE packages SET pkg_image = ?, image = ? WHERE pkg_id = ?", [img, img, pkgId]);
+    saveEntityImage("package", pkgId, img);
+  }
   return true;
 }
 
@@ -583,7 +646,9 @@ export function markRecordsSynced(bookingRefs = [], customerNames = []) {
   }
 }
 
-export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = []) {
+export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = [], occasions = []) {
+  const pendingPackageImages = getPendingPackageImageMap();
+
   if ((packages && packages.length > 0) || (menuItems && menuItems.length > 0) || (customers && customers.length > 0)) {
     replaceMasterTablesWithDbIds({
       packages: packages || [],
@@ -591,6 +656,33 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
       packageItems: packageItems || [],
       customers: customers || []
     });
+  }
+
+  if (pendingPackageImages.size > 0) {
+    for (const [pkgId, pending] of pendingPackageImages.entries()) {
+      try {
+        const exists = fetchOne("SELECT pkg_id FROM packages WHERE pkg_id = ?", [pkgId]);
+        if (!exists) continue;
+        const img = Number(pending.remove_image || 0) ? "" : (pending.image_data || "");
+        run("UPDATE packages SET pkg_image = ?, image = ? WHERE pkg_id = ?", [img, img, pkgId]);
+        saveEntityImage("package", pkgId, img);
+      } catch (_) {}
+    }
+  }
+
+  if (occasions && occasions.length > 0) {
+    for (const occ of occasions) {
+      const name = (occ.occ_name || occ.name || "").trim();
+      if (name) {
+        try {
+          if (occ.occ_id) {
+            run("INSERT OR REPLACE INTO occasions (occ_id, occ_name, occ_is_active) VALUES (?, ?, 1)", [occ.occ_id, name]);
+          } else {
+            run("INSERT OR IGNORE INTO occasions (occ_name, occ_is_active) VALUES (?, 1)", [name]);
+          }
+        } catch (_) {}
+      }
+    }
   }
 
   if (typeof window !== "undefined") {
@@ -601,7 +693,50 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
       window.__onMasterDataUpdated();
     }
     window.dispatchEvent(new CustomEvent("jayraldines:sync-completed", {
-      detail: { packages, menu_items: menuItems, package_items: packageItems, customers }
+      detail: { packages, menu_items: menuItems, package_items: packageItems, customers, occasions }
     }));
   }
 }
+
+// ── Occasions / Event Types ──────────────────────────────────────────
+
+export function getAllOccasions() {
+  try {
+    const rows = fetchAll("SELECT occ_id, occ_name, occ_is_active FROM occasions WHERE occ_is_active = 1 OR occ_is_active IS NULL ORDER BY occ_name COLLATE NOCASE ASC");
+    if (rows && rows.length > 0) {
+      return rows.map((r) => ({ id: r.occ_id, name: r.occ_name, is_active: r.occ_is_active }));
+    }
+  } catch (err) {
+    console.warn("[repository] getAllOccasions error:", err);
+  }
+  return [
+    { id: 1, name: "Wedding", is_active: 1 },
+    { id: 2, name: "Birthday", is_active: 1 },
+    { id: 3, name: "Debut", is_active: 1 },
+    { id: 4, name: "Corporate Event", is_active: 1 },
+    { id: 5, name: "Anniversary", is_active: 1 },
+    { id: 6, name: "Christening", is_active: 1 },
+    { id: 7, name: "Graduation", is_active: 1 },
+    { id: 8, name: "Holiday Party", is_active: 1 }
+  ];
+}
+
+export function addOccasion(name) {
+  name = (name || "").trim();
+  if (!name) throw new Error("Event type name cannot be empty.");
+  run("INSERT OR REPLACE INTO occasions (occ_name, occ_is_active) VALUES (?, 1)", [name]);
+  return getAllOccasions();
+}
+
+export function updateOccasion(id, newName) {
+  newName = (newName || "").trim();
+  if (!newName) throw new Error("Event type name cannot be empty.");
+  run("UPDATE occasions SET occ_name = ? WHERE occ_id = ?", [newName, id]);
+  return getAllOccasions();
+}
+
+export function deleteOccasion(id) {
+  run("DELETE FROM occasions WHERE occ_id = ?", [id]);
+  return getAllOccasions();
+}
+

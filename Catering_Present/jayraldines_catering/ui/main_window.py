@@ -158,47 +158,38 @@ class MainWindow(QMainWindow):
             self._floating_ai.raise_()
             self._navigate(0)
             QTimer.singleShot(400, self._show_welcome_greeting)
-            QTimer.singleShot(250, self._start_page_prewarming)
         else:
             self._floating_ai.hide()
             self.root_stack.setCurrentWidget(self._auth_welcome)
 
     def _prebuild_all_pages_before_entry(self):
         """
-        Pre-builds and pre-populates all authorized pages BEFORE revealing MainWindow
-        so that every module is 100% loaded in memory and tab switching is 0ms instant.
+        Pre-builds Dashboard workspace and enters the system smoothly.
+        Other modules load lazily on first tab click with smooth circular spinners.
         """
-        from utils.auth import SessionManager
-        page_configs = [
-            (0, "Dashboard", 84),
-            (1, "Bookings", 87),
-            (2, "Customers", 90),
-            (3, "Menu & Packages", 93),
-            (4, "Calendar", 95),
-            (5, "Cash Flow", 97),
-            (6, "Billing & Invoices", 98),
-            (8, "Expenses", 99),
-            (10, "Settings", 100),
-        ]
-        for idx, title, pct in page_configs:
-            try:
-                perm_key = self.PAGE_MODULE_PERM.get(idx, "dashboard")
-                if idx == 0 or (SessionManager.is_logged_in() and SessionManager.has_permission(perm_key, "view")):
-                    if hasattr(self, "_auth_welcome") and self._auth_welcome:
-                        self._auth_welcome.update_progress(f"⚙️  Preparing {title} workspace...", pct)
-                    QApplication.processEvents()
-                    if self._pages[idx] is None:
-                        self._get_page(idx)
-                        QApplication.processEvents()
-            except Exception as exc:
-                print(f"[MainWindow] Pre-building {title} error: {exc}")
+        try:
+            if hasattr(self, "_auth_welcome") and self._auth_welcome:
+                self._auth_welcome.update_progress("⚙️  Preparing Dashboard workspace...", 92)
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                app.processEvents()
+            if self._pages[0] is None:
+                self._get_page(0)
+                if app:
+                    app.processEvents()
+        except Exception as exc:
+            print(f"[MainWindow] Pre-building Dashboard error: {exc}")
 
         if hasattr(self, "_auth_welcome") and self._auth_welcome:
             self._auth_welcome.update_progress("🚀  All workspaces ready! Entering system...", 100)
-            QApplication.processEvents()
+            app = QApplication.instance()
+            if app:
+                app.processEvents()
             QTimer.singleShot(150, self._auth_welcome.finish_and_fade_out)
         else:
             self._on_auth_and_welcome_finished()
+
 
     def _on_auth_and_welcome_finished(self):
         self.root_stack.setCurrentWidget(self.app_shell)
@@ -218,6 +209,39 @@ class MainWindow(QMainWindow):
             duration_ms=4500
         )
 
+    def _start_page_prewarming(self):
+        """
+        Background pre-warming that silently instantiates and pre-fetches all authorized pages
+        so that subsequent tab clicks are 0ms instant with zero loading screens.
+        """
+        from utils.auth import SessionManager
+        if not SessionManager.is_logged_in():
+            return
+
+        unloaded = [
+            i for i in range(len(self._pages))
+            if self._pages[i] is None and i != 9  # Skip AI assistant page unless clicked
+        ]
+
+        def _warm_step(idx_pos=0):
+            if idx_pos >= len(unloaded):
+                return
+            target_idx = unloaded[idx_pos]
+            perm_key = self.PAGE_MODULE_PERM.get(target_idx, "dashboard")
+            if target_idx == 0 or SessionManager.has_permission(perm_key, "view"):
+                try:
+                    p = self._get_page(target_idx)
+                    # Silently warm up data if page has a reload/do_reload method and is dirty
+                    if p and getattr(p, "_dirty", False):
+                        if hasattr(p, "reload"):
+                            p.reload()
+                        elif hasattr(p, "_do_reload"):
+                            p._do_reload()
+                except Exception as exc:
+                    print(f"[MainWindow] Prewarming tab {target_idx} notice: {exc}")
+            QTimer.singleShot(100, lambda: _warm_step(idx_pos + 1))
+
+        QTimer.singleShot(150, lambda: _warm_step(0))
 
     def _get_page(self, index: int):
         if self._pages[index] is not None:
@@ -362,10 +386,25 @@ class MainWindow(QMainWindow):
             7: "Reports & Analytics", 8: "Expenses", 9: "AI Chef Jay", 10: "Settings"
         }
         mod_name = PAGE_TITLES.get(index, "Workspace")
-        if hasattr(self, "_nav_loader"):
-            self._nav_loader.show_overlay(f"Opening {mod_name}...")
-
         first_time = self._pages[index] is None
+        if first_time and hasattr(self, "_nav_loader"):
+            self._nav_loader.show_overlay(f"Opening {mod_name}...")
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                app.processEvents()
+            # Defer heavy construction by 25ms so Qt starts the circling animation smoothly and never freezes
+            QTimer.singleShot(25, lambda: self._do_navigate(index, mod_name, first_time=True))
+            return
+
+        self._do_navigate(index, mod_name, first_time=False)
+
+    def _do_navigate(self, index: int, mod_name: str, first_time: bool = False):
+        PAGE_TITLES = {
+            0: "Dashboard", 1: "Bookings", 2: "Customers", 3: "Menu Items",
+            4: "Calendar", 5: "Kitchen Orders", 6: "Billing & Invoices",
+            7: "Reports & Analytics", 8: "Expenses", 9: "AI Chef Jay", 10: "Settings"
+        }
         page = self._get_page(index)
         
         self.stack.setUpdatesEnabled(False)
@@ -378,8 +417,8 @@ class MainWindow(QMainWindow):
                     page.refresh_permissions()
                 except Exception:
                     pass
-            # For pages without _dirty, call reload() only when navigating back and dirty
-            if not first_time and hasattr(page, "reload") and not hasattr(page, "_dirty"):
+            # Only reload if the page has been explicitly flagged dirty by data change signals
+            if not first_time and getattr(page, "_dirty", False):
                 try:
                     page.reload()
                 except Exception as exc:
@@ -396,18 +435,14 @@ class MainWindow(QMainWindow):
             # Telemetry: Update active screen on server
             try:
                 from utils.device_tracker import device_tracker
-                page_titles = {
-                    0: "Dashboard", 1: "Bookings", 2: "Customers", 3: "Menu Items",
-                    4: "Calendar", 5: "Kitchen Orders", 6: "Billing & Invoices",
-                    7: "Reports & Analytics", 8: "Expenses", 9: "AI Chef Jay", 10: "Settings"
-                }
-                device_tracker().set_active_module(page_titles.get(index, "Dashboard"))
+                device_tracker().set_active_module(PAGE_TITLES.get(index, "Dashboard"))
             except Exception:
                 pass
         finally:
             self.stack.setUpdatesEnabled(True)
-            if hasattr(self, "_nav_loader"):
+            if first_time and hasattr(self, "_nav_loader"):
                 QTimer.singleShot(75, self._nav_loader.hide_overlay)
+
 
     def _reset_page_scroll(self, page):
         """Resets all scrollbars inside the page to top (0) so switching tabs always starts at the top."""

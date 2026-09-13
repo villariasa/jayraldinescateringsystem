@@ -19,6 +19,7 @@ function ready() {
 
 let _liveDbConnected = false;
 let _lastSyncTimestamp = 0;
+let _liveSyncInFlight = null;
 
 function _detectDeviceType() {
   const ua = (typeof navigator !== "undefined" ? navigator.userAgent : "") || "";
@@ -91,6 +92,75 @@ function _getTabletDeviceInfo() {
   };
 }
 
+function _getStoredSyncHost() {
+  return (localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.origin : "") || "").trim();
+}
+
+async function _flushPendingPackageImageUploads(host, port = 8000) {
+  const pending = repo.getPendingPackageImageUploads ? repo.getPendingPackageImageUploads() : [];
+  const summary = { total: pending.length, synced: 0, failed: 0, errors: [] };
+  if (!pending.length) return summary;
+
+  const urls = _getSyncBaseUrls(host || _getStoredSyncHost(), port);
+  const dev = _getTabletDeviceInfo();
+
+  for (const upload of pending) {
+    let uploaded = false;
+    let lastErr = null;
+
+    for (const base of urls) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        const res = await fetch(`${base}/api/packages/image-upload`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "ngrok-skip-browser-warning": "69420",
+            "X-Device-Id": dev.device_id,
+            "X-Device-Host": dev.hostname,
+            "X-Device-OS": dev.os_info
+          },
+          body: JSON.stringify({
+            ...dev,
+            pkg_id: Number(upload.pkg_id),
+            image: upload.image_data || "",
+            remove: Number(upload.remove_image || 0) === 1,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.error) {
+          throw new Error(data.error || data.detail || `Image upload failed with HTTP ${res.status}`);
+        }
+
+        repo.markPackageImageSynced(Number(upload.pkg_id), data.pkg_image || "", data.image || "");
+        _liveDbConnected = true;
+        _lastSyncTimestamp = Date.now();
+        localStorage.setItem("jayraldines_lan_host", base);
+        window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: base } }));
+        summary.synced++;
+        uploaded = true;
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    if (!uploaded) {
+      const msg = lastErr?.message || "Package image upload failed.";
+      repo.markPackageImageUploadFailed(Number(upload.pkg_id), msg);
+      summary.failed++;
+      summary.errors.push({ pkg_id: Number(upload.pkg_id), error: msg });
+    }
+  }
+
+  return summary;
+}
+
 export const api = {
   async health() { await ready(); return { status: "ok" }; },
   async terms() { await ready(); return termsMod.getTerms(); },
@@ -107,30 +177,51 @@ export const api = {
     }
 
     try {
-      // 1. Check saved host first if present
+      // 1. Check user-configured host first (highest priority, e.g. 192.168.1.32)
       const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
       if (savedHost) {
-        const stat = await api.checkLanStatus(savedHost, 5432);
-        if (stat && stat.online) {
+        const stat = await api.checkLanStatus(savedHost, 8000);
+        if (stat && stat.online && (stat.db_connected !== false)) {
           _liveDbConnected = true;
           _lastSyncTimestamp = Date.now();
-          // Trigger sync in background
-          api.performLanSync({ host: savedHost, bookings: [], customers: [] })
-            .then((res) => {
-              if (res && (res.packages || res.menu_items)) {
-                repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || []);
-              }
-            })
+          api.syncWithServer({ host: savedHost, port: 8000 })
             .catch((e) => console.warn("[LiveDB] Background sync note:", e));
+          window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: savedHost } }));
           return true;
         }
       }
 
-      // 2. Discover server
+      // 2. Fallback to browser URL origin only if no savedHost is configured or if savedHost is unreachable
+      let currentOrigin = "";
+      if (typeof window !== "undefined" && window.location && window.location.origin) {
+        const orig = window.location.origin;
+        if (orig.startsWith("http://") || orig.startsWith("https://")) {
+          currentOrigin = orig;
+        }
+      }
+
+      if (currentOrigin && currentOrigin !== savedHost) {
+        const stat = await api.checkLanStatus(currentOrigin, 8000);
+        if (stat && stat.online && (stat.db_connected !== false)) {
+          _liveDbConnected = true;
+          _lastSyncTimestamp = Date.now();
+          if (!savedHost) {
+            localStorage.setItem("jayraldines_lan_host", currentOrigin);
+          }
+          api.syncWithServer({ host: currentOrigin, port: 8000 })
+            .catch((e) => console.warn("[LiveDB] Background sync note:", e));
+          window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: currentOrigin } }));
+          return true;
+        }
+      }
+
+      // 3. Discover server on LAN
       const host = await api.autoDiscoverServer();
       if (host) {
         _liveDbConnected = true;
         _lastSyncTimestamp = Date.now();
+        api.syncWithServer({ host, port: 8000 })
+          .catch((e) => console.warn("[LiveDB] Background sync note:", e));
         window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: host } }));
         return true;
       }
@@ -174,8 +265,26 @@ export const api = {
     return repo.getPackages();
   },
 
-  async createPackage(data) { await ready(); return { id: repo.addPackage(data.name, data.description, data.price_per_pax, data.min_pax, data.image) }; },
-  async updatePackage(id, data) { await ready(); return { ok: repo.updatePackage(id, data.name, data.description, data.price_per_pax, data.min_pax, data.image) }; },
+  async createPackage(data) {
+    await ready();
+    const id = repo.addPackage(data.name, data.description, data.price_per_pax, data.min_pax, data.image);
+    const imageChanged = Boolean(data.image_changed || data.imageChanged || data.image);
+    if (imageChanged) {
+      repo.queuePackageImageUpload(id, data.image || "", !data.image);
+      api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Package image upload queued:", e));
+    }
+    return { id, image_sync: imageChanged ? "pending" : "none" };
+  },
+  async updatePackage(id, data) {
+    await ready();
+    const imageChanged = Boolean(data.image_changed || data.imageChanged);
+    const ok = repo.updatePackage(id, data.name, data.description, data.price_per_pax, data.min_pax, imageChanged ? data.image : undefined);
+    if (imageChanged) {
+      repo.queuePackageImageUpload(id, data.image || "", !data.image);
+      api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Package image upload queued:", e));
+    }
+    return { ok, image_sync: imageChanged ? "pending" : "unchanged" };
+  },
   async deletePackage(id) { await ready(); repo.deletePackage(id); return { ok: true }; },
 
   // Menu items (Offline-first: returns local SQLite menu items)
@@ -199,6 +308,71 @@ export const api = {
   async createMenuItem(data) { await ready(); return { id: repo.addMenuItem(data.name, data.category, data.price, data.status, data.description, data.image) }; },
   async updateMenuItem(id, data) { await ready(); return { ok: repo.updateMenuItem(id, data.name, data.category, data.price, data.status, data.description, data.image) }; },
   async deleteMenuItem(id) { await ready(); repo.deleteMenuItem(id); return { ok: true }; },
+
+  // Occasions / Event Types
+  async getOccasions() {
+    await ready();
+    return repo.getAllOccasions();
+  },
+
+  async createOccasion(data) {
+    await ready();
+    const name = typeof data === "string" ? data : (data.name || "");
+    const res = repo.addOccasion(name);
+    try {
+      const savedHost = (localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.origin : "")).trim();
+      if (savedHost) {
+        fetch(`${savedHost}/api/db/write`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sql: "INSERT OR REPLACE INTO occasions (occ_name, occ_is_active) VALUES (?, 1)",
+            params: [name]
+          })
+        }).catch(() => {});
+      }
+    } catch (_) {}
+    return res;
+  },
+
+  async updateOccasion(id, data) {
+    await ready();
+    const name = typeof data === "string" ? data : (data.name || "");
+    const res = repo.updateOccasion(id, name);
+    try {
+      const savedHost = (localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.origin : "")).trim();
+      if (savedHost) {
+        fetch(`${savedHost}/api/db/write`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sql: "UPDATE occasions SET occ_name = ? WHERE occ_id = ?",
+            params: [name, id]
+          })
+        }).catch(() => {});
+      }
+    } catch (_) {}
+    return res;
+  },
+
+  async deleteOccasion(id, name = "") {
+    await ready();
+    const res = repo.deleteOccasion(id);
+    try {
+      const savedHost = (localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.origin : "")).trim();
+      if (savedHost) {
+        fetch(`${savedHost}/api/db/write`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sql: "DELETE FROM occasions WHERE occ_id = ?" + (name ? " OR occ_name = ?" : ""),
+            params: name ? [id, name] : [id]
+          })
+        }).catch(() => {});
+      }
+    } catch (_) {}
+    return res;
+  },
 
   // Orders (Offline-first: saves locally in SQLite, syncs immediately if online)
   async getOrders() {
@@ -280,9 +454,8 @@ export const api = {
     return stats;
   },
 
-  async checkLanStatus(host, port) {
+  async checkLanStatus(host, port = 8000) {
     const urls = _getSyncBaseUrls(host, port);
-    const dbPort = (port && parseInt(port, 10) === 5432) ? 5432 : 5432;
     const cleanHost = (host || "").trim().replace(/^https?:\/\//i, "").split(":")[0] || "127.0.0.1";
     const dev = _getTabletDeviceInfo();
 
@@ -290,7 +463,7 @@ export const api = {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3500);
-        const q = `?host=${encodeURIComponent(cleanHost)}&port=${dbPort}&device_id=${encodeURIComponent(dev.device_id)}&hostname=${encodeURIComponent(dev.hostname)}&os_info=${encodeURIComponent(dev.os_info)}&app_version=${encodeURIComponent(dev.app_version)}&active_module=${encodeURIComponent(dev.active_module)}`;
+        const q = `?host=${encodeURIComponent(cleanHost)}&port=8000&device_id=${encodeURIComponent(dev.device_id)}&hostname=${encodeURIComponent(dev.hostname)}&os_info=${encodeURIComponent(dev.os_info)}&app_version=${encodeURIComponent(dev.app_version)}&active_module=${encodeURIComponent(dev.active_module)}`;
         const res = await fetch(`${base}/api/sync/lan-status${q}`, {
           signal: controller.signal,
           headers: { 
@@ -304,10 +477,11 @@ export const api = {
         if (res.ok) {
           const data = await res.json();
           data._baseUrl = base;
-          _liveDbConnected = true;
+          const isLive = Boolean(data.online && (data.db_connected !== false));
+          _liveDbConnected = isLive;
           _lastSyncTimestamp = Date.now();
           localStorage.setItem("jayraldines_lan_host", base);
-          window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: base } }));
+          window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: isLive, server: base } }));
           return data;
         }
       } catch (e) {
@@ -316,12 +490,12 @@ export const api = {
     }
     _liveDbConnected = false;
     window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: false } }));
-    return { online: false, pending_bookings: 0, pending_customers: 0 };
+    return { online: false, db_connected: false, pending_bookings: 0, pending_customers: 0 };
   },
 
   async performLanSync(params) {
-    const host = params?.host || "";
-    const port = params?.port || 5432;
+    const host = params?.host || (typeof window !== "undefined" && window.location && window.location.origin ? window.location.origin : "");
+    const port = params?.port || 8000;
     const urls = _getSyncBaseUrls(host, port);
     const dev = _getTabletDeviceInfo();
     const payload = Object.assign({}, dev, params || {});
@@ -330,7 +504,7 @@ export const api = {
     for (const base of urls) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 20000);
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
         const res = await fetch(`${base}/api/sync/lan-sync`, {
           method: "POST",
           headers: {
@@ -365,16 +539,79 @@ export const api = {
     );
   },
 
+  async syncWithServer(params = {}) {
+    if (_liveSyncInFlight) return _liveSyncInFlight;
+
+    _liveSyncInFlight = (async () => {
+      await ready();
+      let host = params.host || _getStoredSyncHost();
+      const port = params.port || Number(localStorage.getItem("jayraldines_lan_port") || 8000) || 8000;
+      if (!host) {
+        host = await api.autoDiscoverServer();
+      }
+      if (!host) {
+        throw new Error("Central Server host is not configured.");
+      }
+
+      const imageSync = await _flushPendingPackageImageUploads(host, port);
+      const { bookings, customers } = repo.getPendingSyncRecords();
+      const res = await api.performLanSync({
+        ...params,
+        host,
+        port,
+        dbname: params.dbname || localStorage.getItem("jayraldines_lan_dbname") || "catering.db",
+        user: params.user || localStorage.getItem("jayraldines_lan_user") || "admin",
+        password: params.password || localStorage.getItem("jayraldines_lan_password") || "12345678",
+        bookings: params.bookings || bookings || [],
+        customers: params.customers || customers || [],
+      });
+
+      if (res.packages || res.menu_items || res.customers || res.occasions) {
+        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || [], res.occasions || []);
+      }
+      if (res.synced_booking_refs || res.synced_customer_names) {
+        repo.markRecordsSynced(res.synced_booking_refs || [], res.synced_customer_names || []);
+      }
+
+      const detail = {
+        ...res,
+        pushed_package_images: imageSync.synced,
+        failed_package_images: imageSync.failed,
+        package_image_errors: imageSync.errors,
+      };
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("jayraldines:sync-completed", { detail }));
+      }
+      return detail;
+    })();
+
+    try {
+      return await _liveSyncInFlight;
+    } finally {
+      _liveSyncInFlight = null;
+    }
+  },
+
   async autoDiscoverServer() {
     const candidates = [];
     const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
     if (savedHost) candidates.push(savedHost);
 
-    // If opened via browser URL (e.g. ngrok tunnel, cloudflared, LAN IP), prioritize the current origin!
+    // If opened via browser URL, add origin after savedHost
     if (typeof window !== "undefined" && window.location && window.location.origin) {
       const orig = window.location.origin;
       if (!orig.startsWith("file:") && !orig.includes("androidplatform")) {
-        if (!candidates.includes(orig)) candidates.unshift(orig);
+        if (!candidates.includes(orig)) candidates.push(orig);
+      }
+    }
+
+    // Common mobile hotspot and LAN gateway IPs (including 32, 34, 10, etc.)
+    const commonGateways = ["192.168.1.", "192.168.0.", "192.168.4.", "192.168.43.", "192.168.137.", "10.105.101."];
+    const octets = [32, 34, 1, 2, 5, 10, 15, 20, 30, 31, 33, 35, 40, 50, 100, 120, 128];
+    for (const prefix of commonGateways) {
+      for (const lastOctet of octets) {
+        const ip = `${prefix}${lastOctet}`;
+        if (!candidates.includes(ip)) candidates.push(ip);
       }
     }
 
@@ -382,23 +619,14 @@ export const api = {
     candidates.push("http://127.0.0.1:8000");
     candidates.push("127.0.0.1");
 
-    // Common mobile hotspot and LAN gateway IPs
-    const commonGateways = ["192.168.1.", "192.168.0.", "192.168.4.", "192.168.43.", "192.168.137.", "10.105.101."];
-    for (const prefix of commonGateways) {
-      for (const lastOctet of [1, 2, 5, 10, 15, 20, 50, 100, 120, 128]) {
-        const ip = `${prefix}${lastOctet}`;
-        if (!candidates.includes(ip)) candidates.push(ip);
-      }
-    }
-
     const probe = async (target) => {
       try {
-        const baseUrls = _getSyncBaseUrls(target);
+        const baseUrls = _getSyncBaseUrls(target, 8000);
         for (const base of baseUrls) {
           try {
             const controller = new AbortController();
             const tid = setTimeout(() => controller.abort(), 2000);
-            const res = await fetch(`${base}/api/sync/lan-status?host=localhost&port=5432`, {
+            const res = await fetch(`${base}/api/sync/lan-status`, {
               signal: controller.signal,
               headers: {
                 "Accept": "application/json",
@@ -408,7 +636,7 @@ export const api = {
             clearTimeout(tid);
             if (res.ok) {
               const data = await res.json();
-              if (data.online) {
+              if (data.online && (data.db_connected !== false)) {
                 return base;
               }
             }
@@ -419,7 +647,7 @@ export const api = {
     };
 
     // First check high-priority candidates quickly
-    for (const c of candidates.slice(0, 3)) {
+    for (const c of candidates.slice(0, 4)) {
       const found = await probe(c);
       if (found) {
         localStorage.setItem("jayraldines_lan_host", found);
@@ -441,34 +669,20 @@ export const api = {
 
   async autoSyncPendingRecords() {
     await ready();
-    let host = localStorage.getItem("jayraldines_lan_host") || "";
+    let host = _getStoredSyncHost();
     if (!host) {
       host = await api.autoDiscoverServer();
     }
     if (!host) return null;
 
-    const { bookings, customers } = repo.getPendingSyncRecords();
     try {
-      const res = await api.performLanSync({
+      return await api.syncWithServer({
         host,
-        port: 5432,
-        dbname: localStorage.getItem("jayraldines_lan_dbname") || "jayraldines_catering",
-        user: localStorage.getItem("jayraldines_lan_user") || "jayraldines_app",
+        port: Number(localStorage.getItem("jayraldines_lan_port") || 8000) || 8000,
+        dbname: localStorage.getItem("jayraldines_lan_dbname") || "catering.db",
+        user: localStorage.getItem("jayraldines_lan_user") || "admin",
         password: localStorage.getItem("jayraldines_lan_password") || "12345678",
-        bookings: bookings || [],
-        customers: customers || [],
       });
-      if (res.packages || res.menu_items || res.customers) {
-        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || []);
-      }
-      if (res.synced_booking_refs || res.synced_customer_names) {
-        repo.markRecordsSynced(res.synced_booking_refs || [], res.synced_customer_names || []);
-      }
-      // Broadcast live sync update event
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("jayraldines:sync-completed", { detail: res }));
-      }
-      return res;
     } catch (e) {
       console.warn("[AutoSync] Background push note:", e);
       return null;
@@ -484,7 +698,7 @@ export const api = {
   },
 };
 
-function _getSyncBaseUrls(host, port) {
+function _getSyncBaseUrls(host, port = 8000) {
   const urls = [];
   const trimmed = (host || "").trim();
 
@@ -508,7 +722,7 @@ function _getSyncBaseUrls(host, port) {
         if (!urls.includes(p)) urls.push(p);
       } else {
         const p = parseInt(port, 10);
-        if (p && p !== 5432 && p !== 8000) {
+        if (p && p !== 8000) {
           const u = `http://${rawHost}:${p}`;
           if (!urls.includes(u)) urls.push(u);
         }
@@ -580,9 +794,9 @@ export function downloadBlob(blob, filename) {
 if (typeof window !== "undefined") {
   setInterval(async () => {
     try {
-      const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
+      const savedHost = (localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.origin : "")).trim();
       if (savedHost) {
-        await api.checkLanStatus(savedHost, 5432);
+        await api.checkLanStatus(savedHost, 8000);
       }
     } catch (_) {}
   }, 15000);
@@ -591,9 +805,9 @@ if (typeof window !== "undefined") {
   const markOffline = () => {
     try {
       const dev = _getTabletDeviceInfo();
-      const host = (localStorage.getItem("jayraldines_lan_host") || "").trim();
+      const host = (localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.origin : "")).trim();
       if (dev.device_id && host) {
-        const urls = _getSyncBaseUrls(host);
+        const urls = _getSyncBaseUrls(host, 8000);
         for (const base of urls) {
           const endpoint = `${base}/api/sync/device-offline?device_id=${encodeURIComponent(dev.device_id)}`;
           if (navigator.sendBeacon) {
@@ -612,8 +826,8 @@ if (typeof window !== "undefined") {
     if (document.visibilityState === "hidden") {
       markOffline();
     } else if (document.visibilityState === "visible") {
-      const host = (localStorage.getItem("jayraldines_lan_host") || "").trim();
-      if (host) api.checkLanStatus(host, 5432).catch(() => {});
+      const host = (localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.origin : "")).trim();
+      if (host) api.checkLanStatus(host, 8000).catch(() => {});
     }
   });
 }

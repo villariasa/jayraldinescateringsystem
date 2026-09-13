@@ -1,11 +1,11 @@
 [Setup]
 AppName=Jayraldines Catering
-AppVersion=4.1.26
+AppVersion=4.1.31
 AppPublisher=Jayraldines Catering
 DefaultDirName={autopf}\JayraldinesCatering
 DefaultGroupName=Jayraldines Catering
 OutputDir=installer_output
-OutputBaseFilename=Jayraldines_Catering_Setup_v4.1.26
+OutputBaseFilename=Jayraldines_Catering_Setup_v4.1.31
 SetupIconFile=assets\logo.ico
 Compression=lzma
 SolidCompression=yes
@@ -23,15 +23,15 @@ Source: "confirmed_only_views_migration.sql"; DestDir: "{app}"; Flags: ignorever
 Source: "analytics_functions_migration.sql"; DestDir: "{app}"; Flags: ignoreversion
 Source: "fix_customer_ledger_view.sql"; DestDir: "{app}"; Flags: ignoreversion
 Source: "device_monitoring_migration.sql"; DestDir: "{app}"; Flags: ignoreversion
-Source: "setup.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "catering.db"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "tools\ngrok.exe"; DestDir: "{app}\tools"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\Tablet_PWA\frontend\*"; DestDir: "{app}\Tablet_PWA\frontend"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\Jayraldines Catering"; Filename: "{app}\JayraldinesCatering.exe"
 Name: "{commondesktop}\Jayraldines Catering"; Filename: "{app}\JayraldinesCatering.exe"; Tasks: desktopicon
-Name: "{group}\Setup Database"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\setup.ps1"""; WorkingDir: "{app}"
 Name: "{group}\Tablet Kiosk Web App"; Filename: "{app}\Tablet_PWA\frontend\index.html"
+
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"

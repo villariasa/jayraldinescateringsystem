@@ -37,6 +37,13 @@ class SpinnerWidget(QWidget):
         self._angle = (self._angle + 6) % 360
         self.update()
 
+    def step(self, delta: int = 14):
+        self._angle = (self._angle + delta) % 360
+        if self.isVisible():
+            self.repaint()
+        else:
+            self.update()
+
     def paintEvent(self, event):
         if not self.isVisible():
             return
@@ -61,6 +68,7 @@ class SpinnerWidget(QWidget):
             painter.drawArc(rect, int(-self._angle * 16), int(120 * 16))
         finally:
             painter.end()
+
 
 
 class LoadingOverlay(QWidget):
@@ -116,17 +124,55 @@ class LoadingOverlay(QWidget):
     def show_overlay(self, text: str = None):
         if text:
             self.set_text(text)
-        if self.parent():
-            self.setGeometry(self.parent().rect())
-            self.raise_()
-        self.show()
-        self.update()
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+            p = self.parent()
+            if p is not None and isValid(p):
+                self.setGeometry(p.rect())
+                self.raise_()
+            self.show()
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                app.processEvents()
+        except Exception:
+            pass
+
+    def spin_step(self, delta: int = 15):
+        """Advances spinner rotation immediately and flushes pending UI events."""
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+            if hasattr(self, "_spinner") and self._spinner and isValid(self._spinner):
+                self._spinner.step(delta)
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                app.processEvents()
+        except Exception:
+            pass
 
     def hide_overlay(self):
-        self.hide()
+        try:
+            from shiboken6 import isValid
+            if isValid(self):
+                self.hide()
+        except Exception:
+            pass
 
     def eventFilter(self, obj, event):
-        if obj == self.parent() and event.type() in (QEvent.Resize, QEvent.Show):
-            self.setGeometry(self.parent().rect())
-            self.raise_()
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return False
+            p = self.parent()
+            if p is not None and isValid(p) and obj == p and event.type() in (QEvent.Resize, QEvent.Show):
+                self.setGeometry(p.rect())
+                self.raise_()
+        except Exception:
+            return False
         return super().eventFilter(obj, event)
+

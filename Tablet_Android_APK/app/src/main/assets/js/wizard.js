@@ -41,10 +41,48 @@ const UPSELLS = [
 let root = null;
 let packagesCache = [];
 let menuGroupedCache = {};
+let occasionsCache = [];
 let lastCreatedOrder = null;
 window.__clearWizardCaches = () => {
   packagesCache = [];
   menuGroupedCache = {};
+  occasionsCache = [];
+};
+
+async function refreshVisiblePackageCards() {
+  if (!root || wizard.step !== 2) return;
+  const grid = root.querySelector("#pkg-grid");
+  if (!grid) return;
+
+  const pkgs = await api.getPackages();
+  packagesCache = pkgs;
+
+  for (const p of pkgs) {
+    const card = grid.querySelector(`.select-card[data-id="${p.id}"]`);
+    const wrap = card?.querySelector(".kiosk-card-img-wrap");
+    if (!wrap) continue;
+
+    const badge = wrap.querySelector(".kiosk-card-badge");
+    const placeholder = wrap.querySelector(".kiosk-card-placeholder");
+    let img = wrap.querySelector("img.kiosk-card-img");
+
+    if (p.image) {
+      if (!img) {
+        img = document.createElement("img");
+        img.className = "kiosk-card-img";
+        wrap.insertBefore(img, badge || null);
+      }
+      img.src = p.image;
+      img.alt = p.name || "Package";
+      if (placeholder) placeholder.remove();
+    } else if (img) {
+      img.remove();
+    }
+  }
+}
+
+window.__onMasterDataUpdated = () => {
+  refreshVisiblePackageCards().catch(() => {});
 };
 
 function mergeAddress(currentInput, selectedSuggestion) {
@@ -560,7 +598,14 @@ async function renderStepPackage(card) {
   const d = wizard.draft;
   card.innerHTML = `<h2 style="margin:0 0 10px;">${icon("package")} Event &amp; Package</h2><p style="color:var(--text-muted);">Fetching packages from Live Database…</p>`;
   try {
-    packagesCache = await api.getPackages();
+    const [pkgs, occs] = await Promise.all([
+      api.getPackages(),
+      api.getOccasions().catch(() => [])
+    ]);
+    packagesCache = pkgs;
+    if (occs && occs.length > 0) {
+      occasionsCache = occs.map((o) => (typeof o === "string" ? o : o.name));
+    }
   } catch (err) {
     card.innerHTML = `
       <div style="padding:36px; text-align:center;">
@@ -631,7 +676,7 @@ async function renderStepPackage(card) {
         <label>Occasion / Event Type *</label>
         <select class="form-control" id="e-occasion">
           <option value="">Select Event Occasion…</option>
-          ${OCCASIONS.map((occ) => `<option value="${escapeHtml(occ)}" ${d.event.occasion === occ ? "selected" : ""}>${escapeHtml(occ)}</option>`).join("")}
+          ${((occasionsCache && occasionsCache.length > 0) ? occasionsCache : OCCASIONS).map((occ) => `<option value="${escapeHtml(occ)}" ${d.event.occasion === occ ? "selected" : ""}>${escapeHtml(occ)}</option>`).join("")}
         </select>
       </div>
     </div>

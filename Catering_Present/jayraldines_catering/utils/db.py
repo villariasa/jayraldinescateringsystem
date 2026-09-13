@@ -977,6 +977,20 @@ def _prepare_pg_sql(sql: str, params: Any = ()) -> str:
 
 
 def execute(sql: str, params: tuple = ()) -> None:
+    # ── Client Workstation Write-Through Proxy ──
+    # When this machine is a client, send the write to the server first,
+    # then also apply locally so the UI stays responsive.
+    try:
+        from utils.client_sync import is_client_mode, proxy_write, get_server_url
+        if is_client_mode():
+            sql_upper = sql.strip().upper()
+            is_write = any(sql_upper.startswith(k) for k in ("INSERT", "UPDATE", "DELETE", "REPLACE"))
+            # Skip schema/pragma statements — those only run locally
+            if is_write:
+                proxy_write(sql, params, server_url=get_server_url())
+    except Exception as _proxy_err:
+        log.debug(f"[db.execute] Client proxy error (non-fatal): {_proxy_err}")
+
     if not _ensure_connected():
         raise RuntimeError("No database connection")
     if _engine_type == "sqlite":
@@ -1015,6 +1029,22 @@ def execute(sql: str, params: tuple = ()) -> None:
 
 
 def fetchall(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
+    # ── Client Workstation Read-Through Proxy ──
+    # Fetch from server first; fall back to local cache if unreachable.
+    try:
+        from utils.client_sync import is_client_mode, proxy_fetchall, get_server_url
+        if is_client_mode():
+            sql_upper = sql.strip().upper()
+            # Only proxy true SELECT queries, not schema queries
+            if sql_upper.startswith("SELECT") or sql_upper.startswith("WITH"):
+                server_rows = proxy_fetchall(sql, params, server_url=get_server_url())
+                if server_rows is not None:
+                    return server_rows
+                # Fall through to local cache
+                log.debug("[db.fetchall] Server unreachable — using local cache")
+    except Exception as _pe:
+        log.debug(f"[db.fetchall] Proxy error (non-fatal): {_pe}")
+
     if not _ensure_connected():
         return []
     if _engine_type == "sqlite":
@@ -1058,6 +1088,19 @@ def fetchall(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
 
 
 def fetchone(sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
+    # ── Client Workstation Read-Through Proxy ──
+    try:
+        from utils.client_sync import is_client_mode, proxy_fetchone, get_server_url
+        if is_client_mode():
+            sql_upper = sql.strip().upper()
+            if sql_upper.startswith("SELECT") or sql_upper.startswith("WITH"):
+                server_row = proxy_fetchone(sql, params, server_url=get_server_url())
+                if server_row is not None:
+                    return server_row
+                log.debug("[db.fetchone] Server unreachable — using local cache")
+    except Exception as _pe:
+        log.debug(f"[db.fetchone] Proxy error (non-fatal): {_pe}")
+
     if not _ensure_connected():
         return None
     if _engine_type == "sqlite":
@@ -1291,6 +1334,23 @@ def _gen_unique_invoice_ref(cur, booking_id=None) -> str:
         start_n += 1
 
 
+def _format_time_ampm(t_raw) -> str:
+    """Format any time representation into 12-hour AM/PM format (e.g. '6:00 PM', '11:30 AM')."""
+    if not t_raw:
+        return "6:00 PM"
+    if hasattr(t_raw, "strftime"):
+        return t_raw.strftime("%I:%M %p").lstrip("0")
+    s = str(t_raw).strip()
+    from datetime import datetime as _dt
+    for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M%p"):
+        try:
+            parsed = _dt.strptime(s, fmt).time()
+            return parsed.strftime("%I:%M %p").lstrip("0")
+        except ValueError:
+            continue
+    return s
+
+
 def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) -> Optional[Dict[str, Any]]:
     """Native SQLite execution mapping for legacy stored procedure names."""
     cur = _sqlite_conn.cursor()
@@ -1376,10 +1436,13 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
 
     elif proc == "sp_save_calendar_event":
         # in_params: (event_date, name, pax, event_time, location)
+        cal_p = list(p)
+        if len(cal_p) > 3:
+            cal_p[3] = _format_time_ampm(cal_p[3])
         cur.execute("""
             INSERT INTO calendar_events (ce_event_date, ce_name, ce_pax, ce_event_time, ce_location)
             VALUES (?, ?, ?, ?, ?)
-        """, p)
+        """, tuple(cal_p))
         _sqlite_conn.commit()
         out_dict["p_id"] = cur.lastrowid
 
@@ -1397,7 +1460,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         order_ref = _gen_unique_kitchen_order_ref(cur)
         cur.execute("""
             INSERT INTO kitchen_orders (ko_booking_id, ko_order_ref, ko_customer_name, ko_event_date, ko_event_time, ko_pax, ko_status, ko_notes)
-            VALUES (?, ?, ?, DATE('now'), '18:00', ?, 'PREPARING', ?)
+            VALUES (?, ?, ?, DATE('now'), '6:00 PM', ?, 'PREPARING', ?)
         """, (p[0], order_ref, p[1], p[3], p[4]))
         _sqlite_conn.commit()
         out_dict["p_order_id"] = cur.lastrowid
@@ -1453,6 +1516,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
             cur.execute("SELECT pkg_id FROM packages WHERE pkg_id = ? LIMIT 1", (pkg_id,))
             if not cur.fetchone():
                 pkg_id = None
+        event_t = _format_time_ampm(p[7])
 
         # Status is ALWAYS PENDING for new bookings until manually confirmed by staff/admin
         cur.execute("""
@@ -1463,7 +1527,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')
         """, (
-            booking_ref, cust_id, cust_name, p[3], event_d, p[7],
+            booking_ref, cust_id, cust_name, p[3], event_d, event_t,
             p[5], p[4], p[8], p[9], p[10], pkg_id, total_amt, total_amt,
             pay_mode, amt_paid, amt_paid
         ))
@@ -1496,7 +1560,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         """, (booking_id, inv_num, inv_num, cust_name, event_d, total_amt, amt_paid, bal, amt_paid, inv_status))
         inv_id = cur.lastrowid
 
-        # Record downpayment in payment_records (unverified until staff accepts)
+        # Auto create payment record if down payment > 0
         if amt_paid > 0:
             cur.execute("""
                 INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_payment_method, pr_method, pr_is_downpayment, pr_is_verified, pr_notes, pr_note)
@@ -1507,7 +1571,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         cur.execute("""
             INSERT INTO kitchen_orders (ko_booking_id, ko_order_ref, ko_customer_name, ko_event_date, ko_event_time, ko_pax, ko_status, ko_notes)
             VALUES (?, ?, ?, ?, ?, ?, 'PREPARING', ?)
-        """, (booking_id, booking_ref, cust_name, event_d, p[7], p[8], p[9]))
+        """, (booking_id, booking_ref, cust_name, event_d, event_t, p[8], p[9]))
 
         _sqlite_conn.commit()
         out_dict["p_booking_id"] = booking_id
@@ -1704,7 +1768,7 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
         occasion = str(p[5] or '').strip()
         venue = str(p[6] or '').strip()
         event_d = _sanitize_param(p[7])
-        event_t = str(p[8] or '18:00').strip()
+        event_t = _format_time_ampm(p[8])
         pax = int(p[9] or 100)
         notes = str(p[10] or '').strip()
         m_type = str(p[11] or 'package').strip()

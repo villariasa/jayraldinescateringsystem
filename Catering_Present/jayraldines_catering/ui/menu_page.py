@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QTextEdit, QMessageBox, QScrollArea, QSpinBox,
     QCheckBox, QSizePolicy, QGridLayout, QFileDialog
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor, QFont, QPixmap
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
@@ -1642,37 +1642,11 @@ class MenuPage(QWidget):
                 empty_lbl.setObjectName("subtitle")
                 empty_lbl.setAlignment(Qt.AlignCenter)
                 self.menu_cards_layout.addWidget(empty_lbl)
-                self.menu_cards_layout.addStretch()
             else:
-                BATCH_SIZE = 35
-                first_batch = items[:BATCH_SIZE]
-                for item in first_batch:
+                for item in items:
                     m_card = self._create_menu_item_card(item)
                     self.menu_cards_layout.addWidget(m_card)
-
                 self.menu_cards_layout.addStretch()
-
-                remaining = items[BATCH_SIZE:]
-                if remaining:
-                    def _append_menu_chunk(offset=0):
-                        if not hasattr(self, "menu_cards_layout") or not self.menu_cards_layout:
-                            return
-                        chunk = remaining[offset:offset + BATCH_SIZE]
-                        for item in chunk:
-                            m_card = self._create_menu_item_card(item)
-                            cnt = self.menu_cards_layout.count()
-                            if cnt > 1:
-                                self.menu_cards_layout.insertWidget(cnt - 1, m_card)
-                            else:
-                                self.menu_cards_layout.addWidget(m_card)
-                        if offset + BATCH_SIZE < len(remaining):
-                            from PySide6.QtCore import QTimer
-                            QTimer.singleShot(2, lambda: _append_menu_chunk(offset + BATCH_SIZE))
-                        else:
-                            self._update_items_selection_ui()
-
-                    from PySide6.QtCore import QTimer
-                    QTimer.singleShot(2, lambda: _append_menu_chunk(0))
 
             self._update_items_selection_ui()
         finally:

@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     bk_customer_name TEXT NOT NULL,
     bk_address TEXT,
     bk_event_date DATE NOT NULL,
-    bk_event_time TIME DEFAULT '18:00',
+    bk_event_time TEXT DEFAULT '6:00 PM',
     bk_venue TEXT,
     bk_occasion TEXT,
     bk_pax INTEGER NOT NULL,
@@ -282,6 +282,18 @@ CREATE TABLE IF NOT EXISTS monthly_sales_targets (
     PRIMARY KEY (mst_year, mst_month)
 );
 
+-- Kitchen Inventory
+CREATE TABLE IF NOT EXISTS inventory (
+    inv_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    inv_ingredient TEXT NOT NULL,
+    inv_category TEXT DEFAULT '',
+    inv_stock REAL DEFAULT 0.0,
+    inv_unit TEXT DEFAULT 'kg',
+    inv_cost_per_unit REAL DEFAULT 0.0,
+    inv_min_stock REAL DEFAULT 5.0,
+    inv_updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Kitchen Orders & Tasks
 CREATE TABLE IF NOT EXISTS kitchen_orders (
     ko_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -292,7 +304,7 @@ CREATE TABLE IF NOT EXISTS kitchen_orders (
     ko_event_name TEXT,
     ko_items_desc TEXT,
     ko_event_date DATE DEFAULT (DATE('now')),
-    ko_event_time TIME DEFAULT '18:00',
+    ko_event_time TEXT DEFAULT '6:00 PM',
     ko_pax INTEGER DEFAULT 50,
     ko_status TEXT DEFAULT 'Queued',
     ko_notes TEXT,
@@ -581,6 +593,7 @@ def _ensure_columns(conn: sqlite3.Connection):
         ("customers", "cus_address_id", "INTEGER"),
         ("customers", "cus_total_events", "INTEGER DEFAULT 0"),
         ("customers", "cus_total_spent", "REAL DEFAULT 0.0"),
+        ("customers", "cus_updated_at", "DATETIME"),
         ("customer_follow_ups", "cfu_follow_up_date", "DATE DEFAULT (DATE('now'))"),
         ("customer_follow_ups", "cf_id", "INTEGER"),
         ("customer_follow_ups", "cf_customer_id", "INTEGER"),
@@ -595,7 +608,7 @@ def _ensure_columns(conn: sqlite3.Connection):
         ("kitchen_orders", "ko_event_name", "TEXT"),
         ("kitchen_orders", "ko_items_desc", "TEXT"),
         ("kitchen_orders", "ko_event_date", "DATE DEFAULT (DATE('now'))"),
-        ("kitchen_orders", "ko_event_time", "TIME DEFAULT '18:00'"),
+        ("kitchen_orders", "ko_event_time", "TEXT DEFAULT '6:00 PM'"),
         ("kitchen_orders", "ko_pax", "INTEGER DEFAULT 50"),
         ("kitchen_orders", "ko_status", "TEXT DEFAULT 'Queued'"),
         ("kitchen_orders", "ko_notes", "TEXT"),

@@ -1150,39 +1150,22 @@ class CustomersPage(QWidget):
                 self._update_selection_ui()
                 self._filter_table_now()
             else:
-                self._empty_lbl.hide()
-                BATCH_SIZE = 40
-                first_batch = data[:BATCH_SIZE]
-                for c in first_batch:
+                from PySide6.QtWidgets import QApplication
+                app = QApplication.instance()
+                for idx, c in enumerate(data):
                     c_card = self._create_customer_card(c)
                     self.cards_layout.addWidget(c_card)
                     self._customer_cards.append((c, c_card))
+                    if idx > 0 and idx % 25 == 0:
+                        if hasattr(self, "_loader") and self._loader and self._loader.isVisible():
+                            self._loader.spin_step()
+                        elif app:
+                            app.processEvents()
 
                 self.cards_layout.addStretch()
+
                 self._update_selection_ui()
                 self._filter_table_now()
-
-                remaining = data[BATCH_SIZE:]
-                if remaining:
-                    def _append_chunk(offset=0):
-                        if not hasattr(self, "cards_layout") or not self.cards_layout:
-                            return
-                        chunk = remaining[offset:offset + BATCH_SIZE]
-                        for c in chunk:
-                            c_card = self._create_customer_card(c)
-                            cnt = self.cards_layout.count()
-                            if cnt > 1:
-                                self.cards_layout.insertWidget(cnt - 1, c_card)
-                            else:
-                                self.cards_layout.addWidget(c_card)
-                            self._customer_cards.append((c, c_card))
-                        if offset + BATCH_SIZE < len(remaining):
-                            QTimer.singleShot(2, lambda: _append_chunk(offset + BATCH_SIZE))
-                        else:
-                            self._update_selection_ui()
-                            self._filter_table_now()
-
-                    QTimer.singleShot(2, lambda: _append_chunk(0))
         finally:
             if hasattr(self, "cards_container"):
                 self.cards_container.setUpdatesEnabled(True)

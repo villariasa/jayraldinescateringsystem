@@ -159,7 +159,7 @@ function mountLanding() {
             <span class="text-gold">Unforgettable Memories.</span>
           </h1>
           <p class="hero-lead">
-            Welcome to Cebu's premier catering service. Connected directly to the live PostgreSQL central server for real-time dish availability and instant billing.
+            Welcome to Cebu's premier catering service. Connected directly to the live central database server for real-time dish availability and instant billing.
           </p>
 
           <div class="hero-cta-group">
@@ -172,7 +172,7 @@ function mountLanding() {
 
           <div class="hero-perks">
             <div class="perk-pill">
-              ${icon("checkCircle")} Live PostgreSQL Sync
+              ${icon("checkCircle")} Live LAN Database Sync
             </div>
             <div class="perk-pill">
               ${icon("checkCircle")} Instant PDF Receipt
@@ -242,13 +242,14 @@ function mountLanding() {
 
   // Wire Live DB Reconnect button
   document.getElementById("btn-reconnect-live-db")?.addEventListener("click", async () => {
-    toast("Connecting to Central PostgreSQL Server…", "info");
+    toast("Connecting to Central Server & Database…", "info");
     const ok = await api.ensureLiveConnection(true);
     if (ok) {
       toast("Connected to Live Central Database! Loaded live menu & packages.", "success");
       renderHome();
     } else {
-      toast("Could not reach server at 192.168.1.10:8000. Check Wi-Fi ARISE!.", "error");
+      const cur = localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.host : "192.168.1.32:8000");
+      toast(`Could not reach server at ${cur}. Ensure desktop app is running.`, "error");
     }
   });
 

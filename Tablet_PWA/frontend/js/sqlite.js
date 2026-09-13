@@ -196,12 +196,28 @@ CREATE TABLE IF NOT EXISTS tablet_master_sync (
     tms_customers_count INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS occasions (
+    occ_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    occ_name TEXT NOT NULL UNIQUE,
+    occ_description TEXT,
+    occ_is_active INTEGER DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS entity_images (
     entity_type TEXT NOT NULL,
     entity_id INTEGER NOT NULL,
     image_data TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (entity_type, entity_id)
+);
+
+CREATE TABLE IF NOT EXISTS pending_package_images (
+    pkg_id INTEGER PRIMARY KEY,
+    image_data TEXT,
+    remove_image INTEGER DEFAULT 0,
+    sync_status TEXT DEFAULT 'pending',
+    last_error TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 `;
 
@@ -326,12 +342,65 @@ function seedDefaults() {
   } catch (err) {
     console.warn("[SQLite] Package items seed note:", err);
   }
+
+  // Seed Default Occasions if empty
+  try {
+    if (countOf("occasions") === 0) {
+      const defaultOccasions = [
+        "Wedding", "Birthday", "Debut", "Corporate Event", "Anniversary",
+        "Christening", "Graduation", "Holiday Party"
+      ];
+      for (const occ of defaultOccasions) {
+        db.run("INSERT OR IGNORE INTO occasions (occ_name, occ_is_active) VALUES (?, 1)", [occ]);
+      }
+    }
+  } catch (err) {
+    console.warn("[SQLite] Occasions seed note:", err);
+  }
 }
 
 export async function initDb() {
   if (db) return db;
   SQL = await window.initSqlJs({ locateFile: (f) => `vendor/${f}` });
-  const existing = await idbLoad();
+  let existing = await idbLoad();
+
+  // If no database in IndexedDB or it's a blank cache, attempt to download master catering.db from server
+  if (!existing || existing.byteLength < 10000) {
+    try {
+      const origin = (typeof window !== "undefined" && window.location && window.location.origin) ? window.location.origin : "";
+      const savedHost = (typeof localStorage !== "undefined" && localStorage.getItem("jayraldines_lan_host")) || "";
+      const candidateBases = [];
+      if (origin && !origin.startsWith("file:") && !origin.includes("androidplatform")) {
+        candidateBases.push(origin);
+      }
+      if (savedHost && !candidateBases.includes(savedHost)) {
+        candidateBases.push(savedHost);
+      }
+      ["http://192.168.1.32:8000", "http://192.168.1.10:8000", "http://localhost:8000"].forEach(ip => {
+        if (!candidateBases.includes(ip)) candidateBases.push(ip);
+      });
+
+      for (const base of candidateBases) {
+        try {
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 3500);
+          const resp = await fetch(`${base}/catering.db`, { signal: ctrl.signal });
+          clearTimeout(tid);
+          if (resp.ok) {
+            const buf = await resp.arrayBuffer();
+            if (buf && buf.byteLength > 10000) {
+              existing = buf;
+              console.log(`[SQLite] Loaded master database from ${base}/catering.db (${buf.byteLength} bytes)`);
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (netErr) {
+      console.warn("[SQLite] Live database fetch note:", netErr);
+    }
+  }
+
   db = existing ? new SQL.Database(new Uint8Array(existing)) : new SQL.Database();
   db.run(SCHEMA_SQL);
   try { db.run("ALTER TABLE bookings ADD COLUMN sync_status TEXT DEFAULT 'pending';"); } catch (_) {}
@@ -340,6 +409,19 @@ export async function initDb() {
   try { db.run("ALTER TABLE packages ADD COLUMN image TEXT DEFAULT '';"); } catch (_) {}
   try { db.run("ALTER TABLE menu_items ADD COLUMN mi_image TEXT DEFAULT '';"); } catch (_) {}
   try { db.run("ALTER TABLE menu_items ADD COLUMN image TEXT DEFAULT '';"); } catch (_) {}
+  try { db.run("ALTER TABLE occasions ADD COLUMN occ_is_active INTEGER DEFAULT 1;"); } catch (_) {}
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS pending_package_images (
+        pkg_id INTEGER PRIMARY KEY,
+        image_data TEXT,
+        remove_image INTEGER DEFAULT 0,
+        sync_status TEXT DEFAULT 'pending',
+        last_error TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  } catch (_) {}
   seedDefaults();
   scheduleSave();
   return db;

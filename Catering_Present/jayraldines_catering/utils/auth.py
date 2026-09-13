@@ -226,6 +226,7 @@ def authenticate(username: str, plain_password: str) -> Optional[Dict[str, Any]]
     """
     Validates username and password.
     Returns user dictionary with permissions on success, or None on failure.
+    On client workstations, automatically pulls snapshot from PC server if user is not found locally.
     """
     ensure_auth_tables()
     username = username.strip()
@@ -235,11 +236,32 @@ def authenticate(username: str, plain_password: str) -> Optional[Dict[str, Any]]
         sql = "SELECT id, username, password_hash, display_name, role, is_active FROM users WHERE LOWER(username) = LOWER(?)"
 
     row = db.fetchone(sql, param)
+
+    # ── Client Workstation: Fallback pull from PC server if user missing or password fails ──
+    try:
+        from utils.client_sync import is_client_mode, pull_server_snapshot
+        if is_client_mode():
+            needs_pull = False
+            if not row:
+                needs_pull = True
+            elif not verify_password(plain_password, row.get("password_hash", "")):
+                # If password mismatch for non-admin, credentials may have been updated on server
+                if row.get("username", "").lower() != "admin":
+                    needs_pull = True
+
+            if needs_pull:
+                log.info(f"[Auth] Client workstation pulling latest snapshot for user '{username}'...")
+                pull_server_snapshot(timeout=8)
+                row = db.fetchone(sql, param)
+    except Exception as _sync_err:
+        log.debug(f"[Auth] Client snapshot pull note: {_sync_err}")
+
     if not row:
         _log_audit("USER_LOGIN_FAILED", f"Failed login attempt for non-existent user '{username}'")
         return None
 
-    is_active = bool(row.get("is_active", 1))
+    is_active_val = row.get("is_active", 1)
+    is_active = str(is_active_val).lower() not in ("0", "false", "none")
     if not is_active:
         _log_audit("USER_LOGIN_FAILED", f"Login blocked for deactivated account '{username}'")
         return None
@@ -257,7 +279,11 @@ def authenticate(username: str, plain_password: str) -> Optional[Dict[str, Any]]
             _log_audit("USER_LOGIN_FAILED", f"Failed password attempt for user '{username}'")
             return None
 
-    user_id = row["id"]
+    try:
+        user_id = int(row["id"])
+    except (ValueError, TypeError):
+        user_id = row["id"]
+
     # Update last login timestamp
     now = datetime.now()
     if db.get_engine_type() == "postgres":
@@ -282,11 +308,17 @@ def get_user_permissions(user_id: int) -> Dict[str, Dict[str, bool]]:
     Returns full permissions dictionary:
     { module_name: {'view': bool, 'create': bool, 'edit': bool, 'delete': bool} }
     """
+    try:
+        user_id = int(user_id)
+    except (ValueError, TypeError):
+        pass
+
     # Check if user is admin - admin always has full access
     param = (user_id,)
     u_sql = "SELECT role FROM users WHERE id = %s" if db.get_engine_type() == "postgres" else "SELECT role FROM users WHERE id = ?"
     u_row = db.fetchone(u_sql, param)
-    is_admin_user = (u_row and u_row.get("role") == "admin")
+    is_admin_user = (u_row and str(u_row.get("role", "")).lower() in ("admin", "owner", "superadmin", "super_admin"))
+    is_staff = (u_row and str(u_row.get("role", "")).lower() == "staff")
 
     perms: Dict[str, Dict[str, bool]] = {}
     for mod in ALL_MODULES:
@@ -304,15 +336,37 @@ def get_user_permissions(user_id: int) -> Dict[str, Dict[str, bool]]:
     if db.get_engine_type() != "postgres":
         p_sql = "SELECT module, can_view, can_create, can_edit, can_delete FROM user_permissions WHERE user_id = ?"
 
-    rows = db.fetchall(p_sql, param)
+    rows = db.fetchall(p_sql, param) or []
+
+    def _to_bool(val: Any) -> bool:
+        if val is None:
+            return False
+        if isinstance(val, bool):
+            return val
+        s = str(val).strip().lower()
+        return s in ("1", "true", "t", "yes")
+
     for r in rows:
-        mod = r["module"]
-        perms[mod] = {
-            "view": bool(r.get("can_view", 0)),
-            "create": bool(r.get("can_create", 0)),
-            "edit": bool(r.get("can_edit", 0)),
-            "delete": bool(r.get("can_delete", 0)),
-        }
+        mod = r.get("module")
+        if mod:
+            perms[mod] = {
+                "view": _to_bool(r.get("can_view")),
+                "create": _to_bool(r.get("can_create")),
+                "edit": _to_bool(r.get("can_edit")),
+                "delete": _to_bool(r.get("can_delete")),
+            }
+
+    # If staff user has no explicit permissions in user_permissions, apply standard staff defaults
+    if is_staff and not rows:
+        default_staff_views = {"customers", "bookings", "menu", "inventory"}
+        default_staff_edits = {"customers", "bookings"}
+        for mod in ALL_MODULES:
+            perms[mod] = {
+                "view": mod in default_staff_views,
+                "create": mod in default_staff_edits,
+                "edit": mod in default_staff_edits,
+                "delete": False,
+            }
 
     return perms
 

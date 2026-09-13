@@ -4,6 +4,22 @@ from typing import Optional, List, Dict, Any
 
 _dt_datetime = datetime
 
+
+def _format_time_ampm(t_raw) -> str:
+    """Format any time representation into 12-hour AM/PM format (e.g. '6:00 PM', '11:30 AM')."""
+    if not t_raw:
+        return ""
+    if hasattr(t_raw, "strftime"):
+        return t_raw.strftime("%I:%M %p").lstrip("0")
+    s = str(t_raw).strip()
+    for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M%p"):
+        try:
+            parsed = datetime.strptime(s, fmt).time()
+            return parsed.strftime("%I:%M %p").lstrip("0")
+        except ValueError:
+            continue
+    return s
+
 try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
@@ -816,6 +832,261 @@ def export_receipt_pdf(path: str, inv: dict, business: dict,
         return False
 
 
+def export_order_slip_pdf(path: str, booking: dict, business: dict) -> bool:
+    """Generate a clean Banquet Event Order (BEO) / Kitchen Order Slip PDF.
+    
+    Contains:
+    - Customer Name
+    - Event Location / Venue
+    - Event Date & Time
+    - Pax (Guest Count)
+    - Package Name & Categorized Dishes / Menu
+    - Additional Items / Add-ons strictly WITHOUT price amounts ("walay price amount")
+    - Event Notes / Operations Remarks
+    """
+    if not REPORTLAB_OK:
+        return False
+    try:
+        import re
+        doc = SimpleDocTemplate(
+            path, pagesize=A4,
+            leftMargin=_MARGIN, rightMargin=_MARGIN,
+            topMargin=_MARGIN, bottomMargin=_MARGIN,
+            title=f"Order Slip — {booking.get('id') or booking.get('booking_ref', 'Order')}",
+        )
+        styles = _styles()
+        story = []
+
+        biz_name    = business.get("name", "Jayraldine's Catering Services")
+        biz_address = business.get("address", "")
+        biz_contact = business.get("contact", "")
+        biz_email   = business.get("email", "")
+
+        order_ref = str(booking.get("id") or booking.get("booking_ref") or "ORD-SLIP")
+        cust_name = str(booking.get("name") or booking.get("customer_name") or "Valued Client")
+        venue     = str(booking.get("venue") or booking.get("address") or "To be specified")
+        date_str  = str(booking.get("event_date") or booking.get("date") or "TBA")
+        raw_t     = booking.get("event_time") or booking.get("time") or ""
+        time_str  = _format_time_ampm(raw_t) if raw_t else "TBA"
+        pax       = str(booking.get("pax", "100"))
+        pkg_name  = str(booking.get("package_name") or booking.get("menu_value") or "Standard Package")
+        motif     = str(booking.get("color_theme") or booking.get("color") or "")
+        occasion  = str(booking.get("occasion") or "Catering Event")
+
+        # Top Header Table
+        logo_cell = ""
+        _lp = _logo_path()
+        if os.path.exists(_lp):
+            try:
+                logo_cell = Image(_lp, width=2.0*cm, height=2.0*cm)
+            except Exception:
+                logo_cell = ""
+
+        biz_cell = [
+            Paragraph(biz_name, styles["Brand"]),
+            Paragraph("Catering & Banquet Event Services", styles["BrandSub"]),
+            Spacer(1, 2),
+            Paragraph(biz_address, styles["BrandSub"]),
+            Paragraph(f"Contact: {biz_contact}  ·  {biz_email}", styles["BrandSub"]),
+        ]
+
+        title_cell = [
+            Paragraph("ORDER & EVENT SLIP", ParagraphStyle(
+                "slip_lbl", fontName="Helvetica-Bold", fontSize=8.5,
+                textColor=_C_MUTED, alignment=TA_RIGHT, leading=11, spaceAfter=4)),
+            Paragraph(order_ref, ParagraphStyle(
+                "slip_no", fontName="Helvetica-Bold", fontSize=17,
+                textColor=_C_RED, alignment=TA_RIGHT, leading=21)),
+            Paragraph("Kitchen & Operations Dispatch", ParagraphStyle(
+                "slip_tag", fontName="Helvetica", fontSize=8,
+                textColor=_C_MUTED, alignment=TA_RIGHT, leading=10, spaceBefore=2)),
+        ]
+
+        hdr_cols = [2.2*cm, 9.8*cm, 6.0*cm] if logo_cell else [12.0*cm, 6.0*cm]
+        hdr_data = [[logo_cell, biz_cell, title_cell]] if logo_cell else [[biz_cell, title_cell]]
+        hdr_tbl = Table(hdr_data, colWidths=hdr_cols)
+        hdr_tbl.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        story.append(hdr_tbl)
+        story.append(HRFlowable(width="100%", thickness=1.5, color=_C_RED))
+        story.append(Spacer(1, 0.4*cm))
+
+        # Event & Client Information Grid
+        story.append(Paragraph("EVENT SPECIFICATIONS", styles["SectionHead"]))
+        event_info = [
+            [
+                Paragraph("<b>Client Name:</b>", styles["DetailLabel"]),
+                Paragraph(f"<b>{cust_name}</b>", styles["DetailValueBold"]),
+                Paragraph("<b>Event Date:</b>", styles["DetailLabel"]),
+                Paragraph(f"<b>{date_str}</b>", styles["DetailValueBold"]),
+            ],
+            [
+                Paragraph("<b>Location / Venue:</b>", styles["DetailLabel"]),
+                Paragraph(venue, styles["DetailValue"]),
+                Paragraph("<b>Event Time:</b>", styles["DetailLabel"]),
+                Paragraph(f"<b>{time_str}</b>", styles["DetailValue"]),
+            ],
+            [
+                Paragraph("<b>Occasion:</b>", styles["DetailLabel"]),
+                Paragraph(occasion, styles["DetailValue"]),
+                Paragraph("<b>Guest Count:</b>", styles["DetailLabel"]),
+                Paragraph(f"<b>{pax} Pax</b>", styles["DetailValueBold"]),
+            ],
+        ]
+        if motif:
+            event_info.append([
+                Paragraph("<b>Color Motif:</b>", styles["DetailLabel"]),
+                Paragraph(motif, styles["DetailValue"]),
+                Paragraph("<b>Service Style:</b>", styles["DetailLabel"]),
+                Paragraph("Buffet / Catered Setup", styles["DetailValue"]),
+            ])
+
+        col_w = [_CONTENT_W * 0.22, _CONTENT_W * 0.38, _CONTENT_W * 0.18, _CONTENT_W * 0.22]
+        info_tbl = Table(event_info, colWidths=col_w)
+        info_tbl.setStyle(TableStyle([
+            ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
+            ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
+            ("BACKGROUND",   (0, 0), (0, -1),  colors.HexColor("#F8FAFC")),
+            ("BACKGROUND",   (2, 0), (2, -1),  colors.HexColor("#F8FAFC")),
+            ("TOPPADDING",   (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
+            ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        story.append(info_tbl)
+        story.append(Spacer(1, 0.4*cm))
+
+        # Package & Dishes Section
+        story.append(Paragraph(f"MENU & DISHES — <font color='{_C_RED.hexval()}'>{pkg_name.upper()}</font>", styles["SectionHead"]))
+
+        dishes = booking.get("dishes") or []
+        if not dishes and booking.get("menu_value"):
+            raw_dishes = [d.strip() for d in str(booking["menu_value"]).split(",") if d.strip()]
+            dishes = [{"name": rd, "category": "Selected Dishes"} for rd in raw_dishes]
+
+        if dishes:
+            by_cat = {}
+            for d in dishes:
+                cat = d.get("category") or "Menu Items"
+                d_name = d.get("name") or d.get("item_name") or str(d)
+                if d_name:
+                    by_cat.setdefault(cat, []).append(d_name)
+
+            dish_table_data = [[
+                Paragraph("Category / Course", styles["TableHead"]),
+                Paragraph("Dishes & Prepared Items", styles["TableHead"]),
+            ]]
+            for cat, items_list in by_cat.items():
+                items_p = "<br/>".join([f"• <b>{itm}</b>" for itm in items_list])
+                dish_table_data.append([
+                    Paragraph(f"<b>{cat}</b>", styles["DetailLabel"]),
+                    Paragraph(items_p, styles["DetailValue"]),
+                ])
+
+            dish_tbl = Table(dish_table_data, colWidths=[_CONTENT_W * 0.30, _CONTENT_W * 0.70])
+            dish_tbl.setStyle(TableStyle([
+                ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
+                ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
+                ("BACKGROUND",   (0, 0), (-1, 0),  _C_RED),
+                ("TOPPADDING",   (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
+                ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+            ]))
+            story.append(dish_tbl)
+        else:
+            story.append(Paragraph("<i>Standard catering package inclusions apply.</i>", styles["BrandSub"]))
+        story.append(Spacer(1, 0.4*cm))
+
+        # Additional Inclusions / Add-ons (WALAY PRICE AMOUNT - STRICT REQUIREMENT)
+        story.append(Paragraph("ADDITIONAL ITEMS & ADD-ONS (NO CHARGE/RATE DISPLAY)", styles["SectionHead"]))
+
+        # Extract add-on descriptions strictly without price amounts
+        add_ons = []
+        raw_charges = booking.get("additional_charges") or []
+        for chg in raw_charges:
+            desc = str(chg.get("description") or "").strip()
+            if desc:
+                clean_desc = re.sub(r"\s*\([+-]?[^\)]*[\d,.]+[^\)]*\)\s*$", "", desc).strip()
+                clean_desc = re.sub(r"[+-]?[₱P]\s*[\d,.]+", "", clean_desc).strip()
+                if clean_desc and clean_desc not in add_ons:
+                    add_ons.append(clean_desc)
+
+        # Also extract from notes if present
+        notes_str = str(booking.get("notes") or "").strip()
+        m_addons = re.search(r"\[Add-ons:\s*(.*?)\]", notes_str, re.IGNORECASE)
+        if m_addons:
+            raw_addons = re.split(r"(?<=\))\s*,\s*", m_addons.group(1))
+            for a in raw_addons:
+                clean_a = re.sub(r"\s*\([+-]?[^\)]*[\d,.]+[^\)]*\)\s*$", "", a).strip()
+                clean_a = re.sub(r"[+-]?[₱P]\s*[\d,.]+", "", clean_a).strip()
+                if clean_a and clean_a not in add_ons:
+                    add_ons.append(clean_a)
+
+        clean_notes = re.sub(r"\n?\[Add-ons:\s*.*?\]", "", notes_str, flags=re.IGNORECASE).strip()
+
+        if add_ons:
+            addon_rows = [[
+                Paragraph("#", styles["TableHead"]),
+                Paragraph("Item / Add-on Description", styles["TableHead"]),
+                Paragraph("Status / Fulfillment", styles["TableHead"]),
+            ]]
+            for idx, a_text in enumerate(add_ons, 1):
+                addon_rows.append([
+                    Paragraph(str(idx), ParagraphStyle("idx_p", fontName="Helvetica", fontSize=9, alignment=TA_CENTER)),
+                    Paragraph(f"<b>{a_text}</b>", styles["DetailValue"]),
+                    Paragraph("[  ] Prepared / In Vehicle", ParagraphStyle("stat_p", fontName="Helvetica", fontSize=8.5, textColor=_C_MUTED)),
+                ])
+            addon_tbl = Table(addon_rows, colWidths=[_CONTENT_W * 0.08, _CONTENT_W * 0.62, _CONTENT_W * 0.30])
+            addon_tbl.setStyle(TableStyle([
+                ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
+                ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
+                ("BACKGROUND",   (0, 0), (-1, 0),  _C_GRAY),
+                ("TOPPADDING",   (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 5),
+                ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+            ]))
+            story.append(addon_tbl)
+        else:
+            story.append(Paragraph("<i>No additional add-on items specified for this event.</i>", styles["BrandSub"]))
+        story.append(Spacer(1, 0.4*cm))
+
+        # Special Notes / Operations Remarks
+        if clean_notes:
+            story.append(Paragraph("OPERATIONS NOTES & SPECIAL REQUESTS", styles["SectionHead"]))
+            notes_tbl = Table([[Paragraph(clean_notes, styles["DetailValue"])]], colWidths=[_CONTENT_W])
+            notes_tbl.setStyle(TableStyle([
+                ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
+                ("BACKGROUND",   (0, 0), (-1, -1), colors.HexColor("#FEF3C7")),
+                ("TOPPADDING",   (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 8),
+                ("LEFTPADDING",  (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ]))
+            story.append(notes_tbl)
+            story.append(Spacer(1, 0.4*cm))
+        from datetime import datetime as _dt
+        printed_str = _dt.now().strftime("%B %d, %Y at %I:%M %p")
+        story.append(Paragraph(
+            f"Generated: {printed_str}  ·  Kitchen & Event Operations Order Slip  ·  <b>{biz_name}</b>",
+            styles["Footer"],
+        ))
+
+        doc.build(story)
+        return True
+    except Exception as exc:
+        print(f"[exporter] Order Slip PDF failed: {exc}")
+        return False
+
+
 def export_excel(path: str, kpis: dict, bookings: list,
                  title: str = "Business Report", period: str = "All Time",
                  biz_name: str = "Jayraldine's Catering",
@@ -1049,7 +1320,7 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str,
                     b.get("occasion") or "",
                     b.get("venue") or "",
                     b.get("date") or b.get("event_date") or "",
-                    b.get("time") or b.get("event_time") or "",
+                    _format_time_ampm(b.get("time") or b.get("event_time") or ""),
                     str(b.get("pax") or 0),
                     f"₱{tot:,.2f}",
                     f"₱{paid:,.2f}",
@@ -1199,7 +1470,7 @@ def export_custom_entity_data(entity_name: str, is_excel: bool, save_path: str,
                     b.get("occasion") or "",
                     b.get("venue") or "",
                     b.get("date") or b.get("event_date") or "",
-                    b.get("time") or b.get("event_time") or "",
+                    _format_time_ampm(b.get("time") or b.get("event_time") or ""),
                     str(b.get("pax") or 0),
                     f"₱{tot:,.2f}",
                     f"₱{paid:,.2f}",
@@ -1625,7 +1896,7 @@ def _build_agenda_story(year, month, month_events, styles, biz_name):
         ])
     else:
         for day, ev in all_events:
-            time_str = ev.get("time") or "6:00 PM"
+            time_str = _format_time_ampm(ev.get("time") or ev.get("event_time") or "6:00 PM") or "6:00 PM"
             st_key   = str(ev.get("status") or "CONFIRMED").upper()
             c_name   = ev.get("customer_name") or ev.get("name") or "Valued Client"
             occ      = ev.get("occasion") or "Event"
@@ -1820,7 +2091,7 @@ def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
         c.drawString(COL_X[0], y - 14, f"{month_name[:3]} {day}, {year}")
         c.setFont("Helvetica", 7)
         c.setFillColor(C_MUTED)
-        c.drawString(COL_X[0], y - 26, str(ev.get("time") or "6:00 PM"))
+        c.drawString(COL_X[0], y - 26, str(_format_time_ampm(ev.get("time") or ev.get("event_time") or "6:00 PM") or "6:00 PM"))
 
         # ── 1: REF / OCCASION ─────────────────────────────────────────────
         c.setFillColor(colors.HexColor("#E11D48"))

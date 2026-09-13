@@ -310,6 +310,37 @@ def main():
         # Ensure authentication tables and default admin account
         from utils.auth import ensure_auth_tables, create_default_admin
         ensure_auth_tables()
+
+        # ── Client Workstation: Pull full DB snapshot from Server PC ──
+        try:
+            from utils.client_sync import is_client_mode, pull_server_snapshot, get_server_url
+            if is_client_mode():
+                srv_url = get_server_url()
+                splash.set_status(f"🔄 Syncing data from server ({srv_url})...", 78)
+                app.processEvents()
+
+                _sync_result = [{}]
+
+                def _do_sync():
+                    _sync_result[0] = pull_server_snapshot(
+                        server_url=srv_url,
+                        timeout=12
+                    )
+
+                sync_thread = threading.Thread(target=_do_sync, daemon=True)
+                sync_thread.start()
+                sync_thread.join(timeout=20)
+
+                sr = _sync_result[0]
+                if sr.get("success"):
+                    total_rows = sum(sr.get("synced", {}).values())
+                    splash.set_status(f"✅ Synced {total_rows} rows from server.", 88)
+                else:
+                    splash.set_status(f"⚠️ Server sync skipped: {sr.get('message', 'offline')}", 88)
+                app.processEvents()
+        except Exception as _sync_err:
+            log.warning(f"[main] Client sync error: {_sync_err}")
+
         admin_check = db.fetchone("SELECT id FROM users WHERE username = 'admin'")
         if not admin_check:
             create_default_admin()
@@ -340,6 +371,16 @@ def main():
             device_tracker().start()
         except Exception as e:
             log.warning(f"[main] Could not start DeviceTracker: {e}")
+
+        # Start real-time version watcher & auto-refresh for client workstations (Option 1)
+        try:
+            from utils.client_sync import is_client_mode, start_realtime_version_watcher, start_periodic_sync
+            if is_client_mode():
+                start_realtime_version_watcher(poll_interval=1.5)
+                start_periodic_sync(interval_seconds=300)
+                log.info("[main] Real-time sync watcher & periodic sync active.")
+        except Exception as e:
+            log.warning(f"[main] Could not start real-time sync watcher: {e}")
 
         window.showFullScreen()
         window.raise_()

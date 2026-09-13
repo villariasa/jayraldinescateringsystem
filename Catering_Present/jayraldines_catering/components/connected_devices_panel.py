@@ -172,11 +172,15 @@ class ConnectedDevicesPanel(QFrame):
             self._card_devices.findChild(QLabel, "kpiVal").setText(f"{online_cnt} Online")
             self._card_devices.findChild(QLabel, "kpiSub").setText(f"{total_cnt} Total Terminals")
 
-            pg_conns = stats.get("pg_active_connections", 1)
-            p_min = stats.get("pool_min", 5)
-            p_max = stats.get("pool_max", 32)
-            self._card_conns.findChild(QLabel, "kpiVal").setText(f"{pg_conns} Active")
-            self._card_conns.findChild(QLabel, "kpiSub").setText(f"Pool Capacity: {p_min}–{p_max}")
+            if stats.get("engine") == "sqlite":
+                self._card_conns.findChild(QLabel, "kpiVal").setText("Embedded")
+                self._card_conns.findChild(QLabel, "kpiSub").setText("Direct File Access (WAL)")
+            else:
+                pg_conns = stats.get("pg_active_connections", 1)
+                p_min = stats.get("pool_min", 5)
+                p_max = stats.get("pool_max", 32)
+                self._card_conns.findChild(QLabel, "kpiVal").setText(f"{pg_conns} Active")
+                self._card_conns.findChild(QLabel, "kpiSub").setText(f"Pool Capacity: {p_min}–{p_max}")
 
             ping_ms = stats.get("ping_ms", 0.0)
             self._card_ping.findChild(QLabel, "kpiVal").setText(f"{ping_ms} ms")

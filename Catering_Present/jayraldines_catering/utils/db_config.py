@@ -49,9 +49,9 @@ def load_db_config() -> Dict[str, Any]:
             cfg = json.load(f)
 
         if isinstance(cfg, dict):
-            engine = cfg.get("engine", "postgres")
+            engine = cfg.get("engine", "sqlite")
             if not isinstance(engine, str):
-                engine = "postgres"
+                engine = "sqlite"
             os.environ["DB_ENGINE"] = engine
             if "host" in cfg:
                 os.environ["DB_HOST"] = str(cfg["host"])
@@ -71,12 +71,12 @@ def load_db_config() -> Dict[str, Any]:
 
 
 def save_db_config(
-    engine: Any = "postgres",
+    engine: Any = "sqlite",
     host: str = "localhost",
-    port: int = 5432,
-    dbname: str = "jayraldines_catering",
-    user: str = "jayraldines_app",
-    password: str = "12345678",
+    port: int = 8000,
+    dbname: str = "catering.db",
+    user: str = "admin",
+    password: str = "",
     **extra
 ) -> Path:
     """Saves database connection configuration to db_config.json."""
@@ -128,9 +128,9 @@ def get_db_config() -> Dict[str, Any]:
     return {
         "engine": os.environ.get("DB_ENGINE", "sqlite"),
         "host": os.environ.get("DB_HOST", "localhost"),
-        "port": int(os.environ.get("DB_PORT", 5432)),
-        "dbname": os.environ.get("DB_NAME", "jayraldines_catering"),
-        "user": os.environ.get("DB_USER", "jayraldines_app"),
+        "port": int(os.environ.get("DB_PORT", 8000)),
+        "dbname": os.environ.get("DB_NAME", "catering.db"),
+        "user": os.environ.get("DB_USER", "admin"),
         "password": os.environ.get("DB_PASSWORD", ""),
     }
 
@@ -235,9 +235,41 @@ def test_postgres_connection(
         return False, err_msg
 
 
+def test_sqlite_sync_connection(
+    host: str,
+    port: int = 8000,
+    timeout: int = 3
+) -> Tuple[bool, str]:
+    """
+    Tests live connection to Jayraldine's Central LAN Sync Server on the target host PC.
+    Attempts HTTP GET /api/health first, falling back to a direct TCP socket probe.
+    Returns (True, success_message) or (False, error_message).
+    """
+    import urllib.request
+    try:
+        url = f"http://{host}:{port}/api/health"
+        req = urllib.request.Request(url, headers={"User-Agent": "JayraldinesInstallerClient/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                if data.get("status") == "ok":
+                    return True, f"Connected successfully to {data.get('app', 'Central Server')} at {host}:{port}"
+    except Exception:
+        pass
+
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((host, int(port)))
+        s.close()
+        return True, f"Host {host}:{port} is reachable."
+    except Exception as exc:
+        return False, f"Could not reach server at {host}:{port}: {exc}"
+
+
 def add_windows_firewall_rule(
-    rule_name: str = "JayraldinesCatering-Postgres",
-    port: int = 5432,
+    rule_name: str = "Jayraldines LAN Sync Server",
+    port: int = 8000,
     profile: str = "any"
 ) -> Tuple[bool, str]:
     """
@@ -282,8 +314,7 @@ def add_windows_firewall_rule(
 
 def open_all_kiosk_firewall_ports() -> List[Tuple[str, bool, str]]:
     """
-    Opens all ports needed for Tablet Kiosk, LAN Sync Hub, and PostgreSQL:
-    - Port 5432 (PostgreSQL Central DB)
+    Opens all ports needed for Tablet Kiosk and LAN Sync Hub:
     - Port 8000 (Desktop LAN Sync Hub)
     - Port 8085 (Tablet Kiosk Web Server)
     - ICMPv4 (Ping discovery)
@@ -292,15 +323,11 @@ def open_all_kiosk_firewall_ports() -> List[Tuple[str, bool, str]]:
     if os.name != "nt":
         return [("non-windows", True, "Skipped non-windows")]
 
-    # 1. PostgreSQL (5432)
-    ok, msg = add_windows_firewall_rule("Jayraldines Central DB (5432)", 5432, profile="any")
-    results.append(("PostgreSQL-5432", ok, msg))
-
-    # 2. LAN Sync Hub (8000)
+    # 1. LAN Sync Hub (8000)
     ok, msg = add_windows_firewall_rule("Jayraldines LAN Sync Server (8000)", 8000, profile="any")
     results.append(("SyncServer-8000", ok, msg))
 
-    # 3. Tablet Web Server (8085)
+    # 2. Tablet Web Server (8085)
     ok, msg = add_windows_firewall_rule("Jayraldines Tablet Web Server (8085)", 8085, profile="any")
     results.append(("WebServer-8085", ok, msg))
 

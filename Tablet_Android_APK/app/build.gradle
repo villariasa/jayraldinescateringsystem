@@ -10,8 +10,8 @@ android {
         applicationId "com.jayraldines.cateringsystem"
         minSdk 24
         targetSdk 34
-        versionCode 39
-        versionName "1.26.13"
+        versionCode 43
+        versionName "v2.1.0"
     }
 
     buildTypes {

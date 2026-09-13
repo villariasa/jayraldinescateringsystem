@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QComboBox, QLineEdit, QDoubleSpinBox, QDateEdit, QMessageBox,
     QFileDialog, QScrollArea, QSizePolicy, QMenu, QCheckBox
 )
-from PySide6.QtCore import Qt, QSize, QDate
+from PySide6.QtCore import Qt, QSize, QDate, QTimer
 from PySide6.QtGui import QColor, QFont
 
 import utils.repository as repo

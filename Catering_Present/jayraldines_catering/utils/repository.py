@@ -13,6 +13,28 @@ import utils.db as db
 import utils.menu_store as menu_store
 
 
+def format_time_ampm(t_raw) -> str:
+    """
+    Converts any time representation (e.g. '18:00', '18:00:00', '09:30', time objects)
+    into standard 12-hour AM/PM format (e.g. '6:00 PM', '9:30 AM', '11:45 AM').
+    Replaces all military time.
+    """
+    if not t_raw:
+        return "6:00 PM"
+    if hasattr(t_raw, "strftime"):
+        return t_raw.strftime("%I:%M %p").lstrip("0")
+    s = str(t_raw).strip()
+    if not s or s in ("—", "-", "TBA", "None", "null"):
+        return "6:00 PM"
+    for fmt in ("%I:%M %p", "%I:%M%p", "%I:%M %P", "%I:%M%P", "%H:%M:%S", "%H:%M", "%H:%M:%S.%f"):
+        try:
+            parsed = datetime.strptime(s, fmt).time()
+            return parsed.strftime("%I:%M %p").lstrip("0")
+        except ValueError:
+            continue
+    return s
+
+
 # ---------------------------------------------------------------------------
 # MENU ITEMS & PACKAGES
 # ---------------------------------------------------------------------------
@@ -21,22 +43,36 @@ def get_available_menu_items() -> list[dict]:
     return menu_store.get_available_items()
 
 
-def get_all_customers() -> list[dict]:
+def get_all_customers(force_refresh: bool = False) -> list[dict]:
+    from utils.data_cache import DataCache
+    if not force_refresh:
+        cached = DataCache.get("customers")
+        if cached is not None:
+            return cached
+
     rows = db.fetchall("""
         SELECT c.cus_id       AS id,
                c.cus_name     AS name,
                c.cus_contact  AS contact,
                c.cus_email    AS email,
                c.cus_address  AS address,
-               (SELECT COUNT(*) FROM bookings WHERE (bk_customer_id = c.cus_id OR LOWER(bk_customer_name) = LOWER(c.cus_name)) AND bk_status != 'CANCELLED') AS total_events,
-               (SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE (bk_customer_id = c.cus_id OR LOWER(bk_customer_name) = LOWER(c.cus_name)) AND bk_status != 'CANCELLED') AS total_spent,
+               COALESCE(b.cnt, 0) AS total_events,
+               COALESCE(b.total, 0.0) AS total_spent,
                c.cus_status   AS status,
                c.cus_loyalty_tier AS loyalty_tier
-        FROM customers c ORDER BY c.cus_name
+        FROM customers c
+        LEFT JOIN (
+            SELECT bk_customer_id, COUNT(*) AS cnt, SUM(bk_total_amount) AS total
+            FROM bookings
+            WHERE bk_status != 'CANCELLED'
+            GROUP BY bk_customer_id
+        ) b ON b.bk_customer_id = c.cus_id
+        ORDER BY c.cus_name
     """)
     if not rows:
+        DataCache.set("customers", [], ttl_seconds=300.0)
         return []
-    return [
+    result = [
         {
             "id":           r["id"],
             "name":         r["name"],
@@ -50,6 +86,9 @@ def get_all_customers() -> list[dict]:
         }
         for r in rows
     ]
+    DataCache.set("customers", result, ttl_seconds=300.0)
+    return result
+
 
 
 def add_customer(data: dict) -> Optional[int]:
@@ -98,6 +137,9 @@ def add_customer(data: dict) -> Optional[int]:
                 cust_id = existing["cus_id"]
 
     if cust_id:
+        from utils.data_cache import DataCache
+        DataCache.invalidate("customers")
+        DataCache.invalidate("customers_loyalty")
         write_audit_log(
             action="CREATE",
             table_name="customers",
@@ -110,6 +152,9 @@ def add_customer(data: dict) -> Optional[int]:
 
 
 def update_customer(customer_id: int, data: dict) -> None:
+    from utils.data_cache import DataCache
+    DataCache.invalidate("customers")
+    DataCache.invalidate("customers_loyalty")
     db.callproc_void(
         "sp_update_customer",
         in_params=(
@@ -136,6 +181,9 @@ def update_customer(customer_id: int, data: dict) -> None:
 
 
 def delete_customer(customer_id: int) -> None:
+    from utils.data_cache import DataCache
+    DataCache.invalidate("customers")
+    DataCache.invalidate("customers_loyalty")
     c_name = ""
     try:
         row = db.fetchone("SELECT cus_name FROM customers WHERE cus_id = %s", (customer_id,))
@@ -150,6 +198,7 @@ def delete_customer(customer_id: int) -> None:
         record_id=customer_id,
         old_value={"name": c_name or f"Customer #{customer_id}"}
     )
+
 
 
 def delete_multiple_customers(customer_ids: list[int]) -> int:
@@ -696,8 +745,8 @@ def get_package_items(package_id: int) -> list[dict]:
         """
         SELECT pi.pi_id              AS id,
                pi.pi_menu_item_id    AS menu_item_id,
-               COALESCE(mi.mi_name, '') AS item_name,
-               COALESCE(mi.mi_category::TEXT, 'General') AS category,
+               COALESCE(NULLIF(pi.pi_item_name, ''), mi.mi_name, '') AS item_name,
+               COALESCE(NULLIF(pi.pi_category, ''), mi.mi_category, 'General') AS category,
                COALESCE(pi.pi_custom_price, 0.0) AS custom_price
         FROM package_items pi
         LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
@@ -940,23 +989,7 @@ def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> l
         return []
     result = []
     for r in rows:
-        t_raw = r.get("event_time") or "6:00 PM"
-        if hasattr(t_raw, "strftime"):
-            t_val = t_raw.strftime("%I:%M %p").lstrip("0")
-        else:
-            t_str = str(t_raw).strip()
-            try:
-                for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M%p"):
-                    try:
-                        parsed_t = datetime.strptime(t_str, fmt).time()
-                        t_str = parsed_t.strftime("%I:%M %p").lstrip("0")
-                        break
-                    except ValueError:
-                        continue
-            except Exception:
-                pass
-            t_val = t_str
-
+        t_val = format_time_ampm(r.get("event_time"))
         tot_val = float(r.get("total_amount") or 0.0)
         paid_val = float(r.get("amount_paid") or 0.0)
         bal_val = max(0.0, tot_val - paid_val)
@@ -1031,7 +1064,7 @@ def get_all_bookings_for_export() -> list[dict]:
         try:
             event_date_raw = r["event_date"]
             date_str = event_date_raw.strftime("%b %d, %Y") if isinstance(event_date_raw, date) else str(event_date_raw or "")
-            time_val = r.get("event_time") or ""
+            time_val = format_time_ampm(r.get("event_time"))
             total_amt = float(r["total_amount"] or 0.0)
             paid_amt = float(r["amount_paid"] or 0.0)
             down_amt = float(r.get("down_payment") or paid_amt)
@@ -1072,11 +1105,12 @@ def get_all_bookings_for_export() -> list[dict]:
 
 
 def get_booking_detail(db_id: int) -> Optional[dict]:
-    """Fetch complete details for a booking order for modal editing/viewing."""
+    """Fetch complete details for a booking order for modal editing/viewing/printing."""
     row = db.fetchone("""
         SELECT b.bk_id AS db_id,
                b.bk_booking_ref AS id,
                b.bk_booking_ref AS booking_ref,
+               b.bk_customer_id AS customer_id,
                b.bk_customer_name AS name,
                b.bk_customer_name AS customer_name,
                b.bk_address AS address,
@@ -1086,6 +1120,7 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
                b.bk_venue AS venue,
                b.bk_pax AS pax,
                b.bk_total_amount AS total,
+               b.bk_total_amount AS total_amount,
                b.bk_payment_mode AS payment_mode,
                b.bk_amount_paid AS amount_paid,
                COALESCE(b.bk_down_payment, b.bk_amount_paid, 0.0) AS down_payment,
@@ -1095,9 +1130,11 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
                b.bk_status AS status,
                b.bk_color_theme AS color_theme,
                COALESCE(NULLIF(b.bk_contact, ''), NULLIF(c.cus_contact, ''), '') AS contact,
-               COALESCE(NULLIF(b.bk_email, ''), NULLIF(c.cus_email, ''), '') AS email
+               COALESCE(NULLIF(b.bk_email, ''), NULLIF(c.cus_email, ''), '') AS email,
+               p.pkg_name AS package_name
         FROM bookings b
         LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
+        LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
         WHERE b.bk_id = %s
     """, (db_id,))
     if not row:
@@ -1108,9 +1145,28 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
         d["event_date"] = d["event_date"].strftime("%b %d, %Y")
     else:
         d["date"] = str(d.get("event_date", ""))
-    d["time"] = str(d.get("event_time", "18:00"))
+    d["time"] = format_time_ampm(d.get("event_time"))
+    d["event_time"] = format_time_ampm(d.get("event_time"))
     d["color_theme"] = d.get("color_theme") or "#2563EB"
     d["color"] = d.get("color_theme") or "#2563EB"
+
+    # Fetch selected dishes from booking_menu_items
+    dish_rows = db.fetchall("""
+        SELECT bmi_item_id AS item_id, bmi_item_name AS name, bmi_category AS category
+        FROM booking_menu_items
+        WHERE bmi_booking_id = %s
+        ORDER BY bmi_id ASC
+    """, (db_id,))
+    if dish_rows:
+        d["dishes"] = [dict(r) for r in dish_rows]
+    elif d.get("package_id"):
+        pkg_items = get_package_items(d["package_id"])
+        d["dishes"] = [{"name": pi["item_name"], "category": pi["category"]} for pi in pkg_items]
+    else:
+        d["dishes"] = []
+
+    # Fetch itemized additional add-on charges
+    d["additional_charges"] = get_additional_charges(db_id)
     return d
 
 
@@ -1205,6 +1261,29 @@ def create_booking(data: dict) -> Optional[dict]:
                     db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_id = %s", (str(data["color_theme"]).strip(), b_id))
                 except Exception:
                     pass
+
+            # Save selected package dishes into booking_menu_items
+            selected_dishes = data.get("selected_dishes") or []
+            if selected_dishes:
+                try:
+                    db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = %s", (b_id,))
+                    for itm in selected_dishes:
+                        if isinstance(itm, dict):
+                            i_id = itm.get("id") or itm.get("menu_item_id")
+                            i_name = itm.get("name") or itm.get("item") or itm.get("item_name") or ""
+                            i_cat = itm.get("category") or "Main Course"
+                        else:
+                            i_id = None
+                            i_name = str(itm).strip()
+                            i_cat = "Selected Dishes"
+                        if i_name:
+                            db.execute("""
+                                INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
+                                VALUES (%s, %s, %s, %s, 0.0, 1)
+                            """, (b_id, i_id, i_name, i_cat))
+                except Exception as bmie:
+                    print(f"[repository] create_booking save dishes note: {bmie}")
+
             write_audit_log(
                 action="CREATE",
                 table_name="bookings",
@@ -1289,6 +1368,28 @@ def update_booking(db_id: int, data: dict) -> None:
                 db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_id = %s", (str(data["color_theme"]).strip(), db_id))
             except Exception:
                 pass
+
+        if "selected_dishes" in data:
+            selected_dishes = data.get("selected_dishes") or []
+            try:
+                db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = %s", (db_id,))
+                for itm in selected_dishes:
+                    if isinstance(itm, dict):
+                        i_id = itm.get("id") or itm.get("menu_item_id")
+                        i_name = itm.get("name") or itm.get("item") or itm.get("item_name") or ""
+                        i_cat = itm.get("category") or "Main Course"
+                    else:
+                        i_id = None
+                        i_name = str(itm).strip()
+                        i_cat = "Selected Dishes"
+                    if i_name:
+                        db.execute("""
+                            INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
+                            VALUES (%s, %s, %s, %s, 0.0, 1)
+                        """, (db_id, i_id, i_name, i_cat))
+            except Exception as bmie:
+                print(f"[repository] update_booking save dishes note: {bmie}")
+
         write_audit_log(
             action="UPDATE",
             table_name="bookings",
@@ -3479,100 +3580,8 @@ def save_calendar_day(event_date: date, events: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# BOOKING DETAIL & BALANCE
+# BOOKING BALANCE
 # ---------------------------------------------------------------------------
-
-def get_booking_detail(db_id: int) -> Optional[dict]:
-    row = db.fetchone(
-        """
-        SELECT b.bk_id            AS id,
-               b.bk_id            AS db_id,
-               b.bk_customer_id   AS customer_id,
-               b.bk_booking_ref   AS id_ref,
-               b.bk_booking_ref   AS booking_ref,
-               b.bk_customer_name AS name,
-               b.bk_customer_name AS customer_name,
-               b.bk_address       AS address,
-               c.cus_contact      AS contact,
-               c.cus_email        AS email,
-               b.bk_occasion      AS occasion,
-               b.bk_venue         AS venue,
-               b.bk_event_date    AS event_date,
-               b.bk_event_time    AS event_time,
-               b.bk_pax           AS pax,
-               b.bk_total_amount  AS total_amount,
-               b.bk_amount_paid   AS amount_paid,
-               b.bk_down_payment  AS down_payment,
-               b.bk_menu_type     AS menu_type,
-               b.bk_package_id    AS package_id,
-               b.bk_notes         AS notes,
-               b.bk_status        AS status,
-               b.bk_color_theme   AS color_theme
-        FROM bookings b
-        LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
-        WHERE b.bk_id = %s
-        """,
-        (db_id,),
-    )
-    if not row:
-        return None
-
-    paid_row = db.fetchone(
-        """
-        SELECT COALESCE(SUM(pr.pr_amount), 0) AS total_paid
-        FROM invoices i
-        JOIN payment_records pr ON pr.pr_invoice_id = i.inv_id
-        WHERE i.inv_booking_id = %s
-        """,
-        (db_id,),
-    )
-    paid_val = float(paid_row["total_paid"]) if (paid_row and float(paid_row["total_paid"]) > 0) else float(row.get("amount_paid") or 0)
-
-    time_str = "18:00"
-    if row.get("event_time"):
-        if isinstance(row["event_time"], (time, datetime)):
-            time_str = row["event_time"].strftime("%I:%M %p")
-        else:
-            time_str = str(row["event_time"])
-
-    total_val = float(row["total_amount"] or 0)
-    down_val = float(row.get("down_payment") or (paid_val if paid_val > 0 else 0.0))
-
-    d_val = row["event_date"]
-    date_formatted = d_val.strftime("%b %d, %Y") if isinstance(d_val, (date, datetime)) else str(d_val)
-    date_raw = d_val.strftime("%Y-%m-%d") if isinstance(d_val, (date, datetime)) else str(d_val)
-    color_val = str(row.get("color_theme") or "#2563EB").strip()
-
-    return {
-        "id":            row.get("booking_ref") or f"BK-{db_id:04d}",
-        "db_id":         row["id"],
-        "customer_id":   row["customer_id"],
-        "booking_ref":   row["booking_ref"],
-        "name":          row["customer_name"],
-        "customer_name": row["customer_name"],
-        "address":       row.get("address") or "",
-        "contact":       row["contact"] or "",
-        "email":         row["email"] or "",
-        "occasion":      row["occasion"],
-        "venue":         row["venue"],
-        "date":          date_raw,
-        "event_date":    date_formatted,
-        "time":          time_str,
-        "event_time":    time_str,
-        "pax":           row["pax"],
-        "total_amount":  total_val,
-        "total":         total_val,
-        "amount_paid":   paid_val,
-        "paid":          paid_val,
-        "down_payment":  down_val,
-        "menu_type":     row["menu_type"] or "package",
-        "package_id":    row.get("package_id"),
-        "notes":         row.get("notes") or "",
-        "color_theme":   color_val,
-        "color":         color_val,
-        "status":        row["status"],
-        "additional_charges": get_additional_charges(db_id),
-    }
 
 
 def get_booking_balance(booking_id: int) -> Optional[dict]:

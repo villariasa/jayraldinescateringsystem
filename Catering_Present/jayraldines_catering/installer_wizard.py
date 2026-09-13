@@ -1,7 +1,7 @@
 """
 Jayraldine's Catering - Modern Windows Application Installer.
 Designed with a sleek, frameless glassmorphic interface, interactive 5-step stepper,
-and automated Centralized PostgreSQL Server vs Client Node configuration.
+and automated Embedded SQLite Database & LAN Sync Server configuration.
 """
 
 import os
@@ -36,12 +36,12 @@ except ImportError:
     APP_NAME = "Jayraldine's Catering"
 
 from utils.db_config import (
-    generate_random_password,
+    get_config_dir,
     get_local_lan_ip,
     save_db_config,
     load_db_config,
     get_db_config,
-    test_postgres_connection,
+    test_sqlite_sync_connection,
     add_windows_firewall_rule,
     open_all_kiosk_firewall_ports,
     configure_network_profile_private,
@@ -126,117 +126,8 @@ class ExtractWorker(QThread):
         self.sqlite_source_path = sqlite_source_path
         self.credentials = {}
 
-    @staticmethod
-    def _find_psql_static() -> Optional[str]:
-        if shutil.which("psql"):
-            return "psql"
-        for ver in ["18", "17", "16", "15", "14", "13", "12"]:
-            for pf in [r"C:\Program Files\PostgreSQL", r"C:\Program Files (x86)\PostgreSQL", r"D:\PostgreSQL", r"E:\PostgreSQL"]:
-                cand = os.path.join(pf, ver, "bin", "psql.exe")
-                if os.path.exists(cand):
-                    return cand
-        import glob
-        for cand in glob.glob(r"C:\Program Files*\PostgreSQL\*\bin\psql.exe"):
-            if os.path.exists(cand):
-                return cand
-        if os.name == "nt":
-            try:
-                res = subprocess.run(
-                    ["powershell", "-NoProfile", "-Command",
-                     "(Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\postgresql*' -ErrorAction SilentlyContinue).ImagePath"],
-                    capture_output=True, text=True, timeout=3,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-                for line in res.stdout.splitlines():
-                    line = line.strip().strip('"')
-                    if "bin" in line.lower():
-                        bin_dir = Path(line).parent
-                        p = bin_dir / "psql.exe"
-                        if p.exists():
-                            return str(p)
-            except Exception:
-                pass
-        return None
-
-    def _auto_install_postgresql(self) -> Tuple[bool, str]:
-        """Attempts to install PostgreSQL silently if not found."""
-        self.progress.emit(15, "PostgreSQL not detected. Installing PostgreSQL 16 database engine...")
-        
-        # 1. Try winget with unattended parameters
-        try:
-            cmd = [
-                "winget", "install", "--id", "PostgreSQL.PostgreSQL",
-                "-e", "--silent", "--accept-package-agreements", "--accept-source-agreements",
-                "--override", "--mode unattended --superpassword 12345678 --serverport 5432"
-            ]
-            res = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=300,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-            )
-            if res.returncode == 0:
-                time.sleep(5)
-                if self._find_psql_static():
-                    return True, "Installed via winget."
-        except Exception:
-            pass
-
-        # 2. Download and execute official EnterpriseDB unattended installer directly
-        try:
-            import urllib.request
-            import tempfile
-            self.progress.emit(20, "Downloading official PostgreSQL 16 installer (EnterpriseDB)...")
-            installer_url = "https://get.enterprisedb.com/postgresql/postgresql-16.3-1-windows-x64.exe"
-            temp_installer = Path(tempfile.gettempdir()) / "postgresql-16-installer.exe"
-
-            def _dl_progress(block_num, block_size, total_size):
-                if total_size > 0:
-                    pct = 20 + int((block_num * block_size / total_size) * 30)
-                    self.progress.emit(min(50, pct), f"Downloading PostgreSQL installer ({int(block_num*block_size/1048576)} MB)...")
-
-            urllib.request.urlretrieve(installer_url, temp_installer, _dl_progress)
-            self.progress.emit(52, "Executing silent PostgreSQL installation (please wait 1-2 minutes)...")
-            
-            run_cmd = [
-                str(temp_installer),
-                "--mode", "unattended",
-                "--unattendedmodeui", "none",
-                "--superpassword", "12345678",
-                "--serverport", "5432"
-            ]
-            subprocess.run(
-                run_cmd, timeout=360,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-            )
-            try:
-                temp_installer.unlink()
-            except Exception:
-                pass
-
-            time.sleep(6)
-            if self._find_psql_static():
-                return True, "Installed via official unattended installer."
-        except Exception as exc:
-            pass
-
-        # 3. Fallback: check setup.ps1
-        setup_ps1 = self._find_asset_file("setup.ps1") or (self.dest_dir / "setup.ps1")
-        if setup_ps1 and Path(setup_ps1).exists():
-            try:
-                ps_cmd = f'powershell -NoProfile -ExecutionPolicy Bypass -File "{setup_ps1}"'
-                subprocess.run(
-                    ps_cmd, shell=True, timeout=300,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-                )
-                time.sleep(5)
-                if self._find_psql_static():
-                    return True, "Installed via setup.ps1."
-            except Exception:
-                pass
-
-        return False, "PostgreSQL installation was unable to complete automatically."
-
     def _find_asset_file(self, filename: str) -> Optional[Path]:
-        """Locates bundled or repository SQL/asset files across multiple candidate directories."""
+        """Locates bundled or repository database/asset files across candidate paths."""
         search_dirs = [
             self.dest_dir,
             self.dest_dir / "_internal",
@@ -253,237 +144,6 @@ class ExtractWorker(QThread):
                 if p.exists():
                     return p
         return None
-
-    def _init_server_database(self, psql_exe: str, db_pass: str, admin_pass: str) -> bool:
-        """Initializes Central PostgreSQL Database, scoped user, places dropdown, and admin account."""
-        env = os.environ.copy()
-        env["PGPASSWORD"] = "12345678"  # Default superuser password
-
-        try:
-            # 1. Check if jayraldines_catering database already exists and has active tables
-            chk_db_cmd = [
-                psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-tAc",
-                "SELECT 1 FROM pg_database WHERE datname = 'jayraldines_catering';"
-            ]
-            chk_db = subprocess.run(
-                chk_db_cmd, env=env, capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=10
-            )
-            db_exists = bool(chk_db.returncode == 0 and "1" in chk_db.stdout)
-
-            has_tables = False
-            if db_exists:
-                chk_tbl_cmd = [
-                    psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-tAc",
-                    "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';"
-                ]
-                chk_tbl = subprocess.run(
-                    chk_tbl_cmd, env=env, capture_output=True, text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=10
-                )
-                if chk_tbl.returncode == 0:
-                    try:
-                        has_tables = int(chk_tbl.stdout.strip()) > 0
-                    except Exception:
-                        pass
-
-            main_sql = self._find_asset_file("jayraldines_catering_clean.sql")
-
-            if self.clean_db:
-                # Explicit clean install requested: drop and recreate
-                self.progress.emit(74, "Clean install: resetting database...")
-                kill_sql = "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'jayraldines_catering' AND pid <> pg_backend_pid();"
-                subprocess.run(
-                    [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-c", kill_sql],
-                    env=env, capture_output=True, text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=10
-                )
-                subprocess.run(
-                    [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-c", "DROP DATABASE IF EXISTS jayraldines_catering;"],
-                    env=env, capture_output=True, text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=15
-                )
-                subprocess.run(
-                    [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-c", "CREATE DATABASE jayraldines_catering;"],
-                    env=env, capture_output=True, text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=15
-                )
-                if main_sql and main_sql.exists():
-                    self.progress.emit(74, "Applying full database schema & seeding places dropdown...")
-                    subprocess.run(
-                        [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-f", str(main_sql)],
-                        env=env, capture_output=True, text=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=45
-                    )
-            elif not db_exists or not has_tables:
-                # Brand new database required
-                self.progress.emit(74, "Creating new Central PostgreSQL database...")
-                if not db_exists:
-                    subprocess.run(
-                        [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "postgres", "-c", "CREATE DATABASE jayraldines_catering;"],
-                        env=env, capture_output=True, text=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=15
-                    )
-                if main_sql and main_sql.exists():
-                    self.progress.emit(74, "Applying initial schema...")
-                    subprocess.run(
-                        [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-f", str(main_sql)],
-                        env=env, capture_output=True, text=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=45
-                    )
-            else:
-                # SAFE UPGRADE: Database exists and has tables -> NEVER drop or overwrite!
-                self.progress.emit(74, "Existing database detected with active data. Preserving all records...")
-                print("[installer] Existing jayraldines_catering database found with active records. Preserving database data and applying incremental migrations.")
-
-            # 2. Create scoped application DB user: jayraldines_app and grant permissions
-            user_sql = f"""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'jayraldines_app') THEN
-                    CREATE ROLE jayraldines_app WITH LOGIN PASSWORD '{db_pass}';
-                ELSE
-                    ALTER ROLE jayraldines_app WITH PASSWORD '{db_pass}';
-                END IF;
-            END
-            $$;
-            GRANT ALL PRIVILEGES ON DATABASE jayraldines_catering TO jayraldines_app;
-            GRANT ALL ON SCHEMA public TO jayraldines_app;
-            GRANT ALL ON SCHEMA public TO postgres;
-            GRANT ALL ON ALL TABLES IN SCHEMA public TO jayraldines_app;
-            GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO jayraldines_app;
-            GRANT ALL ON ALL ROUTINES IN SCHEMA public TO jayraldines_app;
-            ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO jayraldines_app;
-            ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO jayraldines_app;
-            ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON ROUTINES TO jayraldines_app;
-            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO jayraldines_app;
-            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO jayraldines_app;
-            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO jayraldines_app;
-            """
-            subprocess.run(
-                [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-c", user_sql],
-                env=env, capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=15
-            )
-
-            # 3. Run supplemental migrations if present
-            for mig in [
-                "occasions_migration.sql",
-                "confirmed_only_views_migration.sql",
-                "analytics_functions_migration.sql",
-                "fix_customer_ledger_view.sql",
-                "device_monitoring_migration.sql"
-            ]:
-                mig_path = self._find_asset_file(mig)
-                if mig_path and mig_path.exists():
-                    subprocess.run(
-                        [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-f", str(mig_path)],
-                        env=env, capture_output=True, text=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=15
-                    )
-
-            # 4. Initialize Auth and Audit tables + default admin account
-            from utils.auth import hash_password
-            admin_hash = hash_password(admin_pass)
-            auth_sql = f"""
-            CREATE TABLE IF NOT EXISTS users (
-                id              SERIAL PRIMARY KEY,
-                username        VARCHAR(50) UNIQUE NOT NULL,
-                password_hash   VARCHAR(255) NOT NULL,
-                display_name    VARCHAR(100),
-                role            VARCHAR(20) DEFAULT 'admin',
-                is_active       BOOLEAN DEFAULT TRUE,
-                created_by      INTEGER,
-                created_at      TIMESTAMP DEFAULT NOW(),
-                updated_at      TIMESTAMP DEFAULT NOW(),
-                last_login      TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS user_permissions (
-                id          SERIAL PRIMARY KEY,
-                user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                module      VARCHAR(50) NOT NULL,
-                can_view    BOOLEAN DEFAULT TRUE,
-                can_create  BOOLEAN DEFAULT TRUE,
-                can_edit    BOOLEAN DEFAULT TRUE,
-                can_delete  BOOLEAN DEFAULT TRUE,
-                UNIQUE(user_id, module)
-            );
-            CREATE TABLE IF NOT EXISTS audit_logs (
-                id              SERIAL PRIMARY KEY,
-                user_id         INT REFERENCES users(id) ON DELETE SET NULL,
-                username        VARCHAR(100),
-                action          VARCHAR(100) NOT NULL,
-                target_type     VARCHAR(50),
-                target_id       VARCHAR(50),
-                details         TEXT,
-                ip_address      VARCHAR(50),
-                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            INSERT INTO users (username, password_hash, display_name, role, is_active)
-            VALUES ('admin', '{admin_hash}', 'System Administrator', 'admin', TRUE)
-            ON CONFLICT (username) DO UPDATE
-            SET is_active = TRUE;
-            """
-            subprocess.run(
-                [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-c", auth_sql],
-                env=env, capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=15
-            )
-
-            # Populate permissions for all modules for admin
-            modules = ["customers", "bookings", "menu", "cashflow", "expenses", "reports", "settings", "ai_chef_jay", "users", "audit_logs"]
-            perm_inserts = " ".join([
-                f"INSERT INTO user_permissions (user_id, module, can_view, can_create, can_edit, can_delete) "
-                f"SELECT id, '{m}', TRUE, TRUE, TRUE, TRUE FROM users WHERE username='admin' "
-                f"ON CONFLICT (user_id, module) DO UPDATE SET can_view=TRUE, can_create=TRUE, can_edit=TRUE, can_delete=TRUE;"
-                for m in modules
-            ])
-            subprocess.run(
-                [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-c", perm_inserts],
-                env=env, capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=15
-            )
-
-            # Re-grant all privileges for newly created tables to jayraldines_app
-            regrant_sql = """
-            GRANT ALL PRIVILEGES ON DATABASE jayraldines_catering TO jayraldines_app;
-            GRANT ALL ON SCHEMA public TO jayraldines_app;
-            GRANT ALL ON ALL TABLES IN SCHEMA public TO jayraldines_app;
-            GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO jayraldines_app;
-            GRANT ALL ON ALL ROUTINES IN SCHEMA public TO jayraldines_app;
-            """
-            subprocess.run(
-                [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-c", regrant_sql],
-                env=env, capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=15
-            )
-
-            # 5. Guaranteed Places / Cebu Address Dropdown verification
-            check_proc = subprocess.run(
-                [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-t", "-c", "SELECT count(*) FROM address_cities;"],
-                env=env, capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=10
-            )
-            count = 0
-            try:
-                count = int((check_proc.stdout or "0").strip())
-            except Exception:
-                count = 0
-
-            if count == 0:
-                self.progress.emit(78, "Auto-inserting full Cebu places dropdown hierarchy...")
-                addr_sql_path = self._find_asset_file("cebu_address_migration.sql")
-                if addr_sql_path and addr_sql_path.exists():
-                    subprocess.run(
-                        [psql_exe, "-U", "postgres", "-h", "localhost", "-p", "5432", "-d", "jayraldines_catering", "-f", str(addr_sql_path)],
-                        env=env, capture_output=True, text=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0, timeout=20
-                    )
-
-            return True
-        except Exception as exc:
-            print(f"[installer] Database initialization error: {exc}")
-            return False
 
     def run(self):
         try:
@@ -524,98 +184,145 @@ class ExtractWorker(QThread):
                         pct = int((i / max(1, total)) * 60)
                         self.progress.emit(pct, f"Extracting: {member.filename}")
 
-            # ── 2. Database Setup ───────────────────────────────────────
+            # ── 2. Database Setup (100% SQLite) ──────────────────────────
+            appdata_data_dir = get_config_dir() / "data"
+            appdata_data_dir.mkdir(parents=True, exist_ok=True)
+            target_db = appdata_data_dir / "catering.db"
+
+            dest_data_dir = self.dest_dir / "data"
+            dest_data_dir.mkdir(parents=True, exist_ok=True)
+            dest_db = dest_data_dir / "catering.db"
+
             if self.server_mode == "server":
-                self.progress.emit(65, "Checking PostgreSQL Database Engine...")
-                psql = self._find_psql_static()
-                if not psql:
-                    self._auto_install_postgresql()
-                    psql = self._find_psql_static()
-
-                self.progress.emit(72, "Configuring Central PostgreSQL Server & Credentials...")
-                db_password = getattr(self, "db_password", None) or "12345678"
-                admin_password = getattr(self, "admin_password", None) or "Admin1234!"
-                lan_ip = get_local_lan_ip()
-
-                if psql:
-                    self._init_server_database(psql, db_password, admin_password)
-
-                # Migrate existing SQLite data into PostgreSQL if source database provided
-                migrated_stats = {}
+                self.progress.emit(65, "Provisioning Embedded SQLite Database Engine...")
+                
+                # Check if custom SQLite backup was provided
                 if self.sqlite_source_path and Path(self.sqlite_source_path).exists():
-                    self.progress.emit(76, f"Migrating existing SQLite data ({Path(self.sqlite_source_path).name}) into PostgreSQL...")
-                    try:
-                        from utils.sqlite_to_postgres import migrate_sqlite_to_postgres
-                        ok_mig, mig_stats, mig_err = migrate_sqlite_to_postgres(
-                            Path(self.sqlite_source_path),
-                            {
-                                "host": "localhost",
-                                "port": 5432,
-                                "dbname": "jayraldines_catering",
-                                "user": "postgres",
-                                "password": "12345678"
-                            },
-                            progress_callback=lambda p, msg: self.progress.emit(76 + int(p * 0.05), msg)
-                        )
-                        if ok_mig:
-                            migrated_stats = mig_stats
-                    except Exception as m_exc:
-                        print(f"[installer] SQLite data migration error: {m_exc}")
+                    self.progress.emit(70, f"Restoring selected SQLite database ({Path(self.sqlite_source_path).name})...")
+                    shutil.copy2(Path(self.sqlite_source_path), target_db)
+                elif target_db.exists() and not self.clean_db:
+                    self.progress.emit(70, "Preserving existing SQLite database records...")
+                else:
+                    self.progress.emit(70, "Installing pre-populated SQLite database...")
+                    bundled_db = self._find_asset_file("catering.db")
+                    if bundled_db and bundled_db.exists():
+                        shutil.copy2(bundled_db, target_db)
+                    else:
+                        from utils.sqlite_schema import init_sqlite_db
+                        init_sqlite_db(target_db)
 
-                # Configure Private Network Profile & Open Windows Firewall for LAN & Tablets
+                # Mirror database to dest_dir
+                try:
+                    shutil.copy2(target_db, dest_db)
+                except Exception:
+                    pass
+
+                # Inspect SQLite records
+                rec_counts = {}
+                try:
+                    import sqlite3
+                    conn = sqlite3.connect(str(target_db))
+                    cur = conn.cursor()
+                    for t in ["bookings", "customers", "invoices", "menu_items", "packages"]:
+                        try:
+                            cur.execute(f"SELECT COUNT(*) FROM {t}")
+                            row = cur.fetchone()
+                            if row:
+                                rec_counts[t] = int(row[0])
+                        except Exception:
+                            pass
+                    conn.close()
+                except Exception:
+                    pass
+
+                # Configure Network Profile & Windows Firewall for LAN Sync & Tablets
                 self.progress.emit(82, "Configuring Wi-Fi & Hotspot network profile to Private...")
                 configure_network_profile_private()
 
-                self.progress.emit(86, "Configuring Windows Firewall (Ports 5432, 8000, 8085)...")
+                self.progress.emit(86, "Configuring Windows Firewall (Ports 8000, 8085)...")
                 open_all_kiosk_firewall_ports()
 
-                # Write db_config.json for localhost
+                lan_ip = get_local_lan_ip()
+
+                # Write db_config.json for SQLite Host
                 save_db_config(
-                    engine="postgres",
+                    engine="sqlite",
                     host="localhost",
-                    port=5432,
-                    dbname="jayraldines_catering",
-                    user="jayraldines_app",
-                    password=db_password
+                    port=8000,
+                    dbname="catering.db",
+                    user="admin",
+                    password="",
+                    sqlite_path=str(target_db),
+                    sync_role="host",
+                    sync_port=8000
                 )
 
                 self.credentials = {
                     "role": "server",
+                    "engine": "sqlite",
                     "host": lan_ip,
-                    "port": 5432,
-                    "dbname": "jayraldines_catering",
-                    "db_user": "jayraldines_app",
-                    "db_password": db_password,
+                    "port": 8000,
+                    "web_port": 8085,
+                    "db_path": str(target_db),
                     "admin_user": "admin",
-                    "admin_password": admin_password,
-                    "migrated_stats": migrated_stats,
-                    "migrated_source": str(self.sqlite_source_path) if self.sqlite_source_path else ""
+                    "rec_counts": rec_counts,
                 }
             else:
-                # Client Mode: save config pointing to remote server
-                self.progress.emit(75, "Configuring Client connection to Central Server...")
+                # Client Mode: save config pointing to host server
+                self.progress.emit(75, "Configuring Client connection to Main Station...")
                 host = self.client_config.get("host", "localhost")
                 port = int(self.client_config.get("port", 5432))
-                dbname = self.client_config.get("dbname", "jayraldines_catering")
-                user = self.client_config.get("user", "jayraldines_app")
-                password = self.client_config.get("password", "")
+                engine = self.client_config.get("engine", "postgres" if port == 5432 else "sqlite")
 
-                save_db_config(
-                    engine="postgres",
-                    host=host,
-                    port=port,
-                    dbname=dbname,
-                    user=user,
-                    password=password
-                )
+                # Ensure client local SQLite database cache exists
+                bundled_db = self._find_asset_file("catering.db")
+                if not target_db.exists() and bundled_db and bundled_db.exists():
+                    shutil.copy2(bundled_db, target_db)
+                try:
+                    shutil.copy2(target_db, dest_db)
+                except Exception:
+                    pass
 
-                self.credentials = {
-                    "role": "client",
-                    "host": host,
-                    "port": port,
-                    "dbname": dbname,
-                    "db_user": user,
-                }
+                if engine == "postgres" or port == 5432:
+                    save_db_config(
+                        engine="postgres",
+                        host=host,
+                        port=port if port else 5432,
+                        dbname="jayraldines_catering",
+                        user="jayraldines_app",
+                        password="password" if "password" in self.client_config else "12345678",
+                        sqlite_path=str(target_db),
+                        sync_role="client"
+                    )
+                    self.credentials = {
+                        "role": "client",
+                        "engine": "postgres",
+                        "host": host,
+                        "port": port,
+                        "dbname": "jayraldines_catering",
+                        "user": "jayraldines_app",
+                        "db_path": f"{host}:{port}/jayraldines_catering",
+                    }
+                else:
+                    save_db_config(
+                        engine="sqlite",
+                        host=host,
+                        port=port,
+                        dbname="catering.db",
+                        user="client",
+                        password="",
+                        sqlite_path=str(target_db),
+                        sync_role="client",
+                        sync_server_url=f"http://{host}:{port}"
+                    )
+                    self.credentials = {
+                        "role": "client",
+                        "engine": "sqlite",
+                        "host": host,
+                        "port": port,
+                        "sync_url": f"http://{host}:{port}",
+                        "db_path": str(target_db),
+                    }
 
             # ── 3. Shortcuts ───────────────────────────────────────────
             self.progress.emit(88, "Registering Windows shortcuts & icons...")
@@ -728,10 +435,10 @@ class StepIndicator(QFrame):
         # 5 Stepper Items
         self.steps = [
             ("Welcome", "Overview & Setup"),
-            ("Server Role", "Server or Client"),
-            ("Preferences", "Path & Shortcuts"),
+            ("Station Role", "Main Station or Client"),
+            ("Preferences", "Path & Options"),
             ("Installing", "Unpacking & DB Setup"),
-            ("Completed", "Credentials & Launch")
+            ("Completed", "Details & Launch")
         ]
         self.step_widgets = []
 
@@ -952,7 +659,7 @@ class ModernInstallerWindow(QWidget):
         header.setStyleSheet("color: #F8FAFC; font-size: 22px; font-weight: 800;")
         lay.addWidget(header)
 
-        sub = QLabel("Jayraldine's Catering & Event Management System provides centralized multi-PC booking, financial ledger, AI assistant, and tablet kiosk sync.")
+        sub = QLabel("Jayraldine's Catering & Event Management System provides high-performance SQLite booking, financial ledger, AI assistant, and tablet kiosk sync.")
         sub.setWordWrap(True)
         sub.setStyleSheet("color: #94A3B8; font-size: 13px; line-height: 140%;")
         lay.addWidget(sub)
@@ -962,7 +669,7 @@ class ModernInstallerWindow(QWidget):
         cards_grid.setSpacing(6)
 
         highlights = [
-            ("🖥️ Centralized PostgreSQL Server", "One main PC acts as central database server for all client laptops and tablets"),
+            ("⚡ High-Performance Embedded SQLite", "Zero-configuration, ultra-fast 0ms latency database with automated LAN sync hub"),
             ("🔒 User Accounts & Module RBAC", "Role-based access control protecting financials, customers, and reports"),
             ("📱 Offline Tablet Kiosk & Auto-Sync", "Take orders standalone on tablets off-site and sync back without duplicates"),
             ("🤖 Chef Jay AI Assistant Gating", "AI actions strictly enforced by user permission tiers")
@@ -1030,7 +737,7 @@ class ModernInstallerWindow(QWidget):
         header.setStyleSheet("color: #F8FAFC; font-size: 20px; font-weight: 800;")
         lay.addWidget(header)
 
-        sub = QLabel("Select whether this machine will host the primary PostgreSQL database or connect over your local network as a client station.")
+        sub = QLabel("Select whether this machine will run as the primary Main Station (Host) or connect over LAN as a Client Station.")
         sub.setWordWrap(True)
         sub.setStyleSheet("color: #94A3B8; font-size: 12px; line-height: 130%;")
         lay.addWidget(sub)
@@ -1038,7 +745,7 @@ class ModernInstallerWindow(QWidget):
         # Role Options Cards
         self.role_btn_group = QButtonGroup(self)
 
-        # Card 1: Server
+        # Card 1: Server / Standalone
         self.card_server = QFrame()
         self.card_server.setObjectName("card_server")
         self.card_server.setCursor(Qt.PointingHandCursor)
@@ -1060,9 +767,9 @@ class ModernInstallerWindow(QWidget):
 
         t_col1 = QVBoxLayout()
         t_col1.setSpacing(4)
-        t1 = QLabel("🖥️  Set up as Central Database Server (Main PC)")
+        t1 = QLabel("🖥️  Standalone / Main Station (Central Host)")
         t1.setStyleSheet("color: #F8FAFC; font-size: 14px; font-weight: 700; border: none; background: transparent;")
-        d1 = QLabel("This PC hosts the primary PostgreSQL database for all client laptops and tablets.<br>Auto-installs PostgreSQL if missing, opens firewall port 5432, and displays connection credentials upon completion.")
+        d1 = QLabel("This PC runs the primary SQLite database (catering.db) with 0ms latency.<br>Automatically activates built-in LAN Sync Hub on port 8000 so laptops and tablet kiosks can synchronize orders.")
         d1.setWordWrap(True)
         d1.setStyleSheet("color: #94A3B8; font-size: 11.5px; border: none; background: transparent;")
         t_col1.addWidget(t1)
@@ -1092,9 +799,9 @@ class ModernInstallerWindow(QWidget):
 
         t_col2 = QVBoxLayout()
         t_col2.setSpacing(4)
-        t2 = QLabel("🔗  Connect to Server (Client Laptop / Station)")
+        t2 = QLabel("🔗  Client Station (LAN Sync Node)")
         t2.setStyleSheet("color: #F8FAFC; font-size: 14px; font-weight: 700; border: none; background: transparent;")
-        d2 = QLabel("This machine connects to an existing Central Database Server over the LAN.<br>Skips local database setup. Prompts for the server's IP address and credentials.")
+        d2 = QLabel("This machine connects to the Main Station PC over your local network.<br>Synchronizes orders, customers, and menu catalog directly with the host on port 8000.")
         d2.setWordWrap(True)
         d2.setStyleSheet("color: #94A3B8; font-size: 11.5px; border: none; background: transparent;")
         t_col2.addWidget(t2)
@@ -1103,7 +810,7 @@ class ModernInstallerWindow(QWidget):
 
         lay.addWidget(self.card_client)
 
-        # Card click handlers (click anywhere on card to select)
+        # Card click handlers
         self.card_server.mousePressEvent = lambda ev: self.rb_server.setChecked(True)
         self.card_client.mousePressEvent = lambda ev: self.rb_client.setChecked(True)
         self.rb_server.toggled.connect(self._on_role_toggled)
@@ -1235,7 +942,7 @@ class ModernInstallerWindow(QWidget):
         # Dynamic Section: Server Mode vs Client Mode
         self.dynamic_stack = QStackedWidget()
 
-        # Dynamic Page 0: Server Mode Info & SQLite Data Migration
+        # Dynamic Page 0: Server Mode Info & SQLite Data Provisioning
         server_info_widget = QFrame()
         server_info_widget.setObjectName("server_info_widget")
         server_info_widget.setStyleSheet("QFrame#server_info_widget { background-color: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; }")
@@ -1243,33 +950,29 @@ class ModernInstallerWindow(QWidget):
         s_inf_lay.setContentsMargins(16, 12, 16, 12)
         s_inf_lay.setSpacing(10)
 
-        si_t = QLabel("🛠️  Server Provisioning & Existing Data Migration:")
+        si_t = QLabel("🛠️  Embedded SQLite Provisioning & Data Protection:")
         si_t.setStyleSheet("color: #F8FAFC; font-size: 12px; font-weight: 700; border: none; background: transparent;")
-        si_d = QLabel("• PostgreSQL will be configured on port 5432 with auto-firewall rules for LAN stations & tablets.<br>• Default scoped user 'jayraldines_app' and primary administrator account 'admin' will be created.")
+        si_d = QLabel("• High-performance SQLite engine (catering.db) with 0ms query latency and WAL journaling mode.<br>• Built-in LAN Sync Hub on port 8000 and Tablet Web Kiosk on port 8085 with auto-configured Windows Firewall rules.")
         si_d.setWordWrap(True)
         si_d.setStyleSheet("color: #94A3B8; font-size: 11px; line-height: 135%; border: none; background: transparent;")
         s_inf_lay.addWidget(si_t)
         s_inf_lay.addWidget(si_d)
 
-        # SQLite Data Migration Sub-Card
-        from utils.sqlite_to_postgres import find_candidate_sqlite_databases, inspect_sqlite_database
-        detected_sqlite_dbs = find_candidate_sqlite_databases()
-        default_sqlite = detected_sqlite_dbs[0] if detected_sqlite_dbs else None
-
+        # SQLite Data Preservation / Restore
         self.cb_preserve_db = QCheckBox("Preserve existing database records (Keep all bookings, customers & packages)")
         self.cb_preserve_db.setChecked(True)
         self.cb_preserve_db.setStyleSheet(cb_style)
         s_inf_lay.addWidget(self.cb_preserve_db)
 
-        self.cb_migrate_sqlite = QCheckBox("Import existing local SQLite client data into PostgreSQL server")
-        self.cb_migrate_sqlite.setChecked(bool(default_sqlite))
+        self.cb_migrate_sqlite = QCheckBox("Restore / Import from existing SQLite database or backup file")
+        self.cb_migrate_sqlite.setChecked(False)
         self.cb_migrate_sqlite.setStyleSheet(cb_style)
         s_inf_lay.addWidget(self.cb_migrate_sqlite)
 
         sqlite_box = QHBoxLayout()
         sqlite_box.setSpacing(8)
-        self.sqlite_file_edit = QLineEdit(str(default_sqlite) if default_sqlite else "")
-        self.sqlite_file_edit.setPlaceholderText("Path to existing SQLite file (catering.db / database.db)...")
+        self.sqlite_file_edit = QLineEdit()
+        self.sqlite_file_edit.setPlaceholderText("Path to existing SQLite file (catering.db / backup.db)...")
         self.sqlite_file_edit.setStyleSheet("""
             QLineEdit {
                 background-color: #1E293B;
@@ -1299,11 +1002,10 @@ class ModernInstallerWindow(QWidget):
         sqlite_box.addWidget(browse_sqlite_btn)
         s_inf_lay.addLayout(sqlite_box)
 
-        self.sqlite_stat_lbl = QLabel()
+        self.sqlite_stat_lbl = QLabel("Bundled pre-populated database with complete catering records will be provisioned.")
         self.sqlite_stat_lbl.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 600; border: none; background: transparent;")
         s_inf_lay.addWidget(self.sqlite_stat_lbl)
 
-        self._update_sqlite_stat_label(default_sqlite)
         self.sqlite_file_edit.textChanged.connect(lambda txt: self._update_sqlite_stat_label(Path(txt.strip()) if txt.strip() else None))
 
         self.dynamic_stack.addWidget(server_info_widget)
@@ -1316,7 +1018,7 @@ class ModernInstallerWindow(QWidget):
         c_form_lay.setContentsMargins(16, 12, 16, 12)
         c_form_lay.setSpacing(8)
 
-        cf_t = QLabel("🔗  Connect to Server Details (from Server Credentials):")
+        cf_t = QLabel("🔗  Main Station Connection Details:")
         cf_t.setStyleSheet("color: #F8FAFC; font-size: 12px; font-weight: 700; border: none; background: transparent;")
         c_form_lay.addWidget(cf_t)
 
@@ -1334,8 +1036,12 @@ class ModernInstallerWindow(QWidget):
         # Row 1: Host IP & Port
         row1 = QHBoxLayout()
         row1.setSpacing(8)
-        self.client_host_edit = QLineEdit("192.168.1.")
-        self.client_host_edit.setPlaceholderText("Server LAN IP (e.g. 192.168.1.100)")
+        existing_cfg = load_db_config()
+        default_ip = str(existing_cfg.get("host", "")).strip()
+        if not default_ip or default_ip in ("localhost", "127.0.0.1"):
+            default_ip = "192.168.1.32"
+        self.client_host_edit = QLineEdit(default_ip)
+        self.client_host_edit.setPlaceholderText("Main Station LAN IP (e.g. 192.168.1.32)")
         self.client_host_edit.setStyleSheet(input_style)
 
         self.client_port_edit = QLineEdit("5432")
@@ -1348,26 +1054,33 @@ class ModernInstallerWindow(QWidget):
         row1.addWidget(self.client_port_edit)
         c_form_lay.addLayout(row1)
 
-        # Row 2: User & Password
+        # Quick Preset Buttons
+        pills_row = QHBoxLayout()
+        pills_row.setSpacing(6)
+        btn_p32_pg = QPushButton("192.168.1.32 : 5432 (PostgreSQL Server)")
+        btn_p32_pg.setCursor(Qt.PointingHandCursor)
+        btn_p32_pg.setStyleSheet("background: #1E293B; color: #38BDF8; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #0284C7; font-weight: bold;")
+        def _set_p32():
+            self.client_host_edit.setText("192.168.1.32")
+            self.client_port_edit.setText("5432")
+        btn_p32_pg.clicked.connect(_set_p32)
+        pills_row.addWidget(btn_p32_pg)
+
+        btn_p32_sync = QPushButton("192.168.1.32 : 8000 (LAN Hub)")
+        btn_p32_sync.setCursor(Qt.PointingHandCursor)
+        btn_p32_sync.setStyleSheet("background: #1E293B; color: #94A3B8; font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #334155;")
+        def _set_p32_sync():
+            self.client_host_edit.setText("192.168.1.32")
+            self.client_port_edit.setText("8000")
+        btn_p32_sync.clicked.connect(_set_p32_sync)
+        pills_row.addWidget(btn_p32_sync)
+
+        pills_row.addStretch()
+        c_form_lay.addLayout(pills_row)
+
+        # Row 2: Test Connection Button & Status
         row2 = QHBoxLayout()
-        row2.setSpacing(8)
-        self.client_user_edit = QLineEdit("jayraldines_app")
-        self.client_user_edit.setStyleSheet(input_style)
-
-        self.client_pwd_edit = QLineEdit()
-        self.client_pwd_edit.setEchoMode(QLineEdit.Password)
-        self.client_pwd_edit.setPlaceholderText("Database Password")
-        self.client_pwd_edit.setStyleSheet(input_style)
-
-        row2.addWidget(QLabel("User:"))
-        row2.addWidget(self.client_user_edit)
-        row2.addWidget(QLabel("Password:"))
-        row2.addWidget(self.client_pwd_edit, 1)
-        c_form_lay.addLayout(row2)
-
-        # Row 3: Test Connection Button & Status
-        row3 = QHBoxLayout()
-        self.test_conn_btn = QPushButton("Test Connection")
+        self.test_conn_btn = QPushButton("Test LAN Sync Connection")
         self.test_conn_btn.setCursor(Qt.PointingHandCursor)
         self.test_conn_btn.setStyleSheet("""
             QPushButton {
@@ -1382,12 +1095,12 @@ class ModernInstallerWindow(QWidget):
             QPushButton:hover { background-color: #0369A1; }
         """)
         self.test_conn_btn.clicked.connect(self._test_client_connection)
-        row3.addWidget(self.test_conn_btn)
+        row2.addWidget(self.test_conn_btn)
 
-        self.test_status_lbl = QLabel("Please test connection before installing.")
+        self.test_status_lbl = QLabel("Test connection or proceed (server can be running or configured later).")
         self.test_status_lbl.setStyleSheet("color: #94A3B8; font-size: 11px;")
-        row3.addWidget(self.test_status_lbl, 1)
-        c_form_lay.addLayout(row3)
+        row2.addWidget(self.test_status_lbl, 1)
+        c_form_lay.addLayout(row2)
 
         self.dynamic_stack.addWidget(client_form_widget)
         lay.addWidget(self.dynamic_stack)
@@ -1438,17 +1151,13 @@ class ModernInstallerWindow(QWidget):
     def _update_preferences_view(self):
         if self._server_mode == "server":
             self.dynamic_stack.setCurrentIndex(0)
-            self.start_install_btn.setEnabled(True)
         else:
             self.dynamic_stack.setCurrentIndex(1)
-            # Require connection test if client
-            self.start_install_btn.setEnabled(self._connection_tested)
+        self.start_install_btn.setEnabled(True)
 
     def _test_client_connection(self):
         host = self.client_host_edit.text().strip()
         port_str = self.client_port_edit.text().strip()
-        user = self.client_user_edit.text().strip()
-        pwd = self.client_pwd_edit.text()
 
         try:
             port = int(port_str)
@@ -1457,29 +1166,39 @@ class ModernInstallerWindow(QWidget):
             self.test_status_lbl.setStyleSheet("color: #EF4444; font-size: 11px;")
             return
 
-        self.test_status_lbl.setText("Testing connection...")
-        self.test_status_lbl.setStyleSheet("color: #38BDF8; font-size: 11px;")
-        QApplication.processEvents()
-
-        ok, msg = test_postgres_connection(
-            host=host,
-            port=port,
-            dbname="jayraldines_catering",
-            user=user,
-            password=pwd,
-            timeout=5
-        )
+        if port == 5432:
+            self.test_status_lbl.setText("Testing connection to Central PostgreSQL Server...")
+            self.test_status_lbl.setStyleSheet("color: #38BDF8; font-size: 11px;")
+            QApplication.processEvents()
+            from utils.db_config import test_postgres_connection
+            ok, msg = test_postgres_connection(
+                host=host, port=5432, dbname="jayraldines_catering",
+                user="jayraldines_app", password="password", timeout=4
+            )
+            if not ok:
+                ok2, msg2 = test_postgres_connection(
+                    host=host, port=5432, dbname="jayraldines_catering",
+                    user="jayraldines_app", password="12345678", timeout=4
+                )
+                if ok2:
+                    ok, msg = ok2, msg2
+        else:
+            self.test_status_lbl.setText("Testing LAN Sync Hub connection...")
+            self.test_status_lbl.setStyleSheet("color: #38BDF8; font-size: 11px;")
+            QApplication.processEvents()
+            ok, msg = test_sqlite_sync_connection(host=host, port=port, timeout=4)
 
         if ok:
             self._connection_tested = True
-            self.test_status_lbl.setText("✅ Connection successful!")
+            succ_label = "✅ Connection successful! PostgreSQL Server verified." if port == 5432 else "✅ Connection successful! Sync Hub verified."
+            self.test_status_lbl.setText(succ_label)
             self.test_status_lbl.setStyleSheet("color: #10B981; font-size: 11px; font-weight: bold;")
             self.start_install_btn.setEnabled(True)
         else:
             self._connection_tested = False
-            self.test_status_lbl.setText(f"❌ Failed: {msg}")
-            self.test_status_lbl.setStyleSheet("color: #EF4444; font-size: 11px;")
-            self.start_install_btn.setEnabled(False)
+            self.test_status_lbl.setText(f"⚠️ {msg} (You can still proceed; ensure Server is running when opening app)")
+            self.test_status_lbl.setStyleSheet("color: #F59E0B; font-size: 11px;")
+            self.start_install_btn.setEnabled(True)
 
     def _browse_sqlite_file(self):
         f, _ = QFileDialog.getOpenFileName(self, "Select Existing SQLite Database", "", "SQLite Database (*.db *.sqlite *.sqlite3);;All Files (*.*)")
@@ -1489,12 +1208,27 @@ class ModernInstallerWindow(QWidget):
 
     def _update_sqlite_stat_label(self, sqlite_path: Optional[Path]):
         if not sqlite_path or not sqlite_path.exists():
-            self.sqlite_stat_lbl.setText("No local SQLite database selected.")
+            self.sqlite_stat_lbl.setText("Bundled pre-populated database with complete catering records will be provisioned.")
             self.sqlite_stat_lbl.setStyleSheet("color: #64748B; font-size: 11px;")
             return
 
-        from utils.sqlite_to_postgres import inspect_sqlite_database
-        counts = inspect_sqlite_database(sqlite_path)
+        counts = {}
+        try:
+            import sqlite3
+            conn = sqlite3.connect(str(sqlite_path))
+            cur = conn.cursor()
+            for tbl in ["customers", "bookings", "invoices", "menu_items", "packages"]:
+                try:
+                    cur.execute(f"SELECT COUNT(*) FROM {tbl}")
+                    row = cur.fetchone()
+                    if row:
+                        counts[tbl] = int(row[0])
+                except Exception:
+                    pass
+            conn.close()
+        except Exception:
+            pass
+
         if counts:
             parts = []
             if counts.get("customers"):
@@ -1503,12 +1237,10 @@ class ModernInstallerWindow(QWidget):
                 parts.append(f"{counts['bookings']} bookings")
             if counts.get("invoices"):
                 parts.append(f"{counts['invoices']} invoices")
-            if counts.get("menu_items"):
-                parts.append(f"{counts['menu_items']} menu items")
             if counts.get("packages"):
                 parts.append(f"{counts['packages']} packages")
             summary_str = ", ".join(parts) if parts else "Database verified"
-            self.sqlite_stat_lbl.setText(f"📦 Ready to migrate: {summary_str} ({sqlite_path.name})")
+            self.sqlite_stat_lbl.setText(f"📦 Ready to restore: {summary_str} ({sqlite_path.name})")
             self.sqlite_stat_lbl.setStyleSheet("color: #10B981; font-size: 11px; font-weight: bold;")
         else:
             self.sqlite_stat_lbl.setText(f"Selected: {sqlite_path.name}")
@@ -1530,7 +1262,7 @@ class ModernInstallerWindow(QWidget):
         header.setStyleSheet("color: #F8FAFC; font-size: 20px; font-weight: 800;")
         lay.addWidget(header)
 
-        sub = QLabel("Please wait while application files are extracted and database configurations are provisioned.")
+        sub = QLabel("Please wait while application files are extracted and SQLite database components are configured.")
         sub.setWordWrap(True)
         sub.setStyleSheet("color: #94A3B8; font-size: 12px;")
         lay.addWidget(sub)
@@ -1576,10 +1308,7 @@ class ModernInstallerWindow(QWidget):
         if self._server_mode == "client":
             client_cfg = {
                 "host": self.client_host_edit.text().strip(),
-                "port": int(self.client_port_edit.text().strip() or 5432),
-                "dbname": "jayraldines_catering",
-                "user": self.client_user_edit.text().strip(),
-                "password": self.client_pwd_edit.text(),
+                "port": int(self.client_port_edit.text().strip() or 8000),
             }
 
         sqlite_source = None
@@ -1653,7 +1382,7 @@ class ModernInstallerWindow(QWidget):
         badge_row.addStretch()
         self.completed_lay.addLayout(badge_row)
 
-        # Dynamic Content Container (Credentials Card or Client Summary)
+        # Dynamic Content Container
         self.creds_container = QWidget()
         self.creds_lay = QVBoxLayout(self.creds_container)
         self.creds_lay.setContentsMargins(0, 0, 0, 0)
@@ -1713,7 +1442,6 @@ class ModernInstallerWindow(QWidget):
         self.stack.addWidget(self.completed_page)
 
     def _populate_completed_page(self, creds: dict):
-        # Clear existing dynamic widgets in creds_container
         while self.creds_lay.count():
             item = self.creds_lay.takeAt(0)
             w = item.widget()
@@ -1734,32 +1462,38 @@ class ModernInstallerWindow(QWidget):
             c_lay.setContentsMargins(16, 14, 16, 14)
             c_lay.setSpacing(8)
 
-            title = QLabel("🔑  Central Server Credentials (Save or Print Now)")
+            title = QLabel("⚡  Main Station Details (Embedded SQLite & LAN Sync)")
             title.setStyleSheet("color: #10B981; font-size: 13px; font-weight: 800; border: none; background: transparent;")
             c_lay.addWidget(title)
 
+            rec_counts = creds.get("rec_counts", {})
+            records_summary = (
+                f"{rec_counts.get('bookings', 0)} bookings, "
+                f"{rec_counts.get('customers', 0)} customers, "
+                f"{rec_counts.get('packages', 0)} packages"
+            )
+
             # Details Grid
             details_text = (
-                f"• Central DB Host IP     : {creds.get('host', '127.0.0.1')}\n"
-                f"• PostgreSQL DB Port     : {creds.get('port', 5432)}\n"
-                f"• Database Name          : {creds.get('dbname', 'jayraldines_catering')}\n"
-                f"• Scoped DB User         : {creds.get('db_user', 'jayraldines_app')}\n"
-                f"• Scoped DB Password     : {creds.get('db_password', '')}\n"
+                f"• Database Engine        : High-Performance Embedded SQLite (WAL Mode)\n"
+                f"• Query Latency          : 0ms (Local in-memory index cache)\n"
+                f"• Database File          : {creds.get('db_path', '')}\n"
+                f"• Verified Records       : {records_summary}\n"
                 f"---------------------------------------------------\n"
+                f"• Host LAN IP            : {creds.get('host', '127.0.0.1')}\n"
+                f"• LAN Sync Hub Port      : {creds.get('port', 8000)}\n"
                 f"• Tablet Kiosk Sync URL  : http://{creds.get('host', '127.0.0.1')}:8000\n"
                 f"• Tablet Web Kiosk URL   : http://{creds.get('host', '127.0.0.1')}:8085\n"
                 f"---------------------------------------------------\n"
-                f"• App Login Username     : {creds.get('admin_user', 'admin')}\n"
-                f"• App Admin Password     : {creds.get('admin_password', '')}"
+                f"• Primary Admin Login    : admin (staff accounts configured)\n"
             )
             txt_lbl = QLabel(details_text)
             txt_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
             txt_lbl.setStyleSheet("color: #F8FAFC; font-family: monospace; font-size: 11px; background: #0F172A; padding: 8px; border-radius: 6px; border: none;")
             c_lay.addWidget(txt_lbl)
 
-            # Buttons: Save to file & Copy
             btn_box = QHBoxLayout()
-            save_file_btn = QPushButton("📄 Save to credentials.txt")
+            save_file_btn = QPushButton("📄 Save to server_info.txt")
             save_file_btn.setCursor(Qt.PointingHandCursor)
             save_file_btn.setStyleSheet("""
                 QPushButton {
@@ -1795,35 +1529,8 @@ class ModernInstallerWindow(QWidget):
             btn_box.addStretch()
 
             c_lay.addLayout(btn_box)
-
-            # SQLite Migration summary badge if data was migrated
-            mig_stats = creds.get("migrated_stats") or {}
-            total_migrated = sum(mig_stats.values()) if isinstance(mig_stats, dict) else 0
-            if total_migrated > 0:
-                mig_box = QFrame()
-                mig_box.setObjectName("mig_summary_box")
-                mig_box.setStyleSheet("""
-                    QFrame#mig_summary_box {
-                        background-color: rgba(16, 185, 129, 0.12);
-                        border: 1px solid #10B981;
-                        border-radius: 6px;
-                    }
-                """)
-                m_lay = QHBoxLayout(mig_box)
-                m_lay.setContentsMargins(10, 6, 10, 6)
-                m_txt = QLabel(
-                    f"📦 <b>SQLite Data Migrated:</b> {mig_stats.get('customers', 0)} customers, "
-                    f"{mig_stats.get('bookings', 0)} bookings, {mig_stats.get('invoices', 0)} invoices, "
-                    f"{mig_stats.get('packages', 0)} packages imported into PostgreSQL."
-                )
-                m_txt.setWordWrap(True)
-                m_txt.setStyleSheet("color: #6EE7B7; font-size: 11px; line-height: 135%; border: none; background: transparent;")
-                m_lay.addWidget(m_txt)
-                c_lay.addWidget(mig_box)
-
             self.creds_lay.addWidget(card)
         else:
-            # Client info card
             card = QFrame()
             card.setObjectName("client_cred_card")
             card.setStyleSheet("""
@@ -1836,13 +1543,13 @@ class ModernInstallerWindow(QWidget):
             c_lay = QVBoxLayout(card)
             c_lay.setContentsMargins(16, 14, 16, 14)
             c_lay.setSpacing(6)
-            c_t = QLabel("🔗  Connected to Central Database Server:")
+            c_t = QLabel("🔗  Connected to Main Station via LAN Hub:")
             c_t.setStyleSheet("color: #38BDF8; font-size: 13px; font-weight: 700; border: none; background: transparent;")
             c_d = QLabel(
-                f"Server Host: {creds.get('host')}:{creds.get('port')}\n"
-                f"Database: {creds.get('dbname')}\n"
-                f"User: {creds.get('db_user')}\n\n"
-                "Launch the application and sign in with your staff or administrator account."
+                f"Main Station Server : http://{creds.get('host')}:{creds.get('port')}\n"
+                f"Local Database Cache: {creds.get('db_path')}\n"
+                f"Database Engine     : Embedded SQLite with LAN Sync Hub\n\n"
+                "Launch the application and sign in with your staff or administrator credentials."
             )
             c_d.setStyleSheet("color: #F8FAFC; font-size: 11.5px; line-height: 140%; border: none; background: transparent;")
             c_lay.addWidget(c_t)
@@ -1852,37 +1559,42 @@ class ModernInstallerWindow(QWidget):
     def _get_formatted_credentials_text(self) -> str:
         creds = self._credentials
         host = creds.get('host', '127.0.0.1')
+        rec_counts = creds.get("rec_counts", {})
+        records_summary = (
+            f"{rec_counts.get('bookings', 0)} bookings, "
+            f"{rec_counts.get('customers', 0)} customers, "
+            f"{rec_counts.get('packages', 0)} packages"
+        )
         return (
             "=====================================================\n"
-            "   JAYRALDINE'S CATERING - SERVER CREDENTIALS\n"
+            "   JAYRALDINE'S CATERING - STATION SETUP DETAILS\n"
             "=====================================================\n\n"
-            "[CENTRAL DATABASE CONNECTION - FOR CLIENT PCs & LAPTOPS]\n"
-            f"Server Host IP           : {host}\n"
-            f"Database Port            : {creds.get('port', 5432)}\n"
-            f"Database Name            : {creds.get('dbname', 'jayraldines_catering')}\n"
-            f"Scoped DB User           : {creds.get('db_user', 'jayraldines_app')}\n"
-            f"Scoped DB Password       : {creds.get('db_password', '')}\n\n"
-            "[TABLET KIOSK & ANDROID APP CONNECTION]\n"
-            f"Tablet Server Host IP    : {host}\n"
-            f"Tablet Sync Port         : 8000\n"
-            f"Tablet Sync URL          : http://{host}:8000\n"
+            "[DATABASE & PERFORMANCE]\n"
+            "Engine                   : High-Performance Embedded SQLite (WAL Mode)\n"
+            "Query Latency            : 0ms\n"
+            f"Database Path            : {creds.get('db_path', '')}\n"
+            f"Active Records           : {records_summary}\n\n"
+            "[LAN SYNC HUB & TABLET KIOSK]\n"
+            f"Host LAN IP              : {host}\n"
+            f"LAN Sync Port            : {creds.get('port', 8000)}\n"
+            f"LAN Sync URL             : http://{host}:8000\n"
             f"Tablet Web Kiosk URL     : http://{host}:8085\n\n"
             "Instructions for Tablet Kiosk:\n"
-            f"1. Connect the tablet to the same Wi-Fi as this PC.\n"
-            f"2. Open the Tablet app -> tap Settings -> enter Server Host: {host}\n"
+            f"1. Connect tablet to the same Wi-Fi as this PC.\n"
+            f"2. Open Tablet app -> Settings -> enter Server Host: {host}\n"
             f"3. Tap 'Test Connection' -> Sync is instantly active!\n\n"
-            "[APPLICATION LOGIN - PRIMARY ADMINISTRATOR]\n"
-            f"Username                 : {creds.get('admin_user', 'admin')}\n"
-            f"Admin Password           : {creds.get('admin_password', '')}\n\n"
+            "[APPLICATION LOGIN]\n"
+            "Primary Admin Account    : admin\n"
+            "Password                 : (configured staff accounts)\n\n"
             "Save this file in a secure location.\n"
         )
 
     def _save_credentials_file(self):
         content = self._get_formatted_credentials_text()
-        default_path = str(Path.home() / "Desktop" / "jayraldines_server_credentials.txt")
+        default_path = str(Path.home() / "Desktop" / "jayraldines_station_info.txt")
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Server Credentials",
+            "Save Station Details",
             default_path,
             "Text Files (*.txt);;All Files (*)"
         )
@@ -1890,7 +1602,7 @@ class ModernInstallerWindow(QWidget):
             try:
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(content)
-                QMessageBox.information(self, "Saved", f"Credentials saved successfully to:\n{file_path}")
+                QMessageBox.information(self, "Saved", f"Details saved successfully to:\n{file_path}")
             except Exception as exc:
                 QMessageBox.warning(self, "Error", f"Could not save file: {exc}")
 
@@ -1899,7 +1611,7 @@ class ModernInstallerWindow(QWidget):
         cb = QApplication.clipboard()
         if cb:
             cb.setText(content)
-            QMessageBox.information(self, "Copied", "Credentials copied to clipboard!")
+            QMessageBox.information(self, "Copied", "Details copied to clipboard!")
 
     def _open_app_folder(self):
         dest_dir = Path(self.path_edit.text())

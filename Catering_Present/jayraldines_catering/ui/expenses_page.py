@@ -8,9 +8,9 @@ from datetime import datetime
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
-    QScrollArea, QSizePolicy, QMessageBox, QComboBox, QDateEdit,
+    QScrollArea, QSizePolicy, QMessageBox, QComboBox, QDateEdit, QLineEdit,
 )
-from PySide6.QtCore import Qt, QMargins, QSize
+from PySide6.QtCore import Qt, QMargins, QSize, QTimer
 from PySide6.QtGui import QColor, QPainter
 
 from utils.theme import ThemeManager
@@ -112,6 +112,133 @@ class ExpensesPage(QWidget):
         head.addWidget(self.btn_import)
         self.lay.addLayout(head)
 
+        _is_l = not ThemeManager().is_dark()
+        input_style = (
+            "QLineEdit { padding: 8px 14px; border: 1px solid #D8DFEA; border-radius: 8px; background-color: #FFFFFF; color: #101828; font-size: 13px; }"
+            "QLineEdit:focus { border: 1.5px solid #E11D48; }"
+        ) if _is_l else (
+            "QLineEdit { padding: 8px 14px; border: 1px solid #243244; border-radius: 8px; background-color: #1F2937; color: #F9FAFB; font-size: 13px; }"
+            "QLineEdit:focus { border: 1.5px solid #E11D48; }"
+        )
+        combo_style = (
+            "QComboBox { padding: 6px 12px; border: 1px solid #D8DFEA; border-radius: 8px; background-color: #FFFFFF; color: #101828; font-size: 13px; }"
+            "QComboBox:focus { border: 1px solid #E11D48; }"
+            "QComboBox QAbstractItemView { background-color: #FFFFFF; color: #101828; border: 1px solid #E4E9F1; border-radius: 8px; selection-background-color: rgba(225,29,72,0.08); selection-color: #D31647; }"
+        ) if _is_l else (
+            "QComboBox { padding: 6px 12px; border: 1px solid #243244; border-radius: 8px; background-color: #1F2937; color: #F9FAFB; font-size: 13px; }"
+            "QComboBox:focus { border: 1px solid #E11D48; }"
+            "QComboBox QAbstractItemView { background-color: #1F2937; color: #F9FAFB; border: 1px solid #243244; border-radius: 8px; selection-background-color: rgba(225,29,72,0.15); selection-color: #E11D48; }"
+        )
+        date_style = (
+            "QDateEdit { padding: 4px 10px; border: 1px solid #D8DFEA; border-radius: 8px; background-color: #FFFFFF; color: #101828; font-size: 13px; }"
+        ) if _is_l else (
+            "QDateEdit { padding: 4px 10px; border: 1px solid #243244; border-radius: 8px; background-color: #1F2937; color: #F9FAFB; font-size: 13px; }"
+        )
+
+        # ── Top Filter & Real-Time Search Bar ─────────────────────────────────
+        top_filter_card = QFrame(content)
+        top_filter_card.setObjectName("card")
+        tf_lay = QVBoxLayout(top_filter_card)
+        tf_lay.setContentsMargins(20, 16, 20, 16)
+        tf_lay.setSpacing(12)
+
+        # Row 1: Search Bar & Count
+        search_row = QHBoxLayout()
+        search_row.setSpacing(12)
+
+        self._search_input = QLineEdit()
+        self._search_input.setPlaceholderText("🔍 Search expenses (food packs, description, expense items, category, amount)...")
+        self._search_input.setFixedHeight(38)
+        self._search_input.setStyleSheet(input_style)
+        self._search_input.textChanged.connect(self._on_search_changed)
+        search_row.addWidget(self._search_input, 1)
+
+        self._count_lbl = QLabel("")
+        self._count_lbl.setObjectName("muted")
+        self._count_lbl.setStyleSheet("font-weight: 600; font-size: 12.5px; color: #64748B;")
+        search_row.addWidget(self._count_lbl)
+        tf_lay.addLayout(search_row)
+
+        # Row 2: Filter Period, Month Filter, Custom Date Pickers, Reset
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(12)
+
+        lbl_filter = QLabel("Period:")
+        lbl_filter.setStyleSheet("font-weight: 600; font-size: 13px;")
+        filter_row.addWidget(lbl_filter)
+
+        self._filter_combo = QComboBox()
+        self._filter_combo.addItems([
+            "All Time",
+            "Today (This Day)",
+            "This Week",
+            "This Month",
+            "This Year",
+            "Custom Date / Range"
+        ])
+        self._filter_combo.setFixedHeight(34)
+        self._filter_combo.setMinimumWidth(160)
+        self._filter_combo.setStyleSheet(combo_style)
+        self._filter_combo.currentIndexChanged.connect(self._on_filter_changed)
+        filter_row.addWidget(self._filter_combo)
+
+        lbl_month = QLabel("Month:")
+        lbl_month.setStyleSheet("font-weight: 600; font-size: 13px;")
+        filter_row.addWidget(lbl_month)
+
+        self._month_combo = QComboBox()
+        self._month_combo.addItems([
+            "All Months",
+            "January", "February", "March", "April",
+            "May", "June", "July", "August",
+            "September", "October", "November", "December"
+        ])
+        self._month_combo.setFixedHeight(34)
+        self._month_combo.setMinimumWidth(140)
+        self._month_combo.setStyleSheet(combo_style)
+        self._month_combo.currentIndexChanged.connect(self._on_month_changed)
+        filter_row.addWidget(self._month_combo)
+
+        # Custom date pickers widget
+        self._custom_date_widget = QWidget()
+        custom_lay = QHBoxLayout(self._custom_date_widget)
+        custom_lay.setContentsMargins(0, 0, 0, 0)
+        custom_lay.setSpacing(8)
+
+        lbl_from = QLabel("From:")
+        from PySide6.QtCore import QDate
+        self._dt_start = QDateEdit(QDate.currentDate().addMonths(-1))
+        self._dt_start.setCalendarPopup(True)
+        self._dt_start.setFixedHeight(34)
+        self._dt_start.setStyleSheet(date_style)
+        self._dt_start.dateChanged.connect(lambda: self._on_date_range_changed())
+
+        lbl_to = QLabel("To:")
+        self._dt_end = QDateEdit(QDate.currentDate())
+        self._dt_end.setCalendarPopup(True)
+        self._dt_end.setFixedHeight(34)
+        self._dt_end.setStyleSheet(date_style)
+        self._dt_end.dateChanged.connect(lambda: self._on_date_range_changed())
+
+        custom_lay.addWidget(lbl_from)
+        custom_lay.addWidget(self._dt_start)
+        custom_lay.addWidget(lbl_to)
+        custom_lay.addWidget(self._dt_end)
+        self._custom_date_widget.setVisible(False)
+        filter_row.addWidget(self._custom_date_widget)
+
+        filter_row.addStretch()
+
+        reset_btn = QPushButton("↺ Reset")
+        reset_btn.setCursor(Qt.PointingHandCursor)
+        reset_btn.setFixedHeight(32)
+        reset_btn.setStyleSheet("padding: 4px 12px; border-radius: 6px; font-weight: 600; font-size: 12px;")
+        reset_btn.clicked.connect(self._reset_filters)
+        filter_row.addWidget(reset_btn)
+
+        tf_lay.addLayout(filter_row)
+        self.lay.addWidget(top_filter_card)
+
         # ── KPI row ─────────────────────────────────────────────────────────
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(16)
@@ -140,64 +267,15 @@ class ExpensesPage(QWidget):
         table_card = QFrame(content)
         table_card.setObjectName("card")
         t_lay = QVBoxLayout(table_card)
-        t_lay.setContentsMargins(24, 24, 24, 24)
+        t_lay.setContentsMargins(24, 20, 24, 24)
         t_lay.setSpacing(12)
 
-        # ── Time Filter Controls Bar ─────────────────────────────────────────
-        filter_bar = QHBoxLayout()
-        filter_bar.setSpacing(12)
-
-        lbl_filter = QLabel("Filter Period:")
-        lbl_filter.setStyleSheet("font-weight: 600; font-size: 13px;")
-        filter_bar.addWidget(lbl_filter)
-
-        self._filter_combo = QComboBox()
-        self._filter_combo.addItems([
-            "All Time",
-            "Today (This Day)",
-            "This Week",
-            "This Month",
-            "This Year",
-            "Custom Date / Range"
-        ])
-        self._filter_combo.setFixedHeight(34)
-        self._filter_combo.setMinimumWidth(180)
-        self._filter_combo.currentIndexChanged.connect(self._on_filter_changed)
-        filter_bar.addWidget(self._filter_combo)
-
-        # Custom date pickers widget
-        self._custom_date_widget = QWidget()
-        custom_lay = QHBoxLayout(self._custom_date_widget)
-        custom_lay.setContentsMargins(0, 0, 0, 0)
-        custom_lay.setSpacing(8)
-
-        lbl_from = QLabel("From:")
-        from PySide6.QtCore import QDate
-        from PySide6.QtWidgets import QDateEdit
-        self._dt_start = QDateEdit(QDate.currentDate().addMonths(-1))
-        self._dt_start.setCalendarPopup(True)
-        self._dt_start.setFixedHeight(34)
-        self._dt_start.dateChanged.connect(lambda: self.reload())
-
-        lbl_to = QLabel("To:")
-        self._dt_end = QDateEdit(QDate.currentDate())
-        self._dt_end.setCalendarPopup(True)
-        self._dt_end.setFixedHeight(34)
-        self._dt_end.dateChanged.connect(lambda: self.reload())
-
-        custom_lay.addWidget(lbl_from)
-        custom_lay.addWidget(self._dt_start)
-        custom_lay.addWidget(lbl_to)
-        custom_lay.addWidget(self._dt_end)
-        self._custom_date_widget.setVisible(False)
-        filter_bar.addWidget(self._custom_date_widget)
-
-        filter_bar.addStretch()
-
-        self._count_lbl = QLabel("")
-        self._count_lbl.setObjectName("muted")
-        filter_bar.addWidget(self._count_lbl)
-        t_lay.addLayout(filter_bar)
+        tc_head = QHBoxLayout()
+        tc_title = QLabel("Expense Records")
+        tc_title.setObjectName("h3")
+        tc_head.addWidget(tc_title)
+        tc_head.addStretch()
+        t_lay.addLayout(tc_head)
 
         self.exp_cards_container = QWidget()
         self.exp_cards_container.setStyleSheet("background: transparent;")
@@ -206,28 +284,8 @@ class ExpensesPage(QWidget):
         self.exp_cards_layout.setSpacing(10)
 
         t_lay.addWidget(self.exp_cards_container)
-
         self.lay.addWidget(table_card)
         self.lay.addStretch(1)
-
-        _is_l = not ThemeManager().is_dark()
-        combo_style = (
-            "QComboBox { padding: 6px 12px; border: 1px solid #D8DFEA; border-radius: 8px; background-color: #FFFFFF; color: #101828; font-size: 13px; }"
-            "QComboBox:focus { border: 1px solid #E11D48; }"
-            "QComboBox QAbstractItemView { background-color: #FFFFFF; color: #101828; border: 1px solid #E4E9F1; border-radius: 8px; selection-background-color: rgba(225,29,72,0.08); selection-color: #D31647; }"
-        ) if _is_l else (
-            "QComboBox { padding: 6px 12px; border: 1px solid #243244; border-radius: 8px; background-color: #1F2937; color: #F9FAFB; font-size: 13px; }"
-            "QComboBox:focus { border: 1px solid #E11D48; }"
-            "QComboBox QAbstractItemView { background-color: #1F2937; color: #F9FAFB; border: 1px solid #243244; border-radius: 8px; selection-background-color: rgba(225,29,72,0.15); selection-color: #E11D48; }"
-        )
-        date_style = (
-            "QDateEdit { padding: 4px 10px; border: 1px solid #D8DFEA; border-radius: 8px; background-color: #FFFFFF; color: #101828; font-size: 13px; }"
-        ) if _is_l else (
-            "QDateEdit { padding: 4px 10px; border: 1px solid #243244; border-radius: 8px; background-color: #1F2937; color: #F9FAFB; font-size: 13px; }"
-        )
-        self._filter_combo.setStyleSheet(combo_style)
-        self._dt_start.setStyleSheet(date_style)
-        self._dt_end.setStyleSheet(date_style)
 
         scroll.setWidget(content)
         root.addWidget(scroll)
@@ -248,28 +306,74 @@ class ExpensesPage(QWidget):
         if self.isVisible():
             self.reload()
 
+    # ── Data loading & Filtering ────────────────────────────────────────────
 
-    # ── Data loading ────────────────────────────────────────────────────────
+    def _on_search_changed(self, text: str):
+        self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
+        self._load_table()
+        self._load_kpis()
+        self._load_breakdown()
 
     def _on_filter_changed(self, idx: int):
         is_custom = (idx == 5)
         self._custom_date_widget.setVisible(is_custom)
-        self.reload()
+        self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
+        self._load_table()
+        self._load_kpis()
+        self._load_breakdown()
+
+    def _on_month_changed(self, idx: int):
+        self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
+        self._load_table()
+        self._load_kpis()
+        self._load_breakdown()
+
+    def _on_date_range_changed(self):
+        self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
+        self._load_table()
+        self._load_kpis()
+        self._load_breakdown()
+
+    def _reset_filters(self):
+        if hasattr(self, "_search_input"):
+            self._search_input.blockSignals(True)
+            self._search_input.clear()
+            self._search_input.blockSignals(False)
+        if hasattr(self, "_filter_combo"):
+            self._filter_combo.blockSignals(True)
+            self._filter_combo.setCurrentIndex(0)
+            self._filter_combo.blockSignals(False)
+        if hasattr(self, "_month_combo"):
+            self._month_combo.blockSignals(True)
+            self._month_combo.setCurrentIndex(0)
+            self._month_combo.blockSignals(False)
+        if hasattr(self, "_custom_date_widget"):
+            self._custom_date_widget.setVisible(False)
+        self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
+        self._load_table()
+        self._load_kpis()
+        self._load_breakdown()
 
     def _filter_expenses_list(self, expenses: list) -> list:
         if not expenses:
             return []
 
-        opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
-        if opt == "All Time":
-            return expenses
+        search_txt = self._search_input.text().strip().lower() if hasattr(self, "_search_input") else ""
+        period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
+        month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
 
         from datetime import datetime, date, timedelta
         today = date.today()
 
+        MONTH_MAP = {
+            "January": 1, "February": 2, "March": 3, "April": 4,
+            "May": 5, "June": 6, "July": 7, "August": 8,
+            "September": 9, "October": 10, "November": 11, "December": 12
+        }
+
         filtered = []
         for exp in expenses:
-            d_str = exp.get("date", "")
+            d_str = str(exp.get("date", ""))
             exp_d = None
             for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y"):
                 try:
@@ -277,28 +381,56 @@ class ExpensesPage(QWidget):
                     break
                 except ValueError:
                     continue
-            if not exp_d:
-                continue
 
-            if "Today" in opt:
-                if exp_d == today:
-                    filtered.append(exp)
-            elif "This Week" in opt:
-                start_w = today - timedelta(days=today.weekday())
-                end_w = start_w + timedelta(days=6)
-                if start_w <= exp_d <= end_w:
-                    filtered.append(exp)
-            elif "This Month" in opt:
-                if exp_d.month == today.month and exp_d.year == today.year:
-                    filtered.append(exp)
-            elif "This Year" in opt:
-                if exp_d.year == today.year:
-                    filtered.append(exp)
-            elif "Custom Date" in opt:
-                d_start = self._dt_start.date().toPython()
-                d_end = self._dt_end.date().toPython()
-                if d_start <= exp_d <= d_end:
-                    filtered.append(exp)
+            # Period Filter Check
+            if period_opt != "All Time" and exp_d:
+                if "Today" in period_opt and exp_d != today:
+                    continue
+                elif "This Week" in period_opt:
+                    start_w = today - timedelta(days=today.weekday())
+                    end_w = start_w + timedelta(days=6)
+                    if not (start_w <= exp_d <= end_w):
+                        continue
+                elif "This Month" in period_opt:
+                    if not (exp_d.month == today.month and exp_d.year == today.year):
+                        continue
+                elif "This Year" in period_opt:
+                    if exp_d.year != today.year:
+                        continue
+                elif "Custom Date" in period_opt and hasattr(self, "_dt_start") and hasattr(self, "_dt_end"):
+                    d_start = self._dt_start.date().toPython()
+                    d_end = self._dt_end.date().toPython()
+                    if not (d_start <= exp_d <= d_end):
+                        continue
+
+            # Dedicated Month Filter Check
+            if month_opt != "All Months" and month_opt in MONTH_MAP:
+                m_num = MONTH_MAP[month_opt]
+                if not exp_d or exp_d.month != m_num:
+                    continue
+
+            # Search Working: food packs, description, category, amount, date
+            if search_txt:
+                desc = str(exp.get("description", "")).lower()
+                cat = str(exp.get("category", "")).lower()
+                amt_str = str(exp.get("amount", "")).lower()
+                fmt_amt = f"₱{float(exp.get('amount', 0)):,.2f}".lower()
+                d_lower = d_str.lower()
+                
+                # Check match across description, category, amount, formatted amount, date
+                matched = (
+                    search_txt in desc
+                    or search_txt in cat
+                    or search_txt in amt_str
+                    or search_txt in fmt_amt
+                    or search_txt in d_lower
+                )
+                if not matched:
+                    continue
+
+            filtered.append(exp)
+
+        return filtered
 
     def refresh_permissions(self):
         can_create = SessionManager.has_permission("expenses", "create")
@@ -381,33 +513,10 @@ class ExpensesPage(QWidget):
                 self.exp_cards_layout.addWidget(empty_card)
                 self.exp_cards_layout.addStretch()
             else:
-                BATCH_SIZE = 35
-                first_batch = expenses[:BATCH_SIZE]
-                for exp in first_batch:
+                for exp in expenses:
                     card = self._create_expense_card(exp)
                     self.exp_cards_layout.addWidget(card)
-
                 self.exp_cards_layout.addStretch()
-
-                remaining = expenses[BATCH_SIZE:]
-                if remaining:
-                    def _append_exp_chunk(offset=0):
-                        if not hasattr(self, "exp_cards_layout") or not self.exp_cards_layout:
-                            return
-                        chunk = remaining[offset:offset + BATCH_SIZE]
-                        for exp in chunk:
-                            card = self._create_expense_card(exp)
-                            cnt = self.exp_cards_layout.count()
-                            if cnt > 1:
-                                self.exp_cards_layout.insertWidget(cnt - 1, card)
-                            else:
-                                self.exp_cards_layout.addWidget(card)
-                        if offset + BATCH_SIZE < len(remaining):
-                            from PySide6.QtCore import QTimer
-                            QTimer.singleShot(2, lambda: _append_exp_chunk(offset + BATCH_SIZE))
-
-                    from PySide6.QtCore import QTimer
-                    QTimer.singleShot(2, lambda: _append_exp_chunk(0))
 
             n = len(expenses)
             self._count_lbl.setText(f"{n} record{'s' if n != 1 else ''}")
@@ -466,33 +575,40 @@ class ExpensesPage(QWidget):
 
     def _load_kpis(self):
         expenses = getattr(self, "_filtered_expenses", getattr(self, "_expenses", []))
-        total_filtered = sum(e["amount"] for e in expenses)
+        total_filtered = sum(e.get("amount", 0.0) for e in expenses)
 
         now = datetime.now()
-        month_total = 0.0
-        for exp in expenses:
+        month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
+        period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
+        filter_desc = month_opt if month_opt != "All Months" else period_opt
+
+        self._kpi_total.set(f"₱ {total_filtered:,.0f}", f"Total for {filter_desc}")
+
+        # This Month total (Current calendar month across all recorded expenses)
+        all_raw = getattr(self, "_expenses", [])
+        cur_month_total = 0.0
+        for exp in all_raw:
             try:
-                d = datetime.strptime(exp["date"], "%b %d, %Y")
+                d = datetime.strptime(str(exp["date"]), "%b %d, %Y")
             except (ValueError, TypeError):
                 continue
             if d.month == now.month and d.year == now.year:
-                month_total += exp["amount"]
+                cur_month_total += exp.get("amount", 0.0)
 
-        opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
-        self._kpi_total.set(f"₱ {total_filtered:,.0f}", opt)
-        self._kpi_month.set(f"₱ {month_total:,.0f}", now.strftime("%B %Y"))
+        self._kpi_month.set(f"₱ {cur_month_total:,.0f}", now.strftime("%B %Y"))
 
-        # Category breakdown count
+        # Top Category for the selected month / active filter
         cat_totals = {}
         for exp in expenses:
             cat = exp.get("category", "General")
             cat_totals[cat] = cat_totals.get(cat, 0.0) + exp.get("amount", 0.0)
 
-        if cat_totals:
-            top_cat = max(cat_totals.items(), key=lambda x: x[1])
-            self._kpi_top.set(top_cat[0], f"₱ {top_cat[1]:,.0f} ({opt})")
+        if cat_totals and total_filtered > 0:
+            top_cat, top_amt = max(cat_totals.items(), key=lambda x: x[1])
+            pct = (top_amt / total_filtered * 100) if total_filtered > 0 else 0
+            self._kpi_top.set(top_cat, f"₱ {top_amt:,.0f} ({pct:.0f}% in {filter_desc})")
         else:
-            self._kpi_top.set("—", "No data yet")
+            self._kpi_top.set("—", f"No expenses ({filter_desc})")
 
     def _load_breakdown(self):
         if self._chart_view is not None:
@@ -511,9 +627,11 @@ class ExpensesPage(QWidget):
         breakdown = [{"category": c, "total": t} for c, t in cat_totals.items() if t > 0]
         breakdown.sort(key=lambda x: x["total"], reverse=True)
 
-        opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
+        month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
+        period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
+        filter_desc = month_opt if month_opt != "All Months" else period_opt
         if hasattr(self, "_bd_title"):
-            self._bd_title.setText(f"Breakdown by Category ({opt})")
+            self._bd_title.setText(f"Breakdown by Category ({filter_desc})")
 
         if not breakdown:
             self._breakdown_card.hide()

@@ -14,10 +14,12 @@ import threading
 import base64
 import io
 import mimetypes
+import re
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
+import time
 
 import utils.db as db
 import utils.repository as repo
@@ -27,6 +29,54 @@ logger = get_logger()
 
 _SERVER_INSTANCE = None
 _SERVER_THREAD = None
+_MAX_TABLET_IMAGE_BYTES = 12 * 1024 * 1024
+
+
+def _desktop_package_image_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "assets" / "images" / "packages"
+
+
+def _image_ext_from_mime(mime: str) -> str:
+    mime = (mime or "").lower().strip()
+    if mime == "image/png":
+        return ".png"
+    if mime in ("image/webp", "image/x-webp"):
+        return ".webp"
+    if mime in ("image/jpeg", "image/jpg"):
+        return ".jpg"
+    return ".jpg"
+
+
+def _decode_image_data_uri(image_data: str) -> tuple[bytes, str, str]:
+    raw = (image_data or "").strip()
+    if not raw:
+        raise ValueError("Image data is empty.")
+
+    mime = "image/jpeg"
+    payload = raw
+    if raw.startswith("data:"):
+        header, sep, b64 = raw.partition(",")
+        if not sep:
+            raise ValueError("Invalid image data URI.")
+        match = re.match(r"^data:([^;]+);base64$", header, flags=re.IGNORECASE)
+        if not match:
+            raise ValueError("Only base64 image data URIs are supported.")
+        mime = match.group(1).lower()
+        payload = b64
+
+    if not mime.startswith("image/"):
+        raise ValueError("Uploaded file must be an image.")
+
+    try:
+        data = base64.b64decode(payload, validate=True)
+    except Exception as exc:
+        raise ValueError(f"Invalid base64 image payload: {exc}") from exc
+
+    if len(data) > _MAX_TABLET_IMAGE_BYTES:
+        max_mb = _MAX_TABLET_IMAGE_BYTES // (1024 * 1024)
+        raise ValueError(f"Image is too large. Maximum allowed size is {max_mb} MB.")
+
+    return data, mime, _image_ext_from_mime(mime)
 
 
 def get_local_ip() -> str:
@@ -88,6 +138,19 @@ def _image_to_data_uri(img_str: str) -> str:
                 break
 
     return img_clean
+
+
+_db_version: int = int(time.time() * 1000)
+
+def get_db_version() -> int:
+    global _db_version
+    return _db_version
+
+def bump_db_version() -> int:
+    global _db_version
+    _db_version = int(time.time() * 1000)
+    logger.debug(f"[SyncServer] Database revision bumped to {_db_version}")
+    return _db_version
 
 
 class SyncServerHandler(BaseHTTPRequestHandler):
@@ -201,7 +264,19 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 "app": "Jayraldine's Catering Central Server Hub",
                 "server_ip": get_local_ip(),
                 "port": 8000,
+                "version": get_db_version(),
                 "timestamp": datetime.now().isoformat()
+            }
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if path in ("/api/sync/version", "/api/db/version"):
+            self._set_cors_headers(200)
+            res = {
+                "status": "ok",
+                "version": get_db_version(),
+                "server_ip": get_local_ip(),
+                "timestamp": time.time(),
             }
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
@@ -238,6 +313,14 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 "timestamp": datetime.now().isoformat()
             }
             self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if path == "/api/db/users":
+            self._handle_db_users()
+            return
+
+        if path == "/api/db/snapshot":
+            self._handle_db_snapshot()
             return
 
         self._set_cors_headers(404)
@@ -391,6 +474,18 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self._handle_device_offline()
             return
 
+        if path == "/api/db/write":
+            self._handle_db_write()
+            return
+
+        if path == "/api/db/query":
+            self._handle_db_query()
+            return
+
+        if path in ("/api/packages/image-upload", "/api/sync/package-image"):
+            self._handle_package_image_upload()
+            return
+
         self._set_cors_headers(404)
         self.wfile.write(json.dumps({"error": "Not Found"}).encode("utf-8"))
 
@@ -470,6 +565,214 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode("utf-8"))
 
 
+    def _handle_db_users(self):
+        """GET /api/db/users — Return all users from server DB for client workstation auth."""
+        try:
+            rows = db.fetchall("SELECT id, username, display_name, role, is_active, password_hash, created_at FROM users ORDER BY id")
+            users = []
+            for r in rows:
+                users.append({k: (str(v) if v is not None else None) for k, v in r.items()})
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({"status": "ok", "users": users, "count": len(users)}).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] /api/db/users error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_db_snapshot(self):
+        """GET /api/db/snapshot — Return full DB snapshot for desktop client workstation sync."""
+        try:
+            snapshot = {}
+            tables = [
+                ("users",                   "SELECT * FROM users ORDER BY id"),
+                ("user_permissions",        "SELECT * FROM user_permissions ORDER BY id"),
+                ("menu_items",              "SELECT * FROM menu_items ORDER BY mi_id"),
+                ("packages",                "SELECT * FROM packages ORDER BY pkg_id"),
+                ("package_items",           "SELECT * FROM package_items ORDER BY pi_id"),
+                ("customers",               "SELECT * FROM customers ORDER BY cus_id"),
+                ("bookings",                "SELECT * FROM bookings ORDER BY bk_id"),
+                ("booking_menu_items",      "SELECT * FROM booking_menu_items ORDER BY bmi_id"),
+                ("invoices",                "SELECT * FROM invoices ORDER BY inv_id"),
+                ("occasions",               "SELECT * FROM occasions ORDER BY occ_id"),
+                ("business_info",           "SELECT * FROM business_info"),
+                ("address_provinces",       "SELECT * FROM address_provinces ORDER BY ap_id"),
+                ("address_cities",          "SELECT * FROM address_cities ORDER BY ac_id"),
+                ("expenses",                "SELECT * FROM expenses ORDER BY exp_id"),
+                ("cash_flow_transactions",  "SELECT * FROM cash_flow_transactions ORDER BY cft_id"),
+                ("audit_logs",              "SELECT * FROM audit_logs ORDER BY al_id"),
+            ]
+            for table_name, sql in tables:
+                try:
+                    rows = db.fetchall(sql)
+                    clean = []
+                    for r in rows:
+                        clean.append({k: (str(v) if v is not None else None) for k, v in r.items()})
+                    snapshot[table_name] = clean
+                except Exception as te:
+                    logger.warning(f"[SyncServer] Snapshot: skipping table {table_name}: {te}")
+                    snapshot[table_name] = []
+
+            snapshot["_meta"] = {
+                "server_ip": get_local_ip(),
+                "timestamp": datetime.now().isoformat(),
+                "status": "ok"
+            }
+            payload_json = json.dumps(snapshot).encode("utf-8")
+            self._set_cors_headers(200)
+            self.wfile.write(payload_json)
+        except Exception as exc:
+            logger.error(f"[SyncServer] /api/db/snapshot error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _read_json_body(self):
+        """Read and parse JSON body from request."""
+        content_len = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_len).decode("utf-8") if content_len > 0 else "{}"
+        return json.loads(body) if body.strip() else {}
+
+    def _handle_db_write(self):
+        """
+        POST /api/db/write
+        Body: {"sql": "INSERT INTO ...", "params": [...]}
+        Executes a write statement (INSERT/UPDATE/DELETE/REPLACE) on the server DB.
+        Returns {"ok": true, "rowcount": N} or {"error": "..."}.
+        """
+        try:
+            payload = self._read_json_body()
+        except Exception as e:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": f"Bad JSON: {e}"}).encode("utf-8"))
+            return
+
+        sql = payload.get("sql", "").strip()
+        params = payload.get("params", [])
+        if isinstance(params, list):
+            params = tuple(params)
+
+        # Security: only allow write statements, not SELECT or PRAGMA
+        sql_upper = sql.upper().lstrip()
+        allowed_stmts = ("INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER")
+        if not any(sql_upper.startswith(kw) for kw in allowed_stmts):
+            self._set_cors_headers(403)
+            self.wfile.write(json.dumps({"error": "Only write statements allowed on /api/db/write"}).encode("utf-8"))
+            return
+
+        try:
+            db.execute(sql, params)
+            bump_db_version()
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({"ok": True, "version": get_db_version()}).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] /api/db/write error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_package_image_upload(self):
+        """
+        POST /api/packages/image-upload
+        Body: {"pkg_id": 1, "image": "data:image/jpeg;base64,..."}
+        Saves a tablet package image into the desktop assets folder and updates packages.pkg_image.
+        """
+        try:
+            payload = self._read_json_body()
+        except Exception as e:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": f"Bad JSON: {e}"}).encode("utf-8"))
+            return
+
+        try:
+            pkg_id = int(payload.get("pkg_id") or payload.get("id") or 0)
+        except Exception:
+            pkg_id = 0
+
+        if pkg_id <= 0:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": "A valid pkg_id is required."}).encode("utf-8"))
+            return
+
+        try:
+            id_sql = "SELECT pkg_id FROM packages WHERE pkg_id = %s LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT pkg_id FROM packages WHERE pkg_id = ? LIMIT 1"
+            existing = db.fetchone(id_sql, (pkg_id,))
+            if not existing:
+                self._set_cors_headers(404)
+                self.wfile.write(json.dumps({"error": f"Package {pkg_id} was not found on the central DB."}).encode("utf-8"))
+                return
+
+            remove_image = bool(payload.get("remove")) or payload.get("image") in (None, "")
+            rel_path = ""
+
+            if not remove_image:
+                data, _mime, ext = _decode_image_data_uri(payload.get("image", ""))
+                target_dir = _desktop_package_image_dir()
+                target_dir.mkdir(parents=True, exist_ok=True)
+                filename = f"packages_tablet_{pkg_id}_{int(time.time() * 1000)}{ext}"
+                target_path = (target_dir / filename).resolve()
+                if not str(target_path).startswith(str(target_dir.resolve())):
+                    raise ValueError("Invalid image destination.")
+                target_path.write_bytes(data)
+                rel_path = f"assets/images/packages/{filename}"
+
+            update_sql = "UPDATE packages SET pkg_image = %s WHERE pkg_id = %s" if db.get_engine_type() == "postgres" else "UPDATE packages SET pkg_image = ? WHERE pkg_id = ?"
+            db.execute(update_sql, (rel_path, pkg_id))
+            bump_db_version()
+
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({
+                "ok": True,
+                "pkg_id": pkg_id,
+                "pkg_image": rel_path,
+                "image": _image_to_data_uri(rel_path) if rel_path else "",
+                "version": get_db_version(),
+            }).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] Package image upload error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_db_query(self):
+        """
+        POST /api/db/query
+        Body: {"sql": "SELECT ...", "params": [...], "one": false}
+        Executes a SELECT on the server DB and returns rows as JSON.
+        Returns {"rows": [...]} or {"row": {...}} if one=true.
+        """
+        try:
+            payload = self._read_json_body()
+        except Exception as e:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": f"Bad JSON: {e}"}).encode("utf-8"))
+            return
+
+        sql = payload.get("sql", "").strip()
+        params = payload.get("params", [])
+        one = payload.get("one", False)
+        if isinstance(params, list):
+            params = tuple(params)
+
+        sql_upper = sql.upper().lstrip()
+        if not sql_upper.startswith("SELECT") and not sql_upper.startswith("WITH"):
+            self._set_cors_headers(403)
+            self.wfile.write(json.dumps({"error": "Only SELECT statements allowed on /api/db/query"}).encode("utf-8"))
+            return
+
+        try:
+            if one:
+                row = db.fetchone(sql, params)
+                clean = {k: (str(v) if v is not None else None) for k, v in row.items()} if row else None
+                self._set_cors_headers(200)
+                self.wfile.write(json.dumps({"row": clean}).encode("utf-8"))
+            else:
+                rows = db.fetchall(sql, params)
+                clean = [{k: (str(v) if v is not None else None) for k, v in r.items()} for r in rows]
+                self._set_cors_headers(200)
+                self.wfile.write(json.dumps({"rows": clean}).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] /api/db/query error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+
 def perform_server_sync(payload: dict) -> dict:
     """Executes live duplicate-proof bidirectional synchronization."""
     candidate_custs = payload.get("customers") or []
@@ -503,24 +806,41 @@ def perform_server_sync(payload: dict) -> dict:
 
         if not existing:
             try:
-                db.execute("""
-                    INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address,
-                                           cus_loyalty_tier, cus_total_events, cus_total_spent, cus_status, cus_notes)
-                    VALUES (%s, %s, %s, %s, %s::loyalty_tier, %s, %s, %s::customer_status, %s)
-                """, (c_name, c_contact, c_email, c_address, tier, events_cnt, spent_amt, status, notes))
+                if db.get_engine_type() == "postgres":
+                    db.execute("""
+                        INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address,
+                                               cus_loyalty_tier, cus_total_events, cus_total_spent, cus_status, cus_notes)
+                        VALUES (%s, %s, %s, %s, %s::loyalty_tier, %s, %s, %s::customer_status, %s)
+                    """, (c_name, c_contact, c_email, c_address, tier, events_cnt, spent_amt, status, notes))
+                else:
+                    db.execute("""
+                        INSERT INTO customers (cus_name, cus_contact, cus_email, cus_address,
+                                               cus_loyalty_tier, cus_total_events, cus_total_spent, cus_status, cus_notes)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (c_name, c_contact, c_email, c_address, tier, events_cnt, spent_amt, status, notes))
                 pushed_customers += 1
             except Exception as e:
                 logger.warning(f"[SyncServer] Failed to insert customer {c_name}: {e}")
         else:
             try:
-                db.execute("""
-                    UPDATE customers SET
-                        cus_contact = COALESCE(NULLIF(%s, ''), cus_contact),
-                        cus_email = COALESCE(NULLIF(%s, ''), cus_email),
-                        cus_address = COALESCE(NULLIF(%s, ''), cus_address),
-                        cus_notes = COALESCE(NULLIF(%s, ''), cus_notes)
-                    WHERE cus_id = %s
-                """, (c_contact, c_email, c_address, notes, existing["cus_id"]))
+                if db.get_engine_type() == "postgres":
+                    db.execute("""
+                        UPDATE customers SET
+                            cus_contact = COALESCE(NULLIF(%s, ''), cus_contact),
+                            cus_email = COALESCE(NULLIF(%s, ''), cus_email),
+                            cus_address = COALESCE(NULLIF(%s, ''), cus_address),
+                            cus_notes = COALESCE(NULLIF(%s, ''), cus_notes)
+                        WHERE cus_id = %s
+                    """, (c_contact, c_email, c_address, notes, existing["cus_id"]))
+                else:
+                    db.execute("""
+                        UPDATE customers SET
+                            cus_contact = COALESCE(NULLIF(?, ''), cus_contact),
+                            cus_email = COALESCE(NULLIF(?, ''), cus_email),
+                            cus_address = COALESCE(NULLIF(?, ''), cus_address),
+                            cus_notes = COALESCE(NULLIF(?, ''), cus_notes)
+                        WHERE cus_id = ?
+                    """, (c_contact, c_email, c_address, notes, existing["cus_id"]))
             except Exception:
                 pass
         synced_customer_names.append(c_name)
@@ -535,13 +855,14 @@ def perform_server_sync(payload: dict) -> dict:
             continue
         seen_b.add(ref)
 
-        existing_b = db.fetchone("SELECT bk_id FROM bookings WHERE bk_booking_ref = %s LIMIT 1", (ref,))
+        chk_b_sql = "SELECT bk_id FROM bookings WHERE bk_booking_ref = %s LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT bk_id FROM bookings WHERE bk_booking_ref = ? LIMIT 1"
+        existing_b = db.fetchone(chk_b_sql, (ref,))
         if not existing_b:
             cust_name = b.get("bk_customer_name") or b.get("customer_name") or "Walk-in Guest"
             addr = b.get("bk_address") or b.get("address") or ""
             venue = b.get("bk_venue") or b.get("venue") or addr or "TBD / On-Site Venue"
             ev_date = b.get("bk_event_date") or b.get("event_date") or datetime.now().strftime("%Y-%m-%d")
-            ev_time = b.get("bk_event_time") or b.get("event_time") or "18:00"
+            ev_time = b.get("bk_event_time") or b.get("event_time") or "6:00 PM"
             occ = b.get("bk_occasion") or b.get("occasion") or "General Event"
             pax = int(b.get("bk_pax") or b.get("pax") or 1)
             total = float(b.get("bk_total_amount") or b.get("total_amount") or 0.0)
@@ -557,7 +878,8 @@ def perform_server_sync(payload: dict) -> dict:
             notes = (b.get("bk_special_notes") or b.get("special_notes") or b.get("bk_notes") or b.get("notes") or "").strip()
             
             # Lookup customer id and contact info
-            cust_row = db.fetchone("SELECT cus_id, cus_contact, cus_email FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1", (cust_name,))
+            c_chk_sql = "SELECT cus_id, cus_contact, cus_email FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT cus_id, cus_contact, cus_email FROM customers WHERE LOWER(cus_name) = LOWER(?) LIMIT 1"
+            cust_row = db.fetchone(c_chk_sql, (cust_name,))
             cust_id = cust_row["cus_id"] if cust_row else None
             cust_contact = (b.get("bk_contact") or b.get("contact") or b.get("phone") or (cust_row.get("cus_contact") if cust_row else "") or "").strip()
             cust_email = (b.get("bk_email") or b.get("email") or (cust_row.get("cus_email") if cust_row else "") or "").strip()
@@ -565,43 +887,65 @@ def perform_server_sync(payload: dict) -> dict:
             pkg_id = b.get("bk_package_id") or b.get("package_id") or None
             if pkg_id:
                 try:
-                    chk = db.fetchone("SELECT pkg_id FROM packages WHERE pkg_id = %s", (pkg_id,))
+                    chk_p_sql = "SELECT pkg_id FROM packages WHERE pkg_id = %s" if db.get_engine_type() == "postgres" else "SELECT pkg_id FROM packages WHERE pkg_id = ?"
+                    chk = db.fetchone(chk_p_sql, (pkg_id,))
                     if not chk:
                         pkg_id = None
                 except Exception:
                     pkg_id = None
 
             try:
-                row = db.fetchone("""
-                    INSERT INTO bookings (
-                        bk_booking_ref, bk_customer_id, bk_customer_name, bk_contact, bk_email, bk_address,
-                        bk_event_date, bk_event_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
-                        bk_base_total, bk_payment_mode, bk_amount_paid, bk_down_payment,
-                        bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id
-                    ) VALUES (
-                        %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s,
-                        %s, %s::payment_method, %s, %s,
-                        %s, %s::booking_status, %s, %s, %s
-                    )
-                    ON CONFLICT (bk_booking_ref) DO UPDATE SET
-                        bk_special_notes = EXCLUDED.bk_special_notes,
-                        bk_notes = EXCLUDED.bk_notes,
-                        bk_contact = COALESCE(NULLIF(EXCLUDED.bk_contact, ''), bookings.bk_contact),
-                        bk_email = COALESCE(NULLIF(EXCLUDED.bk_email, ''), bookings.bk_email),
-                        bk_amount_paid = EXCLUDED.bk_amount_paid,
-                        bk_down_payment = EXCLUDED.bk_down_payment,
-                        bk_down_payment_status = EXCLUDED.bk_down_payment_status
-                    RETURNING bk_id;
-                """, (
-                    ref, cust_id, cust_name, cust_contact, cust_email, addr,
-                    ev_date, ev_time, venue, occ, pax, total,
-                    base_tot, pay_mode, paid, down_pay,
-                    dp_status, "PENDING", notes, notes, pkg_id
-                ))
-                if row:
+                bk_id = None
+                if db.get_engine_type() == "postgres":
+                    row = db.fetchone("""
+                        INSERT INTO bookings (
+                            bk_booking_ref, bk_customer_id, bk_customer_name, bk_contact, bk_email, bk_address,
+                            bk_event_date, bk_event_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
+                            bk_base_total, bk_payment_mode, bk_amount_paid, bk_down_payment,
+                            bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s::payment_method, %s, %s,
+                            %s, %s::booking_status, %s, %s, %s
+                        )
+                        ON CONFLICT (bk_booking_ref) DO UPDATE SET
+                            bk_special_notes = EXCLUDED.bk_special_notes,
+                            bk_notes = EXCLUDED.bk_notes,
+                            bk_contact = COALESCE(NULLIF(EXCLUDED.bk_contact, ''), bookings.bk_contact),
+                            bk_email = COALESCE(NULLIF(EXCLUDED.bk_email, ''), bookings.bk_email),
+                            bk_amount_paid = EXCLUDED.bk_amount_paid,
+                            bk_down_payment = EXCLUDED.bk_down_payment,
+                            bk_down_payment_status = EXCLUDED.bk_down_payment_status
+                        RETURNING bk_id;
+                    """, (
+                        ref, cust_id, cust_name, cust_contact, cust_email, addr,
+                        ev_date, ev_time, venue, occ, pax, total,
+                        base_tot, pay_mode, paid, down_pay,
+                        dp_status, "PENDING", notes, notes, pkg_id
+                    ))
+                    if row:
+                        bk_id = row.get("bk_id")
+                else:
+                    db.execute("""
+                        INSERT OR REPLACE INTO bookings (
+                            bk_booking_ref, bk_customer_id, bk_customer_name, bk_contact, bk_email, bk_address,
+                            bk_event_date, bk_event_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
+                            bk_base_total, bk_payment_mode, bk_amount_paid, bk_down_payment,
+                            bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        ref, cust_id, cust_name, cust_contact, cust_email, addr,
+                        ev_date, ev_time, venue, occ, pax, total,
+                        base_tot, pay_mode, paid, down_pay,
+                        dp_status, "PENDING", notes, notes, pkg_id
+                    ))
+                    b_chk = db.fetchone("SELECT bk_id FROM bookings WHERE bk_booking_ref = ?", (ref,))
+                    if b_chk:
+                        bk_id = b_chk.get("bk_id")
+
+                if bk_id:
                     pushed_bookings += 1
-                    bk_id = row.get("bk_id")
 
                     # Handle booking items if sent
                     items = b.get("menu_items") or b.get("items") or []
@@ -610,7 +954,7 @@ def perform_server_sync(payload: dict) -> dict:
                             itm_id = itm.get("bmi_item_id") or itm.get("item_id") or itm.get("mi_id") or None
                             if itm_id:
                                 try:
-                                    chk_mi = db.fetchone("SELECT mi_id FROM menu_items WHERE mi_id = %s", (itm_id,))
+                                    chk_mi = db.fetchone("SELECT mi_id FROM menu_items WHERE mi_id = %s" if db.get_engine_type() == "postgres" else "SELECT mi_id FROM menu_items WHERE mi_id = ?", (itm_id,))
                                     if not chk_mi:
                                         itm_id = None
                                 except Exception:
@@ -618,15 +962,21 @@ def perform_server_sync(payload: dict) -> dict:
                             if not itm_id:
                                 itm_name = (itm.get("bmi_item_name") or itm.get("name") or itm.get("item_name") or "").strip()
                                 if itm_name:
-                                    chk_name = db.fetchone("SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(%s) LIMIT 1", (itm_name,))
+                                    chk_name = db.fetchone("SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(?) LIMIT 1", (itm_name,))
                                     if chk_name:
                                         itm_id = chk_name["mi_id"]
                             if itm_id:
-                                db.execute("""
-                                    INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id)
-                                    VALUES (%s, %s)
-                                    ON CONFLICT DO NOTHING;
-                                """, (bk_id, itm_id))
+                                if db.get_engine_type() == "postgres":
+                                    db.execute("""
+                                        INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id)
+                                        VALUES (%s, %s)
+                                        ON CONFLICT DO NOTHING;
+                                    """, (bk_id, itm_id))
+                                else:
+                                    db.execute("""
+                                        INSERT OR IGNORE INTO booking_menu_items (bmi_booking_id, bmi_item_id)
+                                        VALUES (?, ?)
+                                    """, (bk_id, itm_id))
                         except Exception as bmie:
                             logger.warning(f"[SyncServer] booking_menu_item note: {bmie}")
 
@@ -637,40 +987,68 @@ def perform_server_sync(payload: dict) -> dict:
                             inv_num = f"INV-{ref}"
                         inv_balance = max(0.0, total - paid)
                         inv_status = "Paid" if paid >= total and total > 0 else ("Partial" if paid > 0 else "Unpaid")
-                        inv_row = db.fetchone("""
-                            INSERT INTO invoices (
-                                inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name,
-                                inv_event_date, inv_total_amount, inv_amount_paid, inv_balance,
-                                inv_down_payment, inv_status, inv_payment_verified
-                            )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::invoice_status, %s)
-                            ON CONFLICT DO NOTHING
-                            RETURNING inv_id;
-                        """, (bk_id, inv_num, inv_num, cust_name, ev_date, total, paid, inv_balance, down_pay, inv_status, 1 if paid > 0 else 0))
-                        
-                        inv_id = inv_row["inv_id"] if inv_row else None
-                        if not inv_id:
-                            inv_chk = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = %s LIMIT 1", (bk_id,))
+                        inv_id = None
+                        if db.get_engine_type() == "postgres":
+                            inv_row = db.fetchone("""
+                                INSERT INTO invoices (
+                                    inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name,
+                                    inv_event_date, inv_total_amount, inv_amount_paid, inv_balance,
+                                    inv_down_payment, inv_status, inv_payment_verified
+                                )
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::invoice_status, %s)
+                                ON CONFLICT DO NOTHING
+                                RETURNING inv_id;
+                            """, (bk_id, inv_num, inv_num, cust_name, ev_date, total, paid, inv_balance, down_pay, inv_status, 1 if paid > 0 else 0))
+                            inv_id = inv_row["inv_id"] if inv_row else None
+                        else:
+                            db.execute("""
+                                INSERT OR IGNORE INTO invoices (
+                                    inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name,
+                                    inv_event_date, inv_total_amount, inv_amount_paid, inv_balance,
+                                    inv_down_payment, inv_status, inv_payment_verified
+                                )
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (bk_id, inv_num, inv_num, cust_name, ev_date, total, paid, inv_balance, down_pay, inv_status, 1 if paid > 0 else 0))
+                            inv_chk = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = ? LIMIT 1", (bk_id,))
                             inv_id = inv_chk["inv_id"] if inv_chk else None
 
                         if inv_id and paid > 0:
-                            db.execute("""
-                                INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
-                                VALUES (%s, %s, %s, %s, %s, 1)
-                            """, (inv_id, paid, ev_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
+                            if db.get_engine_type() == "postgres":
+                                db.execute("""
+                                    INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
+                                    VALUES (%s, %s, %s, %s, %s, 1)
+                                """, (inv_id, paid, ev_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
+                            else:
+                                db.execute("""
+                                    INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
+                                    VALUES (?, ?, ?, ?, ?, 1)
+                                """, (inv_id, paid, ev_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
 
                         if cust_id:
-                            db.execute("""
-                                UPDATE customers
-                                SET cus_total_events = (
-                                    SELECT COUNT(*) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
-                                ),
-                                cus_total_spent = (
-                                    SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
-                                ),
-                                cus_updated_at = NOW()
-                                WHERE cus_id = %s
-                            """, (cust_id, cust_id, cust_id))
+                            if db.get_engine_type() == "postgres":
+                                db.execute("""
+                                    UPDATE customers
+                                    SET cus_total_events = (
+                                        SELECT COUNT(*) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
+                                    ),
+                                    cus_total_spent = (
+                                        SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
+                                    ),
+                                    cus_updated_at = NOW()
+                                    WHERE cus_id = %s
+                                """, (cust_id, cust_id, cust_id))
+                            else:
+                                db.execute("""
+                                    UPDATE customers
+                                    SET cus_total_events = (
+                                        SELECT COUNT(*) FROM bookings WHERE bk_customer_id = ? AND bk_status != 'CANCELLED'
+                                    ),
+                                    cus_total_spent = (
+                                        SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE bk_customer_id = ? AND bk_status != 'CANCELLED'
+                                    ),
+                                    cus_updated_at = CURRENT_TIMESTAMP
+                                    WHERE cus_id = ?
+                                """, (cust_id, cust_id, cust_id))
 
                         # Log creation in Audit Logs by Tablet Kiosk
                         try:
@@ -729,9 +1107,9 @@ def perform_server_sync(payload: dict) -> dict:
         items_raw = db.fetchall("""
             SELECT mi_id,
                    COALESCE(mi_name, '') AS mi_name,
-                   COALESCE(mi_category::TEXT, 'Main Dish') AS mi_category,
+                   COALESCE(mi_category, 'Main Course') AS mi_category,
                    COALESCE(mi_price, 0.0) AS mi_price,
-                   COALESCE(mi_status::TEXT, 'Available') AS mi_status,
+                   COALESCE(mi_status, 'Available') AS mi_status,
                    COALESCE(mi_description, '') AS mi_description,
                    COALESCE(mi_image, '') AS mi_image
             FROM menu_items
@@ -789,8 +1167,8 @@ def perform_server_sync(payload: dict) -> dict:
                    COALESCE(cus_contact, '') AS cus_contact,
                    COALESCE(cus_email, '') AS cus_email,
                    COALESCE(cus_address, '') AS cus_address,
-                   COALESCE(cus_loyalty_tier::TEXT, 'Bronze') AS cus_loyalty_tier,
-                   COALESCE(cus_status::TEXT, 'Active') AS cus_status,
+                   COALESCE(cus_loyalty_tier, 'Bronze') AS cus_loyalty_tier,
+                   COALESCE(cus_status, 'Active') AS cus_status,
                    COALESCE(cus_total_events, 0) AS cus_total_events,
                    COALESCE(cus_total_spent, 0.0) AS cus_total_spent,
                    COALESCE(cus_notes, '') AS cus_notes
@@ -816,6 +1194,25 @@ def perform_server_sync(payload: dict) -> dict:
         logger.warning(f"[SyncServer] Failed to fetch customers: {e}")
         customers = []
 
+    # Pull latest occasions
+    occasions = []
+    try:
+        occ_raw = db.fetchall("SELECT occ_id, occ_name, occ_is_active FROM occasions WHERE occ_is_active = 1 OR occ_is_active IS NULL ORDER BY occ_id") or []
+        occasions = [
+            {
+                "occ_id": r["occ_id"],
+                "occ_name": r["occ_name"],
+                "occ_is_active": int(r.get("occ_is_active") or 1)
+            }
+            for r in occ_raw
+        ]
+    except Exception as oe:
+        logger.warning(f"[SyncServer] Failed to fetch occasions: {oe}")
+        occasions = []
+
+    if pushed_bookings > 0 or pushed_customers > 0:
+        bump_db_version()
+
     msg = f"Sync successful! Pushed {pushed_bookings} booking(s) and {pushed_customers} customer(s). Sent {len(pkgs)} package(s), {len(menu_items)} dish(es), and {len(customers)} customer(s)."
     return {
         "status": "success",
@@ -826,6 +1223,7 @@ def perform_server_sync(payload: dict) -> dict:
         "menu_items": menu_items,
         "package_items": package_items,
         "customers": customers,
+        "occasions": occasions,
         "synced_booking_refs": synced_booking_refs,
         "synced_customer_names": synced_customer_names,
     }

@@ -892,22 +892,60 @@ class ReportsPage(QWidget):
         self._t_head.addStretch()
         self._t_layout.addLayout(self._t_head)
 
-        self.table_cards_layout = QVBoxLayout()
-        self.table_cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._bookings_scroll = QScrollArea(self.table_card)
+        self._bookings_scroll.setWidgetResizable(True)
+        self._bookings_scroll.setFrameShape(QFrame.NoFrame)
+        self._bookings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._bookings_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._bookings_scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: rgba(255, 255, 255, 0.05);
+                width: 7px;
+                border-radius: 3px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.25);
+                min-height: 25px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(255, 255, 255, 0.45);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+
+        self.table_cards_container = QWidget()
+        self.table_cards_container.setStyleSheet("background: transparent;")
+        self.table_cards_layout = QVBoxLayout(self.table_cards_container)
+        self.table_cards_layout.setContentsMargins(0, 0, 8, 0)
         self.table_cards_layout.setSpacing(10)
-        self._t_layout.addLayout(self.table_cards_layout)
+        self.table_cards_layout.setAlignment(Qt.AlignTop)
+        self._bookings_scroll.setWidget(self.table_cards_container)
+        self._bookings_scroll.setFixedHeight(455)
+        self._t_layout.addWidget(self._bookings_scroll)
         self.main_layout.addWidget(self.table_card)
 
-        # ── EXPENSES SECTION ──────────────────────────────────────────────────
+        # ── EXPENSES SECTION (LIMITED TO 7 ROWS WITH SCROLL) ──────────────────
         self._expense_card = HoverCard(self.scroll_content)
         exp_lay = QVBoxLayout(self._expense_card)
         exp_lay.setContentsMargins(24, 24, 24, 24)
         exp_lay.setSpacing(16)
 
         exp_head = QHBoxLayout()
-        exp_title = QLabel("Expenses", self._expense_card)
-        exp_title.setObjectName("h2")
-        exp_head.addWidget(exp_title)
+        self._exp_title = QLabel("Expenses", self._expense_card)
+        self._exp_title.setObjectName("h2")
+        exp_head.addWidget(self._exp_title)
         exp_head.addStretch()
         btn_add_exp = QPushButton("  Add Expense")
         btn_add_exp.setObjectName("primaryButton")
@@ -924,10 +962,48 @@ class ReportsPage(QWidget):
         exp_head.addWidget(btn_add_exp)
         exp_lay.addLayout(exp_head)
 
-        self.exp_cards_layout = QVBoxLayout()
-        self.exp_cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._expenses_scroll = QScrollArea(self._expense_card)
+        self._expenses_scroll.setWidgetResizable(True)
+        self._expenses_scroll.setFrameShape(QFrame.NoFrame)
+        self._expenses_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._expenses_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._expenses_scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: rgba(255, 255, 255, 0.05);
+                width: 7px;
+                border-radius: 3px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.25);
+                min-height: 25px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(255, 255, 255, 0.45);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+
+        self.exp_cards_container = QWidget()
+        self.exp_cards_container.setStyleSheet("background: transparent;")
+        self.exp_cards_layout = QVBoxLayout(self.exp_cards_container)
+        self.exp_cards_layout.setContentsMargins(0, 0, 8, 0)
         self.exp_cards_layout.setSpacing(10)
-        exp_lay.addLayout(self.exp_cards_layout)
+        self.exp_cards_layout.setAlignment(Qt.AlignTop)
+        self._expenses_scroll.setWidget(self.exp_cards_container)
+        self._expenses_scroll.setFixedHeight(455)
+        exp_lay.addWidget(self._expenses_scroll)
 
         self._profit_lbl = QLabel("", self._expense_card)
         self._profit_lbl.setStyleSheet("font-size:14px;font-weight:700;color:#22C55E;")
@@ -1438,14 +1514,18 @@ class ReportsPage(QWidget):
             empty_lbl.setObjectName("subtitle")
             empty_lbl.setAlignment(Qt.AlignCenter)
             self.table_cards_layout.addWidget(empty_lbl)
+            if hasattr(self, "_bookings_scroll"):
+                self._bookings_scroll.setFixedHeight(60)
+            self._t_head_lbl.setText("Recent Booking Statistics")
         else:
             for b in filtered_bookings:
                 pax_val = int(b.get("pax", 0))
                 limit_status = "LIMIT REACHED" if pax_val >= 600 else ("NEAR LIMIT" if pax_val >= 400 else "")
                 card = QFrame()
                 card.setObjectName("entryCard")
+                card.setFixedHeight(56)
                 cl = QHBoxLayout(card)
-                cl.setContentsMargins(16, 12, 16, 12)
+                cl.setContentsMargins(16, 8, 16, 8)
                 cl.setSpacing(16)
 
                 # Col 1: Ref & Date
@@ -1477,6 +1557,16 @@ class ReportsPage(QWidget):
                 cl.addWidget(status_badge, alignment=Qt.AlignVCenter)
 
                 self.table_cards_layout.addWidget(card)
+
+            total_b = len(filtered_bookings)
+            if hasattr(self, "_bookings_scroll"):
+                if total_b > 7:
+                    # Exactly 7 rows visible with smooth scroll for remaining
+                    self._bookings_scroll.setFixedHeight(455)
+                    self._t_head_lbl.setText(f"Recent Booking Statistics ({total_b} records · showing 7 rows, scroll for more)")
+                else:
+                    self._bookings_scroll.setFixedHeight(max(60, total_b * 56 + max(0, total_b - 1) * 10))
+                    self._t_head_lbl.setText(f"Recent Booking Statistics ({total_b} record{'s' if total_b != 1 else ''})")
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -1559,12 +1649,17 @@ class ReportsPage(QWidget):
             empty_lbl.setObjectName("subtitle")
             empty_lbl.setAlignment(Qt.AlignCenter)
             self.exp_cards_layout.addWidget(empty_lbl)
+            if hasattr(self, "_expenses_scroll"):
+                self._expenses_scroll.setFixedHeight(60)
+            if hasattr(self, "_exp_title"):
+                self._exp_title.setText("Expenses")
         else:
             for exp in expenses:
                 card = QFrame()
                 card.setObjectName("entryCard")
+                card.setFixedHeight(56)
                 el = QHBoxLayout(card)
-                el.setContentsMargins(16, 12, 16, 12)
+                el.setContentsMargins(16, 8, 16, 8)
                 el.setSpacing(14)
 
                 c1 = QVBoxLayout()
@@ -1597,6 +1692,18 @@ class ReportsPage(QWidget):
 
                 self.exp_cards_layout.addWidget(card)
                 total_exp += exp["amount"]
+
+            total_e = len(expenses)
+            if hasattr(self, "_expenses_scroll"):
+                if total_e > 7:
+                    # Exactly 7 rows visible with smooth scroll for remaining
+                    self._expenses_scroll.setFixedHeight(455)
+                    if hasattr(self, "_exp_title"):
+                        self._exp_title.setText(f"Expenses ({total_e} records · showing 7 rows, scroll for more)")
+                else:
+                    self._expenses_scroll.setFixedHeight(max(60, total_e * 56 + max(0, total_e - 1) * 10))
+                    if hasattr(self, "_exp_title"):
+                        self._exp_title.setText(f"Expenses ({total_e} record{'s' if total_e != 1 else ''})")
 
         # Use pre-fetched profit_data if available, else fall back to synchronous call
         _profit_data = profit_data if profit_data is not None else []

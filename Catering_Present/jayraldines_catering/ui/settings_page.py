@@ -27,6 +27,7 @@ from utils.db_server_service import (
     get_local_db_server_status,
     restart_local_db_server,
     start_local_db_server,
+    configure_server_remote_access,
     verify_owner_authorization,
 )
 from components.owner_auth_dialog import OwnerAuthDialog
@@ -595,42 +596,116 @@ class SettingsPage(QWidget):
             if is_central:
                 self._machine_role_lbl.setText("🖥️ Machine Role: Central Database Server Host (Primary Server)")
             else:
-                self._machine_role_lbl.setText(f"💻 Machine Role: Client Workstation (Connected to {stat.get('host')})")
+                srv_host = stat.get('host', '192.168.1.32')
+                self._machine_role_lbl.setText(f"💻 Machine Role: Client Workstation (Connected to {srv_host})")
 
-            if is_running:
-                self._live_status_badge.setText(f"🟢 DB SERVER: RUNNING (Port {port})")
-                self._live_status_badge.setStyleSheet("""
-                    background-color: #064E3B;
-                    color: #34D399;
-                    font-size: 11px;
-                    font-weight: 700;
-                    padding: 4px 12px;
-                    border-radius: 12px;
-                    border: 1px solid #059669;
-                """)
+            if stat.get("engine") == "sqlite":
+                if is_central:
+                    if is_running:
+                        self._live_status_badge.setText(f"🟢 SQLITE DB: ACTIVE (WAL Mode)")
+                        self._live_status_badge.setStyleSheet("""
+                            background-color: #064E3B;
+                            color: #34D399;
+                            font-size: 11px;
+                            font-weight: 700;
+                            padding: 4px 12px;
+                            border-radius: 12px;
+                            border: 1px solid #059669;
+                        """)
+                    else:
+                        self._live_status_badge.setText(f"🔴 SQLITE DB: INACTIVE")
+                        self._live_status_badge.setStyleSheet("""
+                            background-color: #7F1D1D;
+                            color: #F87171;
+                            font-size: 11px;
+                            font-weight: 700;
+                            padding: 4px 12px;
+                            border-radius: 12px;
+                            border: 1px solid #DC2626;
+                        """)
+                else:
+                    if is_running:
+                        self._live_status_badge.setText(f"🟢 SERVER SYNC: CONNECTED ({stat.get('host')})")
+                        self._live_status_badge.setStyleSheet("""
+                            background-color: #064E3B;
+                            color: #34D399;
+                            font-size: 11px;
+                            font-weight: 700;
+                            padding: 4px 12px;
+                            border-radius: 12px;
+                            border: 1px solid #059669;
+                        """)
+                    else:
+                        self._live_status_badge.setText(f"🔴 SERVER: OFFLINE / UNREACHABLE")
+                        self._live_status_badge.setStyleSheet("""
+                            background-color: #7F1D1D;
+                            color: #F87171;
+                            font-size: 11px;
+                            font-weight: 700;
+                            padding: 4px 12px;
+                            border-radius: 12px;
+                            border: 1px solid #DC2626;
+                        """)
             else:
-                self._live_status_badge.setText(f"🔴 DB SERVER: {state}")
-                self._live_status_badge.setStyleSheet("""
-                    background-color: #7F1D1D;
-                    color: #F87171;
-                    font-size: 11px;
-                    font-weight: 700;
-                    padding: 4px 12px;
-                    border-radius: 12px;
-                    border: 1px solid #DC2626;
-                """)
+                if is_running:
+                    self._live_status_badge.setText(f"🟢 DB SERVER: RUNNING (Port {port})")
+                    self._live_status_badge.setStyleSheet("""
+                        background-color: #064E3B;
+                        color: #34D399;
+                        font-size: 11px;
+                        font-weight: 700;
+                        padding: 4px 12px;
+                        border-radius: 12px;
+                        border: 1px solid #059669;
+                    """)
+                else:
+                    self._live_status_badge.setText(f"🔴 DB SERVER: {state}")
+                    self._live_status_badge.setStyleSheet("""
+                        background-color: #7F1D1D;
+                        color: #F87171;
+                        font-size: 11px;
+                        font-weight: 700;
+                        padding: 4px 12px;
+                        border-radius: 12px;
+                        border: 1px solid #DC2626;
+                    """)
 
             sync_str = "🟢 ACTIVE (Port 8000)" if sync_up else "⚪ INACTIVE"
             port_str = "🟢 LISTENING" if stat.get("port_listening") else "🔴 CLOSED"
-            self._db_info_lbl.setText(
-                f"• Database Engine      : {stat.get('engine', 'postgres').upper()}\n"
-                f"• PostgreSQL Service   : {svc} ({state})\n"
-                f"• Service Port (5432)  : {port_str}\n"
-                f"• LAN Sync Server (Hub): {sync_str}\n"
-                f"• Local Server LAN IP  : {local_ip}\n"
-                f"• Database Name        : {stat.get('dbname', 'jayraldines_catering')}\n"
-                f"• Last Status Probe    : {stat.get('timestamp', '--:--:--')}"
-            )
+
+            if stat.get("engine") == "sqlite":
+                if is_central:
+                    self._db_info_lbl.setText(
+                        f"• Database Engine      : SQLITE (Embedded WAL Mode)\n"
+                        f"• Database File Path   : catering.db (Primary Storage)\n"
+                        f"• LAN Sync Server (Hub): {sync_str}\n"
+                        f"• Central Server LAN IP: {local_ip}\n"
+                        f"• Kiosk Tablet Web URL : http://{local_ip}:8000\n"
+                        f"• Last Status Probe    : {stat.get('timestamp', '--:--:--')}"
+                    )
+                else:
+                    srv_host = stat.get('host', '192.168.1.32')
+                    srv_port = stat.get('port', 8000)
+                    conn_state = f"🟢 CONNECTED (Port {srv_port})" if sync_up else f"🔴 UNREACHABLE (Check Wi-Fi/Port {srv_port})"
+                    self._db_info_lbl.setText(
+                        f"• Station Mode         : Client Workstation\n"
+                        f"• Central Server PC IP : {srv_host}:{srv_port}\n"
+                        f"• Server Sync Link     : {conn_state}\n"
+                        f"• Local Workstation IP : {local_ip}\n"
+                        f"• Local Storage Cache  : catering.db\n"
+                        f"• Kiosk Tablet Web URL : http://{srv_host}:8000\n"
+                        f"• Last Status Probe    : {stat.get('timestamp', '--:--:--')}"
+                    )
+            else:
+                self._db_info_lbl.setText(
+                    f"• Database Engine      : {stat.get('engine', 'postgres').upper()}\n"
+                    f"• PostgreSQL Service   : {svc} ({state})\n"
+                    f"• Service Port (5432)  : {port_str}\n"
+                    f"• LAN Sync Server (Hub): {sync_str}\n"
+                    f"• Local Server LAN IP  : {local_ip}\n"
+                    f"• Database Name        : {stat.get('dbname', 'jayraldines_catering')}\n"
+                    f"• Last Status Probe    : {stat.get('timestamp', '--:--:--')}"
+                )
 
         refresh_status_btn.clicked.connect(_refresh_server_and_db_info)
         _refresh_server_and_db_info()
@@ -654,17 +729,33 @@ class SettingsPage(QWidget):
         test_btn.setStyleSheet("background-color: #0284C7; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
         def _test_conn():
             c = get_db_config()
-            ok, msg = test_postgres_connection(
-                host=c.get("host", "localhost"),
-                port=int(c.get("port", 5432)),
-                dbname=c.get("dbname", "jayraldines_catering"),
-                user=c.get("user", "jayraldines_app"),
-                password=c.get("password", ""),
-            )
-            if ok:
-                QMessageBox.information(self, "Connection Test", "✅ Successfully connected to Central PostgreSQL Server!")
+            if c.get("engine") == "sqlite":
+                import utils.db as db
+                try:
+                    if db.is_available():
+                        row = db.fetchone("SELECT 1 as alive, COUNT(*) as b_cnt FROM bookings")
+                        b_cnt = row.get("b_cnt", 0) if row else 0
+                        QMessageBox.information(
+                            self,
+                            "Database Test",
+                            f"✅ Successfully connected to SQLite Database!\n\n• Engine: SQLite (WAL Mode)\n• Bookings in DB: {b_cnt}\n• LAN Sync Hub: Port 8000"
+                        )
+                    else:
+                        QMessageBox.warning(self, "Database Test", "❌ SQLite Database connection could not be opened.")
+                except Exception as ex:
+                    QMessageBox.warning(self, "Database Test", f"❌ SQLite Test Error: {ex}")
             else:
-                QMessageBox.warning(self, "Connection Test", f"❌ Failed to connect:\n{msg}")
+                ok, msg = test_postgres_connection(
+                    host=c.get("host", "localhost"),
+                    port=int(c.get("port", 5432)),
+                    dbname=c.get("dbname", "jayraldines_catering"),
+                    user=c.get("user", "jayraldines_app"),
+                    password=c.get("password", ""),
+                )
+                if ok:
+                    QMessageBox.information(self, "Connection Test", "✅ Successfully connected to Central PostgreSQL Server!")
+                else:
+                    QMessageBox.warning(self, "Connection Test", f"❌ Failed to connect:\n{msg}")
             _refresh_server_and_db_info()
         test_btn.clicked.connect(_test_conn)
         btn_row.addWidget(test_btn)
@@ -773,7 +864,21 @@ class SettingsPage(QWidget):
                         security_notice.setText("✅ Master Owner authorized for this session. Restart DB Server is now unlocked.")
                         security_notice.setStyleSheet("font-size: 11px; color: #34D399; font-style: italic;")
                 unlock_btn.clicked.connect(_unlock_owner)
-                sc_row.addWidget(unlock_btn)
+            remote_access_btn = QPushButton("🌐 Allow Remote Workstations")
+            remote_access_btn.setCursor(Qt.PointingHandCursor)
+            remote_access_btn.setStyleSheet("background-color: #0284C7; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
+            def _do_config_remote():
+                ok, msg = configure_server_remote_access()
+                if ok:
+                    QMessageBox.information(
+                        self, "Remote Access Enabled",
+                        "✅ PostgreSQL pg_hba.conf and Windows Firewall configured successfully!\n\n"
+                        "Remote workstations (such as 192.168.1.34) and tablets can now connect directly to this PC Server."
+                    )
+                else:
+                    QMessageBox.warning(self, "Setup Note", f"Result:\n{msg}")
+            remote_access_btn.clicked.connect(_do_config_remote)
+            sc_row.addWidget(remote_access_btn)
 
             sc_row.addStretch()
             sc_lay.addLayout(sc_row)

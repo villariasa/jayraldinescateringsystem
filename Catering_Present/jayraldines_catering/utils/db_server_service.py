@@ -43,6 +43,10 @@ def is_central_db_server_machine() -> bool:
     2. OR a local PostgreSQL Windows service is installed on this machine.
     """
     cfg = get_db_config()
+    sync_role = cfg.get("sync_role")
+    if sync_role == "client":
+        return False
+
     host = str(cfg.get("host", "localhost")).strip().lower()
     local_ip = get_local_lan_ip()
 
@@ -50,7 +54,7 @@ def is_central_db_server_machine() -> bool:
         return True
 
     # Check if local postgres service is installed regardless of host config
-    if find_local_postgres_service() is not None:
+    if cfg.get("engine", "sqlite") == "postgres" and find_local_postgres_service() is not None:
         return True
 
     return False
@@ -113,12 +117,64 @@ def get_local_db_server_status() -> Dict[str, Any]:
     Returns a comprehensive dictionary of status indicators.
     """
     cfg = get_db_config()
-    engine = cfg.get("engine", "postgres")
-    host = cfg.get("host", "localhost")
-    port = int(cfg.get("port", 5432))
-    dbname = cfg.get("dbname", "jayraldines_catering")
+    engine = cfg.get("engine", "sqlite")
+    host = str(cfg.get("host", "localhost")).strip()
+    port = int(cfg.get("port", 8000 if engine == "sqlite" else 5432))
+    dbname = cfg.get("dbname", "catering.db" if engine == "sqlite" else "jayraldines_catering")
     local_ip = get_local_lan_ip()
     is_central = is_central_db_server_machine()
+
+    if engine == "sqlite":
+        import utils.db as db
+        db_alive = False
+        try:
+            db_alive = db.is_available()
+            if db_alive:
+                row = db.fetchone("SELECT 1 as alive")
+                db_alive = bool(row and row.get("alive") == 1)
+        except Exception:
+            db_alive = False
+
+        if is_central:
+            sync_running = is_port_open("127.0.0.1", 8000, timeout=1.0)
+            is_running = db_alive
+            status_badge = "🟢 RUNNING" if db_alive else "🔴 ERROR"
+
+            return {
+                "is_central_server": True,
+                "engine": "sqlite",
+                "host": local_ip,
+                "local_ip": local_ip,
+                "port": 8000,
+                "dbname": "catering.db",
+                "service_name": "SQLite WAL Embedded Engine (Central Server)",
+                "service_state": "ACTIVE" if db_alive else "INACTIVE",
+                "port_listening": sync_running,
+                "sync_running": sync_running,
+                "is_running": is_running,
+                "status_badge": status_badge,
+                "timestamp": time.strftime("%H:%M:%S"),
+            }
+        else:
+            # Client Workstation connected to remote server (e.g. 192.168.1.32)
+            remote_sync_alive = is_port_open(host, port, timeout=1.5)
+            status_badge = "🟢 CONNECTED" if remote_sync_alive else "🔴 SERVER UNREACHABLE"
+
+            return {
+                "is_central_server": False,
+                "engine": "sqlite",
+                "host": host,
+                "local_ip": local_ip,
+                "port": port,
+                "dbname": "catering.db",
+                "service_name": f"Client Workstation (Connected to {host}:{port})",
+                "service_state": "CONNECTED" if remote_sync_alive else "OFFLINE",
+                "port_listening": remote_sync_alive,
+                "sync_running": remote_sync_alive,
+                "is_running": remote_sync_alive,
+                "status_badge": status_badge,
+                "timestamp": time.strftime("%H:%M:%S"),
+            }
 
     service_name = find_local_postgres_service() if is_central else None
     service_state = "UNKNOWN"
@@ -173,9 +229,15 @@ def get_local_db_server_status() -> Dict[str, Any]:
 
 def restart_local_db_server() -> Tuple[bool, str]:
     """
-    Restarts the local PostgreSQL Windows service and sync hub,
-    then re-establishes the database connection pool.
+    Restarts the local database server / sync hub.
     """
+    cfg = get_db_config()
+    if cfg.get("engine") == "sqlite":
+        from utils.db_sync_server import stop_sync_server, start_sync_server_background
+        stop_sync_server()
+        started = start_sync_server_background(host="0.0.0.0", port=8000)
+        return started, "SQLite LAN Sync Server restarted successfully on Port 8000."
+
     if not is_central_db_server_machine():
         return False, "This machine is a client workstation. Server restart must be performed on the Central Server Host."
 
@@ -251,8 +313,14 @@ def restart_local_db_server() -> Tuple[bool, str]:
 
 def start_local_db_server() -> Tuple[bool, str]:
     """
-    Starts the local PostgreSQL Windows service if stopped.
+    Starts the local database server / sync hub if stopped.
     """
+    cfg = get_db_config()
+    if cfg.get("engine") == "sqlite":
+        from utils.db_sync_server import start_sync_server_background
+        started = start_sync_server_background(host="0.0.0.0", port=8000)
+        return started, "SQLite LAN Sync Server started successfully on Port 8000."
+
     if not is_central_db_server_machine():
         return False, "This machine is a client workstation. Server start must be performed on the Central Server Host."
 
@@ -318,6 +386,39 @@ def start_local_db_server() -> Tuple[bool, str]:
         pass
 
     return True, f"PostgreSQL server service '{svc}' started successfully."
+
+
+def configure_server_remote_access() -> Tuple[bool, str]:
+    """
+    Configures PostgreSQL server pg_hba.conf and postgresql.conf to allow
+    all remote LAN client workstations and tablets, and opens Windows Firewall.
+    """
+    ps1_script = Path(__file__).resolve().parent.parent / "enable_server_remote_access.ps1"
+    if not ps1_script.exists():
+        ps1_script = Path(__file__).resolve().parents[2] / "enable_server_remote_access.ps1"
+
+    if not ps1_script.exists():
+        return False, f"Setup script not found at {ps1_script}"
+
+    try:
+        elev_cmd = (
+            f"Start-Process powershell -Verb RunAs -Wait -ArgumentList "
+            f"'-NoProfile -ExecutionPolicy Bypass -File \"{ps1_script}\"'"
+        )
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", elev_cmd],
+            capture_output=True,
+            text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=35,
+        )
+        if res.returncode == 0:
+            return True, "PostgreSQL remote client access (pg_hba.conf & Firewall) configured successfully."
+        else:
+            return False, f"Failed to execute configuration script:\n{res.stderr or res.stdout}"
+    except Exception as exc:
+        return False, str(exc)
+
 
 
 def verify_owner_authorization(entered_key: str) -> bool:

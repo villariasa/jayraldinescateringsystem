@@ -902,9 +902,9 @@ class AddMultipleBookingsDialog(QDialog):
             # Event Time extraction
             time_val = "6:00 PM"
             if isinstance(time_w, QComboBox):
-                time_val = time_w.currentText().strip() or "6:00 PM"
+                time_val = repo.format_time_ampm(time_w.currentText().strip() or "6:00 PM")
             elif isinstance(time_w, QLineEdit):
-                time_val = time_w.text().strip() or "6:00 PM"
+                time_val = repo.format_time_ampm(time_w.text().strip() or "6:00 PM")
 
             pax = pax_w.value() if isinstance(pax_w, QSpinBox) else 50
             theme_txt = theme_w.text().strip() if isinstance(theme_w, QLineEdit) else ""
@@ -1269,7 +1269,9 @@ class BookingPage(QWidget):
         return page, cards_layout, tb_bundle
 
     def _on_tab_changed(self, index: int):
+        self._populate_active_tab()
         self._update_selection_ui()
+
 
     def _visible_bookings(self):
         rows = self._bookings
@@ -1317,14 +1319,11 @@ class BookingPage(QWidget):
             confirmed_rows = [b for b in raw_rows if b.get("status") in ("CONFIRMED", "COMPLETED")]
             all_rows = raw_rows
 
-            # Populate Pending Tab
-            self._populate_card_layout(self._pending_cards_layout, pending_rows, "No pending bookings found.", can_edit, can_delete)
-
-            # Populate Confirmed Tab
-            self._populate_card_layout(self._confirmed_cards_layout, confirmed_rows, "No confirmed bookings found.", can_edit, can_delete)
-
-            # Populate All Tab
-            self._populate_card_layout(self._all_cards_layout, all_rows, "No bookings found.", can_edit, can_delete)
+            self._tab_data = {
+                0: (self._pending_cards_layout, pending_rows, "No pending bookings found."),
+                1: (self._confirmed_cards_layout, confirmed_rows, "No confirmed bookings found."),
+                2: (self._all_cards_layout, all_rows, "No bookings found."),
+            }
 
             # Update Tab Title Counts
             if hasattr(self, "_tabs"):
@@ -1332,9 +1331,31 @@ class BookingPage(QWidget):
                 self._tabs.setTabText(1, f"✅ Confirmed Bookings ({len(confirmed_rows)})")
                 self._tabs.setTabText(2, f"📋 All Bookings ({len(all_rows)})")
 
+            # Reset populated state tracking and populate the active tab
+            self._populated_tabs = set()
+            self._populate_active_tab(can_edit, can_delete)
             self._update_selection_ui()
         finally:
             self.setUpdatesEnabled(True)
+
+    def _populate_active_tab(self, can_edit=None, can_delete=None):
+        if not hasattr(self, "_tabs") or not hasattr(self, "_tab_data"):
+            return
+        cur_idx = self._tabs.currentIndex()
+        if not hasattr(self, "_populated_tabs"):
+            self._populated_tabs = set()
+        if cur_idx in self._populated_tabs:
+            return
+        if can_edit is None or can_delete is None:
+            from utils.auth import SessionManager
+            can_edit = SessionManager.has_permission("bookings", "edit")
+            can_delete = SessionManager.has_permission("bookings", "delete")
+
+        entry = self._tab_data.get(cur_idx)
+        if entry:
+            lay, rows, empty_msg = entry
+            self._populate_card_layout(lay, rows, empty_msg, can_edit, can_delete)
+            self._populated_tabs.add(cur_idx)
 
     def _populate_card_layout(self, layout: QVBoxLayout, rows: list[dict], empty_msg: str, can_edit: bool = True, can_delete: bool = True):
         if not layout:
@@ -1356,31 +1377,18 @@ class BookingPage(QWidget):
             layout.addWidget(empty_lbl)
             layout.addStretch()
         else:
-            BATCH_SIZE = 35
-            first_batch = rows[:BATCH_SIZE]
-            for b in first_batch:
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            for idx, b in enumerate(rows):
                 card = self._create_booking_card(b, can_edit, can_delete)
                 layout.addWidget(card)
-
+                if idx > 0 and idx % 20 == 0:
+                    if hasattr(self, "_loader") and self._loader and self._loader.isVisible():
+                        self._loader.spin_step()
+                    elif app:
+                        app.processEvents()
             layout.addStretch()
 
-            remaining = rows[BATCH_SIZE:]
-            if remaining:
-                def _append_booking_chunk(offset=0):
-                    if not layout:
-                        return
-                    chunk = remaining[offset:offset + BATCH_SIZE]
-                    for b in chunk:
-                        card = self._create_booking_card(b, can_edit, can_delete)
-                        cnt = layout.count()
-                        if cnt > 1:
-                            layout.insertWidget(cnt - 1, card)
-                        else:
-                            layout.addWidget(card)
-                    if offset + BATCH_SIZE < len(remaining):
-                        QTimer.singleShot(2, lambda: _append_booking_chunk(offset + BATCH_SIZE))
-
-                QTimer.singleShot(2, lambda: _append_booking_chunk(0))
 
     def _create_booking_card(self, b: dict, can_edit: bool = True, can_delete: bool = True) -> QFrame:
         bref = b["id"]
@@ -1435,7 +1443,7 @@ class BookingPage(QWidget):
         c_time.setSpacing(2)
         time_title = QLabel("EVENT TIME")
         time_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280; letter-spacing: 0.5px;")
-        t_val = str(b.get("event_time") or b.get("time") or "6:00 PM")
+        t_val = repo.format_time_ampm(b.get("event_time") or b.get("time") or "6:00 PM")
         time_val = QLabel(t_val)
         time_val.setStyleSheet("font-weight: 700; font-size: 13px; color: #38BDF8;")
         c_time.addWidget(time_title)
@@ -1578,6 +1586,16 @@ class BookingPage(QWidget):
             confirm_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
         confirm_btn.clicked.connect(lambda _, r=bref: self._send_confirmation(r))
 
+        print_btn = QPushButton(parent=actions_w)
+        print_btn.setIcon(get_icon("printer", color="#9CA3AF", size=QSize(13, 13)))
+        print_btn.setIconSize(QSize(13, 13))
+        print_btn.setFixedSize(30, 30)
+        print_btn.setStyleSheet("background:transparent;border:none;")
+        print_btn.setCursor(Qt.PointingHandCursor)
+        print_btn.setToolTip("Export / Print Order Slip (Kitchen & Event BEO)")
+        print_btn.clicked.connect(lambda _, r=bref: self._print_order_slip(r))
+
+        actions_l.addWidget(print_btn)
         actions_l.addWidget(edit_btn)
         actions_l.addWidget(charges_btn)
         actions_l.addWidget(color_btn)
@@ -1597,6 +1615,13 @@ class BookingPage(QWidget):
         lay.addWidget(actions_w)
 
         return card
+
+    def _print_order_slip(self, ref: str):
+        from components.order_print_dialog import OrderPrintDialog
+        b = next((x for x in self._bookings if x.get("id") == ref), None)
+        target = b.get("db_id") if (b and b.get("db_id")) else ref
+        dlg = OrderPrintDialog(target, parent=self)
+        dlg.exec()
 
     def _change_booking_color(self, ref: str):
         from utils.auth import SessionManager
@@ -1934,7 +1959,7 @@ class BookingPage(QWidget):
                 "business_contact": biz.get("contact", ""),
                 "business_name":    biz.get("name", "Jayraldine's Catering"),
                 "event_date":       data.get("date", "—"),
-                "event_time":       data.get("time", "—"),
+                "event_time":       repo.format_time_ampm(data.get("time") or data.get("event_time")),
             }
             from utils.mailer import send_booking_approval_request_email
             ok, err = send_booking_approval_request_email(smtp, email, booking_data)
@@ -2276,7 +2301,8 @@ class BookingPage(QWidget):
             contact = str(b.get("contact") or b.get("phone") or "—")
             email = str(b.get("email") or "—")
             ev_date = str(b.get("event_date") or b.get("date") or "—")
-            ev_time = str(b.get("event_time") or b.get("time") or "—")
+            raw_t = b.get("event_time") or b.get("time") or ""
+            ev_time = repo.format_time_ampm(raw_t) if raw_t else "—"
             occasion = str(b.get("occasion") or "—")
             venue = str(b.get("venue") or "—")
             status = str(b.get("status") or "PENDING").upper()

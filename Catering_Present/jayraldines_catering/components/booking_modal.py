@@ -254,6 +254,14 @@ class BookingModal(QDialog):
         self._step = 0
         self._data = {}
         self._addon_items = []
+        self._pkg_selected_dishes = {}
+        self._occasions = repo.get_all_occasions()
+        if self._edit_mode and self._booking_data:
+            b_pkg_id = self._booking_data.get("package_id")
+            b_dishes = self._booking_data.get("dishes") or []
+            if b_pkg_id and b_dishes:
+                self._pkg_selected_dishes[b_pkg_id] = [d.get("name") for d in b_dishes if d.get("name")]
+
 
         self.setStyleSheet(QApplication.instance().styleSheet() if QApplication.instance() else "")
 
@@ -299,10 +307,15 @@ class BookingModal(QDialog):
         container_layout.addWidget(div)
 
         self._stack = QStackedWidget()
-        self._stack.addWidget(self._build_step0())
-        self._stack.addWidget(self._build_step1())
-        self._stack.addWidget(self._build_step2())
-        self._stack.addWidget(self._build_step3())
+        self._step_widgets = [None, None, None, None]
+        self._step_widgets[0] = self._build_step0()
+        self._step_widgets[1] = self._build_step1()
+        self._stack.addWidget(self._step_widgets[0])
+        self._stack.addWidget(self._step_widgets[1])
+        for _ in range(2):
+            self._stack.addWidget(QWidget())
+
+
 
         # Responsive Scroll Area for Stacked Content (Guarantees footer is always visible on PC/small screens)
         stack_scroll = QScrollArea()
@@ -350,9 +363,29 @@ class BookingModal(QDialog):
         outer.addWidget(self._container)
         self._refresh_step()
 
+    def _ensure_step_built(self, idx: int):
+        if idx < 0 or idx >= len(self._step_widgets):
+            return None
+        if self._step_widgets[idx] is not None:
+            return self._step_widgets[idx]
+        builders = [self._build_step0, self._build_step1, self._build_step2, self._build_step3]
+        w = builders[idx]()
+        self._step_widgets[idx] = w
+        old = self._stack.widget(idx)
+        self._stack.removeWidget(old)
+        self._stack.insertWidget(idx, w)
+        if old:
+            old.deleteLater()
+        return w
+
     def showEvent(self, event):
         super().showEvent(event)
         animate_dialog_open(self, duration=240, auto_center=True)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(60, lambda: self._ensure_step_built(2))
+        QTimer.singleShot(150, lambda: self._ensure_step_built(3))
+
+
 
     def _build_step0(self):
         w = QWidget()
@@ -470,6 +503,7 @@ class BookingModal(QDialog):
         v4.setSpacing(6)
         v4.addWidget(_field_label("Time"))
         self.f_time = QTimeEdit(QTime(18, 0))
+        self.f_time.setDisplayFormat("hh:mm AP")
         self.f_time.setFixedHeight(38)
         self.f_time.setMinimumWidth(110)
         v4.addWidget(self.f_time)
@@ -566,9 +600,10 @@ class BookingModal(QDialog):
         pkg_w = QWidget()
         pkg_w.setStyleSheet("background: transparent;")
         pkg_lay = QVBoxLayout(pkg_w)
-        pkg_lay.setSpacing(10)
-        pkg_lay.setContentsMargins(0, 0, 0, 0)
+        pkg_lay.setSpacing(12)
+        pkg_lay.setContentsMargins(0, 0, 8, 0)
         self._pkg_btns = []
+        self._pkg_dish_checks = []
         self._db_packages = repo.get_all_packages()
         if not self._db_packages:
             empty_lbl = QLabel("No packages defined yet.\nAsk the owner to add packages in the Menu section.")
@@ -576,9 +611,15 @@ class BookingModal(QDialog):
             empty_lbl.setAlignment(Qt.AlignCenter)
             pkg_lay.addWidget(empty_lbl)
         else:
+            pkg_cards_lbl = QLabel("1. Choose Package Tier:")
+            pkg_cards_lbl.setStyleSheet("font-weight: 700; font-size: 13px; color: #E11D48; margin-top: 4px;")
+            pkg_lay.addWidget(pkg_cards_lbl)
+
+            self._pkg_cards = []
             for i, pkg in enumerate(self._db_packages):
                 name = pkg["name"]
                 desc = str(pkg.get("description") or "").strip()
+                pkg_id = pkg.get("id")
                 card = QFrame()
                 card.setObjectName("packageCard")
                 card.setStyleSheet(_package_card_style(selected=(i == 0)))
@@ -588,11 +629,10 @@ class BookingModal(QDialog):
                 card_lay.setSpacing(12)
 
                 info = QVBoxLayout()
-                info.setSpacing(2)
+                info.setSpacing(3)
                 n_lbl = QLabel(name)
                 n_lbl.setStyleSheet(_package_name_style())
 
-                # Truncate very long description with ellipsis to prevent modal extending horizontally
                 display_desc = desc
                 if len(desc) > 85:
                     display_desc = desc[:82].rstrip() + "..."
@@ -603,8 +643,13 @@ class BookingModal(QDialog):
                 if desc:
                     d_lbl.setToolTip(desc)
 
+                dish_badge = QLabel("🍽️ Click to customize menu")
+                dish_badge.setStyleSheet("font-size: 11px; font-weight: 600; color: #94A3B8; background: rgba(255, 255, 255, 0.05); border-radius: 4px; padding: 2px 6px;")
+                card._dish_badge = dish_badge
+
                 info.addWidget(n_lbl)
                 info.addWidget(d_lbl)
+                info.addWidget(dish_badge)
                 card_lay.addLayout(info, 1)
 
                 price_val = float(pkg.get("price_per_pax", 0))
@@ -612,13 +657,102 @@ class BookingModal(QDialog):
                 p_lbl.setStyleSheet("font-size: 13.5px; font-weight: 700; color: #E11D48; margin-right: 6px;")
                 card_lay.addWidget(p_lbl)
 
+                actions_layout = QHBoxLayout()
+                actions_layout.setSpacing(6)
+
                 sel_btn = QPushButton("Selected" if i == 0 else "Select")
                 sel_btn.setObjectName("primaryButton" if i == 0 else "secondaryButton")
-                sel_btn.setMinimumWidth(96)
-                sel_btn.clicked.connect(lambda _, idx=i, c=card: self._select_package(idx, c))
-                card_lay.addWidget(sel_btn)
+                sel_btn.setMinimumWidth(88)
+                sel_btn.setCursor(Qt.PointingHandCursor)
+                sel_btn.clicked.connect(lambda _, idx=i, c=card: self._select_package(idx, c, open_popup=True))
+                actions_layout.addWidget(sel_btn)
+
+                menu_btn = QPushButton("🍽️ Dishes")
+                menu_btn.setToolTip("Customize dishes for this package")
+                menu_btn.setCursor(Qt.PointingHandCursor)
+                menu_btn.setStyleSheet("""
+                    QPushButton {
+                        background: rgba(225, 29, 72, 0.12);
+                        color: #E11D48;
+                        border: 1px solid rgba(225, 29, 72, 0.3);
+                        border-radius: 6px;
+                        font-size: 11.5px;
+                        font-weight: 700;
+                        padding: 5px 10px;
+                    }
+                    QPushButton:hover {
+                        background: rgba(225, 29, 72, 0.22);
+                    }
+                """)
+                menu_btn.clicked.connect(lambda _, idx=i, c=card: (self._select_package(idx, c, open_popup=False), self._open_package_menu_popup(idx)))
+                actions_layout.addWidget(menu_btn)
+
+                card_lay.addLayout(actions_layout)
+
+                # Clicking card also selects and opens popup
+                card.mousePressEvent = lambda e, idx=i, c=card: self._select_package(idx, c, open_popup=True)
+
                 self._pkg_btns.append((card, sel_btn))
+                self._pkg_cards.append(card)
                 pkg_lay.addWidget(card)
+
+            # ── Package Dishes & Customizer Box ───────────────────────────────
+            self._pkg_dishes_box = QFrame()
+            self._pkg_dishes_box.setObjectName("cardElevated")
+            self._pkg_dishes_box.setStyleSheet(
+                "QFrame#cardElevated { background: rgba(255, 255, 255, 0.04); border: 1.5px solid rgba(225, 29, 72, 0.35); border-radius: 12px; padding: 14px; }"
+                if not _is_light() else
+                "QFrame#cardElevated { background: #F8FAFC; border: 1.5px solid #F4A6B8; border-radius: 12px; padding: 14px; }"
+            )
+            dishes_box_lay = QVBoxLayout(self._pkg_dishes_box)
+            dishes_box_lay.setContentsMargins(14, 12, 14, 12)
+            dishes_box_lay.setSpacing(10)
+
+            dh_row = QHBoxLayout()
+            dh_row.setSpacing(8)
+            self._pkg_dishes_title = QLabel("🍽️ Package Dishes & Menu Customizer")
+            self._pkg_dishes_title.setStyleSheet("font-weight: 700; font-size: 13.5px;")
+            dh_row.addWidget(self._pkg_dishes_title)
+            dh_row.addStretch()
+
+            btn_popup = QPushButton("🍽️ Open Selection Popup")
+            btn_popup.setCursor(Qt.PointingHandCursor)
+            btn_popup.setStyleSheet("background: #E11D48; color: white; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 6px; border: none;")
+            btn_popup.clicked.connect(lambda: self._open_package_menu_popup(self._selected_pkg))
+            dh_row.addWidget(btn_popup)
+
+            btn_reset_defaults = QPushButton("✓ Defaults")
+            btn_reset_defaults.setCursor(Qt.PointingHandCursor)
+            btn_reset_defaults.setStyleSheet("font-size: 11px; padding: 3px 8px; border-radius: 6px;")
+            btn_reset_defaults.clicked.connect(self._reset_pkg_dishes_to_default)
+            dh_row.addWidget(btn_reset_defaults)
+
+            btn_sel_all = QPushButton("Select All")
+            btn_sel_all.setCursor(Qt.PointingHandCursor)
+            btn_sel_all.setStyleSheet("font-size: 11px; padding: 3px 8px; border-radius: 6px;")
+            btn_sel_all.clicked.connect(self._select_all_pkg_dishes)
+            dh_row.addWidget(btn_sel_all)
+
+            btn_clr_all = QPushButton("Clear")
+            btn_clr_all.setCursor(Qt.PointingHandCursor)
+            btn_clr_all.setStyleSheet("font-size: 11px; padding: 3px 8px; border-radius: 6px;")
+            btn_clr_all.clicked.connect(self._clear_all_pkg_dishes)
+            dh_row.addWidget(btn_clr_all)
+            dishes_box_lay.addLayout(dh_row)
+
+            self._pkg_dishes_count_lbl = QLabel("")
+            self._pkg_dishes_count_lbl.setStyleSheet("font-size: 12px; color: #10B981; font-weight: 600;")
+            dishes_box_lay.addWidget(self._pkg_dishes_count_lbl)
+
+            self._pkg_dishes_list_w = QWidget()
+            self._pkg_dishes_list_w.setStyleSheet("background: transparent;")
+            self._pkg_dishes_list_lay = QVBoxLayout(self._pkg_dishes_list_w)
+            self._pkg_dishes_list_lay.setContentsMargins(0, 0, 0, 0)
+            self._pkg_dishes_list_lay.setSpacing(6)
+            dishes_box_lay.addWidget(self._pkg_dishes_list_w)
+
+            pkg_lay.addWidget(self._pkg_dishes_box)
+
         pkg_lay.addStretch()
         self.menu_stack.addWidget(pkg_w)
 
@@ -663,18 +797,15 @@ class BookingModal(QDialog):
                 self._custom_checks.append((chk, item))
                 cus_lay.addLayout(row)
         cus_lay.addStretch()
-        scroll_c = QScrollArea()
-        scroll_c.setWidgetResizable(True)
-        scroll_c.setFrameShape(QFrame.NoFrame)
-        scroll_c.setStyleSheet("background: transparent;")
-        scroll_c.setWidget(custom_w)
-        self.menu_stack.addWidget(scroll_c)
+        self.menu_stack.addWidget(custom_w)
 
         self.btn_pkg.clicked.connect(lambda: self._set_menu_mode(0))
         self.btn_custom.clicked.connect(lambda: self._set_menu_mode(1))
 
         lay.addWidget(self.menu_stack, 1)
         self._selected_pkg = 0 if self._db_packages else None
+        if self._selected_pkg is not None:
+            self._update_package_dishes(self._selected_pkg)
         return w
 
     def _set_menu_mode(self, index):
@@ -717,7 +848,7 @@ class BookingModal(QDialog):
             duration=180,
         )
 
-    def _select_package(self, idx, clicked_card):
+    def _select_package(self, idx, clicked_card=None, open_popup=True):
         # select a package and switch menu mode to Packages
         self._selected_pkg = idx
         # ensure we're in Packages mode
@@ -731,7 +862,7 @@ class BookingModal(QDialog):
             if hasattr(self, "f_pay_package_total"):
                 self.f_pay_package_total.setValue(pax_val * rate)
 
-        for i, (card, btn) in enumerate(self._pkg_btns):
+        for i, (card, btn) in enumerate(getattr(self, "_pkg_btns", [])):
             if i == idx:
                 card.setStyleSheet(_package_card_style(selected=True))
                 btn.setObjectName("primaryButton")
@@ -742,23 +873,208 @@ class BookingModal(QDialog):
                 btn.setText("Select")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+
+        self._update_package_dishes(idx)
         self._update_cost()
+        self._update_pkg_card_badges()
+
+        if open_popup:
+            self._open_package_menu_popup(idx)
+
+    def _open_package_menu_popup(self, pkg_idx: int):
+        db_pkgs = getattr(self, "_db_packages", [])
+        if not db_pkgs or pkg_idx is None or pkg_idx >= len(db_pkgs):
+            return
+        pkg = db_pkgs[pkg_idx]
+        pkg_id = pkg.get("id")
+
+        if not hasattr(self, "_pkg_selected_dishes"):
+            self._pkg_selected_dishes = {}
+
+        current_selected = self._pkg_selected_dishes.get(pkg_id)
+        if current_selected is None:
+            if getattr(self, "_edit_mode", False) and self._booking_data and self._booking_data.get("dishes"):
+                current_selected = [d.get("name") for d in self._booking_data["dishes"] if d.get("name")]
+            else:
+                default_items = repo.get_package_items(pkg_id)
+                current_selected = [p.get("item_name") for p in default_items if p.get("item_name")]
+
+        from components.package_menu_dialog import PackageMenuSelectionDialog
+        dlg = PackageMenuSelectionDialog(pkg, selected_names=current_selected, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            chosen = dlg.get_selected_dishes()
+            self._pkg_selected_dishes[pkg_id] = chosen
+
+            # Sync inline checkboxes
+            if hasattr(self, "_pkg_dish_checks"):
+                sel_lowers = {s.strip().lower() for s in chosen}
+                for chk, itm in self._pkg_dish_checks:
+                    name = (itm.get("item") or itm.get("name") or itm.get("item_name", "")).strip().lower()
+                    chk.blockSignals(True)
+                    chk.setChecked(name in sel_lowers)
+                    chk.blockSignals(False)
+                cnt = sum(1 for chk, _ in self._pkg_dish_checks if chk.isChecked())
+                if hasattr(self, "_pkg_dishes_count_lbl"):
+                    self._pkg_dishes_count_lbl.setText(f"✓ {cnt} dishes selected for this package order")
+
+            self._update_pkg_card_badges()
+
+    def _update_pkg_card_badges(self):
+        db_pkgs = getattr(self, "_db_packages", [])
+        cards = getattr(self, "_pkg_cards", [])
+        for i, card in enumerate(cards):
+            if i < len(db_pkgs):
+                pkg = db_pkgs[i]
+                pkg_id = pkg.get("id")
+                chosen = getattr(self, "_pkg_selected_dishes", {}).get(pkg_id)
+                if hasattr(card, "_dish_badge"):
+                    if chosen is not None and len(chosen) > 0:
+                        card._dish_badge.setText(f"✓ {len(chosen)} dishes selected (Click to customize)")
+                        card._dish_badge.setStyleSheet("font-size: 11px; font-weight: 700; color: #10B981; background: rgba(16, 185, 129, 0.12); border-radius: 4px; padding: 2px 6px;")
+                    else:
+                        card._dish_badge.setText("🍽️ Click to customize menu")
+                        card._dish_badge.setStyleSheet("font-size: 11px; font-weight: 600; color: #94A3B8; background: rgba(255, 255, 255, 0.05); border-radius: 4px; padding: 2px 6px;")
+
+    def _update_package_dishes(self, pkg_idx: int):
+        if not hasattr(self, "_pkg_dishes_box") or not hasattr(self, "_pkg_dishes_list_lay"):
+            return
+        # Clear existing dish items
+        while self._pkg_dishes_list_lay.count():
+            item = self._pkg_dishes_list_lay.takeAt(0)
+            if item:
+                w = item.widget()
+                if w:
+                    w.deleteLater()
+                elif item.layout():
+                    while item.layout().count():
+                        sub = item.layout().takeAt(0)
+                        if sub.widget():
+                            sub.widget().deleteLater()
+
+        self._pkg_dish_checks = []
+        db_pkgs = getattr(self, "_db_packages", [])
+        if not db_pkgs or pkg_idx >= len(db_pkgs):
+            self._pkg_dishes_box.setVisible(False)
+            return
+
+        pkg = db_pkgs[pkg_idx]
+        pkg_id = pkg["id"]
+        if hasattr(self, "_pkg_dishes_title"):
+            self._pkg_dishes_title.setText(f"🍽️ Dishes & Menu for: {pkg['name']}")
+
+        default_items = repo.get_package_items(pkg_id)
+        default_names = {p["item_name"].strip().lower() for p in default_items if p.get("item_name")}
+
+        # Check existing selected dishes cache first
+        if hasattr(self, "_pkg_selected_dishes") and pkg_id in self._pkg_selected_dishes:
+            prechecked = {s.strip().lower() for s in self._pkg_selected_dishes[pkg_id] if s}
+        elif getattr(self, "_edit_mode", False) and self._booking_data and self._booking_data.get("dishes"):
+            booked_names = {d.get("name", "").strip().lower() for d in self._booking_data["dishes"] if d.get("name")}
+            prechecked = booked_names
+        else:
+            prechecked = default_names
+
+        # Seed cache if not yet set
+        if not hasattr(self, "_pkg_selected_dishes"):
+            self._pkg_selected_dishes = {}
+        if pkg_id not in self._pkg_selected_dishes:
+            self._pkg_selected_dishes[pkg_id] = [p["item_name"] for p in default_items if p.get("item_name")]
+
+        all_items = repo.get_available_menu_items()
+        if not all_items:
+            all_items = default_items
+
+        # Group items by category
+        by_cat = {}
+        for itm in all_items:
+            cat = itm.get("category") or "Main Course"
+            by_cat.setdefault(cat, []).append(itm)
+
+        cat_order = ["Main Course", "Appetizer", "Soup", "Salad", "Dessert", "Drinks", "Other"]
+        sorted_cats = sorted(by_cat.keys(), key=lambda c: cat_order.index(c) if c in cat_order else 99)
+
+        for cat in sorted_cats:
+            cat_hdr = QLabel(f"● {cat.upper()}")
+            cat_hdr.setStyleSheet("font-size: 11px; font-weight: 700; color: #E11D48; margin-top: 8px; margin-bottom: 2px; letter-spacing: 0.5px;")
+            self._pkg_dishes_list_lay.addWidget(cat_hdr)
+
+            for item in by_cat[cat]:
+                i_name = item.get("item") or item.get("name") or item.get("item_name", "")
+                if not i_name:
+                    continue
+                row = QHBoxLayout()
+                row.setContentsMargins(6, 2, 6, 2)
+                row.setSpacing(10)
+
+                chk = QCheckBox(i_name)
+                chk.setStyleSheet(_checkbox_item_style())
+                if i_name.strip().lower() in prechecked:
+                    chk.setChecked(True)
+
+                chk.toggled.connect(self._on_pkg_dish_toggled)
+
+                is_default_badge = QLabel("Package Default" if i_name.strip().lower() in default_names else "")
+                is_default_badge.setStyleSheet("font-size: 10px; font-weight: 600; color: #10B981; background: rgba(16, 185, 129, 0.1); border-radius: 4px; padding: 1px 6px;")
+                if not is_default_badge.text():
+                    is_default_badge.hide()
+
+                row.addWidget(chk)
+                row.addWidget(is_default_badge)
+                row.addStretch()
+
+                self._pkg_dish_checks.append((chk, item))
+                self._pkg_dishes_list_lay.addLayout(row)
+
+        self._pkg_dishes_box.setVisible(True)
+        self._on_pkg_dish_toggled()
+        self._update_pkg_card_badges()
+
+    def _on_pkg_dish_toggled(self):
+        cnt = sum(1 for chk, _ in getattr(self, "_pkg_dish_checks", []) if chk.isChecked())
+        if hasattr(self, "_pkg_dishes_count_lbl"):
+            self._pkg_dishes_count_lbl.setText(f"✓ {cnt} dishes selected for this package order")
+        pkg_idx = getattr(self, "_selected_pkg", 0)
+        db_pkgs = getattr(self, "_db_packages", [])
+        if db_pkgs and pkg_idx is not None and pkg_idx < len(db_pkgs):
+            pkg_id = db_pkgs[pkg_idx]["id"]
+            if not hasattr(self, "_pkg_selected_dishes"):
+                self._pkg_selected_dishes = {}
+            self._pkg_selected_dishes[pkg_id] = [
+                itm.get("item") or itm.get("name") or itm.get("item_name", "")
+                for chk, itm in getattr(self, "_pkg_dish_checks", []) if chk.isChecked()
+            ]
+            self._update_pkg_card_badges()
+
+    def _reset_pkg_dishes_to_default(self):
+        pkg_idx = getattr(self, "_selected_pkg", 0)
+        db_pkgs = getattr(self, "_db_packages", [])
+        if not db_pkgs or pkg_idx >= len(db_pkgs):
+            return
+        pkg_id = db_pkgs[pkg_idx]["id"]
+        default_items = repo.get_package_items(pkg_id)
+        default_names = {p["item_name"].strip().lower() for p in default_items if p.get("item_name")}
+        for chk, itm in getattr(self, "_pkg_dish_checks", []):
+            name = (itm.get("item") or itm.get("name") or itm.get("item_name", "")).strip().lower()
+            chk.setChecked(name in default_names)
+        if not hasattr(self, "_pkg_selected_dishes"):
+            self._pkg_selected_dishes = {}
+        self._pkg_selected_dishes[pkg_id] = [p["item_name"] for p in default_items if p.get("item_name")]
+        self._on_pkg_dish_toggled()
+
+    def _select_all_pkg_dishes(self):
+        for chk, _ in getattr(self, "_pkg_dish_checks", []):
+            chk.setChecked(True)
+        self._on_pkg_dish_toggled()
+
+    def _clear_all_pkg_dishes(self):
+        for chk, _ in getattr(self, "_pkg_dish_checks", []):
+            chk.setChecked(False)
+        self._on_pkg_dish_toggled()
 
     def _build_step3(self):
         w = QWidget()
         w.setStyleSheet("background: transparent;")
-        root_lay = QVBoxLayout(w)
-        root_lay.setContentsMargins(0, 0, 0, 0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("background: transparent;")
-
-        inner_w = QWidget()
-        inner_w.setStyleSheet("background: transparent;")
-        lay = QVBoxLayout(inner_w)
+        lay = QVBoxLayout(w)
         lay.setSpacing(12)
         lay.setContentsMargins(0, 0, 8, 0)
 
@@ -930,9 +1246,8 @@ class BookingModal(QDialog):
         self._update_cost()
 
         lay.addStretch()
-        scroll.setWidget(inner_w)
-        root_lay.addWidget(scroll)
         return w
+
 
     def _on_pay_pax_changed(self, val: int):
         if hasattr(self, "f_pax") and self.f_pax.value() != val:
@@ -1085,6 +1400,7 @@ class BookingModal(QDialog):
             self._lbl_deposit.setText(f"Required {pct:.0f}% Downpayment: ₱{deposit:,.2f}")
 
     def _refresh_step(self, direction=0):
+        self._ensure_step_built(self._step)
         self._stack.setCurrentIndex(self._step)
         if direction:
             animate_slide_fade_in(
@@ -1181,6 +1497,8 @@ class BookingModal(QDialog):
         menu_type = "package"
         db_pkgs = getattr(self, "_db_packages", [])
         pkg_idx = getattr(self, "_selected_pkg", None)
+        selected_dishes = []
+        package_id = None
 
         if self.btn_custom.isChecked():
             menu_type = "custom"
@@ -1195,14 +1513,29 @@ class BookingModal(QDialog):
                 for chk, item in getattr(self, "_custom_checks", [])
                 if chk.isChecked()
             )
+            selected_dishes = [it for it in selected_items if it]
         else:
             menu_type = "package"
             if db_pkgs and pkg_idx is not None and pkg_idx < len(db_pkgs):
-                menu_value = db_pkgs[pkg_idx]["name"]
-                rate = float(db_pkgs[pkg_idx]["price_per_pax"])
+                pkg_obj = db_pkgs[pkg_idx]
+                menu_value = pkg_obj["name"]
+                rate = float(pkg_obj["price_per_pax"])
+                package_id = pkg_obj.get("id")
             else:
                 menu_value = "Standard Package"
                 rate = 0.0
+
+            if package_id and package_id in getattr(self, "_pkg_selected_dishes", {}):
+                selected_dishes = self._pkg_selected_dishes[package_id]
+            else:
+                selected_dishes = [
+                    dish.get("item") or dish.get("name") or dish.get("item_name", "")
+                    for chk, dish in getattr(self, "_pkg_dish_checks", [])
+                    if chk.isChecked() and (dish.get("item") or dish.get("name") or dish.get("item_name"))
+                ]
+            if not selected_dishes and package_id:
+                default_items = repo.get_package_items(package_id)
+                selected_dishes = [p["item_name"] for p in default_items if p.get("item_name")]
 
         pax = self.f_pay_pax.value() if hasattr(self, "f_pay_pax") else self.f_pax.value()
         
@@ -1240,24 +1573,28 @@ class BookingModal(QDialog):
         recorded_down = orig_paid if orig_paid > 0 else (getattr(self, "_last_deposit", 0.0) if hasattr(self, "_last_deposit") else 0.0)
 
         data = {
-            "name":         selected_customer.get("name", ""),
-            "contact":      self.f_contact.text().strip(),
-            "email":        self.f_email.text().strip(),
-            "address":      self.f_address.text().strip(),
-            "occasion":     self.f_occasion.currentText().strip(),
-            "venue":        self.f_venue.text().strip(),
-            "date":         self.f_date.date().toString("MMM dd, yyyy"),
-            "time":         self.f_time.time().toString("hh:mm AP"),
-            "pax":          pax,
-            "notes":        notes_text,
-            "menu_type":    menu_type,
-            "menu_value":   menu_value,
-            "total":        total,
-            "amount_paid":  recorded_down,
-            "down_payment": recorded_down,
-            "color_theme":  self.f_color_picker.get_color() if hasattr(self, "f_color_picker") else "#2563EB",
-            "color":        self.f_color_picker.get_color() if hasattr(self, "f_color_picker") else "#2563EB",
-            "status":       orig_status or "PENDING",
+            "db_id":           self._booking_data.get("db_id") if self._booking_data else None,
+            "name":            selected_customer.get("name", ""),
+            "contact":         self.f_contact.text().strip(),
+            "email":           self.f_email.text().strip(),
+            "address":         self.f_address.text().strip(),
+            "occasion":        self.f_occasion.currentText().strip(),
+            "venue":           self.f_venue.text().strip(),
+            "date":            self.f_date.date().toString("MMM dd, yyyy"),
+            "time":            self.f_time.time().toString("hh:mm AP"),
+            "event_time":      self.f_time.time().toString("hh:mm AP"),
+            "pax":             pax,
+            "notes":           notes_text,
+            "menu_type":       menu_type,
+            "menu_value":      menu_value,
+            "package_id":      package_id,
+            "selected_dishes": selected_dishes,
+            "total":           total,
+            "amount_paid":     recorded_down,
+            "down_payment":    recorded_down,
+            "color_theme":     self.f_color_picker.get_color() if hasattr(self, "f_color_picker") else "#2563EB",
+            "color":           self.f_color_picker.get_color() if hasattr(self, "f_color_picker") else "#2563EB",
+            "status":          orig_status or "PENDING",
         }
         self.booking_saved.emit(data)
         self.accept()

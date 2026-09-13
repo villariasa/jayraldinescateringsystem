@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QDialog, QFormLayout, QComboBox, QLineEdit, QDoubleSpinBox,
     QFileDialog, QMessageBox, QDateEdit, QScrollArea, QTabWidget
 )
-from PySide6.QtCore import Qt, QSize, QDate
+from PySide6.QtCore import Qt, QSize, QDate, QTimer
 from datetime import date as _date_type
 from PySide6.QtGui import QColor
 
@@ -835,33 +835,10 @@ class BillingPage(QWidget):
             self.cards_layout.addWidget(empty_lbl)
             self.cards_layout.addStretch()
         else:
-            BATCH_SIZE = 35
-            first_batch = self._invoices[:BATCH_SIZE]
-            for inv in first_batch:
+            for inv in self._invoices:
                 i_card = self._create_invoice_card(inv)
                 self.cards_layout.addWidget(i_card)
-
             self.cards_layout.addStretch()
-
-            remaining = self._invoices[BATCH_SIZE:]
-            if remaining:
-                def _append_invoice_chunk(offset=0):
-                    if not hasattr(self, "cards_layout") or not self.cards_layout:
-                        return
-                    chunk = remaining[offset:offset + BATCH_SIZE]
-                    for inv in chunk:
-                        i_card = self._create_invoice_card(inv)
-                        cnt = self.cards_layout.count()
-                        if cnt > 1:
-                            self.cards_layout.insertWidget(cnt - 1, i_card)
-                        else:
-                            self.cards_layout.addWidget(i_card)
-                    if offset + BATCH_SIZE < len(remaining):
-                        from PySide6.QtCore import QTimer
-                        QTimer.singleShot(2, lambda: _append_invoice_chunk(offset + BATCH_SIZE))
-
-                from PySide6.QtCore import QTimer
-                QTimer.singleShot(2, lambda: _append_invoice_chunk(0))
 
         if hasattr(self, "tabs") and self.tabs.currentIndex() == 1:
             self._populate_ledger()

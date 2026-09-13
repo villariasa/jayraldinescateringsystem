@@ -8,7 +8,7 @@ changes so historical orders keep the exact version they agreed to
 (terms_acknowledgements.ta_version) - never edit old accepted text in place.
 """
 
-CURRENT_TERMS_VERSION = "1.0"
+CURRENT_TERMS_VERSION = "1.1"
 
 TERMS_TITLE = "Jayraldine's Catering Services — Terms & Conditions"
 
@@ -44,20 +44,18 @@ SERVICE INFORMATION:
 
 13. Jayraldine's Catering Event Place is optionally available as a venue for parties.
 
-14. Our 2 function rooms are fully air-conditioned, with 80–100 person and 50–60 person capacity. A built-in sound system with microphone is available for free use. Function room maintenance fee is only P2,000 and P1,000 for 3 hours.
+14. Our 2 function rooms are fully air-conditioned, with 80–100 person and 50–60 person capacity. A built-in sound system with microphone is available for free use. Function room rate is P1,000–P1,500 per hour.
 
 15. One elegant buffet table can be added for every hundred persons:
     • 100 persons = 1 Buffet Table
     • 200 persons = Maximum of 2 Buffet Tables
     • Additional Buffet Table: P500.00 each
 
-16. One complimentary Presidential Table for a minimum of 100 persons. Additional Presidential Table: P500.00.
+16. One complimentary Presidential Table for a minimum of 100 persons. Additional Presidential Table: P1,000.00.
 
-17. A reservation fee is required: minimum P2,000, or P5,000 for Weddings and Debuts. The reservation fee is non-refundable but will be deducted from the total bill. Half payment shall be made one week before the event.
+17. A reservation fee of P5,000.00 is required (non-refundable but will be deducted from the total bill). 50% down payment must be made 1–2 weeks before the event date.
 
 18. Full payment shall be made before the start of the function. We only accept CASH PAYMENT.
-
-19. NOTE: For the Wedding rate, an additional P30.00/head is charged for a minimum of 100 persons.
 """
 
 TERMS_ACKNOWLEDGEMENT_LABEL = "I have read and understood the Catering Rules and Terms and Conditions."

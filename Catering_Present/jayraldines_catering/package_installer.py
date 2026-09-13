@@ -84,10 +84,10 @@ def create_installer():
         "--add-data", "confirmed_only_views_migration.sql;.",
         "--add-data", "analytics_functions_migration.sql;.",
         "--add-data", "fix_customer_ledger_view.sql;.",
-        "--add-data", "device_monitoring_migration.sql;.",
-        "--add-data", "setup.ps1;.",
+        "--add-data", "catering.db;.",
         "--uac-admin",
         "--distpath", str(output_dir),
+
         "--exclude-module", "reportlab",
         "--exclude-module", "openpyxl",
         "--exclude-module", "tkinter",
