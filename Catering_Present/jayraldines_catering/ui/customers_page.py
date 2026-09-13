@@ -926,8 +926,7 @@ class CustomersPage(QWidget):
     def reload(self):
         self._mark_dirty()
         self.refresh_permissions()
-        if self.isVisible():
-            self._do_reload()
+        self._do_reload()
 
     def refresh_permissions(self):
         from utils.auth import SessionManager
@@ -967,10 +966,15 @@ class CustomersPage(QWidget):
         from utils.data_cache import DataCache
         cached = DataCache.get("customers_loyalty")
         if cached is not None and not getattr(self, "_has_populated_once", False):
-            self._on_customers_loaded(cached, gen)
+            self._has_populated_once = True
+            if hasattr(self, "_loader"):
+                self._loader.show_overlay("Loading customer records...")
+                QTimer.singleShot(60, lambda: self._on_customers_loaded(cached, gen))
+            else:
+                self._on_customers_loaded(cached, gen)
             return
 
-        if hasattr(self, "_loader") and self.isVisible():
+        if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading customer records...")
         run_async(self, repo.get_all_customers_with_loyalty,
                   lambda data, gen=gen: self._on_customers_loaded_and_cache(data, gen))

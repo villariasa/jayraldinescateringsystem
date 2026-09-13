@@ -325,6 +325,8 @@ class SettingsPage(QWidget):
 
     def _load_all_settings_async(self):
         from utils.data_loader import run_async
+        if hasattr(self, "_loader"):
+            self._loader.show_overlay("Loading system configuration...")
         run_async(self, self._fetch_all_settings_data_worker, self._apply_settings_data)
 
     def _apply_settings_data(self, data):
@@ -332,47 +334,48 @@ class SettingsPage(QWidget):
             from shiboken6 import isValid
             if not isValid(self):
                 return
-        except Exception:
-            pass
-        if not data:
-            return
-        if data.get("biz"):
-            b = data["biz"]
-            _BUSINESS_INFO.update(b)
-            if hasattr(self, "_name_f"):
-                self._name_f.setText(b.get("name", ""))
-            if hasattr(self, "_contact_f"):
-                self._contact_f.setText(b.get("contact", ""))
-            if hasattr(self, "_email_f"):
-                self._email_f.setText(b.get("email", ""))
-            if hasattr(self, "_address_f"):
-                self._address_f.setText(b.get("address", ""))
-        if data.get("policy"):
-            p = data["policy"]
-            if hasattr(self, "_min_dp_spin"):
-                self._min_dp_spin.setValue(float(p.get("min_downpayment_pct", 30.0)))
-            if hasattr(self, "_allow_zero_cb"):
-                self._allow_zero_cb.setChecked(bool(p.get("allow_zero_downpayment", False)))
-            if hasattr(self, "_max_pax_spin"):
-                self._max_pax_spin.setValue(int(p.get("max_daily_pax", 600)))
-        if data.get("smtp"):
-            s = data["smtp"]
-            if hasattr(self, "_smtp_host_f"):
-                self._smtp_host_f.setText(str(s.get("smtp_host", "")))
-            if hasattr(self, "_smtp_port_f"):
-                self._smtp_port_f.setValue(int(s.get("smtp_port", 587)))
-            if hasattr(self, "_smtp_user_f"):
-                self._smtp_user_f.setText(str(s.get("smtp_user", "")))
-            if hasattr(self, "_smtp_pass_f"):
-                self._smtp_pass_f.setText(str(s.get("smtp_pass", "")))
-        if data.get("occasions") is not None and hasattr(self, "_occ_list"):
-            self._occ_list.clear()
-            for name in data["occasions"]:
-                self._occ_list.addItem(QListWidgetItem(name))
-        if data.get("sales_targets") and hasattr(self, "_month_target_spins"):
-            st = data["sales_targets"]
-            for m, spin in self._month_target_spins.items():
-                spin.setValue(float(st.get(m, 85000.0)))
+            if not data:
+                return
+            if data.get("biz"):
+                b = data["biz"]
+                _BUSINESS_INFO.update(b)
+                if hasattr(self, "_name_f"):
+                    self._name_f.setText(b.get("name", ""))
+                if hasattr(self, "_contact_f"):
+                    self._contact_f.setText(b.get("contact", ""))
+                if hasattr(self, "_email_f"):
+                    self._email_f.setText(b.get("email", ""))
+                if hasattr(self, "_address_f"):
+                    self._address_f.setText(b.get("address", ""))
+            if data.get("policy"):
+                p = data["policy"]
+                if hasattr(self, "_min_dp_spin"):
+                    self._min_dp_spin.setValue(float(p.get("min_downpayment_pct", 30.0)))
+                if hasattr(self, "_allow_zero_cb"):
+                    self._allow_zero_cb.setChecked(bool(p.get("allow_zero_downpayment", False)))
+                if hasattr(self, "_max_pax_spin"):
+                    self._max_pax_spin.setValue(int(p.get("max_daily_pax", 600)))
+            if data.get("smtp"):
+                s = data["smtp"]
+                if hasattr(self, "_smtp_host_f"):
+                    self._smtp_host_f.setText(str(s.get("smtp_host", "")))
+                if hasattr(self, "_smtp_port_f"):
+                    self._smtp_port_f.setValue(int(s.get("smtp_port", 587)))
+                if hasattr(self, "_smtp_user_f"):
+                    self._smtp_user_f.setText(str(s.get("smtp_user", "")))
+                if hasattr(self, "_smtp_pass_f"):
+                    self._smtp_pass_f.setText(str(s.get("smtp_pass", "")))
+            if data.get("occasions") is not None and hasattr(self, "_occ_list"):
+                self._occ_list.clear()
+                for name in data["occasions"]:
+                    self._occ_list.addItem(QListWidgetItem(name))
+            if data.get("sales_targets") and hasattr(self, "_month_target_spins"):
+                st = data["sales_targets"]
+                for m, spin in self._month_target_spins.items():
+                    spin.setValue(float(st.get(m, 85000.0)))
+        finally:
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
 
     def _build_ui(self):
         root_lay = QVBoxLayout(self)
@@ -442,6 +445,9 @@ class SettingsPage(QWidget):
 
         scroll.setWidget(content)
         root_lay.addWidget(scroll)
+
+        from components.loading_overlay import LoadingOverlay
+        self._loader = LoadingOverlay(self, "Loading system configuration...")
 
     def _build_current_user_card(self):
         card = QFrame()

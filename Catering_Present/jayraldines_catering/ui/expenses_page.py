@@ -324,10 +324,14 @@ class ExpensesPage(QWidget):
         cached = DataCache.get("expenses")
         if cached is not None and not getattr(self, "_has_loaded_once", False):
             self._has_loaded_once = True
-            self._on_expenses_loaded(cached)
+            if hasattr(self, "_loader"):
+                self._loader.show_overlay("Loading expenses & analytics...")
+                QTimer.singleShot(60, lambda: self._on_expenses_loaded(cached))
+            else:
+                self._on_expenses_loaded(cached)
             return
 
-        if hasattr(self, "_loader") and self.isVisible():
+        if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading expenses & analytics...")
         run_async(self, repo.get_all_expenses, self._on_expenses_loaded_and_cache)
 

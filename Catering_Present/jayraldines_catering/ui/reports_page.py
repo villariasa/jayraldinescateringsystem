@@ -949,6 +949,13 @@ class ReportsPage(QWidget):
         except Exception:
             pass
 
+        # ── Final assembly ────────────────────────────────────────────────────
+        self.scroll_area.setWidget(self.scroll_content)
+        self.root_layout.addWidget(self.scroll_area)
+
+        from components.loading_overlay import LoadingOverlay
+        self._loader = LoadingOverlay(self, "Generating analytics & financial reports...")
+
     def _mark_dirty(self):
         self._dirty = True
 
@@ -961,10 +968,6 @@ class ReportsPage(QWidget):
         super().showEvent(event)
         if getattr(self, "_dirty", True) or getattr(self, "_cached_data", None) is None:
             self.reload()
-
-        # ── Final assembly ────────────────────────────────────────────────────
-        self.scroll_area.setWidget(self.scroll_content)
-        self.root_layout.addWidget(self.scroll_area)
 
     # ── Period filter ─────────────────────────────────────────────────────────
 
@@ -1015,9 +1018,17 @@ class ReportsPage(QWidget):
         prev = getattr(self, "_reports_loader", None)
         if prev is not None and prev.isRunning():
             return  # already refreshing
+
+        if hasattr(self, "_loader"):
+            self._loader.show_overlay("Generating analytics & financial reports...")
+
         loader = DataLoader(self._fetch_all_reports_data)
         loader.data_ready.connect(self._on_reports_data_ready)
-        loader.load_error.connect(lambda msg: print(f"[Reports] Load error: {msg}"))
+        def _on_rep_err(msg):
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
+            print(f"[Reports] Load error: {msg}")
+        loader.load_error.connect(_on_rep_err)
         self._reports_loader = loader
         loader.start()
 
@@ -1044,14 +1055,15 @@ class ReportsPage(QWidget):
             from shiboken6 import isValid
             if not isValid(self):
                 return
-        except Exception:
-            pass
-        self._cached_data = data
-        self._reload_kpis(data)
-        self._reload_table(data.get("bookings", []))
-        self._load_expenses(data.get("expenses", []), data.get("profit", []))
-        self._reload_locations(data.get("locations", []))
-        self._reload_sales_evaluation_from_data(data.get("sales_eval", {}), data.get("eval_year", datetime.now().year))
+            self._cached_data = data
+            self._reload_kpis(data)
+            self._reload_table(data.get("bookings", []))
+            self._load_expenses(data.get("expenses", []), data.get("profit", []))
+            self._reload_locations(data.get("locations", []))
+            self._reload_sales_evaluation_from_data(data.get("sales_eval", {}), data.get("eval_year", datetime.now().year))
+        finally:
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
 
     def _reload_locations(self, db_data):
         """Update the locations chart with pre-fetched data (GUI thread safe)."""

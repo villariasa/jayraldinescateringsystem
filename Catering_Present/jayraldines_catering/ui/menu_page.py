@@ -1284,12 +1284,16 @@ class MenuPage(QWidget):
         cached_pkgs = DataCache.get("packages")
         if cached_items is not None and cached_pkgs is not None and not getattr(self, "_has_loaded_once", False):
             self._has_loaded_once = True
-            self._on_menu_items_loaded(cached_items)
-            self._on_packages_loaded(cached_pkgs)
+            if hasattr(self, "_loader"):
+                self._loader.show_overlay("Loading menu items & packages...")
+                QTimer.singleShot(60, lambda: (self._on_menu_items_loaded(cached_items), self._on_packages_loaded(cached_pkgs)))
+            else:
+                self._on_menu_items_loaded(cached_items)
+                self._on_packages_loaded(cached_pkgs)
             return
 
         self._pending_loads = 2
-        if hasattr(self, "_loader") and self.isVisible():
+        if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading menu items & packages...")
         run_async(self, repo.get_all_menu_items, self._on_menu_items_loaded_and_cache)
         run_async(self, repo.get_all_packages, self._on_packages_loaded_and_cache)

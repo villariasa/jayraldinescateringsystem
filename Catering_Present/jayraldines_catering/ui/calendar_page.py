@@ -631,10 +631,12 @@ class CalendarPage(QWidget):
         except Exception:
             pass
 
+        from components.loading_overlay import LoadingOverlay
+        self._loader = LoadingOverlay(self, "Loading calendar schedule & events...")
+
     def _mark_dirty(self):
         self._dirty = True
-        if self.isVisible():
-            self.reload()
+        self.reload()
 
     def refresh_permissions(self):
         from utils.auth import SessionManager
@@ -653,6 +655,8 @@ class CalendarPage(QWidget):
         self.refresh_permissions()
         year = self.current_year
         month = self.current_month
+        if hasattr(self, "_loader"):
+            self._loader.show_overlay("Loading calendar schedule & events...")
         if sync:
             month_events = repo.get_calendar_events_for_month(year, month)
             self._on_month_data_loaded(month_events)
@@ -664,13 +668,14 @@ class CalendarPage(QWidget):
             from shiboken6 import isValid
             if not isValid(self):
                 return
-        except Exception:
-            pass
-        self._db_cache.clear()
-        self._db_cache.update(month_events or {})
-        self.render_calendar()
-        if self._selected_day is not None:
-            self.on_day_clicked(self._selected_day)
+            self._db_cache.clear()
+            self._db_cache.update(month_events or {})
+            self.render_calendar()
+            if self._selected_day is not None:
+                self.on_day_clicked(self._selected_day)
+        finally:
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
 
     # ==========================================
     # CALENDAR LOGIC

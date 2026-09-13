@@ -659,10 +659,14 @@ class BillingPage(QWidget):
         cached = DataCache.get("invoices")
         if cached is not None and not getattr(self, "_has_loaded_once", False):
             self._has_loaded_once = True
-            self._on_invoices_loaded(cached)
+            if hasattr(self, "_loader"):
+                self._loader.show_overlay("Loading billing records & invoices...")
+                QTimer.singleShot(60, lambda: self._on_invoices_loaded(cached))
+            else:
+                self._on_invoices_loaded(cached)
             return
 
-        if hasattr(self, "_loader") and self.isVisible():
+        if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading billing records & invoices...")
         run_async(self, repo.get_all_invoices, self._on_invoices_loaded_and_cache)
 

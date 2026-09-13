@@ -72,6 +72,12 @@ class LoadingOverlay(QWidget):
             self.setGeometry(parent.rect())
             parent.installEventFilter(self)
 
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(
+            "QWidget#loadingOverlay { background-color: %s; }"
+            % ("rgba(241, 245, 249, 0.55)" if not ThemeManager().is_dark() else "rgba(10, 15, 29, 0.65)")
+        )
+
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)
 
@@ -81,13 +87,13 @@ class LoadingOverlay(QWidget):
         card.setStyleSheet(
             "QFrame#cardElevated { background-color: %s; border-radius: 14px; border: 1px solid %s; }"
             % (
-                "rgba(255, 255, 255, 0.95)" if not ThemeManager().is_dark() else "rgba(30, 41, 59, 0.95)",
+                "rgba(255, 255, 255, 0.98)" if not ThemeManager().is_dark() else "rgba(30, 41, 59, 0.98)",
                 "#E2E8F0" if not ThemeManager().is_dark() else "#334155"
             )
         )
         card_lay = QVBoxLayout(card)
-        card_lay.setContentsMargins(24, 20, 24, 20)
-        card_lay.setSpacing(12)
+        card_lay.setContentsMargins(28, 22, 28, 22)
+        card_lay.setSpacing(14)
         card_lay.setAlignment(Qt.AlignCenter)
 
         self._spinner = SpinnerWidget(size=40)
@@ -101,7 +107,7 @@ class LoadingOverlay(QWidget):
         )
         card_lay.addWidget(self._lbl_text)
 
-        layout.addWidget(card)
+        layout.addWidget(card, alignment=Qt.AlignCenter)
         self.hide()
 
     def set_text(self, text: str):
@@ -114,11 +120,13 @@ class LoadingOverlay(QWidget):
             self.setGeometry(self.parent().rect())
             self.raise_()
         self.show()
+        self.update()
 
     def hide_overlay(self):
         self.hide()
 
     def eventFilter(self, obj, event):
-        if obj == self.parent() and event.type() == QEvent.Resize:
+        if obj == self.parent() and event.type() in (QEvent.Resize, QEvent.Show):
             self.setGeometry(self.parent().rect())
+            self.raise_()
         return super().eventFilter(obj, event)

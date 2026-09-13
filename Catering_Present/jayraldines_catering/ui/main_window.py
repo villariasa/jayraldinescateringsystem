@@ -82,6 +82,9 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget(self.right_widget)
         self._pages = [None] * len(_PAGE_MODULES)
 
+        from components.loading_overlay import LoadingOverlay
+        self._nav_loader = LoadingOverlay(self.stack, "Loading workspace...")
+
         self.right_layout.addWidget(self.stack)
         self.main_layout.addWidget(self.right_widget)
         self.root_stack.addWidget(self.app_shell)
@@ -353,6 +356,15 @@ class MainWindow(QMainWindow):
                 )
                 return
 
+        PAGE_TITLES = {
+            0: "Dashboard", 1: "Bookings", 2: "Customers", 3: "Menu Items",
+            4: "Calendar", 5: "Kitchen Orders", 6: "Billing & Invoices",
+            7: "Reports & Analytics", 8: "Expenses", 9: "AI Chef Jay", 10: "Settings"
+        }
+        mod_name = PAGE_TITLES.get(index, "Workspace")
+        if hasattr(self, "_nav_loader"):
+            self._nav_loader.show_overlay(f"Opening {mod_name}...")
+
         first_time = self._pages[index] is None
         page = self._get_page(index)
         
@@ -394,6 +406,8 @@ class MainWindow(QMainWindow):
                 pass
         finally:
             self.stack.setUpdatesEnabled(True)
+            if hasattr(self, "_nav_loader"):
+                QTimer.singleShot(75, self._nav_loader.hide_overlay)
 
     def _reset_page_scroll(self, page):
         """Resets all scrollbars inside the page to top (0) so switching tabs always starts at the top."""

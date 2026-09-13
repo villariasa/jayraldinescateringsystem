@@ -1017,6 +1017,9 @@ class DashboardPage(QWidget):
         self.scroll.setWidget(self.content)
         self.root_layout.addWidget(self.scroll)
 
+        from components.loading_overlay import LoadingOverlay
+        self._loader = LoadingOverlay(self, "Loading dashboard metrics & analytics...")
+
         self.refresh_permissions()
         QTimer.singleShot(0, self._load_data)
 
@@ -1231,17 +1234,27 @@ class DashboardPage(QWidget):
             cached = DataCache.get("dashboard_data")
             if cached is not None and not getattr(self, "_has_loaded_once", False):
                 self._has_loaded_once = True
-                self._on_dash_data_ready(cached)
+                if hasattr(self, "_loader"):
+                    self._loader.show_overlay("Loading dashboard metrics & analytics...")
+                    QTimer.singleShot(60, lambda: self._on_dash_data_ready(cached))
+                else:
+                    self._on_dash_data_ready(cached)
                 return
 
         prev = getattr(self, "_dash_loader", None)
         if prev is not None and prev.isRunning():
             return  # already loading
+
+        if hasattr(self, "_loader"):
+            self._loader.show_overlay("Loading dashboard metrics & analytics...")
+
         loader = DataLoader(self._fetch_dashboard_data)
         loader.data_ready.connect(self._on_dash_data_ready_and_cache)
-        loader.load_error.connect(
-            lambda msg: print(f"[Dashboard] Load error: {msg}")
-        )
+        def _on_dash_err(msg):
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
+            print(f"[Dashboard] Load error: {msg}")
+        loader.load_error.connect(_on_dash_err)
         self._dash_loader = loader
         loader.start()
 
@@ -1257,58 +1270,59 @@ class DashboardPage(QWidget):
             from shiboken6 import isValid
             if not isValid(self):
                 return
-        except Exception:
-            pass
-        self.refresh_permissions()
-        kpis        = data.get("kpis", {})
-        profit_data = data.get("profit", [])
-        events      = data.get("events", [])
-        activity    = data.get("activity", [])
-        chart_data  = data.get("chart_data", [])
-        followups   = data.get("followups", [])
+            self.refresh_permissions()
+            kpis        = data.get("kpis", {})
+            profit_data = data.get("profit", [])
+            events      = data.get("events", [])
+            activity    = data.get("activity", [])
+            chart_data  = data.get("chart_data", [])
+            followups   = data.get("followups", [])
 
-        todays  = kpis.get("todays_events", 0)
-        dp_rec  = float(kpis.get("downpayment_received") or 0.0)
-        revenue = kpis.get("weekly_revenue", 0.0)
-        unpaid  = kpis.get("unpaid_invoices", 0.0)
-        pax     = kpis.get("todays_pax", 0)
+            todays  = kpis.get("todays_events", 0)
+            dp_rec  = float(kpis.get("downpayment_received") or 0.0)
+            revenue = kpis.get("weekly_revenue", 0.0)
+            unpaid  = kpis.get("unpaid_invoices", 0.0)
+            pax     = kpis.get("todays_pax", 0)
 
-        self._kpi_today.update_value(str(todays))
-        self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} today")
-        self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
-        self._kpi_downpayment.update_trend("From upcoming events")
-        self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-        self._kpi_revenue.update_trend("This week's revenue")
-        self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
-        self._kpi_unpaid.update_trend("Outstanding balance")
+            self._kpi_today.update_value(str(todays))
+            self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} today")
+            self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
+            self._kpi_downpayment.update_trend("From upcoming events")
+            self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
+            self._kpi_revenue.update_trend("This week's revenue")
+            self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
+            self._kpi_unpaid.update_trend("Outstanding balance")
 
-        try:
-            total_rev = sum(r["revenue"] for r in profit_data)
-            total_exp = sum(r["expense"] for r in profit_data)
-            net = total_rev - total_exp
-            self._kpi_profit.update_value(f"₱ {net:,.0f}")
-            self._kpi_profit.update_trend(f"Rev ₱{total_rev:,.0f} − Exp ₱{total_exp:,.0f}")
-        except Exception:
-            self._kpi_profit.update_value("—")
-            self._kpi_profit.update_trend("No expense data")
+            try:
+                total_rev = sum(r["revenue"] for r in profit_data)
+                total_exp = sum(r["expense"] for r in profit_data)
+                net = total_rev - total_exp
+                self._kpi_profit.update_value(f"₱ {net:,.0f}")
+                self._kpi_profit.update_trend(f"Rev ₱{total_rev:,.0f} − Exp ₱{total_exp:,.0f}")
+            except Exception:
+                self._kpi_profit.update_value("—")
+                self._kpi_profit.update_trend("No expense data")
 
-        _pax_color = "#F9FAFB" if ThemeManager().is_dark() else "#101828"
-        self._pax_lbl.setText(
-            f'<span style="font-size:28px;font-weight:800;color:{_pax_color};">{pax}</span>'
-            f'<span style="color:#7A879E;font-size:16px;"> / 600</span>'
-        )
-        self.prog.setValue(min(pax, 600))
-        pct = round((pax / 600) * 100, 1)
-        self._cap_pct_lbl.setText(f"{pct}% Capacity")
-        self._cap_rem_lbl.setText(f"{max(0, 600 - pax)} slots remaining")
+            _pax_color = "#F9FAFB" if ThemeManager().is_dark() else "#101828"
+            self._pax_lbl.setText(
+                f'<span style="font-size:28px;font-weight:800;color:{_pax_color};">{pax}</span>'
+                f'<span style="color:#7A879E;font-size:16px;"> / 600</span>'
+            )
+            self.prog.setValue(min(pax, 600))
+            pct = round((pax / 600) * 100, 1)
+            self._cap_pct_lbl.setText(f"{pct}% Capacity")
+            self._cap_rem_lbl.setText(f"{max(0, 600 - pax)} slots remaining")
 
-        self.summary_card.render_chart(chart_data)
+            self.summary_card.render_chart(chart_data)
 
-        self._cached_events   = events
-        self._cached_activity = activity
-        self._rebuild_events()
-        self._rebuild_activity()
-        self._rebuild_followup_alerts(followups)
+            self._cached_events   = events
+            self._cached_activity = activity
+            self._rebuild_events()
+            self._rebuild_activity()
+            self._rebuild_followup_alerts(followups)
+        finally:
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
 
     def _clear_layout_from(self, layout, from_index: int):
         while layout.count() > from_index:

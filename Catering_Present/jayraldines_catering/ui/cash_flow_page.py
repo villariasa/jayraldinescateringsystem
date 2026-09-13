@@ -479,10 +479,14 @@ class CashFlowPage(QWidget):
             cached = DataCache.get("cash_flow_data")
             if cached is not None and not getattr(self, "_has_loaded_once", False):
                 self._has_loaded_once = True
-                self._on_data_ready(cached)
+                if hasattr(self, "_loader"):
+                    self._loader.show_overlay("Loading cash flow transactions...")
+                    QTimer.singleShot(60, lambda: self._on_data_ready(cached))
+                else:
+                    self._on_data_ready(cached)
                 return
 
-        if hasattr(self, "_loader") and self.isVisible():
+        if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading cash flow transactions...")
         run_async(self, self._fetch_data, self._on_data_ready_and_cache)
 
