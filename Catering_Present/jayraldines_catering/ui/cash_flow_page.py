@@ -474,9 +474,23 @@ class CashFlowPage(QWidget):
         self._load_data()
 
     def _load_data(self):
+        from utils.data_cache import DataCache
+        if not self._filter_date and not self._search_text:
+            cached = DataCache.get("cash_flow_data")
+            if cached is not None and not getattr(self, "_has_loaded_once", False):
+                self._has_loaded_once = True
+                self._on_data_ready(cached)
+                return
+
         if hasattr(self, "_loader") and self.isVisible():
             self._loader.show_overlay("Loading cash flow transactions...")
-        run_async(self, self._fetch_data, self._on_data_ready)
+        run_async(self, self._fetch_data, self._on_data_ready_and_cache)
+
+    def _on_data_ready_and_cache(self, data):
+        from utils.data_cache import DataCache
+        if data and not self._filter_date and not self._search_text:
+            DataCache.set("cash_flow_data", data)
+        self._on_data_ready(data)
 
     def _fetch_data(self):
         txs = repo.get_cash_flow_transactions(filter_date=self._filter_date, search=self._search_text)

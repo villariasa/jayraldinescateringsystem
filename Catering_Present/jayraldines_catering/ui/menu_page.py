@@ -1277,11 +1277,34 @@ class MenuPage(QWidget):
 
     def _do_reload(self):
         self._dirty = False
+
+        # Instant render from pre-loaded memory cache if available
+        from utils.data_cache import DataCache
+        cached_items = DataCache.get("menu_items")
+        cached_pkgs = DataCache.get("packages")
+        if cached_items is not None and cached_pkgs is not None and not getattr(self, "_has_loaded_once", False):
+            self._has_loaded_once = True
+            self._on_menu_items_loaded(cached_items)
+            self._on_packages_loaded(cached_pkgs)
+            return
+
         self._pending_loads = 2
         if hasattr(self, "_loader") and self.isVisible():
             self._loader.show_overlay("Loading menu items & packages...")
-        run_async(self, repo.get_all_menu_items, self._on_menu_items_loaded)
-        run_async(self, repo.get_all_packages, self._on_packages_loaded)
+        run_async(self, repo.get_all_menu_items, self._on_menu_items_loaded_and_cache)
+        run_async(self, repo.get_all_packages, self._on_packages_loaded_and_cache)
+
+    def _on_menu_items_loaded_and_cache(self, data):
+        from utils.data_cache import DataCache
+        if data is not None:
+            DataCache.set("menu_items", data)
+        self._on_menu_items_loaded(data)
+
+    def _on_packages_loaded_and_cache(self, data):
+        from utils.data_cache import DataCache
+        if data is not None:
+            DataCache.set("packages", data)
+        self._on_packages_loaded(data)
 
     def _on_menu_items_loaded(self, data):
         try:

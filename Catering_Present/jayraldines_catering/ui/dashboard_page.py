@@ -1225,16 +1225,32 @@ class DashboardPage(QWidget):
         }
 
     def _load_data(self):
+        target_d = getattr(self, "_filter_date", None)
+        if not target_d:
+            from utils.data_cache import DataCache
+            cached = DataCache.get("dashboard_data")
+            if cached is not None and not getattr(self, "_has_loaded_once", False):
+                self._has_loaded_once = True
+                self._on_dash_data_ready(cached)
+                return
+
         prev = getattr(self, "_dash_loader", None)
         if prev is not None and prev.isRunning():
             return  # already loading
         loader = DataLoader(self._fetch_dashboard_data)
-        loader.data_ready.connect(self._on_dash_data_ready)
+        loader.data_ready.connect(self._on_dash_data_ready_and_cache)
         loader.load_error.connect(
             lambda msg: print(f"[Dashboard] Load error: {msg}")
         )
         self._dash_loader = loader
         loader.start()
+
+    def _on_dash_data_ready_and_cache(self, data):
+        target_d = getattr(self, "_filter_date", None)
+        if not target_d and data:
+            from utils.data_cache import DataCache
+            DataCache.set("dashboard_data", data)
+        self._on_dash_data_ready(data)
 
     def _on_dash_data_ready(self, data):
         try:

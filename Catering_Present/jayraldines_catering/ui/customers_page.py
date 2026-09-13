@@ -962,10 +962,25 @@ class CustomersPage(QWidget):
         self._dirty = False
         self._reload_generation += 1
         gen = self._reload_generation
+
+        # Instant render from pre-loaded memory cache if available
+        from utils.data_cache import DataCache
+        cached = DataCache.get("customers_loyalty")
+        if cached is not None and not getattr(self, "_has_populated_once", False):
+            self._on_customers_loaded(cached, gen)
+            return
+
         if hasattr(self, "_loader") and self.isVisible():
             self._loader.show_overlay("Loading customer records...")
         run_async(self, repo.get_all_customers_with_loyalty,
-                  lambda data, gen=gen: self._on_customers_loaded(data, gen))
+                  lambda data, gen=gen: self._on_customers_loaded_and_cache(data, gen))
+
+    def _on_customers_loaded_and_cache(self, data, gen=None):
+        from utils.data_cache import DataCache
+        if data is not None:
+            DataCache.set("customers_loyalty", data)
+            DataCache.set("customers", data)
+        self._on_customers_loaded(data, gen)
 
     def _on_customers_loaded(self, data, gen=None):
         try:

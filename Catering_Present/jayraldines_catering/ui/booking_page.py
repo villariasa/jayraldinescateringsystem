@@ -1036,10 +1036,24 @@ class BookingPage(QWidget):
         if getattr(self, "_refreshing", False):
             return
         self._dirty = False
+
+        # Instant render from pre-loaded memory cache if available
+        from utils.data_cache import DataCache
+        cached = DataCache.get("bookings")
+        if cached is not None and not getattr(self, "_has_loaded_once", False):
+            self._on_bookings_loaded(cached)
+            return
+
         self._refreshing = True
         if hasattr(self, "_loader") and self.isVisible():
             self._loader.show_overlay("Loading bookings & reservations...")
-        run_async(self, repo.get_all_bookings, self._on_bookings_loaded, self._on_bookings_error)
+        run_async(self, repo.get_all_bookings, self._on_bookings_loaded_and_cache, self._on_bookings_error)
+
+    def _on_bookings_loaded_and_cache(self, data):
+        from utils.data_cache import DataCache
+        if data is not None:
+            DataCache.set("bookings", data)
+        self._on_bookings_loaded(data)
 
     def _on_bookings_error(self, err):
         self._refreshing = False

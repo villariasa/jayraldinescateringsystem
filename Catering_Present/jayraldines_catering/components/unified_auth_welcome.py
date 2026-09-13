@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QPushButton, QCheckBox, QFrame, QGraphicsDropShadowEffect,
     QGraphicsOpacityEffect, QApplication, QMessageBox, QStackedLayout
 )
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, Signal
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, Signal, QThread
 from PySide6.QtGui import QPixmap, QColor, QIcon
 
 import utils.db as db
@@ -23,6 +23,93 @@ from utils.db_config import get_db_config, save_db_config, test_postgres_connect
 from utils.paths import resource_path
 from components.circular_spinner import CircularSpinner
 from components.login_dialog import ServerConfigDialog
+from utils.data_cache import DataCache
+
+
+class DataWarmupWorker(QThread):
+    """
+    Background worker that actively pre-loads core database datasets into
+    DataCache while the user views the welcome screen animation.
+    Eliminates cold-load query latency across all tabs.
+    """
+    step_progress = Signal(str)
+    warmup_finished = Signal()
+
+    def run(self):
+        try:
+            import utils.repository as repo
+            from datetime import datetime
+
+            # Step 1: Bookings & Calendar
+            try:
+                self.step_progress.emit("📊  Pre-loading catering bookings & reservations...")
+                bookings = repo.get_all_bookings()
+                DataCache.set("bookings", bookings, ttl_seconds=600.0)
+            except Exception as e:
+                print(f"[DataWarmupWorker] Bookings pre-load note: {e}")
+
+            # Step 2: Customers & Loyalty Tiers
+            try:
+                self.step_progress.emit("👥  Loading client directory & loyalty tiers...")
+                customers = repo.get_all_customers_with_loyalty()
+                DataCache.set("customers_loyalty", customers, ttl_seconds=600.0)
+                DataCache.set("customers", customers, ttl_seconds=600.0)
+            except Exception as e:
+                print(f"[DataWarmupWorker] Customers pre-load note: {e}")
+
+            # Step 3: Billing & Invoices
+            try:
+                self.step_progress.emit("💳  Loading billing records & invoices...")
+                invoices = repo.get_all_invoices()
+                DataCache.set("invoices", invoices, ttl_seconds=600.0)
+            except Exception as e:
+                print(f"[DataWarmupWorker] Invoices pre-load note: {e}")
+
+            # Step 4: Menu Items & Packages
+            try:
+                self.step_progress.emit("🍽️  Pre-warming catering menus & packages...")
+                menu_items = repo.get_all_menu_items()
+                packages = repo.get_all_packages()
+                DataCache.set("menu_items", menu_items, ttl_seconds=600.0)
+                DataCache.set("packages", packages, ttl_seconds=600.0)
+            except Exception as e:
+                print(f"[DataWarmupWorker] Menu/packages pre-load note: {e}")
+
+            # Step 5: Dashboard Analytics & Charts
+            try:
+                self.step_progress.emit("📈  Computing dashboard KPIs & analytics...")
+                now = datetime.now()
+                rows = repo.get_monthly_revenue_chart_data(now.year)
+                chart_data = [(r["month"], r["revenue"], r["expense"]) for r in rows] if rows else []
+                dash_data = {
+                    "kpis":       repo.get_dashboard_kpis(),
+                    "profit":     repo.get_profit_summary(),
+                    "events":     repo.get_upcoming_events(limit=20),
+                    "activity":   repo.get_recent_activity(limit=10),
+                    "chart_data": chart_data,
+                    "followups":  repo.get_todays_follow_ups(),
+                }
+                DataCache.set("dashboard_data", dash_data, ttl_seconds=600.0)
+            except Exception as e:
+                print(f"[DataWarmupWorker] Dashboard pre-load note: {e}")
+
+            # Step 6: Expenses & Cash Flow
+            try:
+                self.step_progress.emit("💰  Loading expenses & cash flow transactions...")
+                expenses = repo.get_all_expenses()
+                DataCache.set("expenses", expenses, ttl_seconds=600.0)
+                summary = repo.get_cash_flow_summary()
+                txs = repo.get_cash_flow_transactions()
+                DataCache.set("cash_flow_data", {"transactions": txs, "summary": summary}, ttl_seconds=600.0)
+            except Exception as e:
+                print(f"[DataWarmupWorker] Cashflow/expenses pre-load note: {e}")
+
+            self.step_progress.emit("🚀  Ready! Launching workspace...")
+            self.msleep(300)
+        except Exception as exc:
+            print(f"[DataWarmupWorker] General note: {exc}")
+        finally:
+            self.warmup_finished.emit()
 
 
 class UnifiedAuthWelcome(QWidget):
@@ -55,10 +142,8 @@ class UnifiedAuthWelcome(QWidget):
         self._welcome_view = self._create_welcome_view()
         self._stacked.addWidget(self._welcome_view)
 
-        # Setup step timer
-        self._setup_timer = QTimer(self)
-        self._setup_timer.timeout.connect(self._on_setup_step)
-        self._setup_step_index = 0
+        # Warmup worker reference
+        self._warmup_worker = None
 
     # -----------------------------------------------------------------------
     # Login View Construction
@@ -347,28 +432,36 @@ class UnifiedAuthWelcome(QWidget):
 
         self.welcome_title.setText(f"Welcome back, {disp_name}!")
         self.role_badge.setText(role_label)
+        self._finishing = False
 
         # Transition to Welcome View
         self._stacked.setCurrentIndex(1)
         self.spinner.start()
+        self.loading_status_lbl.setText("🔐  Verifying permissions & security tokens...")
 
-        # Step Sequence
-        self._setup_steps = [
-            ("🔐  Verifying permissions & security tokens...", 400),
-            ("📊  Loading catering bookings & reservations...", 500),
-            ("✨  Preparing workspace & dashboard...", 500),
-            ("🚀  Ready! Launching system...", 350),
-        ]
-        self._setup_step_index = 0
-        self._on_setup_step()
+        # Start active background data pre-loader
+        self._warmup_worker = DataWarmupWorker(self)
+        self._warmup_worker.step_progress.connect(self._on_warmup_progress)
+        self._warmup_worker.warmup_finished.connect(self._on_warmup_finished)
+        self._warmup_worker.start()
 
-    def _on_setup_step(self):
-        if self._setup_step_index < len(self._setup_steps):
-            text, delay = self._setup_steps[self._setup_step_index]
+        # Safety fallback timeout: max 12 seconds in case of severe network latency
+        self._fallback_timer = QTimer(self)
+        self._fallback_timer.setSingleShot(True)
+        self._fallback_timer.timeout.connect(self._on_warmup_finished)
+        self._fallback_timer.start(12000)
+
+    def _on_warmup_progress(self, text: str):
+        try:
             self.loading_status_lbl.setText(text)
-            self._setup_step_index += 1
-            self._setup_timer.singleShot(delay, self._on_setup_step)
-        else:
+        except Exception:
+            pass
+
+    def _on_warmup_finished(self):
+        if hasattr(self, "_fallback_timer") and self._fallback_timer.isActive():
+            self._fallback_timer.stop()
+        if not getattr(self, "_finishing", False):
+            self._finishing = True
             self._fade_out_and_finish()
 
     def _fade_out_and_finish(self):
@@ -397,6 +490,7 @@ class UnifiedAuthWelcome(QWidget):
 
     def reset_to_login(self):
         """Resets view back to login mode (e.g. after logout)."""
+        self._finishing = False
         try:
             self.setGraphicsEffect(None)
         except Exception:

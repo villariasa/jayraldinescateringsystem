@@ -318,9 +318,24 @@ class ExpensesPage(QWidget):
     def reload(self):
         self._dirty = False
         self.refresh_permissions()
+
+        # Instant render from pre-loaded memory cache if available
+        from utils.data_cache import DataCache
+        cached = DataCache.get("expenses")
+        if cached is not None and not getattr(self, "_has_loaded_once", False):
+            self._has_loaded_once = True
+            self._on_expenses_loaded(cached)
+            return
+
         if hasattr(self, "_loader") and self.isVisible():
             self._loader.show_overlay("Loading expenses & analytics...")
-        run_async(self, repo.get_all_expenses, self._on_expenses_loaded)
+        run_async(self, repo.get_all_expenses, self._on_expenses_loaded_and_cache)
+
+    def _on_expenses_loaded_and_cache(self, data):
+        from utils.data_cache import DataCache
+        if data is not None:
+            DataCache.set("expenses", data)
+        self._on_expenses_loaded(data)
 
     def _on_expenses_loaded(self, data):
         try:
