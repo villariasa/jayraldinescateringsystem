@@ -2,6 +2,12 @@ version: '{build}'
 
 image: Visual Studio 2022
 
+# We're building via a custom Python script (build_script below), not a
+# Visual Studio project - without this, AppVeyor defaults to MSBuild mode,
+# looks for a .sln/.vcxproj that doesn't exist, and fails before ever
+# reaching install/build_script.
+build: off
+
 environment:
   PYTHON: "C:\\Python311-x64"
 
