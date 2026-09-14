@@ -10,23 +10,26 @@ build: off
 
 environment:
   PYTHON: "C:\\Python311-x64"
+  APP_DIR: "Catering_Present\\jayraldines_catering"
 
 init:
   - "%PYTHON%\\python.exe --version"
 
 install:
+  - "cd %APP_DIR%"
   - "%PYTHON%\\python.exe -m venv venv"
   - "venv\\Scripts\\python.exe -m pip install --upgrade pip"
   - "venv\\Scripts\\python.exe -m pip install -r requirements.txt"
   - "venv\\Scripts\\python.exe -m pip install pyinstaller pillow"
 
 build_script:
+  - "cd %APP_DIR%"
   - "venv\\Scripts\\python.exe seed_catering_db.py"
   - "venv\\Scripts\\python.exe build_installer.py"
 
 artifacts:
-  - path: installer_output\*.exe
+  - path: "%APP_DIR%\\installer_output\\*.exe"
     name: installer
 
 on_failure:
-  - "if exist build\\jayraldines\\warn-jayraldines.txt type build\\jayraldines\\warn-jayraldines.txt"
+  - "if exist %APP_DIR%\\build\\jayraldines\\warn-jayraldines.txt type %APP_DIR%\\build\\jayraldines\\warn-jayraldines.txt"
