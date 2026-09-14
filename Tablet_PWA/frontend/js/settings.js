@@ -1499,6 +1499,11 @@ async function renderDatabaseTab(content) {
     }
   }
 
+  // hostInput.value may already be a full "http://host:port" URL (e.g. after
+  // Auto-Detect) - strip scheme+port before ever re-appending ":port" for
+  // display, otherwise it reads as "http://host:8000:8000".
+  const cleanDisplayHost = (v) => (v || "").trim().replace(/^https?:\/\//i, "").split(":")[0];
+
   async function updateLanStatus(showDiag = false) {
     const host = hostInput ? hostInput.value.trim() : "";
     const port = portInput ? portInput.value.trim() : "8000";
@@ -1529,7 +1534,7 @@ async function renderDatabaseTab(content) {
     if (statusPill) {
       const isDbOnline = Boolean(stat.online && (stat.db_connected !== false));
       if (isDbOnline) {
-        const displayHost = stat.host || (hostInput ? hostInput.value.trim() : "") || host || "Central PC";
+        const displayHost = cleanDisplayHost(stat.host || (hostInput ? hostInput.value.trim() : "") || host) || "Central PC";
         statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--success);"></span> 🟢 Central Server &amp; SQLite DB Online (${escapeHtml(displayHost)}:${stat.port || 8000})`;
         statusPill.style.background = "rgba(16,185,129,0.15)";
         statusPill.style.color = "var(--success)";
@@ -1546,7 +1551,7 @@ async function renderDatabaseTab(content) {
           `;
         }
       } else if (stat.online) {
-        const displayHost = stat.host || (hostInput ? hostInput.value.trim() : "") || host || "Central PC";
+        const displayHost = cleanDisplayHost(stat.host || (hostInput ? hostInput.value.trim() : "") || host) || "Central PC";
         statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--gold);"></span> 🟡 HTTP Hub Online (${escapeHtml(displayHost)}:8000), Checking DB…`;
         statusPill.style.background = "rgba(245,158,11,0.15)";
         statusPill.style.color = "var(--gold)";
@@ -1567,14 +1572,18 @@ async function renderDatabaseTab(content) {
         statusPill.style.color = "var(--gold)";
         statusPill.style.borderColor = "rgba(245,158,11,0.35)";
 
-        const curHost = (hostInput ? hostInput.value.trim() : "") || localStorage.getItem('jayraldines_lan_host') || (typeof window !== 'undefined' && window.location && window.location.hostname ? window.location.hostname : '127.0.0.1');
+        const rawCurHost = (hostInput ? hostInput.value.trim() : "") || localStorage.getItem('jayraldines_lan_host') || (typeof window !== 'undefined' && window.location && window.location.hostname ? window.location.hostname : '127.0.0.1');
+        // rawCurHost may already be a full "http://host:port" URL (e.g. after
+        // Auto-Detect) - strip scheme+port before re-appending ":port" below,
+        // otherwise this displays as "http://host:8000:8000".
+        const curHost = rawCurHost.replace(/^https?:\/\//i, "").split(":")[0];
         if (showDiag && diagBox) {
           diagBox.style.display = "block";
           diagBox.style.background = "rgba(239,68,68,0.1)";
           diagBox.style.border = "1px solid rgba(239,68,68,0.3)";
           diagBox.style.color = "var(--danger)";
           diagBox.innerHTML = `
-            <b>❌ Central Server Unreachable at <code>${escapeHtml(curHost)}:${escapeHtml(port || '8000')}</code></b><br>
+            <b>❌ Central Server Unreachable at <code>http://${escapeHtml(curHost)}:${escapeHtml(port || '8000')}</code></b><br>
             <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:4px;">
               • Verify that this tablet and the PC are connected to the <b>same Wi-Fi network</b>.<br>
               • Verify that the Jayraldine's Catering desktop app or <code>run_lan_sync_server.bat</code> is running on the PC.<br>
@@ -2176,7 +2185,11 @@ function _renderLiveDbConfigModal() {
     diagBox.style.background = "rgba(37,99,235,0.08)";
     diagBox.style.border = "1px solid rgba(37,99,235,0.25)";
     diagBox.style.color = "var(--text)";
-    diagBox.innerHTML = `⏳ Probing server at <code>http://${escapeHtml(hostInp.value.trim())}:${escapeHtml(portInp.value.trim() || '8000')}</code>…`;
+    // hostInp.value may already be a full "http://host:port" URL (e.g. after
+    // Auto-Detect) - strip scheme+port before re-appending ":port" for display,
+    // otherwise this reads as "http://http://host:8000:8000".
+    const cleanDisplayHost = (v) => (v || "").trim().replace(/^https?:\/\//i, "").split(":")[0];
+    diagBox.innerHTML = `⏳ Probing server at <code>http://${escapeHtml(cleanDisplayHost(hostInp.value))}:${escapeHtml(portInp.value.trim() || '8000')}</code>…`;
 
     try {
       const host = hostInp.value.trim() || autoIp || "127.0.0.1";
@@ -2190,7 +2203,7 @@ function _renderLiveDbConfigModal() {
         diagBox.style.color = "var(--success)";
         diagBox.innerHTML = `
           <b>✅ Connection Successful!</b><br>
-          Connected to Central Server at <code>${escapeHtml(stat.host || host)}:${stat.port || port}</code>.<br>
+          Connected to Central Server at <code>${escapeHtml(cleanDisplayHost(stat.host || host))}:${stat.port || port}</code>.<br>
           Database Engine: <b>${escapeHtml((stat.db_engine || 'SQLite').toUpperCase())}</b> (${escapeHtml(stat.db_name || 'catering.db')}).<br>
           Live Database is online and accessible.
         `;
@@ -2200,7 +2213,7 @@ function _renderLiveDbConfigModal() {
         diagBox.style.border = "1.5px solid rgba(239,68,68,0.35)";
         diagBox.style.color = "var(--danger)";
         diagBox.innerHTML = `
-          <b>❌ Cannot reach Central Server at <code>http://${escapeHtml(host)}:${escapeHtml(port)}</code></b><br>
+          <b>❌ Cannot reach Central Server at <code>http://${escapeHtml(cleanDisplayHost(host))}:${escapeHtml(String(port))}</code></b><br>
           <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:6px;">
             1. Confirm that both tablet and laptop are connected to the exact same Wi-Fi.<br>
             2. Make sure Jayraldine's Catering or <code>START_SERVER_FOR_TABLET.bat</code> is running on the laptop.<br>

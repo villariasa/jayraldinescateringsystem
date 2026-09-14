@@ -644,6 +644,11 @@ class BillingPage(QWidget):
         # right after the page opens, before the initial page finishes rendering.
         self._rendering = False
         self._summary = {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
+        # Default fetch scope: 1 month back / 2 months ahead of today (windowed),
+        # no customer filter, no explicit paid-status (unpaid-prioritized sort).
+        self._filter_date_start, self._filter_date_end = repo.get_default_billing_window()
+        self._filter_customer = None
+        self._filter_paid_status = None
         self._build_ui()
         app_events().payment_recorded.connect(self._mark_dirty_and_reload)
         app_events().booking_updated.connect(self._mark_dirty_and_reload)
@@ -675,6 +680,7 @@ class BillingPage(QWidget):
 
         self._dirty = False
         self.refresh_permissions()
+        self._populate_customer_filter()
 
         # Pagination resets on every full reload - we always re-fetch page 0.
         self._has_more = True
@@ -684,9 +690,13 @@ class BillingPage(QWidget):
         # welcome sequence may have cached the FULL invoice list; only slice
         # off the first page for immediate render - the rest stays in memory
         # and serves subsequent "load more" scrolls with zero DB round-trip.
+        # NOTE: the login cache was captured under the DEFAULT filter scope, so
+        # it's only valid while no non-default filter is active. Once the user
+        # touches the customer / paid-status filters we skip it entirely.
         from utils.data_cache import DataCache
         cached = DataCache.get("invoices")
-        if cached is not None and not getattr(self, "_has_loaded_once", False):
+        if (cached is not None and not getattr(self, "_has_loaded_once", False)
+                and not self._filters_active()):
             self._has_loaded_once = True
             self._cached_remainder = list(cached[self._page_size:])
             self._summary = self._compute_summary_from_rows(cached)
@@ -703,11 +713,26 @@ class BillingPage(QWidget):
         self._cached_remainder = None
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading billing records & invoices...")
-        run_async(self, self._fetch_first_page, self._on_first_page_loaded, None, self._page_size)
+        run_async(self, self._fetch_first_page, self._on_first_page_loaded, None,
+                  self._page_size, self._filter_date_start, self._filter_date_end,
+                  self._filter_customer, self._filter_paid_status)
+
+    def _filters_active(self) -> bool:
+        """True when the customer or paid-status filter has been moved off its
+        default state (customer set, or the date window was removed / a paid
+        bucket chosen) - used to bypass the login full-list memory cache, which
+        was captured under the default scope only."""
+        default_start, default_end = repo.get_default_billing_window()
+        return (self._filter_customer is not None
+                or self._filter_paid_status is not None
+                or self._filter_date_start != default_start
+                or self._filter_date_end != default_end)
 
     @staticmethod
-    def _fetch_first_page(page_size):
-        return repo.get_invoices_summary(), repo.get_invoices_page(0, page_size)
+    def _fetch_first_page(page_size, date_start, date_end, customer, paid_status):
+        return (repo.get_invoices_summary(),
+                repo.get_invoices_page(0, page_size, date_start, date_end,
+                                       customer, paid_status))
 
     def _on_first_page_loaded(self, result):
         summary, page = result if result else ({}, [])
@@ -772,7 +797,9 @@ class BillingPage(QWidget):
             QTimer.singleShot(0, lambda: self._on_more_invoices_loaded(more))
             return
         run_async(self, repo.get_invoices_page, self._on_more_invoices_loaded,
-                  None, len(self._invoices), self._page_size)
+                  None, len(self._invoices), self._page_size,
+                  self._filter_date_start, self._filter_date_end,
+                  self._filter_customer, self._filter_paid_status)
 
     def _on_more_invoices_loaded(self, data):
         from shiboken6 import isValid
@@ -876,6 +903,46 @@ class BillingPage(QWidget):
         inv_tab_lay = QVBoxLayout(invoices_tab)
         inv_tab_lay.setContentsMargins(0, 12, 0, 0)
 
+        # ── Filter bar: customer + paid-status (server-side DB filters) ───────
+        filter_row = QHBoxLayout()
+        filter_row.setContentsMargins(0, 0, 0, 8)
+        filter_row.setSpacing(10)
+
+        cust_lbl = QLabel("Customer:")
+        cust_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #6B7280;")
+        filter_row.addWidget(cust_lbl)
+
+        self._customer_filter = QComboBox()
+        self._customer_filter.setEditable(True)
+        self._customer_filter.setMinimumWidth(220)
+        self._customer_filter.setFixedHeight(34)
+        self._customer_filter.setInsertPolicy(QComboBox.NoInsert)
+        self._customer_filter.addItem("All Customers", None)
+        self._customer_filter.lineEdit().setPlaceholderText("All Customers")
+        from utils.searchable_combo import make_searchable
+        make_searchable(self._customer_filter)
+        self._customer_filter.activated.connect(self._on_filter_changed)
+        self._customer_filter.lineEdit().editingFinished.connect(self._on_filter_changed)
+        filter_row.addWidget(self._customer_filter)
+
+        status_lbl = QLabel("Show:")
+        status_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #6B7280;")
+        filter_row.addWidget(status_lbl)
+
+        self._paid_filter = QComboBox()
+        self._paid_filter.setFixedHeight(34)
+        self._paid_filter.setMinimumWidth(170)
+        # data=None -> default windowed, unpaid-prioritized sort (NOT "Show All")
+        self._paid_filter.addItem("Recent (Default)", None)
+        self._paid_filter.addItem("Unpaid Invoices", "unpaid")
+        self._paid_filter.addItem("Show All Paid", "paid")
+        self._paid_filter.addItem("Show All (Full History)", "all")
+        self._paid_filter.currentIndexChanged.connect(self._on_filter_changed)
+        filter_row.addWidget(self._paid_filter)
+
+        filter_row.addStretch()
+        inv_tab_lay.addLayout(filter_row)
+
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.NoFrame)
@@ -910,6 +977,53 @@ class BillingPage(QWidget):
 
         root.addWidget(self.tabs)
         self._loader = LoadingOverlay(self, "Loading billing records & invoices...")
+
+    def _populate_customer_filter(self):
+        # Lazily fill the customer dropdown once, from the shared customer list.
+        if getattr(self, "_customer_filter_populated", False):
+            return
+        try:
+            names = repo.get_customer_names()
+        except Exception:
+            names = []
+        self._customer_filter_populated = True
+        self._customer_filter.blockSignals(True)
+        current = self._customer_filter.currentText()
+        self._customer_filter.clear()
+        self._customer_filter.addItem("All Customers", None)
+        for n in names:
+            self._customer_filter.addItem(n, n)
+        if current and current != "All Customers":
+            self._customer_filter.setEditText(current)
+        else:
+            self._customer_filter.setCurrentIndex(0)
+        self._customer_filter.blockSignals(False)
+
+    def _on_filter_changed(self, *args):
+        # Read the current widget states into the stored filter state.
+        cust = self._customer_filter.currentText().strip()
+        self._filter_customer = None if (not cust or cust == "All Customers") else cust
+
+        mode = self._paid_filter.currentData()
+        if mode == "all":
+            # The ONE mode that breaks out of the default date window entirely
+            # and loads the full invoice history (no paid-status filter either).
+            self._filter_paid_status = None
+            self._filter_date_start = None
+            self._filter_date_end = None
+        else:
+            # None -> default (windowed, unpaid-prioritized), or "unpaid"/"paid"
+            # bucket, both keeping the default date window.
+            self._filter_paid_status = mode
+            self._filter_date_start, self._filter_date_end = repo.get_default_billing_window()
+
+        # Invalidate the login full-list cache fast-path and any stale slice of
+        # it, then reset pagination so page 0 re-fetches under the new filters.
+        self._has_loaded_once = True
+        self._cached_remainder = None
+        self._has_more = True
+        self._loading_more = False
+        self.reload()
 
     def _on_billing_tab_changed(self, idx: int):
         if idx == 1:
@@ -1014,6 +1128,13 @@ class BillingPage(QWidget):
             if hasattr(self, "_loader"):
                 self._loader.hide_overlay()
             self._reload_finished()
+            # Keep quietly loading the next page in the background instead of
+            # waiting for the user to scroll - each page still fetches on a
+            # background thread and renders in small yielded batches, so this
+            # never blocks the UI; the short delay just avoids competing with
+            # whatever the user is doing right after a page finishes.
+            if self._has_more and not self._loading_more:
+                QTimer.singleShot(150, self._load_more_invoices)
 
     def _populate_ledger(self):
         try:
@@ -1387,10 +1508,10 @@ class BillingPage(QWidget):
         orig = self._invoices
         filtered = [
             i for i in orig
-            if q in i.get("customer", "").lower()
-            or q in i.get("invoice", "").lower()
-            or q in i.get("status", "").lower()
-            or q in _fmt_date(i.get("event_date", "")).lower()
+            if q in str(i.get("customer") or "").lower()
+            or q in str(i.get("invoice") or "").lower()
+            or q in str(i.get("status") or "").lower()
+            or q in _fmt_date(i.get("event_date") or "").lower()
         ]
         saved = self._invoices
         self._invoices = filtered

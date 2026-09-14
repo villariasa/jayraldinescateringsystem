@@ -243,12 +243,12 @@ def main():
     app.setAttribute(Qt.AA_DontCreateNativeWidgetSiblings, True)
     app.setStyle("Fusion")
 
-    # Install Real-Time Window Detector to monitor popping/background windows
-    try:
-        from utils.window_detector import install_window_detector
-        install_window_detector(app)
-    except Exception as _wd_err:
-        print(f"[WINDOW_DETECTOR] Warning: Could not initialize window detector: {_wd_err}")
+    # Window Detector is intentionally NOT installed: it wrote a log line to
+    # a persistent window_events.log file (in the client's AppData folder)
+    # on every single window show/hide/close/activate event, growing
+    # unbounded over time with no rotation or cap - unwanted disk usage on
+    # client machines. Was only ever a debugging aid; see utils/window_detector.py
+    # if it's ever needed again for diagnosing a live window-lifecycle bug.
 
     # Every text field, spinbox, dropdown, and date field starts inert - no
     # wheel, no value change - until the user clicks into it once.

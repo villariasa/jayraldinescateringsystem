@@ -1925,6 +1925,14 @@ class MenuPage(QWidget):
             self._items_rendering = False
             self._items_render_done = True
             self._maybe_finish_reload()
+            # Keep quietly loading the next items page in the background
+            # instead of waiting for the user to scroll - each page still
+            # fetches on a background thread and renders in small yielded
+            # batches, so this never blocks the UI; the short delay just
+            # avoids competing with whatever the user is doing right after
+            # a page finishes.
+            if self._items_has_more and not self._items_loading_more:
+                QTimer.singleShot(150, self._load_more_items)
 
     def _create_menu_item_card(self, item: dict, perms=None) -> QFrame:
         card = QFrame()
@@ -2250,6 +2258,14 @@ class MenuPage(QWidget):
             self._pkgs_rendering = False
             self._pkgs_render_done = True
             self._maybe_finish_reload()
+            # Keep quietly loading the next packages page in the background
+            # instead of waiting for the user to scroll - each page still
+            # fetches on a background thread and renders in small yielded
+            # batches, so this never blocks the UI; the short delay just
+            # avoids competing with whatever the user is doing right after
+            # a page finishes.
+            if self._pkgs_has_more and not self._pkgs_loading_more:
+                QTimer.singleShot(150, self._load_more_pkgs)
 
     def _create_package_card(self, pkg: dict, perms=None) -> QFrame:
         card = QFrame()

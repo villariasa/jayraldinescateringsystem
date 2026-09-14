@@ -264,20 +264,6 @@ class ExpensesPage(QWidget):
             kpi_row.addWidget(c)
         self.lay.addLayout(kpi_row)
 
-        # ── Category breakdown ──────────────────────────────────────────────
-        self._breakdown_card = QFrame(content)
-        self._breakdown_card.setObjectName("card")
-        bd_lay = QVBoxLayout(self._breakdown_card)
-        bd_lay.setContentsMargins(28, 24, 28, 20)
-        bd_lay.setSpacing(10)
-        self._bd_title = QLabel("Breakdown by Category")
-        self._bd_title.setObjectName("h3")
-        bd_lay.addWidget(self._bd_title)
-        self._chart_holder = QVBoxLayout()
-        bd_lay.addLayout(self._chart_holder)
-        self._chart_view = None
-        self.lay.addWidget(self._breakdown_card)
-
         # ── Expenses Cards Section ─────────────────────────────────────────
         table_card = QFrame(content)
         table_card.setObjectName("card")
@@ -433,9 +419,9 @@ class ExpensesPage(QWidget):
 
     def _reload_summary_for_filter(self):
         # Re-fetch the category breakdown scoped to the active filter, so the
-        # chart (and the "top category" KPI, which reads the same data)
-        # actually change when the user filters instead of always showing
-        # all-time totals.
+        # "top category" KPI (which reads this data) actually changes when the
+        # user filters instead of always showing all-time totals. (The bar
+        # chart that also used this data now lives on the Reports page.)
         start, end = self._current_filter_date_range()
         run_async(self, repo.get_expenses_summary, self._on_filtered_summary_loaded, None, start, end)
 
@@ -446,7 +432,6 @@ class ExpensesPage(QWidget):
         if summary:
             self._summary = summary
         self._load_kpis()
-        self._load_breakdown()
 
     def _filter_expenses_list(self, expenses: list) -> list:
         if not expenses:
@@ -658,7 +643,6 @@ class ExpensesPage(QWidget):
         # has actually finished rendering, not right after the fetch.
         self._load_table()
         self._load_kpis()
-        self._load_breakdown()
 
     def _load_more_expenses(self):
         if self._loading_more or not self._has_more:
@@ -825,6 +809,13 @@ class ExpensesPage(QWidget):
             if hasattr(self, "_loader"):
                 self._loader.hide_overlay()
             self._reload_finished()
+            # Keep quietly loading the next page in the background instead of
+            # waiting for the user to scroll - each page still fetches on a
+            # background thread and renders in small yielded batches, so this
+            # never blocks the UI; the short delay just avoids competing with
+            # whatever the user is doing right after a page finishes.
+            if self._has_more and not self._loading_more:
+                QTimer.singleShot(150, self._load_more_expenses)
 
     def _create_expense_card(self, exp: dict, can_del: bool = None, can_edit: bool = None) -> QFrame:
         if can_del is None:
@@ -912,127 +903,6 @@ class ExpensesPage(QWidget):
             self._kpi_top.set(top_cat, f"₱ {top_amt:,.0f} ({pct:.0f}% of all-time)")
         else:
             self._kpi_top.set("—", "No expenses recorded")
-
-    def _load_breakdown(self):
-        if self._chart_view is not None:
-            self._chart_holder.removeWidget(self._chart_view)
-            self._chart_view.deleteLater()
-            self._chart_view = None
-
-        # Breakdown comes from a DB aggregate (self._summary["by_category"]),
-        # scoped to the active filter by _reload_summary_for_filter() - NOT
-        # from the loaded/paginated list, so it stays accurate regardless of
-        # how many rows have been scrolled into view.
-        summary = getattr(self, "_summary", {}) or {}
-        breakdown = [
-            {"category": r.get("category", "Other"), "total": float(r.get("total", 0.0) or 0.0)}
-            for r in (summary.get("by_category", []) or [])
-            if float(r.get("total", 0.0) or 0.0) > 0
-        ]
-
-        if hasattr(self, "_bd_title"):
-            period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
-            month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
-            if period_opt == "All Time" and month_opt == "All Months":
-                label = "All Time"
-            elif month_opt != "All Months":
-                label = month_opt if period_opt == "All Time" else f"{month_opt}, {period_opt}"
-            else:
-                label = period_opt
-            self._bd_title.setText(f"Breakdown by Category ({label})")
-
-        if not breakdown:
-            self._breakdown_card.hide()
-            return
-        self._breakdown_card.show()
-
-        import math
-        from PySide6.QtCharts import QChart, QChartView, QBarSeries, QBarSet, QBarCategoryAxis, QCategoryAxis
-        from PySide6.QtGui import QCursor
-        from PySide6.QtWidgets import QToolTip
-
-        series = QBarSeries()
-        series.setLabelsVisible(True)
-        total_exp = sum(row["total"] for row in breakdown) or 1.0
-        label_color = QColor("#0F172A" if _is_light() else "#F9FAFB")
-        axis_label_color = QColor("#5B6B84" if _is_light() else "#9CA3AF")
-        max_val = 0.0
-
-        for row in breakdown:
-            cat = row["category"]
-            tot = row["total"]
-            color_hex = _CATEGORY_COLORS.get(cat, "#94A3B8")
-            bset = QBarSet(f"{cat} (₱{tot:,.0f})")
-            bset.append(tot)
-            bset.setColor(QColor(color_hex))
-            bset.setLabelColor(label_color)
-            series.append(bset)
-            max_val = max(max_val, tot)
-
-            def _make_hover(s=bset, c=cat, t=tot, col=color_hex):
-                def _on_hover(state, _index):
-                    if state:
-                        pct = (t / total_exp) * 100
-                        QToolTip.showText(
-                            QCursor.pos(),
-                            f"<b style='color:{col};'>{c}</b><br>"
-                            f"Amount: <b>₱ {t:,.2f}</b><br>"
-                            f"Share: <b>{pct:.1f}%</b>"
-                        )
-                    else:
-                        QToolTip.hideText()
-                return _on_hover
-
-            bset.hovered.connect(_make_hover())
-
-        chart = QChart()
-        chart.addSeries(series)
-        chart.setAnimationOptions(QChart.SeriesAnimations)
-        chart.setBackgroundBrush(Qt.transparent)
-        chart.setMargins(QMargins(0, 0, 0, 0))
-        chart.legend().setAlignment(Qt.AlignRight)
-        chart.legend().setLabelColor(axis_label_color)
-
-        axis_x = QBarCategoryAxis()
-        axis_x.append(["Expenses"])
-        axis_x.setLabelsColor(axis_label_color)
-        chart.addAxis(axis_x, Qt.AlignBottom)
-        series.attachAxis(axis_x)
-
-        # Same "nice round number" tick algorithm as the dashboard chart, with
-        # labels built as plain f-strings (not QValueAxis.setLabelFormat) so
-        # the ₱ sign always renders correctly.
-        upper = max(max_val * 1.15, 1.0)
-        target_ticks = 5
-        raw_step = upper / (target_ticks - 1)
-        magnitude = 10 ** int(math.floor(math.log10(max(raw_step, 1))))
-        residual = raw_step / magnitude
-        if residual <= 1.5:
-            clean_step = 1.0 * magnitude
-        elif residual <= 3.0:
-            clean_step = 2.5 * magnitude
-        elif residual <= 7.0:
-            clean_step = 5.0 * magnitude
-        else:
-            clean_step = 10.0 * magnitude
-
-        num_steps = max(1, int(math.ceil(upper / clean_step)))
-        final_max = num_steps * clean_step
-
-        axis_y = QCategoryAxis()
-        axis_y.setRange(0, final_max)
-        for i in range(num_steps + 1):
-            val = clean_step * i
-            axis_y.append(f"₱{val:,.0f}", val)
-        axis_y.setLabelsColor(axis_label_color)
-        chart.addAxis(axis_y, Qt.AlignLeft)
-        series.attachAxis(axis_y)
-
-        self._chart_view = QChartView(chart)
-        self._chart_view.setRenderHint(QPainter.Antialiasing)
-        self._chart_view.setStyleSheet("background: transparent;")
-        self._chart_view.setMinimumHeight(240)
-        self._chart_holder.addWidget(self._chart_view)
 
     # ── Add / delete ─────────────────────────────────────────────────────────
 

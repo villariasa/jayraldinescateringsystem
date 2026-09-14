@@ -27,6 +27,19 @@ except Exception:
     _CHARTS_AVAILABLE = False
     QChart = QChartView = QLineSeries = QAreaSeries = QPieSeries = QBarCategoryAxis = QBarSeries = QBarSet = QValueAxis = QLegend = None
 
+# Per-category bar colors for the "Breakdown by Category" chart (moved here from
+# expenses_page.py so the same palette is used in both places).
+_CATEGORY_COLORS = {
+    "Food Cost": "#E11D48",
+    "Labor":     "#F59E0B",
+    "Salary":    "#8B5CF6",
+    "Service":   "#3B82F6",
+    "Transport": "#10B981",
+    "Utilities": "#F97316",
+    "Equipment": "#64748B",
+    "Other":     "#94A3B8",
+}
+
 
 def _chart_view(chart) -> QWidget:
     if not _CHARTS_AVAILABLE or chart is None:
@@ -977,6 +990,14 @@ class ReportsPage(QWidget):
         exp_head.addWidget(btn_add_exp)
         exp_lay.addLayout(exp_head)
 
+        # ── Breakdown by Category chart (scoped to the active period filter) ──
+        self._exp_bd_title = QLabel("Breakdown by Category", self._expense_card)
+        self._exp_bd_title.setObjectName("h3")
+        exp_lay.addWidget(self._exp_bd_title)
+        self._exp_chart_holder = QVBoxLayout()
+        exp_lay.addLayout(self._exp_chart_holder)
+        self._exp_chart_view = None
+
         self._expenses_scroll = QScrollArea(self._expense_card)
         self._expenses_scroll.setWidgetResizable(True)
         self._expenses_scroll.setFrameShape(QFrame.NoFrame)
@@ -1834,6 +1855,137 @@ class ReportsPage(QWidget):
             f"Total Revenue (YTD): ₱ {total_rev:,.2f}   |   "
             f"Net Profit: ₱ {net:,.2f}"
         )
+
+        # Refresh the category breakdown bar chart, scoped to the same
+        # period-filtered expense list rendered above.
+        self._load_expense_breakdown(expenses)
+
+    def _load_expense_breakdown(self, expenses: list = None):
+        """Render the 'Breakdown by Category' bar chart for the given (already
+        period-filtered) expense rows. Moved verbatim from expenses_page.py -
+        same nice-round-tick, peso-formatted axis and per-category colors."""
+        from shiboken6 import isValid
+        if not isValid(self) or not hasattr(self, "_exp_chart_holder"):
+            return
+
+        # Tear down any previously rendered chart view.
+        if getattr(self, "_exp_chart_view", None) is not None:
+            self._exp_chart_holder.removeWidget(self._exp_chart_view)
+            self._exp_chart_view.deleteLater()
+            self._exp_chart_view = None
+
+        expenses = expenses if expenses is not None else getattr(self, "_expenses", [])
+        # Aggregate the filtered rows into per-category totals.
+        totals = {}
+        for exp in (expenses or []):
+            try:
+                amt = float(exp.get("amount", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            if amt <= 0:
+                continue
+            cat = exp.get("category", "Other") or "Other"
+            totals[cat] = totals.get(cat, 0.0) + amt
+        breakdown = [{"category": c, "total": t} for c, t in totals.items() if t > 0]
+        breakdown.sort(key=lambda r: r["total"], reverse=True)
+
+        if hasattr(self, "_exp_bd_title"):
+            label = getattr(self, "_period", "All Time") or "All Time"
+            self._exp_bd_title.setText(f"Breakdown by Category ({label})")
+
+        if not breakdown or not _CHARTS_AVAILABLE:
+            self._exp_bd_title.setVisible(bool(breakdown))
+            return
+        self._exp_bd_title.setVisible(True)
+
+        import math
+        from PySide6.QtCharts import QChart, QChartView, QBarSeries, QBarSet, QBarCategoryAxis, QCategoryAxis
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QToolTip
+
+        _light = not ThemeManager().is_dark()
+        series = QBarSeries()
+        series.setLabelsVisible(True)
+        total_exp = sum(row["total"] for row in breakdown) or 1.0
+        label_color = QColor("#0F172A" if _light else "#F9FAFB")
+        axis_label_color = QColor("#5B6B84" if _light else "#9CA3AF")
+        max_val = 0.0
+
+        for row in breakdown:
+            cat = row["category"]
+            tot = row["total"]
+            color_hex = _CATEGORY_COLORS.get(cat, "#94A3B8")
+            bset = QBarSet(f"{cat} (₱{tot:,.0f})")
+            bset.append(tot)
+            bset.setColor(QColor(color_hex))
+            bset.setLabelColor(label_color)
+            series.append(bset)
+            max_val = max(max_val, tot)
+
+            def _make_hover(s=bset, c=cat, t=tot, col=color_hex):
+                def _on_hover(state, _index):
+                    if state:
+                        pct = (t / total_exp) * 100
+                        QToolTip.showText(
+                            QCursor.pos(),
+                            f"<b style='color:{col};'>{c}</b><br>"
+                            f"Amount: <b>₱ {t:,.2f}</b><br>"
+                            f"Share: <b>{pct:.1f}%</b>"
+                        )
+                    else:
+                        QToolTip.hideText()
+                return _on_hover
+
+            bset.hovered.connect(_make_hover())
+
+        chart = QChart()
+        chart.addSeries(series)
+        chart.setAnimationOptions(QChart.SeriesAnimations)
+        chart.setBackgroundBrush(Qt.transparent)
+        chart.setMargins(QMargins(0, 0, 0, 0))
+        chart.legend().setAlignment(Qt.AlignRight)
+        chart.legend().setLabelColor(axis_label_color)
+
+        axis_x = QBarCategoryAxis()
+        axis_x.append(["Expenses"])
+        axis_x.setLabelsColor(axis_label_color)
+        chart.addAxis(axis_x, Qt.AlignBottom)
+        series.attachAxis(axis_x)
+
+        # Same "nice round number" tick algorithm as the dashboard chart, with
+        # labels built as plain f-strings (not QValueAxis.setLabelFormat) so
+        # the ₱ sign always renders correctly.
+        upper = max(max_val * 1.15, 1.0)
+        target_ticks = 5
+        raw_step = upper / (target_ticks - 1)
+        magnitude = 10 ** int(math.floor(math.log10(max(raw_step, 1))))
+        residual = raw_step / magnitude
+        if residual <= 1.5:
+            clean_step = 1.0 * magnitude
+        elif residual <= 3.0:
+            clean_step = 2.5 * magnitude
+        elif residual <= 7.0:
+            clean_step = 5.0 * magnitude
+        else:
+            clean_step = 10.0 * magnitude
+
+        num_steps = max(1, int(math.ceil(upper / clean_step)))
+        final_max = num_steps * clean_step
+
+        axis_y = QCategoryAxis()
+        axis_y.setRange(0, final_max)
+        for i in range(num_steps + 1):
+            val = clean_step * i
+            axis_y.append(f"₱{val:,.0f}", val)
+        axis_y.setLabelsColor(axis_label_color)
+        chart.addAxis(axis_y, Qt.AlignLeft)
+        series.attachAxis(axis_y)
+
+        self._exp_chart_view = QChartView(chart)
+        self._exp_chart_view.setRenderHint(QPainter.Antialiasing)
+        self._exp_chart_view.setStyleSheet("background: transparent;")
+        self._exp_chart_view.setMinimumHeight(240)
+        self._exp_chart_holder.addWidget(self._exp_chart_view)
 
     def _render_expense_batch(self, token, batch_size=15):
         """Build a batch of expense cards, then yield to the event loop."""

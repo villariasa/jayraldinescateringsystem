@@ -7,7 +7,7 @@ Every SELECT here uses AS aliases to map them back to the short names the GUI
 expects, so no UI code needs to change.
 """
 from __future__ import annotations
-from datetime import date, time, datetime
+from datetime import date, time, datetime, timedelta
 from typing import Optional
 import utils.db as db
 import utils.menu_store as menu_store
@@ -1141,13 +1141,17 @@ _BOOKING_TAB_STATUSES = {
 }
 
 
-def get_bookings_page(status_filter=None, offset: int = 0, limit: int = 50) -> list[dict]:
-    """Fetch one page of bookings, newest first, optionally filtered by status.
+def get_bookings_page(status_filter=None, offset: int = 0, limit: int = 50,
+                       date_start: str = None, date_end: str = None,
+                       customer: str = None, event: str = None) -> list[dict]:
+    """Fetch one page of bookings, newest first, optionally filtered.
 
     status_filter: an iterable of status strings (e.g. ["PENDING"]) to restrict
-    the result to those statuses, or None for all bookings. Used for the Orders
-    module's per-tab lazy/incremental loading so tabs never fetch rows nobody is
-    scrolled to.
+      the result to those statuses, or None for all bookings (the Orders tab).
+    date_start/date_end: optional ISO date bounds on the event date (both must
+      be given together to apply; None/None = unbounded).
+    customer: optional case-insensitive substring match on customer name.
+    event: optional case-insensitive substring match on the occasion field.
     """
     params: list = []
     where = "WHERE 1=1"
@@ -1156,6 +1160,15 @@ def get_bookings_page(status_filter=None, offset: int = 0, limit: int = 50) -> l
         placeholders = ", ".join(["%s"] * len(statuses))
         where += f" AND b.bk_status IN ({placeholders})"
         params.extend(statuses)
+    if date_start and date_end:
+        where += " AND b.bk_event_date BETWEEN %s AND %s"
+        params.extend([date_start, date_end])
+    if customer:
+        where += " AND b.bk_customer_name ILIKE %s"
+        params.append(f"%{customer}%")
+    if event:
+        where += " AND b.bk_occasion ILIKE %s"
+        params.append(f"%{event}%")
     params.extend([limit, offset])
     rows = db.fetchall(
         _BOOKING_ROW_SQL + f" {where} ORDER BY b.bk_id DESC LIMIT %s OFFSET %s",
@@ -1164,17 +1177,39 @@ def get_bookings_page(status_filter=None, offset: int = 0, limit: int = 50) -> l
     return _rows_to_booking_dicts(rows)
 
 
-def get_booking_counts() -> dict:
+def get_default_orders_window() -> tuple[str, str]:
+    """1 month back -> 2 months ahead of today, as ISO date strings. Default
+    scope for the Orders list so it doesn't load the entire booking history
+    on every open."""
+    return get_default_billing_window()
+
+
+def get_booking_counts(date_start: str = None, date_end: str = None,
+                        customer: str = None, event: str = None) -> dict:
     """Return per-tab booking counts independent of how many rows are loaded into
-    the UI, so tab title counts stay accurate under pagination.
+    the UI, so tab title counts stay accurate under pagination. Accepts the same
+    optional date/customer/event filters as get_bookings_page() so the counts
+    reflect whatever's currently filtered, not the whole table.
 
     Returns {"pending": N, "confirmed": N, "all": N} where "confirmed" covers
     both CONFIRMED and COMPLETED (matching the Confirmed tab's status bucket).
     """
     counts = {"pending": 0, "confirmed": 0, "all": 0}
     try:
+        where = "WHERE 1=1"
+        params: list = []
+        if date_start and date_end:
+            where += " AND b.bk_event_date BETWEEN %s AND %s"
+            params.extend([date_start, date_end])
+        if customer:
+            where += " AND b.bk_customer_name ILIKE %s"
+            params.append(f"%{customer}%")
+        if event:
+            where += " AND b.bk_occasion ILIKE %s"
+            params.append(f"%{event}%")
         rows = db.fetchall(
-            "SELECT b.bk_status AS status, COUNT(*) AS cnt FROM bookings b GROUP BY b.bk_status"
+            f"SELECT b.bk_status AS status, COUNT(*) AS cnt FROM bookings b {where} GROUP BY b.bk_status",
+            tuple(params),
         )
         for r in rows or []:
             status = (r.get("status") or "").upper()
@@ -1698,13 +1733,63 @@ def _rows_to_invoice_dicts(rows) -> list[dict]:
     ]
 
 
-def get_invoices_page(offset: int = 0, limit: int = 50) -> list[dict]:
-    """Fetch one page of invoices, newest first. Used for incremental/lazy loading."""
+def get_invoices_page(offset: int = 0, limit: int = 50, date_start: str = None, date_end: str = None,
+                       customer: str = None, paid_status: str = None) -> list[dict]:
+    """Fetch one page of invoices. Used for incremental/lazy loading.
+
+    date_start/date_end: optional ISO date bounds on the invoice's event_date
+      (both must be given together to apply; None/None = unbounded).
+    customer: optional case-insensitive substring match on customer name.
+    paid_status: "unpaid" (Unpaid/Partial), "paid" (Paid only), or None/"all"
+      for no paid-status filter.
+
+    Sort: when paid_status is not explicitly set (the default/unfiltered view),
+    unpaid/partial invoices sort BEFORE paid ones (so the most actionable
+    invoices land on page 0), then by event_date. Any explicit paid_status
+    filter already narrows to one bucket, so it just sorts by event_date.
+    """
+    where = ""
+    params: list = []
+    if date_start and date_end:
+        where += " AND i.inv_event_date BETWEEN %s AND %s"
+        params.extend([date_start, date_end])
+    if customer:
+        where += " AND i.inv_customer_name ILIKE %s"
+        params.append(f"%{customer}%")
+    if paid_status == "unpaid":
+        where += " AND CAST(i.inv_status AS TEXT) IN ('Unpaid', 'Partial')"
+    elif paid_status == "paid":
+        where += " AND CAST(i.inv_status AS TEXT) = 'Paid'"
+
+    if paid_status in (None, "", "all"):
+        order = "ORDER BY (CASE WHEN CAST(i.inv_status AS TEXT) IN ('Unpaid', 'Partial') THEN 0 ELSE 1 END), i.inv_event_date ASC"
+    else:
+        order = "ORDER BY i.inv_event_date ASC"
+
+    params.extend([limit, offset])
     rows = db.fetchall(
-        _INVOICE_ROW_SQL + " ORDER BY i.inv_created_at DESC LIMIT %s OFFSET %s",
-        (limit, offset),
+        _INVOICE_ROW_SQL + f"{where} {order} LIMIT %s OFFSET %s",
+        tuple(params),
     )
     return _rows_to_invoice_dicts(rows)
+
+
+def get_default_billing_window() -> tuple[str, str]:
+    """1 month back -> 2 months ahead of today, as ISO date strings. This is
+    the default scope for the Billing list so it doesn't load the entire
+    invoice history on every open."""
+    from datetime import date as _date
+    today = _date.today()
+    start = (today.replace(day=1) - timedelta(days=32)).replace(day=1)
+    # +2 months ahead, end of that month
+    m = today.month + 2
+    y = today.year + (m - 1) // 12
+    m = (m - 1) % 12 + 1
+    if m == 12:
+        end = _date(y, 12, 31)
+    else:
+        end = _date(y, m + 1, 1) - timedelta(days=1)
+    return start.isoformat(), end.isoformat()
 
 
 def get_invoices_summary() -> dict:

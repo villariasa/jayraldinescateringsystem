@@ -642,6 +642,11 @@ class CashFlowPage(QWidget):
                 if hasattr(self, "_loader"):
                     self._loader.hide_overlay()
                 self._reload_finished()
+            # Auto-continue: keep loading the remaining pages in the background
+            # without waiting for a manual scroll. Guards above have already been
+            # reset, so this self-perpetuates until _has_more becomes False.
+            if self._has_more and not self._loading_more:
+                QTimer.singleShot(150, self._load_more)
 
     def _on_scroll_near_bottom(self, value):
         sb = self.table.verticalScrollBar()

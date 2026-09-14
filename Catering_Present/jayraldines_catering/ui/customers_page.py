@@ -1338,6 +1338,13 @@ class CustomersPage(QWidget):
                 self._loader.hide_overlay()
             self._rendering = False
             self._reload_finished()
+            # Keep quietly loading the next page in the background instead of
+            # waiting for the user to scroll - each page still fetches on a
+            # background thread and renders in small yielded batches, so this
+            # never blocks the UI; the short delay just avoids competing with
+            # whatever the user is doing right after a page finishes.
+            if self._has_more and not self._loading_more:
+                QTimer.singleShot(150, self._load_more_customers)
 
     def _create_customer_card(self, c: dict, can_edit: bool = None, can_delete: bool = None) -> QFrame:
         cid = int(c.get("id") or c.get("cus_id") or 0)
@@ -1780,10 +1787,10 @@ class CustomersPage(QWidget):
                 visible_count += 1
             else:
                 match = (
-                    q in c.get("name", "").lower() or
-                    q in c.get("email", "").lower() or
-                    q in c.get("contact", "").lower() or
-                    q in c.get("address", "").lower()
+                    q in str(c.get("name") or "").lower() or
+                    q in str(c.get("email") or "").lower() or
+                    q in str(c.get("contact") or "").lower() or
+                    q in str(c.get("address") or "").lower()
                 )
                 card_w.setVisible(match)
                 if match:

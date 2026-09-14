@@ -455,8 +455,12 @@ class MultiMenuSelectionDialog(QDialog):
     def _filter_items(self, text: str):
         query = text.strip().lower()
         for cb, it, rf in self._checkboxes:
-            dish_name = it.get("name") or it.get("item", "")
-            match = (query in dish_name.lower() or query in it.get("category", "").lower() or query in it.get("description", "").lower())
+            dish_name = str(it.get("name") or it.get("item") or "")
+            match = (
+                query in dish_name.lower()
+                or query in str(it.get("category") or "").lower()
+                or query in str(it.get("description") or "").lower()
+            )
             rf.setVisible(match)
 
     def _select_all(self):
@@ -977,6 +981,14 @@ class BookingPage(QWidget):
         self._filter_popover = None
         self._search_query = ""
 
+        # Server-side filter state (DB-level, ADDITIONAL to whatever tab
+        # status_filter is active and independent of the client-side search box).
+        # Defaults to "1 month back / 2 months ahead" so we never load the whole
+        # booking history on open.
+        self._filter_date_start, self._filter_date_end = repo.get_default_orders_window()
+        self._filter_customer = None
+        self._filter_event = None
+
         # Per-tab lazy pagination state (tab index -> value). Tabs page through
         # bookings independently by status so we never fetch/render rows nobody
         # is scrolled to. Tab 0 = Pending, 1 = Confirmed/Completed, 2 = All.
@@ -998,6 +1010,11 @@ class BookingPage(QWidget):
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._on_search_timer_fired)
+        # Debounce server-side filter changes (editable customer combo fires
+        # currentTextChanged per keystroke) so we coalesce into one DB reload.
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.timeout.connect(self._apply_server_filter_reload)
         self._build_ui()
         self._bookings = []
         self._dirty = True
@@ -1108,14 +1125,18 @@ class BookingPage(QWidget):
             self, self._fetch_reload_data,
             lambda result, i=active_idx: self._on_reload_loaded(i, result),
             self._on_bookings_error,
-            status, self._page_size,
+            status, self._page_size, *self._current_filter_args(),
         )
 
     @staticmethod
-    def _fetch_reload_data(status, page_size):
+    def _fetch_reload_data(status, page_size, date_start, date_end, customer, event):
         # Combined round trip: DB-side counts (accurate under pagination) plus
-        # the active tab's first page.
-        return repo.get_booking_counts(), repo.get_bookings_page(status, 0, page_size)
+        # the active tab's first page. Both scoped by the active server-side
+        # filter (date window / customer / occasion).
+        return (
+            repo.get_booking_counts(date_start, date_end, customer, event),
+            repo.get_bookings_page(status, 0, page_size, date_start, date_end, customer, event),
+        )
 
     def _on_reload_loaded(self, idx, result):
         self._refreshing = False
@@ -1138,7 +1159,9 @@ class BookingPage(QWidget):
         if not isValid(self):
             self._reload_in_flight = False
             return
-        cached = cached or []
+        # Scope the pre-loaded full list by the active server-side filter (the
+        # default window on first open) so counts + rows match the DB path.
+        cached = self._server_filter_rows(cached or [])
         pending = [b for b in cached if b.get("status") == "PENDING"]
         confirmed = [b for b in cached if b.get("status") in ("CONFIRMED", "COMPLETED")]
         self._tab_cached_full = {0: pending, 1: confirmed, 2: list(cached)}
@@ -1270,6 +1293,72 @@ class BookingPage(QWidget):
         search_filter_row.addWidget(self._btn_export)
 
         layout.addLayout(search_filter_row)
+
+        # Server-side filter bar (date range / customer / occasion). These narrow
+        # the ACTIVE tab's own status_filter further at the DB level; they are
+        # ADDITIONAL to the client-side search box above and apply within
+        # whichever tab is currently selected.
+        server_filter_row = QHBoxLayout()
+        server_filter_row.setSpacing(10)
+
+        server_filter_row.addWidget(QLabel("From"))
+        self._date_from = QDateEdit()
+        self._date_from.setCalendarPopup(True)
+        self._date_from.setDisplayFormat("MMM d, yyyy")
+        self._date_from.setFixedHeight(38)
+        self._date_from.setDate(QDate.fromString(self._filter_date_start, "yyyy-MM-dd"))
+        self._date_from.dateChanged.connect(lambda _=None: self._on_server_filter_changed())
+        server_filter_row.addWidget(self._date_from)
+
+        server_filter_row.addWidget(QLabel("To"))
+        self._date_to = QDateEdit()
+        self._date_to.setCalendarPopup(True)
+        self._date_to.setDisplayFormat("MMM d, yyyy")
+        self._date_to.setFixedHeight(38)
+        self._date_to.setDate(QDate.fromString(self._filter_date_end, "yyyy-MM-dd"))
+        self._date_to.dateChanged.connect(lambda _=None: self._on_server_filter_changed())
+        server_filter_row.addWidget(self._date_to)
+
+        server_filter_row.addWidget(QLabel("Customer"))
+        self._customer_filter = QComboBox()
+        self._customer_filter.setEditable(True)
+        self._customer_filter.setFixedHeight(38)
+        self._customer_filter.setMinimumWidth(180)
+        self._customer_filter.addItem("All Customers")
+        try:
+            for _name in repo.get_customer_names():
+                self._customer_filter.addItem(_name)
+        except Exception as _exc:
+            print(f"[BookingPage] customer names load failed: {_exc}")
+        self._customer_filter.setCurrentIndex(0)
+        from utils.searchable_combo import make_searchable
+        make_searchable(self._customer_filter)
+        self._customer_filter.currentTextChanged.connect(lambda _=None: self._on_server_filter_changed())
+        server_filter_row.addWidget(self._customer_filter)
+
+        server_filter_row.addWidget(QLabel("Occasion"))
+        self._event_filter = QComboBox()
+        self._event_filter.setFixedHeight(38)
+        self._event_filter.setMinimumWidth(150)
+        self._event_filter.addItem("All Occasions")
+        try:
+            for _occ in repo.get_all_occasions():
+                self._event_filter.addItem(_occ)
+        except Exception as _exc:
+            print(f"[BookingPage] occasions load failed: {_exc}")
+        self._event_filter.setCurrentIndex(0)
+        self._event_filter.currentTextChanged.connect(lambda _=None: self._on_server_filter_changed())
+        server_filter_row.addWidget(self._event_filter)
+
+        self._btn_reset_filters = QPushButton("Reset")
+        self._btn_reset_filters.setObjectName("secondaryButton")
+        self._btn_reset_filters.setFixedHeight(38)
+        self._btn_reset_filters.setCursor(Qt.PointingHandCursor)
+        self._btn_reset_filters.clicked.connect(self._reset_server_filters)
+        server_filter_row.addWidget(self._btn_reset_filters)
+
+        server_filter_row.addStretch()
+        layout.addLayout(server_filter_row)
 
         # 3-Tab Booking Matrix
         self._tabs = QTabWidget()
@@ -1437,7 +1526,7 @@ class BookingPage(QWidget):
             self, repo.get_bookings_page,
             lambda rows, i=idx: self._on_tab_first_page(i, rows),
             self._on_bookings_error,
-            self._tab_status.get(idx), 0, self._page_size,
+            self._tab_status.get(idx), 0, self._page_size, *self._current_filter_args(),
         )
 
     def _on_tab_first_page(self, idx: int, rows):
@@ -1551,7 +1640,7 @@ class BookingPage(QWidget):
             self, repo.get_bookings_page,
             lambda rows, i=idx: self._on_tab_more_loaded(i, rows),
             lambda err, i=idx: (self._hide_tab_loading_indicator(i), self._tab_loading_more.__setitem__(i, False), self._on_bookings_error(err)),
-            self._tab_status.get(idx), offset, self._page_size,
+            self._tab_status.get(idx), offset, self._page_size, *self._current_filter_args(),
         )
 
     def _show_tab_loading_indicator(self, idx: int):
@@ -1794,6 +1883,15 @@ class BookingPage(QWidget):
             if getattr(self, "_loader", None):
                 self._loader.hide_overlay()
             self._reload_finished()
+            # Keep quietly loading the next page for THIS tab in the
+            # background instead of waiting for the user to scroll - each
+            # page still fetches on a background thread and renders in small
+            # yielded batches, so this never blocks the UI; the short delay
+            # just avoids competing with whatever the user is doing right
+            # after a page finishes. Scoped to the tab that just finished so
+            # the other tabs' chains are untouched.
+            if tab_idx is not None and self._tab_has_more.get(tab_idx) and not self._tab_loading_more.get(tab_idx):
+                QTimer.singleShot(150, lambda i=tab_idx: self._load_more_tab(i))
 
 
     def _create_booking_card(self, b: dict, can_edit: bool = True, can_delete: bool = True) -> QFrame:
@@ -1855,57 +1953,6 @@ class BookingPage(QWidget):
         c_time.addWidget(time_title)
         c_time.addWidget(time_val)
         lay.addLayout(c_time, 1)
-
-        # Col 3.8: Color Motif (Clickable Badge)
-        c_motif = QVBoxLayout()
-        c_motif.setSpacing(2)
-        motif_title = QLabel("COLOR MOTIF")
-        motif_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280; letter-spacing: 0.5px;")
-        c_motif.addWidget(motif_title)
-
-        c_hex = str(b.get("color_theme") or b.get("color") or "#2563EB").strip()
-        from components.color_picker_widget import PRESET_THEME_COLORS
-        theme_name = next((name for h, name in PRESET_THEME_COLORS if h.upper() == c_hex.upper()), "Custom")
-
-        bref = b["id"]
-        motif_btn = QPushButton()
-        motif_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ArrowCursor)
-        motif_btn.setToolTip("Click to change event color motif" if can_edit else "Event color motif")
-        motif_btn.setEnabled(can_edit)
-        motif_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                border-left: 3.5px solid {c_hex};
-                border-radius: 6px;
-                padding: 3px 8px;
-                text-align: left;
-            }}
-            QPushButton:hover {{
-                background: rgba(255, 255, 255, 0.12);
-                border-color: {c_hex};
-            }}
-        """)
-        m_lay = QHBoxLayout(motif_btn)
-        m_lay.setContentsMargins(3, 2, 5, 2)
-        m_lay.setSpacing(6)
-
-        dot = QFrame()
-        dot.setFixedSize(9, 9)
-        dot.setAttribute(Qt.WA_TransparentForMouseEvents)
-        dot.setStyleSheet(f"background-color: {c_hex}; border-radius: 4px;")
-        m_lay.addWidget(dot)
-
-        m_name_lbl = QLabel(theme_name)
-        m_name_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-        m_name_lbl.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {c_hex};")
-        m_lay.addWidget(m_name_lbl)
-        m_lay.addStretch()
-
-        if can_edit:
-            motif_btn.clicked.connect(lambda _, r=bref: self._change_booking_color(r))
-        c_motif.addWidget(motif_btn)
-        lay.addLayout(c_motif, 1)
 
         # Col 4: Status Badge & Reason/Approvals
         c4 = QVBoxLayout()
@@ -2409,6 +2456,85 @@ class BookingPage(QWidget):
         from components.export_dialog import ExportWizardDialog
         dlg = ExportWizardDialog(parent=self)
         dlg.exec()
+
+    def _current_filter_args(self):
+        # The 4 server-side filter values threaded into every DB fetch/count call
+        # so all 3 tabs (active now, or lazily loaded later) stay consistent.
+        return (self._filter_date_start, self._filter_date_end,
+                self._filter_customer, self._filter_event)
+
+    def _on_server_filter_changed(self):
+        # Read the current widget state into self._filter_* then reload. Applies
+        # WITHIN whichever tab is active; the other two tabs reset here and lazily
+        # re-fetch with these same values on next switch via _ensure_tab_loaded.
+        if getattr(self, "_suspend_filter_signals", False):
+            return
+        if hasattr(self, "_filter_timer"):
+            self._filter_timer.start(200)
+        else:
+            self._apply_server_filter_reload()
+
+    def _apply_server_filter_reload(self):
+        self._filter_date_start = self._date_from.date().toString("yyyy-MM-dd")
+        self._filter_date_end = self._date_to.date().toString("yyyy-MM-dd")
+        cust = self._customer_filter.currentText().strip()
+        self._filter_customer = None if (not cust or cust == "All Customers") else cust
+        ev = self._event_filter.currentText().strip()
+        self._filter_event = None if (not ev or ev == "All Occasions") else ev
+        # Force a DB reload (not the one-time memory cache) so counts + rows for
+        # all tabs reflect the new filter. _refresh_bookings resets pagination for
+        # all 3 tabs and re-fetches page 0 of the active tab.
+        self._has_loaded_once = True
+        self._refresh_bookings()
+
+    def _reset_server_filters(self):
+        # Restore the default 1-month-back / 2-months-ahead window and clear the
+        # customer/occasion pickers, then reload once.
+        self._filter_date_start, self._filter_date_end = repo.get_default_orders_window()
+        self._suspend_filter_signals = True
+        try:
+            self._date_from.setDate(QDate.fromString(self._filter_date_start, "yyyy-MM-dd"))
+            self._date_to.setDate(QDate.fromString(self._filter_date_end, "yyyy-MM-dd"))
+            self._customer_filter.setCurrentIndex(0)
+            self._event_filter.setCurrentIndex(0)
+        finally:
+            self._suspend_filter_signals = False
+        self._on_server_filter_changed()
+
+    def _parse_booking_date(self, val):
+        # Booking dicts carry event_date pre-formatted as "%b %d, %Y" (e.g.
+        # "Sep 14, 2026"); normalize to ISO for comparison against the filter
+        # bounds. Returns None on any parse failure (row is then kept, not dropped).
+        if not val:
+            return None
+        from datetime import datetime as _dt
+        s = str(val).strip()
+        for fmt in ("%b %d, %Y", "%Y-%m-%d"):
+            try:
+                return _dt.strptime(s, fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+        return None
+
+    def _server_filter_rows(self, rows):
+        # Apply the same date/customer/occasion filter client-side to a pre-loaded
+        # (memory-cached) list, so the first-open cache path respects the default
+        # window and any active filter exactly like the DB path does.
+        ds, de, cust, ev = self._current_filter_args()
+        if not (ds and de) and not cust and not ev:
+            return list(rows or [])
+        out = []
+        for b in rows or []:
+            if ds and de:
+                iso = self._parse_booking_date(b.get("event_date") or b.get("date"))
+                if iso is not None and not (ds <= iso <= de):
+                    continue
+            if cust and cust.lower() not in (b.get("customer_name") or "").lower():
+                continue
+            if ev and ev.lower() not in (b.get("occasion") or "").lower():
+                continue
+            out.append(b)
+        return out
 
     def filter_search(self, text):
         self._search_query = str(text or "")
