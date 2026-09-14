@@ -23,7 +23,8 @@ install:
   - "venv\\Scripts\\python.exe -m pip install pyinstaller pillow"
 
 build_script:
-  - "cd %APP_DIR%"
+  # No "cd %APP_DIR%" here - the working directory from the install step
+  # (which already cd'd into %APP_DIR%) carries over into this step.
   - "venv\\Scripts\\python.exe seed_catering_db.py"
   - "venv\\Scripts\\python.exe build_installer.py"
 
