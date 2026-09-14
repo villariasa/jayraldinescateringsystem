@@ -212,6 +212,22 @@ class CashFlowPage(QWidget):
         self._transactions = []
         self._selected_ids = set()
         self._row_checkboxes = {}
+        self._render_token = 0
+        self._render_queue = []
+        self._reload_in_flight = False
+        self._reload_pending = False
+        # Busy-flag guarding the batched render pipeline against a scroll-triggered
+        # append firing while the initial page's batch chain is still running.
+        self._rendering = False
+        # Lazy-loading / infinite-scroll pagination state.
+        self._page_size = 50
+        self._has_more = True
+        self._loading_more = False
+        self._cached_remainder = None
+        self._summary = {}
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.timeout.connect(self._load_data)
         self._build_ui()
 
         try:
@@ -434,6 +450,8 @@ class CashFlowPage(QWidget):
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.table.setMinimumHeight(450)
         t_lay.addWidget(self.table, 1)
+        # Infinite scroll: append the next page when the user nears the bottom.
+        self.table.verticalScrollBar().valueChanged.connect(self._on_scroll_near_bottom)
         root.addWidget(table_card, 1)
         self._loader = LoadingOverlay(self, "Loading cash flow transactions...")
 
@@ -456,7 +474,9 @@ class CashFlowPage(QWidget):
 
     def _on_search_changed(self, text: str):
         self._search_text = text.strip()
-        self._load_data()
+        # Debounced - _load_data() re-fetches from the DB, so firing it on
+        # every single keystroke was the actual cause of laggy search here.
+        self._search_timer.start(150)
 
     def _set_date_filter(self, date_str: str = None):
         self._filter_date = date_str
@@ -474,37 +494,70 @@ class CashFlowPage(QWidget):
         self._load_data()
 
     def _load_data(self):
+        # Coalesce overlapping reloads: if a reload (fetch + batch-render) is
+        # already running, don't start a second one in parallel - just remember
+        # to run exactly one more pass once the current one fully finishes.
+        if getattr(self, "_reload_in_flight", False):
+            self._reload_pending = True
+            return
+        self._reload_in_flight = True
+        self._reload_pending = False
+
+        # Pagination resets on every full reload - we always re-fetch page 0.
+        self._has_more = True
+        self._loading_more = False
+        self._cached_remainder = None
+
         from utils.data_cache import DataCache
         if not self._filter_date and not self._search_text:
             cached = DataCache.get("cash_flow_data")
             if cached is not None and not getattr(self, "_has_loaded_once", False):
                 self._has_loaded_once = True
+                # The login welcome sequence caches the FULL transaction list plus
+                # a lightweight summary. Slice off page 1 for instant render and
+                # keep the remainder in memory to serve scroll-pages with no DB hit.
+                all_txs = list(cached.get("transactions", []))
+                self._summary = cached.get("summary", {})
+                page = all_txs[:self._page_size]
+                self._cached_remainder = all_txs[self._page_size:]
+                if not self._cached_remainder:
+                    self._has_more = False
+                payload = {"transactions": page, "summary": self._summary}
                 if hasattr(self, "_loader"):
                     self._loader.show_overlay("Loading cash flow transactions...")
-                    QTimer.singleShot(60, lambda: self._on_data_ready(cached))
+                    QTimer.singleShot(60, lambda: self._on_data_ready(payload))
                 else:
-                    self._on_data_ready(cached)
+                    self._on_data_ready(payload)
                 return
 
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading cash flow transactions...")
-        run_async(self, self._fetch_data, self._on_data_ready_and_cache)
+        run_async(self, self._fetch_data, self._on_data_ready)
 
-    def _on_data_ready_and_cache(self, data):
-        from utils.data_cache import DataCache
-        if data and not self._filter_date and not self._search_text:
-            DataCache.set("cash_flow_data", data)
-        self._on_data_ready(data)
+    def _reload_finished(self):
+        self._reload_in_flight = False
+        self._loading_more = False
+        if self._reload_pending:
+            self._reload_pending = False
+            QTimer.singleShot(0, self._load_data)
 
     def _fetch_data(self):
-        txs = repo.get_cash_flow_transactions(filter_date=self._filter_date, search=self._search_text)
+        # Page 0 only + a lightweight aggregate summary that stays accurate
+        # regardless of how many pages get loaded into the table.
+        txs = repo.get_cash_flow_transactions_page(
+            0, self._page_size, filter_date=self._filter_date, search=self._search_text
+        )
         summary = repo.get_cash_flow_summary()
         return {"transactions": txs, "summary": summary}
 
     def _on_data_ready(self, data):
         try:
-            self._transactions = data.get("transactions", [])
+            page = data.get("transactions", [])
+            self._transactions = page
+            if len(page) < self._page_size:
+                self._has_more = False
             summary = data.get("summary", {})
+            self._summary = summary
 
             dep = summary.get("total_deposits", 0.0)
             withd = summary.get("total_withdrawals", 0.0)
@@ -524,145 +577,251 @@ class CashFlowPage(QWidget):
             self._card_diff._val_lbl.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {diff_color};")
             self._card_diff._val_lbl.setText(diff_str)
 
+            # _populate_table() kicks off async batch rendering; the loader is
+            # hidden by _render_next_batch once the LAST batch finishes (which
+            # also covers the empty/zero-row case), not here.
             self._populate_table()
-        finally:
+        except Exception:
             if hasattr(self, "_loader"):
                 self._loader.hide_overlay()
+            self._reload_finished()
+            raise
 
     def _populate_table(self):
-        self.table.setUpdatesEnabled(False)
+        # Cancel any in-flight batched render from a previous populate call.
+        self._render_token += 1
+        token = self._render_token
+
         self._row_checkboxes.clear()
         # Keep only selected IDs that still exist in current transactions
         visible_ids = {int(tx["id"]) for tx in self._transactions if tx.get("id")}
         self._selected_ids.intersection_update(visible_ids)
 
+        # Hoist per-row-invariant permission checks out of the loop.
+        self._render_can_edit = SessionManager.has_permission("cashflow", "edit")
+        self._render_can_del = SessionManager.has_permission("cashflow", "delete")
+
+        # Set row count once upfront; disable sorting during bulk fill.
+        self._rendering = True
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(self._transactions))
+
+        # Build a queue of (row_index, tx) and render in yielding batches so the
+        # UI event loop stays responsive during heavy cell-widget construction.
+        self._render_queue = list(enumerate(self._transactions))
+        self._render_next_batch(token)
+
+    def _render_next_batch(self, token, batch_size=15, is_append=False):
+        # Cancel stale batches if a newer populate has started.
+        if token != self._render_token:
+            return
+
+        self.table.setUpdatesEnabled(False)
         try:
-            self.table.setRowCount(len(self._transactions))
-            for r_idx, tx in enumerate(self._transactions):
-                tx_id = int(tx.get("id") or 0)
-
-                # Column 0: Checkbox
-                cb_widget = QWidget()
-                cb_lay = QHBoxLayout(cb_widget)
-                cb_lay.setContentsMargins(0, 0, 0, 0)
-                cb_lay.setAlignment(Qt.AlignCenter)
-                cb = QCheckBox()
-                cb.setCursor(Qt.PointingHandCursor)
-                cb.setChecked(tx_id in self._selected_ids)
-                cb.toggled.connect(lambda checked, tid=tx_id: self._on_row_checked(tid, checked))
-                cb_lay.addWidget(cb)
-                self._row_checkboxes[tx_id] = cb
-                self.table.setCellWidget(r_idx, 0, cb_widget)
-
-                # Column 1: Date
-                d_val = str(tx.get("date", ""))
-                try:
-                    qd = QDate.fromString(d_val, "yyyy-MM-dd")
-                    date_str = qd.toString("MMM dd, yyyy") if qd.isValid() else d_val
-                except Exception:
-                    date_str = d_val
-                item_d = QTableWidgetItem(date_str)
-                item_d.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-                # Column 2: Check #
-                item_c = QTableWidgetItem(str(tx.get("check_no", "") or "—"))
-                item_c.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-                # Column 3: Particulars
-                part_text = str(tx.get("particulars", ""))
-                if tx.get("notes"):
-                    part_text += f" ({tx['notes']})"
-                item_p = QTableWidgetItem(part_text)
-                item_p.setFont(QFont("Segoe UI", 10, QFont.Bold))
-                item_p.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-                # Column 4: Deposit
-                dep_val = float(tx.get("deposit") or 0.0)
-                item_dep = QTableWidgetItem(f"₱ {dep_val:,.2f}" if dep_val > 0 else "—")
-                item_dep.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                if dep_val > 0:
-                    item_dep.setForeground(QColor("#22C55E"))
-
-                # Column 5: Withdrawal
-                withd_val = float(tx.get("withdrawal") or 0.0)
-                item_w = QTableWidgetItem(f"₱ {withd_val:,.2f}" if withd_val > 0 else "—")
-                item_w.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                if withd_val > 0:
-                    item_w.setForeground(QColor("#EF4444"))
-
-                # Column 6: Balance
-                bal_val = float(tx.get("balance") or 0.0)
-                bal_str = f"₱ {bal_val:,.2f}" if bal_val >= 0 else f"(₱ {abs(bal_val):,.2f})"
-                item_bal = QTableWidgetItem(bal_str)
-                item_bal.setFont(QFont("Segoe UI", 10, QFont.Bold))
-                item_bal.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                item_bal.setForeground(QColor("#22C55E" if bal_val >= 0 else "#EF4444"))
-
-                # Column 7: Actual Sales
-                sales_val = float(tx.get("actual_sales") or 0.0)
-                sales_str = f"₱ {sales_val:,.2f}" if sales_val > 0 else "—"
-                item_sales = QTableWidgetItem(sales_str)
-                item_sales.setFont(QFont("Segoe UI", 10, QFont.Bold))
-                item_sales.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                if sales_val > 0:
-                    item_sales.setForeground(QColor("#C084FC"))
-
-                # Column 8: Variance / Difference (Balance - Actual Sales)
-                if sales_val > 0:
-                    diff_val = bal_val - sales_val
-                    diff_str = f"₱ {diff_val:,.2f}" if diff_val >= 0 else f"(₱ {abs(diff_val):,.2f})"
-                    diff_color = QColor("#22C55E" if diff_val >= 0 else "#EF4444")
-                else:
-                    diff_str = "—"
-                    diff_color = QColor("#9CA3AF")
-                item_diff = QTableWidgetItem(diff_str)
-                item_diff.setFont(QFont("Segoe UI", 10, QFont.Bold))
-                item_diff.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                item_diff.setForeground(diff_color)
-
-                self.table.setItem(r_idx, 1, item_d)
-                self.table.setItem(r_idx, 2, item_c)
-                self.table.setItem(r_idx, 3, item_p)
-                self.table.setItem(r_idx, 4, item_dep)
-                self.table.setItem(r_idx, 5, item_w)
-                self.table.setItem(r_idx, 6, item_bal)
-                self.table.setItem(r_idx, 7, item_sales)
-                self.table.setItem(r_idx, 8, item_diff)
-
-                # Column 9: Actions (Edit / Delete)
-                act_widget = QWidget()
-                act_lay = QHBoxLayout(act_widget)
-                act_lay.setContentsMargins(4, 2, 4, 2)
-                act_lay.setSpacing(6)
-
-                edit_btn = QPushButton()
-                edit_btn.setIcon(get_icon("edit", color="#38BDF8", size=QSize(13, 13)))
-                edit_btn.setFixedSize(28, 28)
-                edit_btn.setStyleSheet("background: transparent; border: none;")
-                edit_btn.setCursor(Qt.PointingHandCursor)
-                edit_btn.setToolTip("Edit Transaction")
-                edit_btn.clicked.connect(lambda _, item_tx=tx: self._edit_transaction(item_tx))
-
-                del_btn = QPushButton()
-                del_btn.setIcon(get_icon("trash", color="#EF4444", size=QSize(13, 13)))
-                del_btn.setFixedSize(28, 28)
-                del_btn.setStyleSheet("background: transparent; border: none;")
-                del_btn.setCursor(Qt.PointingHandCursor)
-                del_btn.setToolTip("Delete Transaction")
-                del_btn.clicked.connect(lambda _, item_tx=tx: self._delete_transaction(item_tx))
-
-                can_edit = SessionManager.has_permission("cashflow", "edit")
-                can_del = SessionManager.has_permission("cashflow", "delete")
-
-                if can_edit:
-                    act_lay.addWidget(edit_btn)
-                if can_del:
-                    act_lay.addWidget(del_btn)
-                self.table.setCellWidget(r_idx, 9, act_widget)
+            batch = self._render_queue[:batch_size]
+            del self._render_queue[:batch_size]
+            for r_idx, tx in batch:
+                self._build_table_row(r_idx, tx, self._render_can_edit, self._render_can_del)
         finally:
             self.table.setUpdatesEnabled(True)
 
-        self._update_selection_ui()
+        if self._render_queue:
+            QTimer.singleShot(0, lambda: self._render_next_batch(token, batch_size, is_append))
+        else:
+            self.table.setSortingEnabled(False)
+            self._update_selection_ui()
+            # Pipeline truly finished (queue drained) for both reload and append.
+            self._rendering = False
+            if is_append:
+                # Appending a scroll-page - the loader was never shown and this
+                # is not a full reload, so just release the load-more guard.
+                self._loading_more = False
+            else:
+                # Full render pipeline complete - safe to hide the loader now and
+                # let a coalesced reload (if any was requested mid-render) run.
+                if hasattr(self, "_loader"):
+                    self._loader.hide_overlay()
+                self._reload_finished()
+
+    def _on_scroll_near_bottom(self, value):
+        sb = self.table.verticalScrollBar()
+        if sb.maximum() - value < 200:
+            self._load_more()
+
+    def _load_more(self):
+        if self._loading_more or not self._has_more:
+            return
+        # Don't append pages while the batched render pipeline (initial page or a
+        # previous append) is still in flight - both would mutate the table.
+        if self._rendering:
+            return
+        # Don't append pages while a full reload/render is still running.
+        if getattr(self, "_reload_in_flight", False):
+            return
+        self._loading_more = True
+        if self._cached_remainder is not None:
+            # Serve the next slice straight from the pre-loaded list - no DB hit.
+            more = self._cached_remainder[:self._page_size]
+            self._cached_remainder = self._cached_remainder[self._page_size:]
+            if not self._cached_remainder:
+                self._has_more = False
+            QTimer.singleShot(0, lambda: self._on_more_loaded(more))
+            return
+        run_async(self, repo.get_cash_flow_transactions_page, self._on_more_loaded,
+                  None, len(self._transactions), self._page_size,
+                  self._filter_date, self._search_text)
+
+    def _on_more_loaded(self, data):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        new_rows = data or []
+        if self._cached_remainder is None and len(new_rows) < self._page_size:
+            self._has_more = False
+        if not new_rows:
+            self._loading_more = False
+            return
+        self._append_rows(new_rows)
+
+    def _append_rows(self, new_rows):
+        # Grow the table and fill ONLY the new row indices, reusing the same
+        # batch-chunking renderer so appending a page doesn't cause a stutter.
+        start = len(self._transactions)
+        self._transactions.extend(new_rows)
+
+        self._render_token += 1
+        token = self._render_token
+
+        self._render_can_edit = SessionManager.has_permission("cashflow", "edit")
+        self._render_can_del = SessionManager.has_permission("cashflow", "delete")
+
+        self._rendering = True
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(start + len(new_rows))
+        self._render_queue = list(enumerate(new_rows, start=start))
+        self._render_next_batch(token, is_append=True)
+
+    def _build_table_row(self, r_idx, tx, can_edit, can_del):
+        tx_id = int(tx.get("id") or 0)
+
+        # Column 0: Checkbox
+        cb_widget = QWidget()
+        cb_lay = QHBoxLayout(cb_widget)
+        cb_lay.setContentsMargins(0, 0, 0, 0)
+        cb_lay.setAlignment(Qt.AlignCenter)
+        cb = QCheckBox()
+        cb.setCursor(Qt.PointingHandCursor)
+        cb.setChecked(tx_id in self._selected_ids)
+        cb.toggled.connect(lambda checked, tid=tx_id: self._on_row_checked(tid, checked))
+        cb_lay.addWidget(cb)
+        self._row_checkboxes[tx_id] = cb
+        self.table.setCellWidget(r_idx, 0, cb_widget)
+
+        # Column 1: Date
+        d_val = str(tx.get("date", ""))
+        try:
+            qd = QDate.fromString(d_val, "yyyy-MM-dd")
+            date_str = qd.toString("MMM dd, yyyy") if qd.isValid() else d_val
+        except Exception:
+            date_str = d_val
+        item_d = QTableWidgetItem(date_str)
+        item_d.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        # Column 2: Check #
+        item_c = QTableWidgetItem(str(tx.get("check_no", "") or "—"))
+        item_c.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        # Column 3: Particulars
+        part_text = str(tx.get("particulars", ""))
+        if tx.get("notes"):
+            part_text += f" ({tx['notes']})"
+        item_p = QTableWidgetItem(part_text)
+        item_p.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        item_p.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        # Column 4: Deposit
+        dep_val = float(tx.get("deposit") or 0.0)
+        item_dep = QTableWidgetItem(f"₱ {dep_val:,.2f}" if dep_val > 0 else "—")
+        item_dep.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        if dep_val > 0:
+            item_dep.setForeground(QColor("#22C55E"))
+
+        # Column 5: Withdrawal
+        withd_val = float(tx.get("withdrawal") or 0.0)
+        item_w = QTableWidgetItem(f"₱ {withd_val:,.2f}" if withd_val > 0 else "—")
+        item_w.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        if withd_val > 0:
+            item_w.setForeground(QColor("#EF4444"))
+
+        # Column 6: Balance
+        bal_val = float(tx.get("balance") or 0.0)
+        bal_str = f"₱ {bal_val:,.2f}" if bal_val >= 0 else f"(₱ {abs(bal_val):,.2f})"
+        item_bal = QTableWidgetItem(bal_str)
+        item_bal.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        item_bal.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        item_bal.setForeground(QColor("#22C55E" if bal_val >= 0 else "#EF4444"))
+
+        # Column 7: Actual Sales
+        sales_val = float(tx.get("actual_sales") or 0.0)
+        sales_str = f"₱ {sales_val:,.2f}" if sales_val > 0 else "—"
+        item_sales = QTableWidgetItem(sales_str)
+        item_sales.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        item_sales.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        if sales_val > 0:
+            item_sales.setForeground(QColor("#C084FC"))
+
+        # Column 8: Variance / Difference (Balance - Actual Sales)
+        if sales_val > 0:
+            diff_val = bal_val - sales_val
+            diff_str = f"₱ {diff_val:,.2f}" if diff_val >= 0 else f"(₱ {abs(diff_val):,.2f})"
+            diff_color = QColor("#22C55E" if diff_val >= 0 else "#EF4444")
+        else:
+            diff_str = "—"
+            diff_color = QColor("#9CA3AF")
+        item_diff = QTableWidgetItem(diff_str)
+        item_diff.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        item_diff.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        item_diff.setForeground(diff_color)
+
+        self.table.setItem(r_idx, 1, item_d)
+        self.table.setItem(r_idx, 2, item_c)
+        self.table.setItem(r_idx, 3, item_p)
+        self.table.setItem(r_idx, 4, item_dep)
+        self.table.setItem(r_idx, 5, item_w)
+        self.table.setItem(r_idx, 6, item_bal)
+        self.table.setItem(r_idx, 7, item_sales)
+        self.table.setItem(r_idx, 8, item_diff)
+
+        # Column 9: Actions (Edit / Delete)
+        act_widget = QWidget()
+        act_lay = QHBoxLayout(act_widget)
+        act_lay.setContentsMargins(4, 2, 4, 2)
+        act_lay.setSpacing(6)
+
+        edit_btn = QPushButton()
+        edit_btn.setIcon(get_icon("edit", color="#38BDF8", size=QSize(13, 13)))
+        edit_btn.setFixedSize(28, 28)
+        edit_btn.setStyleSheet("background: transparent; border: none;")
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.setToolTip("Edit Transaction")
+        edit_btn.clicked.connect(lambda _, item_tx=tx: self._edit_transaction(item_tx))
+
+        del_btn = QPushButton()
+        del_btn.setIcon(get_icon("trash", color="#EF4444", size=QSize(13, 13)))
+        del_btn.setFixedSize(28, 28)
+        del_btn.setStyleSheet("background: transparent; border: none;")
+        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.setToolTip("Delete Transaction")
+        del_btn.clicked.connect(lambda _, item_tx=tx: self._delete_transaction(item_tx))
+
+        if can_edit:
+            act_lay.addWidget(edit_btn)
+        if can_del:
+            act_lay.addWidget(del_btn)
+        self.table.setCellWidget(r_idx, 9, act_widget)
 
     def _on_row_checked(self, tx_id: int, checked: bool):
         if checked:

@@ -1206,6 +1206,24 @@ class MenuPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._dirty = True
+        self._reload_in_flight = False
+        self._reload_pending = False
+        # Lazy-loading pagination state - one independent set per pipeline
+        # (menu items and packages), mirroring billing_page.py.
+        self._items_page_size = 50
+        self._items_has_more = True
+        self._items_loading_more = False
+        self._items_cached_remainder = None
+        self._pkgs_page_size = 50
+        self._pkgs_has_more = True
+        self._pkgs_loading_more = False
+        self._pkgs_cached_remainder = None
+        # Busy-flag per pipeline: True while a batch-render chain is actively
+        # mutating that list's layout. Blocks scroll-triggered load-more from
+        # appending concurrently (which corrupted PySide's layout bookkeeping
+        # into a QWidgetItem crash). Mirrors billing_page.py's _rendering.
+        self._items_rendering = False
+        self._pkgs_rendering = False
         self._selected_item_ids = set()
         self._selected_pkg_ids = set()
         self._item_checkboxes = {}
@@ -1276,39 +1294,85 @@ class MenuPage(QWidget):
         self._update_pkgs_selection_ui()
 
     def _do_reload(self):
+        # Coalesce overlapping reloads: if a reload (fetch + batch-render of
+        # either the items or packages pipeline) is already running, don't start
+        # a second pipeline in parallel - just remember to run exactly one more
+        # pass once the current one fully finishes.
+        if getattr(self, "_reload_in_flight", False):
+            self._reload_pending = True
+            return
+        self._reload_in_flight = True
+        self._reload_pending = False
+
+        # Both render pipelines must fully drain before the loader is hidden.
+        self._items_render_done = False
+        self._pkgs_render_done = False
+
+        # Pagination resets on every full reload - each pipeline re-fetches
+        # its page 0 (or re-slices page 1 from the memory cache).
+        self._items_has_more = True
+        self._items_loading_more = False
+        self._items_cached_remainder = None
+        self._pkgs_has_more = True
+        self._pkgs_loading_more = False
+        self._pkgs_cached_remainder = None
+
         self._dirty = False
 
-        # Instant render from pre-loaded memory cache if available
+        # Instant render from pre-loaded memory cache if available. The login
+        # welcome sequence may have cached the FULL lists; only slice off the
+        # first page for immediate render - the rest stays in memory and serves
+        # subsequent "load more" scrolls with zero DB round-trip, independently
+        # for each pipeline.
         from utils.data_cache import DataCache
         cached_items = DataCache.get("menu_items")
         cached_pkgs = DataCache.get("packages")
         if cached_items is not None and cached_pkgs is not None and not getattr(self, "_has_loaded_once", False):
             self._has_loaded_once = True
+
+            self._items_cached_remainder = list(cached_items[self._items_page_size:])
+            items_page = list(cached_items[:self._items_page_size])
+            if len(cached_items) <= self._items_page_size:
+                self._items_has_more = False
+
+            self._pkgs_cached_remainder = list(cached_pkgs[self._pkgs_page_size:])
+            pkgs_page = list(cached_pkgs[:self._pkgs_page_size])
+            if len(cached_pkgs) <= self._pkgs_page_size:
+                self._pkgs_has_more = False
+
             if hasattr(self, "_loader"):
                 self._loader.show_overlay("Loading menu items & packages...")
-                QTimer.singleShot(60, lambda: (self._on_menu_items_loaded(cached_items), self._on_packages_loaded(cached_pkgs)))
+                QTimer.singleShot(60, lambda: (self._on_menu_items_loaded(items_page), self._on_packages_loaded(pkgs_page)))
             else:
-                self._on_menu_items_loaded(cached_items)
-                self._on_packages_loaded(cached_pkgs)
+                self._on_menu_items_loaded(items_page)
+                self._on_packages_loaded(pkgs_page)
             return
 
         self._pending_loads = 2
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading menu items & packages...")
-        run_async(self, repo.get_all_menu_items, self._on_menu_items_loaded_and_cache)
-        run_async(self, repo.get_all_packages, self._on_packages_loaded_and_cache)
+        run_async(self, self._fetch_items_first_page, self._on_items_first_page_loaded, None, self._items_page_size)
+        run_async(self, self._fetch_pkgs_first_page, self._on_pkgs_first_page_loaded, None, self._pkgs_page_size)
 
-    def _on_menu_items_loaded_and_cache(self, data):
-        from utils.data_cache import DataCache
-        if data is not None:
-            DataCache.set("menu_items", data)
-        self._on_menu_items_loaded(data)
+    @staticmethod
+    def _fetch_items_first_page(page_size):
+        return repo.get_menu_items_page(0, page_size)
 
-    def _on_packages_loaded_and_cache(self, data):
-        from utils.data_cache import DataCache
-        if data is not None:
-            DataCache.set("packages", data)
-        self._on_packages_loaded(data)
+    def _on_items_first_page_loaded(self, page):
+        page = page or []
+        if len(page) < self._items_page_size:
+            self._items_has_more = False
+        self._on_menu_items_loaded(page)
+
+    @staticmethod
+    def _fetch_pkgs_first_page(page_size):
+        return repo.get_packages_page(0, page_size)
+
+    def _on_pkgs_first_page_loaded(self, page):
+        page = page or []
+        if len(page) < self._pkgs_page_size:
+            self._pkgs_has_more = False
+        self._on_packages_loaded(page)
 
     def _on_menu_items_loaded(self, data):
         try:
@@ -1316,11 +1380,12 @@ class MenuPage(QWidget):
             if not isValid(self):
                 return
             self._menu_items_data = data if data else (menu_store.all_items() if hasattr(menu_store, "all_items") else [])
+            # _populate_table() kicks off async batch rendering; the loader is
+            # hidden by _maybe_finish_reload once the LAST batch finishes (of
+            # both pipelines), not here right after the fetch.
             self._populate_table()
         finally:
             self._pending_loads = getattr(self, "_pending_loads", 1) - 1
-            if self._pending_loads <= 0 and hasattr(self, "_loader"):
-                self._loader.hide_overlay()
 
     def _on_packages_loaded(self, data):
         try:
@@ -1328,11 +1393,152 @@ class MenuPage(QWidget):
             if not isValid(self):
                 return
             self._packages_cache = data or []
+            # _populate_packages_table() kicks off async batch rendering; the
+            # loader is hidden by _maybe_finish_reload once the LAST batch
+            # finishes (of both pipelines), not here right after the fetch.
             self._populate_packages_table()
         finally:
             self._pending_loads = getattr(self, "_pending_loads", 1) - 1
-            if self._pending_loads <= 0 and hasattr(self, "_loader"):
+
+    def _reload_finished(self):
+        self._reload_in_flight = False
+        if self._reload_pending:
+            self._reload_pending = False
+            QTimer.singleShot(0, self._do_reload)
+
+    def _maybe_finish_reload(self):
+        # Called at the end of each render pipeline (items and packages). Only
+        # once BOTH have truly drained do we hide the loader and let any
+        # coalesced reload requested mid-render run.
+        if getattr(self, "_items_render_done", False) and getattr(self, "_pkgs_render_done", False):
+            if hasattr(self, "_loader"):
                 self._loader.hide_overlay()
+            self._reload_finished()
+
+    # ------------------------------------------------------------------
+    # Lazy pagination - MENU ITEMS pipeline
+    # ------------------------------------------------------------------
+    def _on_items_scroll_near_bottom(self, value):
+        if not hasattr(self, "menu_scroll"):
+            return
+        sb = self.menu_scroll.verticalScrollBar()
+        if sb.maximum() - value < 200:
+            self._load_more_items()
+
+    def _load_more_items(self):
+        if self._items_loading_more or not self._items_has_more:
+            return
+        # A client-side search filter only matches already-loaded rows, so we
+        # don't paginate while one is active (see known limitation note).
+        if getattr(self, "_filter_q", ""):
+            return
+        # Don't start appending to menu_cards_layout while the initial page's
+        # own batch-render chain is still actively mutating it - scrolling right
+        # after opening Menu used to hit this and corrupt the layout.
+        if self._items_rendering:
+            return
+        self._items_loading_more = True
+        if self._items_cached_remainder is not None:
+            # Serve the next slice straight from the cached full list - no DB hit.
+            more = self._items_cached_remainder[:self._items_page_size]
+            self._items_cached_remainder = self._items_cached_remainder[self._items_page_size:]
+            if not self._items_cached_remainder:
+                self._items_has_more = False
+            QTimer.singleShot(0, lambda: self._on_more_items_loaded(more))
+            return
+        run_async(self, repo.get_menu_items_page, self._on_more_items_loaded,
+                  None, len(getattr(self, "_menu_items_data", []) or []), self._items_page_size)
+
+    def _on_more_items_loaded(self, data):
+        from shiboken6 import isValid
+        if not isValid(self):
+            return
+        new_rows = data or []
+        if self._items_cached_remainder is None and len(new_rows) < self._items_page_size:
+            self._items_has_more = False
+        if not new_rows:
+            self._items_loading_more = False
+            return
+        if not getattr(self, "_menu_items_data", None):
+            self._menu_items_data = []
+        self._menu_items_data.extend(new_rows)
+        self._append_item_cards(new_rows)
+
+    def _append_item_cards(self, new_rows):
+        # The batch renderer inserts new cards before the trailing stretch
+        # (see _insert_card_before_stretch); the stretch is never taken out of
+        # the layout, so there's nothing to strip here.
+        from utils.auth import SessionManager
+        perms = (
+            SessionManager.has_permission("menu", "edit"),
+            SessionManager.has_permission("menu", "delete"),
+        )
+        self._items_render_token = getattr(self, "_items_render_token", 0) + 1
+        self._items_render_queue = list(new_rows)
+        self._items_render_perms = perms
+        self._items_rendering = True
+        self._render_next_items_batch(self._items_render_token)
+
+    # ------------------------------------------------------------------
+    # Lazy pagination - PACKAGES pipeline
+    # ------------------------------------------------------------------
+    def _on_pkgs_scroll_near_bottom(self, value):
+        if not hasattr(self, "pkg_scroll"):
+            return
+        sb = self.pkg_scroll.verticalScrollBar()
+        if sb.maximum() - value < 200:
+            self._load_more_pkgs()
+
+    def _load_more_pkgs(self):
+        if self._pkgs_loading_more or not self._pkgs_has_more:
+            return
+        # Don't start appending to pkg_cards_layout while the initial page's own
+        # batch-render chain is still actively mutating it - scrolling right
+        # after opening Menu used to hit this and corrupt the layout.
+        if self._pkgs_rendering:
+            return
+        self._pkgs_loading_more = True
+        if self._pkgs_cached_remainder is not None:
+            more = self._pkgs_cached_remainder[:self._pkgs_page_size]
+            self._pkgs_cached_remainder = self._pkgs_cached_remainder[self._pkgs_page_size:]
+            if not self._pkgs_cached_remainder:
+                self._pkgs_has_more = False
+            QTimer.singleShot(0, lambda: self._on_more_pkgs_loaded(more))
+            return
+        run_async(self, repo.get_packages_page, self._on_more_pkgs_loaded,
+                  None, len(getattr(self, "_packages_data", []) or []), self._pkgs_page_size)
+
+    def _on_more_pkgs_loaded(self, data):
+        from shiboken6 import isValid
+        if not isValid(self):
+            return
+        new_rows = data or []
+        if self._pkgs_cached_remainder is None and len(new_rows) < self._pkgs_page_size:
+            self._pkgs_has_more = False
+        if not new_rows:
+            self._pkgs_loading_more = False
+            return
+        if not getattr(self, "_packages_data", None):
+            self._packages_data = []
+        self._packages_data.extend(new_rows)
+        # Keep the working cache in sync so len()-based offsets stay correct.
+        self._packages_cache = self._packages_data
+        self._append_pkg_cards(new_rows)
+
+    def _append_pkg_cards(self, new_rows):
+        # The batch renderer inserts new cards before the trailing stretch
+        # (see _insert_card_before_stretch); the stretch is never taken out of
+        # the layout, so there's nothing to strip here.
+        from utils.auth import SessionManager
+        perms = (
+            SessionManager.has_permission("menu", "edit"),
+            SessionManager.has_permission("menu", "delete"),
+        )
+        self._pkgs_render_token = getattr(self, "_pkgs_render_token", 0) + 1
+        self._pkgs_render_queue = list(new_rows)
+        self._pkgs_render_perms = perms
+        self._pkgs_rendering = True
+        self._render_next_pkgs_batch(self._pkgs_render_token)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -1452,6 +1658,9 @@ class MenuPage(QWidget):
         card_layout.addWidget(self.menu_scroll)
         lay.addWidget(card)
 
+        # Load the next page of menu items when the user scrolls near the bottom.
+        self.menu_scroll.verticalScrollBar().valueChanged.connect(self._on_items_scroll_near_bottom)
+
         self._tabs.addTab(tab, "Menu Items")
 
     def _build_packages_tab(self):
@@ -1562,6 +1771,9 @@ class MenuPage(QWidget):
         card_layout.addWidget(self.pkg_scroll)
         lay.addWidget(card)
 
+        # Load the next page of packages when the user scrolls near the bottom.
+        self.pkg_scroll.verticalScrollBar().valueChanged.connect(self._on_pkgs_scroll_near_bottom)
+
         self._tabs.addTab(tab, "Packages")
 
     def _toggle_select_all_items(self, state):
@@ -1637,22 +1849,84 @@ class MenuPage(QWidget):
             if q:
                 items = [i for i in items if q in i["item"].lower() or q in i["category"].lower() or q in i["package"].lower()]
 
+            # Bump the render token; any in-flight batch from a previous call
+            # will see the mismatch and cancel itself (prevents freeze/dupes on
+            # rapid tab switches or repeated populates).
+            self._items_render_token = getattr(self, "_items_render_token", 0) + 1
+
             if not items:
                 empty_lbl = QLabel("No menu items found.")
                 empty_lbl.setObjectName("subtitle")
                 empty_lbl.setAlignment(Qt.AlignCenter)
                 self.menu_cards_layout.addWidget(empty_lbl)
+                self._update_items_selection_ui()
+                # No batches will run - this pipeline is done immediately.
+                self._items_rendering = False
+                self._items_render_done = True
+                self._maybe_finish_reload()
             else:
-                for item in items:
-                    m_card = self._create_menu_item_card(item)
-                    self.menu_cards_layout.addWidget(m_card)
-                self.menu_cards_layout.addStretch()
-
-            self._update_items_selection_ui()
+                # Hoist per-row-invariant permission checks out of the loop.
+                from utils.auth import SessionManager
+                perms = (
+                    SessionManager.has_permission("menu", "edit"),
+                    SessionManager.has_permission("menu", "delete"),
+                )
+                self._items_render_queue = list(items)
+                self._items_render_perms = perms
+                self._items_rendering = True
+                self._render_next_items_batch(self._items_render_token)
         finally:
             self.menu_container.setUpdatesEnabled(True)
 
-    def _create_menu_item_card(self, item: dict) -> QFrame:
+    @staticmethod
+    def _insert_card_before_stretch(layout, card):
+        # Insert just before a trailing stretch spacer if one exists, rather
+        # than ever taking the spacer out of the layout - repeatedly
+        # take()-ing and discarding a QLayoutItem/QSpacerItem was the suspected
+        # trigger for a native Qt memory-reuse crash under heavy append churn.
+        count = layout.count()
+        if count > 0 and layout.itemAt(count - 1).widget() is None:
+            layout.insertWidget(count - 1, card)
+        else:
+            layout.addWidget(card)
+
+    def _render_next_items_batch(self, token, batch_size=15):
+        # Cancel stale batches scheduled before a newer populate.
+        if token != getattr(self, "_items_render_token", None):
+            return
+        queue = getattr(self, "_items_render_queue", [])
+        if not queue:
+            return
+        perms = getattr(self, "_items_render_perms", None)
+        self.menu_container.setUpdatesEnabled(False)
+        try:
+            batch = queue[:batch_size]
+            del queue[:batch_size]
+            for item in batch:
+                m_card = self._create_menu_item_card(item, perms=perms)
+                self._insert_card_before_stretch(self.menu_cards_layout, m_card)
+        finally:
+            self.menu_container.setUpdatesEnabled(True)
+        if queue:
+            # Yield to the event loop before the next batch so the UI stays
+            # responsive instead of freezing for the whole build.
+            QTimer.singleShot(0, lambda: self._render_next_items_batch(token, batch_size))
+        else:
+            # Add the trailing stretch only if one isn't already there (a
+            # previous append cycle may have left one in place - we never
+            # remove it, see _insert_card_before_stretch).
+            count = self.menu_cards_layout.count()
+            if count == 0 or self.menu_cards_layout.itemAt(count - 1).widget() is not None:
+                self.menu_cards_layout.addStretch()
+            self._update_items_selection_ui()
+            # Items pipeline fully drained - mark done, clear the load-more
+            # guard, and try to finish reload.
+            self._items_loading_more = False
+            self._items_rendering = False
+            self._items_render_done = True
+            self._maybe_finish_reload()
+
+    def _create_menu_item_card(self, item: dict, perms=None) -> QFrame:
         card = QFrame()
         card.setObjectName("entryCard")
         lay = QHBoxLayout(card)
@@ -1707,9 +1981,12 @@ class MenuPage(QWidget):
         status_lbl.setStyleSheet(f"font-weight: 700; font-size: 11px; color: {s_color}; padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 8px;")
         lay.addWidget(status_lbl, alignment=Qt.AlignVCenter)
 
-        from utils.auth import SessionManager
-        can_edit = SessionManager.has_permission("menu", "edit")
-        can_delete = SessionManager.has_permission("menu", "delete")
+        if perms is not None:
+            can_edit, can_delete = perms
+        else:
+            from utils.auth import SessionManager
+            can_edit = SessionManager.has_permission("menu", "edit")
+            can_delete = SessionManager.has_permission("menu", "delete")
 
         actions_w = QFrame()
         actions_w.setStyleSheet("background: transparent;")
@@ -1907,23 +2184,74 @@ class MenuPage(QWidget):
                 packages = repo.get_all_packages()
             self._packages_data = packages
 
+            # Bump the render token so any in-flight batch from a previous
+            # call cancels itself (avoids freeze/dupes on rapid populates).
+            self._pkgs_render_token = getattr(self, "_pkgs_render_token", 0) + 1
+
             if not packages:
                 empty_lbl = QLabel("No packages found.")
                 empty_lbl.setStyleSheet("color: #9CA3AF; font-size: 13px; padding: 24px;")
                 empty_lbl.setAlignment(Qt.AlignCenter)
                 self.pkg_cards_layout.addWidget(empty_lbl)
+                self.pkg_cards_layout.addStretch()
+                self._update_pkgs_selection_ui()
+                # No batches will run - this pipeline is done immediately.
+                self._pkgs_rendering = False
+                self._pkgs_render_done = True
+                self._maybe_finish_reload()
             else:
-                for pkg in packages:
-                    p_card = self._create_package_card(pkg)
-                    self.pkg_cards_layout.addWidget(p_card)
-
-            self.pkg_cards_layout.addStretch()
-            self._update_pkgs_selection_ui()
+                # Hoist per-row-invariant permission checks out of the loop.
+                from utils.auth import SessionManager
+                perms = (
+                    SessionManager.has_permission("menu", "edit"),
+                    SessionManager.has_permission("menu", "delete"),
+                )
+                self._pkgs_render_queue = list(packages)
+                self._pkgs_render_perms = perms
+                self._pkgs_rendering = True
+                self._render_next_pkgs_batch(self._pkgs_render_token)
         finally:
             if hasattr(self, "pkg_container"):
                 self.pkg_container.setUpdatesEnabled(True)
 
-    def _create_package_card(self, pkg: dict) -> QFrame:
+    def _render_next_pkgs_batch(self, token, batch_size=15):
+        # Cancel stale batches scheduled before a newer populate.
+        if token != getattr(self, "_pkgs_render_token", None):
+            return
+        queue = getattr(self, "_pkgs_render_queue", [])
+        if not queue:
+            return
+        perms = getattr(self, "_pkgs_render_perms", None)
+        if hasattr(self, "pkg_container"):
+            self.pkg_container.setUpdatesEnabled(False)
+        try:
+            batch = queue[:batch_size]
+            del queue[:batch_size]
+            for pkg in batch:
+                p_card = self._create_package_card(pkg, perms=perms)
+                self._insert_card_before_stretch(self.pkg_cards_layout, p_card)
+        finally:
+            if hasattr(self, "pkg_container"):
+                self.pkg_container.setUpdatesEnabled(True)
+        if queue:
+            # Yield to the event loop between batches to keep the UI responsive.
+            QTimer.singleShot(0, lambda: self._render_next_pkgs_batch(token, batch_size))
+        else:
+            # Add the trailing stretch only if one isn't already there (a
+            # previous append cycle may have left one in place - we never
+            # remove it, see _insert_card_before_stretch).
+            count = self.pkg_cards_layout.count()
+            if count == 0 or self.pkg_cards_layout.itemAt(count - 1).widget() is not None:
+                self.pkg_cards_layout.addStretch()
+            self._update_pkgs_selection_ui()
+            # Packages pipeline fully drained - mark done, clear the load-more
+            # guard, and try to finish reload.
+            self._pkgs_loading_more = False
+            self._pkgs_rendering = False
+            self._pkgs_render_done = True
+            self._maybe_finish_reload()
+
+    def _create_package_card(self, pkg: dict, perms=None) -> QFrame:
         card = QFrame()
         card.setObjectName("entryCard")
         lay = QHBoxLayout(card)
@@ -1997,8 +2325,11 @@ class MenuPage(QWidget):
         lay.addLayout(p_info, 2)
 
         from utils.auth import SessionManager
-        can_edit = SessionManager.has_permission("menu", "edit")
-        can_delete = SessionManager.has_permission("menu", "delete")
+        if perms is not None:
+            can_edit, can_delete = perms
+        else:
+            can_edit = SessionManager.has_permission("menu", "edit")
+            can_delete = SessionManager.has_permission("menu", "delete")
 
         actions_w = QFrame()
         actions_w.setStyleSheet("background: transparent;")

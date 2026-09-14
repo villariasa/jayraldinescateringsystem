@@ -969,11 +969,32 @@ class BookingPage(QWidget):
         super().__init__(parent)
         self._dirty = True
         self._bookings = []
+        self._reload_in_flight = False
+        self._reload_pending = False
         self._selected_refs: set[str] = set()
         self._card_checkboxes: dict[str, QCheckBox] = {}
         self._active_filter = "All"
         self._filter_popover = None
         self._search_query = ""
+
+        # Per-tab lazy pagination state (tab index -> value). Tabs page through
+        # bookings independently by status so we never fetch/render rows nobody
+        # is scrolled to. Tab 0 = Pending, 1 = Confirmed/Completed, 2 = All.
+        self._page_size = 50
+        self._tab_status = {0: ["PENDING"], 1: ["CONFIRMED", "COMPLETED"], 2: None}
+        self._tab_rows = {0: [], 1: [], 2: []}
+        self._tab_has_more = {0: True, 1: True, 2: True}
+        self._tab_loading_more = {0: False, 1: False, 2: False}
+        self._tab_cached_remainder = {0: None, 1: None, 2: None}
+        # True while a batch-render chain (initial page OR scroll-appended page)
+        # is actively mutating this tab's layout - blocks a new load-more from
+        # starting mid-chain, which was corrupting the layout and crashing.
+        self._tab_rendering = {0: False, 1: False, 2: False}
+        self._tab_cached_full = {0: None, 1: None, 2: None}
+        self._tab_layouts = {}
+        self._scroll_areas = {}
+        self._tab_loading_label = {0: None, 1: None, 2: None}
+        self._counts = {"pending": 0, "confirmed": 0, "all": 0}
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._on_search_timer_fired)
@@ -1032,58 +1053,154 @@ class BookingPage(QWidget):
                 if tb.get("selected_lbl"):
                     tb["selected_lbl"].setVisible(can_edit or can_delete)
 
+    def _reset_pagination(self):
+        # Every full reload starts each tab from page 0. Non-active tabs stay
+        # empty until the user switches to them (lazy) or a memory cache is
+        # available to slice their first page from with zero DB round-trips.
+        for i in (0, 1, 2):
+            self._tab_rows[i] = []
+            self._tab_has_more[i] = True
+            self._tab_loading_more[i] = False
+            self._tab_cached_remainder[i] = None
+            self._tab_cached_full[i] = None
+        self._populated_tabs = set()
+
     def _refresh_bookings(self):
+        # Coalesce overlapping reloads: if a reload (fetch + batch-render of the
+        # active tab) is already running, don't start a second one in parallel -
+        # just remember to run exactly one more pass once this one fully finishes.
+        if getattr(self, "_reload_in_flight", False):
+            self._reload_pending = True
+            return
         if getattr(self, "_refreshing", False):
             return
+        self._reload_in_flight = True
+        self._reload_pending = False
         self._dirty = False
 
-        # Instant render from pre-loaded memory cache if available
+        # Pagination resets on every full reload - we always re-fetch page 0 for
+        # the active tab (and lazily for the others).
+        self._reset_pagination()
+        self._selected_refs.clear()
+        self._card_checkboxes.clear()
+
+        # Instant render from pre-loaded memory cache if available. The login
+        # welcome sequence may have cached the FULL booking list; partition it
+        # per tab and slice off only page 1 for the active tab - the rest stays
+        # in memory and serves subsequent scroll pages with zero DB round-trip.
         from utils.data_cache import DataCache
         cached = DataCache.get("bookings")
         if cached is not None and not getattr(self, "_has_loaded_once", False):
             self._has_loaded_once = True
             if hasattr(self, "_loader"):
                 self._loader.show_overlay("Loading bookings & reservations...")
-                QTimer.singleShot(60, lambda: self._on_bookings_loaded(cached))
+                QTimer.singleShot(60, lambda: self._load_from_cache(cached))
             else:
-                self._on_bookings_loaded(cached)
+                self._load_from_cache(cached)
             return
 
         self._refreshing = True
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading bookings & reservations...")
-        run_async(self, repo.get_all_bookings, self._on_bookings_loaded_and_cache, self._on_bookings_error)
+        active_idx = self._tabs.currentIndex() if hasattr(self, "_tabs") else 0
+        status = self._tab_status.get(active_idx)
+        run_async(
+            self, self._fetch_reload_data,
+            lambda result, i=active_idx: self._on_reload_loaded(i, result),
+            self._on_bookings_error,
+            status, self._page_size,
+        )
 
-    def _on_bookings_loaded_and_cache(self, data):
-        from utils.data_cache import DataCache
-        if data is not None:
-            DataCache.set("bookings", data)
-        self._on_bookings_loaded(data)
+    @staticmethod
+    def _fetch_reload_data(status, page_size):
+        # Combined round trip: DB-side counts (accurate under pagination) plus
+        # the active tab's first page.
+        return repo.get_booking_counts(), repo.get_bookings_page(status, 0, page_size)
+
+    def _on_reload_loaded(self, idx, result):
+        self._refreshing = False
+        from shiboken6 import isValid
+        if not isValid(self):
+            self._reload_in_flight = False
+            return
+        counts, rows = result if result else ({}, [])
+        self._apply_counts(counts)
+        self._has_loaded_once = True
+        rows = rows or []
+        self._tab_rows[idx] = list(rows)
+        self._tab_has_more[idx] = len(rows) >= self._page_size
+        self._rebuild_bookings()
+        self._populated_tabs = set()
+        self._render_tab_initial(idx)
+
+    def _load_from_cache(self, cached):
+        from shiboken6 import isValid
+        if not isValid(self):
+            self._reload_in_flight = False
+            return
+        cached = cached or []
+        pending = [b for b in cached if b.get("status") == "PENDING"]
+        confirmed = [b for b in cached if b.get("status") in ("CONFIRMED", "COMPLETED")]
+        self._tab_cached_full = {0: pending, 1: confirmed, 2: list(cached)}
+        self._apply_counts({
+            "pending": len(pending),
+            "confirmed": len(confirmed),
+            "all": len(cached),
+        })
+        idx = self._tabs.currentIndex() if hasattr(self, "_tabs") else 0
+        self._serve_tab_from_cache(idx)
+        self._populated_tabs = set()
+        self._render_tab_initial(idx)
+
+    def _serve_tab_from_cache(self, idx):
+        full = self._tab_cached_full.get(idx) or []
+        self._tab_rows[idx] = list(full[:self._page_size])
+        self._tab_cached_remainder[idx] = list(full[self._page_size:])
+        self._tab_has_more[idx] = len(full) > self._page_size
+        self._rebuild_bookings()
+
+    def _apply_counts(self, counts):
+        counts = counts or {}
+        self._counts = {
+            "pending": int(counts.get("pending", 0) or 0),
+            "confirmed": int(counts.get("confirmed", 0) or 0),
+            "all": int(counts.get("all", 0) or 0),
+        }
+        if hasattr(self, "_tabs"):
+            self._tabs.setTabText(0, f"⏳ Pending Bookings ({self._counts['pending']})")
+            self._tabs.setTabText(1, f"✅ Confirmed Bookings ({self._counts['confirmed']})")
+            self._tabs.setTabText(2, f"📋 All Bookings ({self._counts['all']})")
+
+    def _rebuild_bookings(self):
+        # self._bookings is the union of rows loaded across all tabs so far;
+        # single-row lookups and selection helpers still resolve any card that is
+        # currently rendered. It is NOT the full dataset under pagination.
+        seen = set()
+        merged = []
+        for i in (0, 1, 2):
+            for b in self._tab_rows.get(i, []):
+                rid = b.get("id")
+                if rid in seen:
+                    continue
+                seen.add(rid)
+                merged.append(b)
+        self._bookings = merged
+
+    def _reload_finished(self):
+        # Called only when the full pipeline (fetch + render of the active tab)
+        # has truly completed. Reset the in-flight guard and, if a reload was
+        # requested mid-render, schedule exactly one more pass.
+        self._reload_in_flight = False
+        if getattr(self, "_reload_pending", False):
+            self._reload_pending = False
+            QTimer.singleShot(0, self.reload)
 
     def _on_bookings_error(self, err):
         self._refreshing = False
         if hasattr(self, "_loader"):
             self._loader.hide_overlay()
+        self._reload_finished()
         print(f"[BookingPage] Background refresh error: {err}")
-
-    def _on_bookings_loaded(self, data):
-        self._refreshing = False
-        try:
-            from shiboken6 import isValid
-            if not isValid(self):
-                return
-            if data is not None:
-                new_sig = [(b.get("id"), b.get("status"), b.get("total"), b.get("date"), b.get("event_time"), b.get("pax")) for b in data]
-                if getattr(self, "_last_loaded_sig", None) == new_sig and getattr(self, "_has_loaded_once", False):
-                    return
-                self._last_loaded_sig = new_sig
-                self._has_loaded_once = True
-                self._bookings = data
-                self._selected_refs.clear()
-                self._populate_table()
-        finally:
-            if hasattr(self, "_loader"):
-                self._loader.hide_overlay()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -1231,6 +1348,19 @@ class BookingPage(QWidget):
         btn_delete_selected.clicked.connect(self._delete_selected_bookings)
         tb_lay.addWidget(btn_delete_selected)
 
+        btn_print_selected = QPushButton("  Print Selected")
+        btn_print_selected.setIcon(get_icon("export", color="#38BDF8", size=QSize(13, 13)))
+        btn_print_selected.setIconSize(QSize(13, 13))
+        btn_print_selected.setCursor(Qt.PointingHandCursor)
+        btn_print_selected.setEnabled(False)
+        btn_print_selected.setStyleSheet(
+            "QPushButton { background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.3); color: #38BDF8; border-radius: 8px; padding: 6px 14px; font-weight: 600; font-size: 12px; }"
+            "QPushButton:hover { background: rgba(56,189,248,0.25); border-color: #38BDF8; }"
+            "QPushButton:disabled { opacity: 0.35; background: rgba(255,255,255,0.04); border-color: transparent; color: #6B7280; }"
+        )
+        btn_print_selected.clicked.connect(self._print_selected_orders)
+        tb_lay.addWidget(btn_print_selected)
+
         lay.addLayout(tb_lay)
 
         div = QFrame()
@@ -1254,12 +1384,22 @@ class BookingPage(QWidget):
         scroll_area.setWidget(cards_container)
         lay.addWidget(scroll_area, 1)
 
+        # Wire up per-tab infinite scroll: loading the next page for THIS tab
+        # specifically when the user nears the bottom of its scroll area.
+        tab_idx = {"PENDING": 0, "CONFIRMED": 1, "ALL": 2}.get(tab_type, 2)
+        self._tab_layouts[tab_idx] = cards_layout
+        self._scroll_areas[tab_idx] = scroll_area
+        scroll_area.verticalScrollBar().valueChanged.connect(
+            lambda v, i=tab_idx: self._on_tab_scroll(i, v)
+        )
+
         tb_bundle = {
             "select_all": cb_select_all,
             "selected_lbl": lbl_selected_count,
             "batch_approve": btn_batch_approve,
             "batch_cancel": btn_batch_cancel,
             "delete_selected": btn_delete_selected,
+            "print_selected": btn_print_selected,
             "container": cards_container,
             "tab_type": tab_type
         }
@@ -1269,9 +1409,210 @@ class BookingPage(QWidget):
         return page, cards_layout, tb_bundle
 
     def _on_tab_changed(self, index: int):
-        self._populate_active_tab()
+        # Lazily load a tab's first page the first time it becomes active.
+        if index not in getattr(self, "_populated_tabs", set()) and not self._tab_rows.get(index):
+            self._ensure_tab_loaded(index)
+        else:
+            self._populate_active_tab()
         self._update_selection_ui()
 
+    def _ensure_tab_loaded(self, idx: int):
+        # Serve the tab's first page from the pre-loaded memory cache if we have
+        # it (zero DB round-trip); otherwise fetch page 0 from the DB. Either way,
+        # show the loader while this tab's cards batch-render - even the cached
+        # path can take a visible moment to build widgets for a big tab, and with
+        # no indicator it looked like tab switching just did nothing.
+        if self._tab_cached_full.get(idx) is not None:
+            if hasattr(self, "_loader"):
+                self._loader.show_overlay("Loading bookings & reservations...")
+            self._serve_tab_from_cache(idx)
+            self._render_tab_initial(idx)
+            return
+        if self._tab_loading_more.get(idx):
+            return
+        self._tab_loading_more[idx] = True
+        if hasattr(self, "_loader"):
+            self._loader.show_overlay("Loading bookings & reservations...")
+        run_async(
+            self, repo.get_bookings_page,
+            lambda rows, i=idx: self._on_tab_first_page(i, rows),
+            self._on_bookings_error,
+            self._tab_status.get(idx), 0, self._page_size,
+        )
+
+    def _on_tab_first_page(self, idx: int, rows):
+        from shiboken6 import isValid
+        if not isValid(self):
+            return
+        rows = rows or []
+        self._tab_loading_more[idx] = False
+        self._tab_rows[idx] = list(rows)
+        self._tab_has_more[idx] = len(rows) >= self._page_size
+        self._rebuild_bookings()
+        self._render_tab_initial(idx)
+
+    def _render_tab_initial(self, idx: int):
+        from utils.auth import SessionManager
+        can_edit = SessionManager.has_permission("bookings", "edit")
+        can_delete = SessionManager.has_permission("bookings", "delete")
+        layout = self._tab_layouts.get(idx)
+        rows = self._rows_for_tab(idx)
+        empty_msg = self._tab_empty_msg(idx)
+        if not hasattr(self, "_tab_data"):
+            self._tab_data = {}
+        self._tab_data[idx] = (layout, rows, empty_msg)
+        if not hasattr(self, "_populated_tabs"):
+            self._populated_tabs = set()
+        self._populate_card_layout(layout, rows, empty_msg, can_edit, can_delete)
+        self._populated_tabs.add(idx)
+        self._update_selection_ui()
+
+    def _tab_empty_msg(self, idx: int) -> str:
+        return {
+            0: "No pending bookings found.",
+            1: "No confirmed bookings found.",
+            2: "No bookings found.",
+        }.get(idx, "No bookings found.")
+
+    def _rows_for_tab(self, idx: int):
+        # Enforce the tab's status bucket (so a row whose status changed via a
+        # mutation - e.g. Pending -> Confirmed - drops out of the wrong tab on
+        # re-render) then apply the client-side search/filter.
+        rows = self._tab_rows.get(idx, [])
+        statuses = self._tab_status.get(idx)
+        if statuses:
+            rows = [b for b in rows if b.get("status") in statuses]
+        return self._filter_rows(rows)
+
+    def _filter_rows(self, rows):
+        # Client-side status + search filtering over the rows already loaded for a
+        # tab. KNOWN LIMITATION: search/filter only sees loaded (scrolled-to)
+        # rows, not the full DB set - full DB-side search is a later follow-up.
+        f = self._active_filter
+        if f and f != "All":
+            if isinstance(f, list):
+                rows = [b for b in rows if b.get("status") in f]
+            else:
+                rows = [b for b in rows if b.get("status") == f]
+
+        q = (getattr(self, "_search_query", "") or "").strip().lower()
+        if q:
+            def _match(b):
+                terms = [
+                    str(b.get("name", "")),
+                    str(b.get("id", "")),
+                    str(b.get("date", "")),
+                    str(b.get("pax", "")),
+                    str(b.get("total", "")),
+                    str(b.get("occasion", "")),
+                    str(b.get("venue", "")),
+                    str(b.get("notes", "")),
+                    str(b.get("status", "")),
+                    str(b.get("payment_mode", "")),
+                    str(b.get("contact", "")),
+                ]
+                return q in " ".join(terms).lower()
+            rows = [b for b in rows if _match(b)]
+        return rows
+
+    def _on_tab_scroll(self, idx: int, value: int):
+        sa = self._scroll_areas.get(idx)
+        if not sa:
+            return
+        sb = sa.verticalScrollBar()
+        if sb.maximum() - value < 200:
+            self._load_more_tab(idx)
+
+    def _load_more_tab(self, idx: int):
+        if self._tab_loading_more.get(idx) or not self._tab_has_more.get(idx):
+            return
+        # Don't start appending to this tab's layout while its own initial
+        # batch-render chain is still actively mutating it - scrolling right
+        # after switching tabs used to hit this and crash (two render chains
+        # touching the same layout at once). Wait for it to finish first.
+        if self._tab_rendering.get(idx):
+            return
+        # While a client-side search/filter is active we page through the loaded
+        # set only; don't fetch further DB pages that the filter would hide.
+        if (getattr(self, "_search_query", "") or "").strip():
+            return
+        self._tab_loading_more[idx] = True
+        self._show_tab_loading_indicator(idx)
+        remainder = self._tab_cached_remainder.get(idx)
+        if remainder is not None:
+            more = remainder[:self._page_size]
+            self._tab_cached_remainder[idx] = remainder[self._page_size:]
+            if not self._tab_cached_remainder[idx]:
+                self._tab_has_more[idx] = False
+            QTimer.singleShot(0, lambda i=idx, m=more: self._on_tab_more_loaded(i, m))
+            return
+        offset = len(self._tab_rows.get(idx, []))
+        run_async(
+            self, repo.get_bookings_page,
+            lambda rows, i=idx: self._on_tab_more_loaded(i, rows),
+            lambda err, i=idx: (self._hide_tab_loading_indicator(i), self._tab_loading_more.__setitem__(i, False), self._on_bookings_error(err)),
+            self._tab_status.get(idx), offset, self._page_size,
+        )
+
+    def _show_tab_loading_indicator(self, idx: int):
+        layout = self._tab_layouts.get(idx)
+        if not layout or self._tab_loading_label.get(idx) is not None:
+            return
+        lbl = QLabel("Loading more bookings...")
+        lbl.setObjectName("subtitle")
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet("font-size: 12px; color: #64748B; padding: 10px;")
+        # Insert just before the trailing stretch (never remove/re-add it -
+        # see _insert_card_before_stretch).
+        self._insert_card_before_stretch(layout, lbl)
+        self._tab_loading_label[idx] = lbl
+
+    def _hide_tab_loading_indicator(self, idx: int):
+        lbl = self._tab_loading_label.get(idx)
+        if lbl is None:
+            return
+        layout = self._tab_layouts.get(idx)
+        if layout is not None:
+            layout.removeWidget(lbl)
+        lbl.deleteLater()
+        self._tab_loading_label[idx] = None
+
+    def _on_tab_more_loaded(self, idx: int, rows):
+        self._hide_tab_loading_indicator(idx)
+        from shiboken6 import isValid
+        if not isValid(self):
+            return
+        new_rows = rows or []
+        if self._tab_cached_remainder.get(idx) is None and len(new_rows) < self._page_size:
+            self._tab_has_more[idx] = False
+        if not new_rows:
+            self._tab_loading_more[idx] = False
+            return
+        self._tab_rows[idx].extend(new_rows)
+        self._rebuild_bookings()
+        self._append_tab_cards(idx, new_rows)
+        self._tab_loading_more[idx] = False
+
+    def _append_tab_cards(self, idx: int, new_rows):
+        layout = self._tab_layouts.get(idx)
+        if not layout:
+            return
+        # NOTE: we deliberately never remove/re-add the trailing stretch spacer
+        # (previously done via layout.takeAt() on every append) - repeatedly
+        # taking a QLayoutItem out of a layout and discarding it was the
+        # suspected cause of a native Qt memory-reuse crash. _render_next_batch
+        # inserts new cards just BEFORE the permanent stretch instead.
+        from utils.auth import SessionManager
+        can_edit = SessionManager.has_permission("bookings", "edit")
+        can_delete = SessionManager.has_permission("bookings", "delete")
+        self._render_token = getattr(self, "_render_token", 0) + 1
+        token = self._render_token
+        # Keep _tab_data row list in sync so re-renders (mutations) include these.
+        entry = self._tab_data.get(idx) if hasattr(self, "_tab_data") else None
+        if entry:
+            self._tab_data[idx] = (entry[0], self._rows_for_tab(idx), entry[2])
+        self._tab_rendering[idx] = True
+        self._render_next_batch(layout, list(new_rows), token, can_edit, can_delete, tab_idx=idx)
 
     def _visible_bookings(self):
         rows = self._bookings
@@ -1305,31 +1646,29 @@ class BookingPage(QWidget):
         return rows
 
     def _populate_table(self, data=None):
+        # Re-render the currently-loaded rows for each tab (used after mutations
+        # like approve/cancel/delete/save and for client-side search/filter). The
+        # per-tab paginated self._tab_rows are the source of truth for what's
+        # loaded; tab title counts come from the DB aggregate (self._counts),
+        # never from len() of the loaded slice.
         self.setUpdatesEnabled(False)
         try:
-            raw_rows = data if data is not None else self._visible_bookings()
             self._card_checkboxes.clear()
 
             from utils.auth import SessionManager
             can_edit = SessionManager.has_permission("bookings", "edit")
             can_delete = SessionManager.has_permission("bookings", "delete")
 
-            # Partition rows into Pending, Confirmed/Completed, and All
-            pending_rows = [b for b in raw_rows if b.get("status") == "PENDING"]
-            confirmed_rows = [b for b in raw_rows if b.get("status") in ("CONFIRMED", "COMPLETED")]
-            all_rows = raw_rows
-
             self._tab_data = {
-                0: (self._pending_cards_layout, pending_rows, "No pending bookings found."),
-                1: (self._confirmed_cards_layout, confirmed_rows, "No confirmed bookings found."),
-                2: (self._all_cards_layout, all_rows, "No bookings found."),
+                0: (self._pending_cards_layout, self._rows_for_tab(0), "No pending bookings found."),
+                1: (self._confirmed_cards_layout, self._rows_for_tab(1), "No confirmed bookings found."),
+                2: (self._all_cards_layout, self._rows_for_tab(2), "No bookings found."),
             }
 
-            # Update Tab Title Counts
             if hasattr(self, "_tabs"):
-                self._tabs.setTabText(0, f"⏳ Pending Bookings ({len(pending_rows)})")
-                self._tabs.setTabText(1, f"✅ Confirmed Bookings ({len(confirmed_rows)})")
-                self._tabs.setTabText(2, f"📋 All Bookings ({len(all_rows)})")
+                self._tabs.setTabText(0, f"⏳ Pending Bookings ({self._counts.get('pending', 0)})")
+                self._tabs.setTabText(1, f"✅ Confirmed Bookings ({self._counts.get('confirmed', 0)})")
+                self._tabs.setTabText(2, f"📋 All Bookings ({self._counts.get('all', 0)})")
 
             # Reset populated state tracking and populate the active tab
             self._populated_tabs = set()
@@ -1354,10 +1693,10 @@ class BookingPage(QWidget):
         entry = self._tab_data.get(cur_idx)
         if entry:
             lay, rows, empty_msg = entry
-            self._populate_card_layout(lay, rows, empty_msg, can_edit, can_delete)
+            self._populate_card_layout(lay, rows, empty_msg, can_edit, can_delete, tab_idx=cur_idx)
             self._populated_tabs.add(cur_idx)
 
-    def _populate_card_layout(self, layout: QVBoxLayout, rows: list[dict], empty_msg: str, can_edit: bool = True, can_delete: bool = True):
+    def _populate_card_layout(self, layout: QVBoxLayout, rows: list[dict], empty_msg: str, can_edit: bool = True, can_delete: bool = True, tab_idx: int = None):
         if not layout:
             return
         while layout.count():
@@ -1368,6 +1707,11 @@ class BookingPage(QWidget):
                     w.hide()
                     w.deleteLater()
 
+        # Bump the render token so any in-flight batches from a previous
+        # populate (rapid tab switches / refreshes) cancel themselves.
+        self._render_token = getattr(self, "_render_token", 0) + 1
+        token = self._render_token
+
         if not rows:
             msg = "Loading reservations..." if getattr(self, "_refreshing", False) and not getattr(self, "_has_loaded_once", False) else empty_msg
             empty_lbl = QLabel(msg)
@@ -1376,18 +1720,80 @@ class BookingPage(QWidget):
             empty_lbl.setStyleSheet("font-size: 13px; color: #64748B; padding: 24px;")
             layout.addWidget(empty_lbl)
             layout.addStretch()
+            if tab_idx is not None:
+                self._tab_rendering[tab_idx] = False
+            # No batches will run for this (active) tab - the render pipeline is
+            # already complete, so hide the loader and settle any pending reload.
+            if getattr(self, "_loader", None):
+                self._loader.hide_overlay()
+            self._reload_finished()
         else:
-            from PySide6.QtWidgets import QApplication
-            app = QApplication.instance()
-            for idx, b in enumerate(rows):
+            if tab_idx is not None:
+                # Mark this tab's list as "actively being built" so a scroll-
+                # triggered load-more can't start appending to the SAME layout
+                # while this initial batch chain is still mutating it - doing so
+                # corrupted the shared render token/layout state and crashed
+                # with a PySide QWidgetItem error when the user scrolled right
+                # after switching tabs, before the tab finished rendering.
+                self._tab_rendering[tab_idx] = True
+            # Render incrementally in batches so widget construction/layout
+            # never blocks the main thread as one giant loop (UI freeze fix).
+            self._render_next_batch(layout, list(rows), token, can_edit, can_delete, tab_idx=tab_idx)
+
+    @staticmethod
+    def _insert_card_before_stretch(layout, card):
+        # Insert just before a trailing stretch spacer if one exists, rather
+        # than ever taking the spacer out of the layout - repeatedly
+        # take()-ing and discarding a QLayoutItem was the suspected trigger
+        # for a native Qt memory-reuse crash under heavy append/indicator churn.
+        count = layout.count()
+        if count > 0 and layout.itemAt(count - 1).widget() is None:
+            layout.insertWidget(count - 1, card)
+        else:
+            layout.addWidget(card)
+
+    def _render_next_batch(self, layout, queue, token, can_edit, can_delete, batch_size=15, tab_idx=None):
+        # Abandon if a newer populate started (stale in-flight batch). The
+        # newer chain owns _tab_rendering[tab_idx] now, so don't touch it here.
+        if token != getattr(self, "_render_token", 0):
+            return
+        if not layout or queue is None:
+            return
+        container = layout.parentWidget()
+        if container is not None:
+            container.setUpdatesEnabled(False)
+        try:
+            count = 0
+            while queue and count < batch_size:
+                b = queue.pop(0)
                 card = self._create_booking_card(b, can_edit, can_delete)
-                layout.addWidget(card)
-                if idx > 0 and idx % 20 == 0:
-                    if hasattr(self, "_loader") and self._loader and self._loader.isVisible():
-                        self._loader.spin_step()
-                    elif app:
-                        app.processEvents()
-            layout.addStretch()
+                self._insert_card_before_stretch(layout, card)
+                count += 1
+        finally:
+            if container is not None:
+                container.setUpdatesEnabled(True)
+
+        if getattr(self, "_loader", None) and self._loader.isVisible():
+            self._loader.spin_step()
+
+        if queue:
+            # Yield to the Qt event loop so paint/input events process
+            # between batches, then continue with the rest.
+            QTimer.singleShot(0, lambda: self._render_next_batch(layout, queue, token, can_edit, can_delete, batch_size, tab_idx))
+        else:
+            # Add the trailing stretch only if one isn't already there (a
+            # previous append cycle may have left one in place - we never
+            # remove it, see _insert_card_before_stretch).
+            count2 = layout.count()
+            if count2 == 0 or layout.itemAt(count2 - 1).widget() is not None:
+                layout.addStretch()
+            if tab_idx is not None:
+                self._tab_rendering[tab_idx] = False
+            # Full render pipeline for this (active) tab is complete - safe to
+            # hide the loader now and let any coalesced reload run.
+            if getattr(self, "_loader", None):
+                self._loader.hide_overlay()
+            self._reload_finished()
 
 
     def _create_booking_card(self, b: dict, can_edit: bool = True, can_delete: bool = True) -> QFrame:
@@ -1621,6 +2027,17 @@ class BookingPage(QWidget):
         b = next((x for x in self._bookings if x.get("id") == ref), None)
         target = b.get("db_id") if (b and b.get("db_id")) else ref
         dlg = OrderPrintDialog(target, parent=self)
+        dlg.exec()
+
+    def _print_selected_orders(self):
+        if not self._selected_refs:
+            return
+        from components.order_print_dialog import OrderPrintDialog
+        targets = []
+        for ref in self._selected_refs:
+            b = next((x for x in self._bookings if x.get("id") == ref), None)
+            targets.append(b.get("db_id") if (b and b.get("db_id")) else ref)
+        dlg = OrderPrintDialog(targets, parent=self)
         dlg.exec()
 
     def _change_booking_color(self, ref: str):
@@ -2067,6 +2484,10 @@ class BookingPage(QWidget):
             tb["selected_lbl"].setText(f"{count} selected")
             tb["delete_selected"].setEnabled(count > 0)
             tb["delete_selected"].setText(f"  Delete Selected ({count})" if count > 0 else "  Delete Selected")
+
+            if tb.get("print_selected"):
+                tb["print_selected"].setEnabled(count > 0)
+                tb["print_selected"].setText(f"  Print Selected ({count})" if count > 0 else "  Print Selected")
 
             if tb.get("batch_approve"):
                 tb["batch_approve"].setEnabled(pending_count > 0)

@@ -540,9 +540,21 @@ class MainWindow(QMainWindow):
         self._show_welcome_greeting()
 
     def _on_search(self, text):
+        # Debounce: without this, every page whose filter_search() does a
+        # full clear-and-rebuild (e.g. Billing, Menu) reruns that on every
+        # single keystroke - typing a short word could trigger it 5+ times
+        # in a row, which is what made search feel laggy.
+        self._pending_search_text = text
+        if not hasattr(self, "_search_debounce_timer"):
+            self._search_debounce_timer = QTimer(self)
+            self._search_debounce_timer.setSingleShot(True)
+            self._search_debounce_timer.timeout.connect(self._dispatch_search)
+        self._search_debounce_timer.start(150)
+
+    def _dispatch_search(self):
         page = self.stack.currentWidget()
         if hasattr(page, "filter_search"):
-            page.filter_search(text)
+            page.filter_search(self._pending_search_text)
 
     def _toggle_fullscreen(self):
         if self.isFullScreen():
@@ -592,7 +604,7 @@ class MainWindow(QMainWindow):
         _notifications.extend(fresh or [])
         count = len(_notifications)
 
-        self.topbar.notif_badge.setText(str(count))
+        self.topbar.notif_badge.setText(str(count) if count <= 99 else "99+")
         self.topbar.notif_badge.setVisible(count > 0)
         if self._notif_popover.isVisible():
             self._notif_popover._refresh_list()

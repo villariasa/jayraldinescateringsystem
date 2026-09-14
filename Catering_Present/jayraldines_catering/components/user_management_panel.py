@@ -44,16 +44,20 @@ class ResetPasswordDialog(QDialog):
 
         input_style = "background: #1E293B; border: 1px solid #334155; color: #F8FAFC; padding: 8px 12px; border-radius: 6px; font-size: 13px; min-height: 22px;"
 
+        from utils.password_field import add_show_password_toggle
+
         self.pwd_edit = QLineEdit()
         self.pwd_edit.setEchoMode(QLineEdit.Password)
         self.pwd_edit.setPlaceholderText("Minimum 8 chars, 1 letter, 1 number")
         self.pwd_edit.setStyleSheet(input_style)
+        add_show_password_toggle(self.pwd_edit)
         lay.addWidget(self.pwd_edit)
 
         self.confirm_edit = QLineEdit()
         self.confirm_edit.setEchoMode(QLineEdit.Password)
         self.confirm_edit.setPlaceholderText("Confirm new password")
         self.confirm_edit.setStyleSheet(input_style)
+        add_show_password_toggle(self.confirm_edit)
         lay.addWidget(self.confirm_edit)
 
         lay.addStretch()
@@ -110,10 +114,13 @@ class ChangeOwnPasswordDialog(QDialog):
 
         input_style = "background: #1E293B; border: 1px solid #334155; color: #F8FAFC; padding: 8px 12px; border-radius: 6px; font-size: 13px; min-height: 22px;"
 
+        from utils.password_field import add_show_password_toggle
+
         self.new_pwd_edit = QLineEdit()
         self.new_pwd_edit.setEchoMode(QLineEdit.Password)
         self.new_pwd_edit.setPlaceholderText("New password (8+ chars, 1 letter, 1 number)")
         self.new_pwd_edit.setStyleSheet(input_style)
+        add_show_password_toggle(self.new_pwd_edit)
         lbl_new = QLabel("New Password:")
         lbl_new.setStyleSheet("font-size: 12px; font-weight: 600; color: #94A3B8;")
         lay.addWidget(lbl_new)
@@ -123,6 +130,7 @@ class ChangeOwnPasswordDialog(QDialog):
         self.conf_pwd_edit.setEchoMode(QLineEdit.Password)
         self.conf_pwd_edit.setPlaceholderText("Confirm new password")
         self.conf_pwd_edit.setStyleSheet(input_style)
+        add_show_password_toggle(self.conf_pwd_edit)
         lbl_conf = QLabel("Confirm New Password:")
         lbl_conf.setStyleSheet("font-size: 12px; font-weight: 600; color: #94A3B8;")
         lay.addWidget(lbl_conf)
@@ -418,6 +426,8 @@ class CreateUserDialog(QDialog):
         self.pwd_edit.setEchoMode(QLineEdit.Password)
         self.pwd_edit.setPlaceholderText("Minimum 8 chars, 1 letter, 1 number")
         self.pwd_edit.setStyleSheet(input_style)
+        from utils.password_field import add_show_password_toggle
+        add_show_password_toggle(self.pwd_edit)
         l_p = QLabel("Initial Password:")
         l_p.setStyleSheet(lbl_style)
         lay.addWidget(l_p)

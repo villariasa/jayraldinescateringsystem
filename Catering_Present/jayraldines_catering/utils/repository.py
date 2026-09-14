@@ -417,6 +417,37 @@ def get_all_menu_items() -> list[dict]:
     ]
 
 
+def get_menu_items_page(offset: int = 0, limit: int = 50) -> list[dict]:
+    """Fetch one page of menu items, ordered as get_all_menu_items. Used for
+    incremental/lazy loading so we never fetch/shape rows nobody's scrolled to."""
+    rows = db.fetchall("""
+        SELECT mi_id                       AS id,
+               mi_name                    AS name,
+               mi_description             AS description,
+               mi_category::TEXT          AS category,
+               mi_package_tier::TEXT      AS package,
+               mi_price                   AS price,
+               mi_status::TEXT            AS status,
+               COALESCE(mi_image, '')     AS image
+        FROM menu_items ORDER BY mi_category, mi_name LIMIT %s OFFSET %s
+    """, (limit, offset))
+    if not rows:
+        return []
+    return [
+        {
+            "id":          r["id"],
+            "item":        r["name"],
+            "description": r["description"] or "",
+            "category":    r["category"],
+            "package":     r["package"],
+            "price":       float(r["price"]),
+            "status":      r["status"],
+            "image":       r.get("image", "") or "",
+        }
+        for r in rows
+    ]
+
+
 def get_available_menu_items() -> list[dict]:
     rows = db.fetchall("""
         SELECT mi_id                  AS id,
@@ -740,6 +771,65 @@ def get_all_packages() -> list[dict]:
     return result
 
 
+def get_packages_page(offset: int = 0, limit: int = 50) -> list[dict]:
+    """Fetch one page of packages (with their items), ordered as get_all_packages.
+    Package items are fetched only for the packages in this page, so we never
+    shape rows/joins for packages nobody's scrolled to."""
+    pkg_rows = db.fetchall("""
+        SELECT pkg_id                  AS id,
+               pkg_name                AS name,
+               pkg_price_per_pax       AS price_per_pax,
+               pkg_min_pax             AS min_pax,
+               pkg_description         AS description,
+               COALESCE(pkg_image, '') AS image
+        FROM packages
+        ORDER BY pkg_price_per_pax ASC
+        LIMIT %s OFFSET %s
+    """, (limit, offset))
+    if not pkg_rows:
+        return []
+
+    pkg_ids = [r["id"] for r in pkg_rows]
+    placeholders = ",".join(["%s"] * len(pkg_ids))
+    pi_rows = db.fetchall(f"""
+        SELECT pi.pi_id              AS id,
+               pi.pi_package_id      AS package_id,
+               pi.pi_menu_item_id    AS menu_item_id,
+               COALESCE(mi.mi_name, '') AS item_name,
+               COALESCE(mi.mi_category::TEXT, 'General') AS category,
+               COALESCE(pi.pi_custom_price, 0.0) AS custom_price
+        FROM package_items pi
+        LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
+        WHERE pi.pi_package_id IN ({placeholders})
+        ORDER BY pi.pi_package_id, item_name
+    """, tuple(pkg_ids))
+    items_by_pkg: dict[int, list[dict]] = {}
+    for item in pi_rows or []:
+        p_id = item.get("package_id")
+        if p_id:
+            items_by_pkg.setdefault(p_id, []).append({
+                "id":           item["id"],
+                "menu_item_id": item["menu_item_id"],
+                "item_name":    item["item_name"],
+                "category":     item["category"],
+                "custom_price": float(item["custom_price"]),
+            })
+
+    result = []
+    for r in pkg_rows:
+        p_id = r["id"]
+        result.append({
+            "id":            p_id,
+            "name":          r["name"],
+            "price_per_pax": float(r["price_per_pax"]),
+            "min_pax":       int(r["min_pax"]),
+            "description":   r["description"] or "",
+            "image":         r.get("image", "") or "",
+            "items":         items_by_pkg.get(p_id, []),
+        })
+    return result
+
+
 def get_package_items(package_id: int) -> list[dict]:
     rows = db.fetchall(
         """
@@ -954,10 +1044,9 @@ def delete_package(db_id: int) -> bool:
 # BOOKINGS
 # ---------------------------------------------------------------------------
 
-def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> list[dict]:
-    status_clause = "AND b.bk_status IN ('CONFIRMED', 'COMPLETED')" if confirmed_only else ""
-    rows = db.fetchall(
-        f"""
+# Shared column projection for booking rows so the full-fetch, paginated, and
+# any future booking readers all shape rows identically.
+_BOOKING_ROW_SQL = """
         SELECT b.bk_id                   AS id,
                b.bk_booking_ref          AS booking_ref,
                b.bk_customer_name        AS customer_name,
@@ -981,10 +1070,10 @@ def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> l
         FROM bookings b
         LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
         LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
-        WHERE 1=1 {status_clause} {period_filter}
-        ORDER BY b.bk_id DESC
-        """
-    )
+"""
+
+
+def _rows_to_booking_dicts(rows) -> list[dict]:
     if not rows:
         return []
     result = []
@@ -1028,6 +1117,76 @@ def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> l
             "cancellation_reason": r.get("cancellation_reason") or "",
         })
     return result
+
+
+def get_all_bookings(period_filter: str = "", confirmed_only: bool = False) -> list[dict]:
+    """Unpaginated fetch of every booking (optionally status/period scoped).
+    Kept for callers that genuinely need the full set (e.g. login pre-load cache,
+    exports). The Orders UI uses get_bookings_page() for lazy per-tab loading."""
+    status_clause = "AND b.bk_status IN ('CONFIRMED', 'COMPLETED')" if confirmed_only else ""
+    rows = db.fetchall(
+        _BOOKING_ROW_SQL + f"""
+        WHERE 1=1 {status_clause} {period_filter}
+        ORDER BY b.bk_id DESC
+        """
+    )
+    return _rows_to_booking_dicts(rows)
+
+
+# Status buckets the Orders tabs page through, so pagination filters map 1:1
+# to what each tab renders.
+_BOOKING_TAB_STATUSES = {
+    "pending":   ("PENDING",),
+    "confirmed": ("CONFIRMED", "COMPLETED"),
+}
+
+
+def get_bookings_page(status_filter=None, offset: int = 0, limit: int = 50) -> list[dict]:
+    """Fetch one page of bookings, newest first, optionally filtered by status.
+
+    status_filter: an iterable of status strings (e.g. ["PENDING"]) to restrict
+    the result to those statuses, or None for all bookings. Used for the Orders
+    module's per-tab lazy/incremental loading so tabs never fetch rows nobody is
+    scrolled to.
+    """
+    params: list = []
+    where = "WHERE 1=1"
+    if status_filter:
+        statuses = list(status_filter)
+        placeholders = ", ".join(["%s"] * len(statuses))
+        where += f" AND b.bk_status IN ({placeholders})"
+        params.extend(statuses)
+    params.extend([limit, offset])
+    rows = db.fetchall(
+        _BOOKING_ROW_SQL + f" {where} ORDER BY b.bk_id DESC LIMIT %s OFFSET %s",
+        tuple(params),
+    )
+    return _rows_to_booking_dicts(rows)
+
+
+def get_booking_counts() -> dict:
+    """Return per-tab booking counts independent of how many rows are loaded into
+    the UI, so tab title counts stay accurate under pagination.
+
+    Returns {"pending": N, "confirmed": N, "all": N} where "confirmed" covers
+    both CONFIRMED and COMPLETED (matching the Confirmed tab's status bucket).
+    """
+    counts = {"pending": 0, "confirmed": 0, "all": 0}
+    try:
+        rows = db.fetchall(
+            "SELECT b.bk_status AS status, COUNT(*) AS cnt FROM bookings b GROUP BY b.bk_status"
+        )
+        for r in rows or []:
+            status = (r.get("status") or "").upper()
+            cnt = int(r.get("cnt") or 0)
+            counts["all"] += cnt
+            if status == "PENDING":
+                counts["pending"] += cnt
+            elif status in ("CONFIRMED", "COMPLETED"):
+                counts["confirmed"] += cnt
+    except Exception as exc:
+        print(f"[repository] get_booking_counts error: {exc}")
+    return counts
 
 
 def get_all_bookings_for_export() -> list[dict]:
@@ -1501,8 +1660,7 @@ def complete_booking(db_id: int) -> bool:
 # INVOICES
 # ---------------------------------------------------------------------------
 
-def get_all_invoices() -> list[dict]:
-    rows = db.fetchall("""
+_INVOICE_ROW_SQL = """
         SELECT i.inv_id              AS id,
                i.inv_invoice_ref    AS invoice_ref,
                i.inv_booking_id     AS booking_id,
@@ -1516,8 +1674,10 @@ def get_all_invoices() -> list[dict]:
         FROM invoices i
         LEFT JOIN customers c ON c.cus_name = i.inv_customer_name
         WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
-        ORDER BY i.inv_created_at DESC
-    """)
+"""
+
+
+def _rows_to_invoice_dicts(rows) -> list[dict]:
     if not rows:
         return []
     return [
@@ -1536,6 +1696,48 @@ def get_all_invoices() -> list[dict]:
         }
         for r in rows
     ]
+
+
+def get_invoices_page(offset: int = 0, limit: int = 50) -> list[dict]:
+    """Fetch one page of invoices, newest first. Used for incremental/lazy loading."""
+    rows = db.fetchall(
+        _INVOICE_ROW_SQL + " ORDER BY i.inv_created_at DESC LIMIT %s OFFSET %s",
+        (limit, offset),
+    )
+    return _rows_to_invoice_dicts(rows)
+
+
+def get_invoices_summary() -> dict:
+    """Aggregate totals across ALL non-cancelled invoices, independent of how many
+    pages have been loaded into the UI - keeps summary cards accurate under pagination."""
+    row = db.fetchone("""
+        SELECT
+            COALESCE(SUM(i.inv_amount_paid), 0.0) AS total_received,
+            COALESCE(SUM(
+                CASE WHEN CAST(i.inv_status AS TEXT) != 'Paid'
+                     THEN MAX(
+                        CASE WHEN i.inv_balance IS NOT NULL THEN i.inv_balance
+                             ELSE (i.inv_total_amount - i.inv_amount_paid) END,
+                        0.0)
+                     ELSE 0.0 END
+            ), 0.0) AS total_pending,
+            COUNT(*) AS events_count
+        FROM invoices i
+        WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
+    """)
+    if not row:
+        return {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
+    return {
+        "total_received": float(row["total_received"] or 0.0),
+        "total_pending":  float(row["total_pending"] or 0.0),
+        "events_count":   int(row["events_count"] or 0),
+    }
+
+
+def get_all_invoices() -> list[dict]:
+    """Unpaginated fetch - kept for CSV export, which genuinely needs every row."""
+    rows = db.fetchall(_INVOICE_ROW_SQL + " ORDER BY i.inv_created_at DESC")
+    return _rows_to_invoice_dicts(rows)
 
 
 def auto_create_invoice(booking_id: int) -> Optional[dict]:
@@ -2560,15 +2762,17 @@ def save_smtp_config(host: str, port: int, user: str, password: str) -> None:
 # EXPENSES
 # ---------------------------------------------------------------------------
 
-def get_all_expenses() -> list[dict]:
-    rows = db.fetchall("""
+_EXPENSE_ROW_SQL = """
         SELECT exp_id              AS id,
                exp_category::TEXT AS category,
                exp_description    AS description,
                exp_amount         AS amount,
                COALESCE(exp_expense_date, exp_date) AS expense_date
-        FROM expenses ORDER BY COALESCE(exp_expense_date, exp_date) DESC
-    """)
+        FROM expenses
+"""
+
+
+def _rows_to_expense_dicts(rows) -> list[dict]:
     if not rows:
         return []
     res = []
@@ -2589,6 +2793,83 @@ def get_all_expenses() -> list[dict]:
             "date":        d_str,
         })
     return res
+
+
+def get_all_expenses() -> list[dict]:
+    """Unpaginated fetch - kept for CSV export / any caller that genuinely
+    needs every row. UI list rendering should use get_expenses_page()."""
+    rows = db.fetchall(
+        _EXPENSE_ROW_SQL + " ORDER BY COALESCE(exp_expense_date, exp_date) DESC"
+    )
+    return _rows_to_expense_dicts(rows)
+
+
+def get_expenses_page(offset: int = 0, limit: int = 50) -> list[dict]:
+    """Fetch one page of expenses, newest first. Used for incremental/lazy loading."""
+    rows = db.fetchall(
+        _EXPENSE_ROW_SQL
+        + " ORDER BY COALESCE(exp_expense_date, exp_date) DESC LIMIT %s OFFSET %s",
+        (limit, offset),
+    )
+    return _rows_to_expense_dicts(rows)
+
+
+def get_expenses_summary(date_start: str = None, date_end: str = None) -> dict:
+    """Aggregate expense totals across ALL rows, independent of how many pages
+    have been loaded into the UI - keeps the KPI cards and the category
+    breakdown accurate under pagination (never sum the loaded/paginated list).
+
+    total_all_time / total_this_year / total_this_month are always computed
+    across the whole dataset regardless of date_start/date_end (they're fixed
+    reference points, not meant to track the active filter). by_category is
+    scoped to [date_start, date_end] when both are given - this is what the
+    breakdown chart uses, so it reflects whatever period the user has
+    filtered to instead of always showing all-time totals.
+
+    Returns:
+        total_all_time / total_this_year / total_this_month  (floats)
+        by_category:  [{"category": str, "total": float}, ...]  (desc)
+    """
+    row = db.fetchone("""
+        SELECT
+            COALESCE(SUM(exp_amount), 0.0) AS total_all_time,
+            COALESCE(SUM(CASE WHEN CAST(strftime('%Y', COALESCE(exp_expense_date, exp_date)) AS INTEGER)
+                                   = CAST(strftime('%Y', 'now', 'localtime') AS INTEGER)
+                              THEN exp_amount ELSE 0.0 END), 0.0) AS total_this_year,
+            COALESCE(SUM(CASE WHEN strftime('%Y-%m', COALESCE(exp_expense_date, exp_date))
+                                   = strftime('%Y-%m', 'now', 'localtime')
+                              THEN exp_amount ELSE 0.0 END), 0.0) AS total_this_month
+        FROM expenses
+    """)
+    if date_start and date_end:
+        cat_rows = db.fetchall("""
+            SELECT exp_category::TEXT AS category,
+                   COALESCE(SUM(exp_amount), 0.0) AS total
+            FROM expenses
+            WHERE COALESCE(exp_expense_date, exp_date) BETWEEN %s AND %s
+            GROUP BY exp_category
+            HAVING SUM(exp_amount) > 0
+            ORDER BY total DESC
+        """, (date_start, date_end))
+    else:
+        cat_rows = db.fetchall("""
+            SELECT exp_category::TEXT AS category,
+                   COALESCE(SUM(exp_amount), 0.0) AS total
+            FROM expenses
+            GROUP BY exp_category
+            HAVING SUM(exp_amount) > 0
+            ORDER BY total DESC
+        """)
+    by_category = [
+        {"category": r["category"] or "Other", "total": float(r["total"] or 0.0)}
+        for r in (cat_rows or [])
+    ]
+    return {
+        "total_all_time":  float(row["total_all_time"] or 0.0) if row else 0.0,
+        "total_this_year": float(row["total_this_year"] or 0.0) if row else 0.0,
+        "total_this_month": float(row["total_this_month"] or 0.0) if row else 0.0,
+        "by_category":     by_category,
+    }
 
 
 def add_expense(data: dict) -> Optional[int]:
@@ -2718,8 +2999,7 @@ def get_profit_summary() -> list[dict]:
 # CUSTOMER LOYALTY & FOLLOW-UPS
 # ---------------------------------------------------------------------------
 
-def get_all_customers_with_loyalty() -> list[dict]:
-    rows = db.fetchall("""
+_CUSTOMER_LOYALTY_ROW_SQL = """
         SELECT c.cus_id              AS id,
                c.cus_name           AS name,
                c.cus_contact        AS contact,
@@ -2729,8 +3009,11 @@ def get_all_customers_with_loyalty() -> list[dict]:
                (SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE (bk_customer_id = c.cus_id OR LOWER(bk_customer_name) = LOWER(c.cus_name)) AND bk_status != 'CANCELLED') AS total_spent,
                c.cus_status::TEXT   AS status,
                c.cus_loyalty_tier::TEXT AS loyalty_tier
-        FROM customers c ORDER BY c.cus_name
-    """)
+        FROM customers c
+"""
+
+
+def _rows_to_customer_loyalty_dicts(rows) -> list[dict]:
     if not rows:
         return []
     return [
@@ -2747,6 +3030,22 @@ def get_all_customers_with_loyalty() -> list[dict]:
         }
         for r in rows
     ]
+
+
+def get_all_customers_with_loyalty() -> list[dict]:
+    rows = db.fetchall(_CUSTOMER_LOYALTY_ROW_SQL + " ORDER BY c.cus_name")
+    return _rows_to_customer_loyalty_dicts(rows)
+
+
+def get_customers_page(offset: int = 0, limit: int = 50) -> list[dict]:
+    """Fetch one page of customers (with loyalty stats), name-ordered.
+    Used for incremental/lazy loading so the UI never fetches or renders rows
+    nobody is looking at."""
+    rows = db.fetchall(
+        _CUSTOMER_LOYALTY_ROW_SQL + " ORDER BY c.cus_name LIMIT %s OFFSET %s",
+        (limit, offset),
+    )
+    return _rows_to_customer_loyalty_dicts(rows)
 
 
 def recalculate_all_customer_stats() -> None:
@@ -4431,6 +4730,39 @@ def get_cash_flow_transactions(filter_date=None, search=None) -> list[dict]:
     query += " ORDER BY cft_date ASC, cft_id ASC"
     
     rows = db.fetchall(query, tuple(params) if params else None) or []
+    return rows
+
+
+def get_cash_flow_transactions_page(offset: int = 0, limit: int = 50,
+                                    filter_date=None, search=None) -> list[dict]:
+    """Fetch one page of cash flow transactions (oldest first, matching the
+    ledger display order) for incremental/lazy loading. Mirrors the row-shaping
+    of get_cash_flow_transactions but with LIMIT/OFFSET so the UI only pulls the
+    rows it's about to render. Running balances are pre-stored per row (cft_balance),
+    so paging does not affect balance correctness."""
+    query = """
+        SELECT cft_id AS id, cft_date AS date, cft_check_no AS check_no,
+               cft_particulars AS particulars, cft_deposit AS deposit,
+               cft_withdrawal AS withdrawal, cft_balance AS balance,
+               COALESCE(cft_actual_sales, 0.0) AS actual_sales,
+               cft_notes AS notes
+        FROM cash_flow_transactions
+    """
+    params = []
+    conds = []
+    if filter_date:
+        conds.append("cft_date = %s")
+        params.append(str(filter_date))
+    if search:
+        s = f"%{search.strip().lower()}%"
+        conds.append("(LOWER(cft_particulars) LIKE %s OR LOWER(cft_check_no) LIKE %s OR LOWER(cft_notes) LIKE %s)")
+        params.extend([s, s, s])
+    if conds:
+        query += " WHERE " + " AND ".join(conds)
+    query += " ORDER BY cft_date ASC, cft_id ASC LIMIT %s OFFSET %s"
+    params.extend([limit, offset])
+
+    rows = db.fetchall(query, tuple(params)) or []
     return rows
 
 

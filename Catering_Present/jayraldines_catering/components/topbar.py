@@ -271,7 +271,10 @@ class TopBar(QFrame):
         
         self.notif_badge = QLabel("0", self.notif_wrap)
         self.notif_badge.setObjectName("notifBadge")
-        self.notif_badge.setFixedSize(16, 16)
+        # Fixed height only - a fixed WIDTH clips 2+ digit counts (e.g. "10",
+        # "99") since the stylesheet's horizontal padding has no room to grow.
+        self.notif_badge.setFixedHeight(16)
+        self.notif_badge.setMinimumWidth(16)
         self.notif_badge.setAlignment(Qt.AlignCenter)
         self.notif_badge.setVisible(False)
         self.notif_layout.addWidget(self.notif_badge)

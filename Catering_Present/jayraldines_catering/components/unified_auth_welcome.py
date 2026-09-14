@@ -269,6 +269,8 @@ class UnifiedAuthWelcome(QWidget):
         self.password_edit.setPlaceholderText("Enter password")
         self.password_edit.setStyleSheet(input_style)
         self.password_edit.returnPressed.connect(self._do_login)
+        from utils.password_field import add_show_password_toggle
+        add_show_password_toggle(self.password_edit)
         card_lay.addWidget(self.password_edit)
 
         # Options Row

@@ -250,6 +250,15 @@ def main():
     except Exception as _wd_err:
         print(f"[WINDOW_DETECTOR] Warning: Could not initialize window detector: {_wd_err}")
 
+    # Every text field, spinbox, dropdown, and date field starts inert - no
+    # wheel, no value change - until the user clicks into it once.
+    try:
+        from utils.input_activation_guard import install_input_activation_guard
+        install_input_activation_guard(app)
+        log.info("[INPUT_ACTIVATION_GUARD] Installed successfully.")
+    except Exception:
+        log.exception("[INPUT_ACTIVATION_GUARD] Failed to initialize - inputs will NOT require a click to activate.")
+
     ico_path = resource_path("assets", "logo.ico")
     if not os.path.exists(ico_path):
         ico_path = resource_path("assets", "logo.png")

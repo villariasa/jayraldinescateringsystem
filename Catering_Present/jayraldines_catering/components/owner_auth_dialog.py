@@ -56,6 +56,8 @@ class OwnerAuthDialog(QDialog):
         self.key_edit = QLineEdit()
         self.key_edit.setEchoMode(QLineEdit.Password)
         self.key_edit.setPlaceholderText("Enter Master Owner Passkey or Password")
+        from utils.password_field import add_show_password_toggle
+        add_show_password_toggle(self.key_edit)
         self.key_edit.setStyleSheet("""
             QLineEdit {
                 background: #1E293B;

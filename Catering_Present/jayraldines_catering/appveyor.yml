@@ -1,0 +1,26 @@
+version: '{build}'
+
+image: Visual Studio 2022
+
+environment:
+  PYTHON: "C:\\Python311-x64"
+
+init:
+  - "%PYTHON%\\python.exe --version"
+
+install:
+  - "%PYTHON%\\python.exe -m venv venv"
+  - "venv\\Scripts\\python.exe -m pip install --upgrade pip"
+  - "venv\\Scripts\\python.exe -m pip install -r requirements.txt"
+  - "venv\\Scripts\\python.exe -m pip install pyinstaller pillow"
+
+build_script:
+  - "venv\\Scripts\\python.exe seed_catering_db.py"
+  - "venv\\Scripts\\python.exe build_installer.py"
+
+artifacts:
+  - path: installer_output\*.exe
+    name: installer
+
+on_failure:
+  - "if exist build\\jayraldines\\warn-jayraldines.txt type build\\jayraldines\\warn-jayraldines.txt"

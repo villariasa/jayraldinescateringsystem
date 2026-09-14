@@ -792,11 +792,17 @@ class CalendarPage(QWidget):
         month_name = calendar.month_name[self.current_month]
         self.lbl_panel_date.setText(f"{month_name} {day_num}, {self.current_year}")
         
-        # Clear existing cards
-        for i in reversed(range(self.cards_container.count())): 
-            widget = self.cards_container.itemAt(i).widget()
-            if widget:
-                widget.deleteLater()
+        # Clear existing cards - must actually remove each item from the
+        # layout via takeAt() before deleteLater(), otherwise the layout
+        # never shrinks and every date click just keeps appending new cards
+        # on top of old ones still pending deletion. Switching dates quickly
+        # then piles up multiple waves of not-yet-destroyed widgets in the
+        # same container at once, which was crashing widget construction
+        # elsewhere with native "returned NULL" errors.
+        while self.cards_container.count():
+            item = self.cards_container.takeAt(0)
+            if item and item.widget():
+                item.widget().deleteLater()
 
         # Load events
         db_key = (self.current_year, self.current_month, day_num)

@@ -887,6 +887,17 @@ class CustomersPage(QWidget):
         self._selected_ids: set[int] = set()
         self._card_checkboxes: dict[int, QCheckBox] = {}
         self._reload_generation = 0
+        self._reload_in_flight = False
+        self._reload_pending = False
+        # Lazy pagination: only fetch/render the rows the user actually scrolls to.
+        self._page_size = 50
+        self._has_more = True
+        self._loading_more = False
+        # Busy-flag guarding the card list's batch render pipeline. Prevents a
+        # scroll-triggered load-more from starting while an initial/previous
+        # batch chain is still mutating the same layout (see race fix).
+        self._rendering = False
+        self._cached_remainder = None
         self._reload_timer = QTimer(self)
         self._reload_timer.setSingleShot(True)
         self._reload_timer.setInterval(80)
@@ -958,53 +969,140 @@ class CustomersPage(QWidget):
             self._do_reload_direct()
 
     def _do_reload_direct(self):
+        # Coalesce overlapping reloads: if a reload (fetch + batch-render) is
+        # already running, don't start a second one in parallel - just remember
+        # to run exactly one more pass once the current one fully finishes.
+        if getattr(self, "_reload_in_flight", False):
+            self._reload_pending = True
+            return
+        self._reload_in_flight = True
+        self._reload_pending = False
+
         self._dirty = False
         self._reload_generation += 1
         gen = self._reload_generation
 
-        # Instant render from pre-loaded memory cache if available
+        # Pagination resets on every full reload - we always re-fetch page 0.
+        self._has_more = True
+        self._loading_more = False
+
+        # Instant render from the pre-loaded memory cache if available. The login
+        # welcome sequence may have cached the FULL customer list; only slice off
+        # the first page for immediate render - the remainder stays in memory and
+        # serves subsequent "load more" scrolls with ZERO db round-trips.
         from utils.data_cache import DataCache
         cached = DataCache.get("customers_loyalty")
         if cached is not None and not getattr(self, "_has_populated_once", False):
             self._has_populated_once = True
+            self._cached_remainder = list(cached[self._page_size:])
+            page = list(cached[:self._page_size])
+            if len(cached) <= self._page_size:
+                self._has_more = False
             if hasattr(self, "_loader"):
                 self._loader.show_overlay("Loading customer records...")
-                QTimer.singleShot(60, lambda: self._on_customers_loaded(cached, gen))
+                QTimer.singleShot(60, lambda: self._on_customers_loaded(page, gen))
             else:
-                self._on_customers_loaded(cached, gen)
+                self._on_customers_loaded(page, gen)
             return
 
+        # No cache - fetch just page 0 from the DB (never the whole table).
+        self._cached_remainder = None
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading customer records...")
-        run_async(self, repo.get_all_customers_with_loyalty,
-                  lambda data, gen=gen: self._on_customers_loaded_and_cache(data, gen))
+        run_async(self, repo.get_customers_page,
+                  lambda data, gen=gen: self._on_first_page_loaded(data, gen),
+                  None, 0, self._page_size)
 
-    def _on_customers_loaded_and_cache(self, data, gen=None):
-        from utils.data_cache import DataCache
-        if data is not None:
-            DataCache.set("customers_loyalty", data)
-            DataCache.set("customers", data)
-        self._on_customers_loaded(data, gen)
+    def _on_first_page_loaded(self, data, gen=None):
+        page = data or []
+        if len(page) < self._page_size:
+            self._has_more = False
+        self._on_customers_loaded(page, gen)
+
+    def _reload_finished(self):
+        self._reload_in_flight = False
+        self._loading_more = False
+        if self._reload_pending:
+            self._reload_pending = False
+            QTimer.singleShot(0, self._do_reload)
 
     def _on_customers_loaded(self, data, gen=None):
         try:
             from shiboken6 import isValid
             if not isValid(self):
                 return
-            if gen is not None and gen != self._reload_generation:
-                return
-            rows = data if data is not None else []
-            old_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in self._customers]
-            new_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in rows]
-            if old_sig == new_sig and getattr(self, "_has_populated_once", False):
-                return
-            self._has_populated_once = True
-            self._customers = rows
-            self._selected_ids.clear()
-            self._populate_table()
-        finally:
+        except Exception:
+            pass
+        if gen is not None and gen != self._reload_generation:
+            return
+        rows = data if data is not None else []
+        old_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in self._customers]
+        new_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in rows]
+        if old_sig == new_sig and getattr(self, "_has_populated_once", False):
+            # Nothing changed - the render pipeline won't run, so finish now.
             if hasattr(self, "_loader"):
                 self._loader.hide_overlay()
+            self._reload_finished()
+            return
+        self._has_populated_once = True
+        self._customers = rows
+        self._selected_ids.clear()
+        # _populate_table() kicks off async batch rendering; the loader is
+        # hidden by _render_next_batch once the LAST batch finishes, not here.
+        self._populate_table()
+
+    def _on_scroll_near_bottom(self, value):
+        sb = self.scroll_area.verticalScrollBar()
+        if sb.maximum() - value < 200:
+            self._load_more_customers()
+
+    def _load_more_customers(self):
+        if getattr(self, "_loading_more", False) or not getattr(self, "_has_more", False):
+            return
+        # Don't start a new page while this list's batch chain is still active.
+        if self._rendering:
+            return
+        self._loading_more = True
+        if self._cached_remainder is not None:
+            # Serve the next slice straight from the cached full list - no DB hit.
+            more = self._cached_remainder[:self._page_size]
+            self._cached_remainder = self._cached_remainder[self._page_size:]
+            if not self._cached_remainder:
+                self._has_more = False
+            QTimer.singleShot(0, lambda: self._on_more_customers_loaded(more))
+            return
+        run_async(self, repo.get_customers_page, self._on_more_customers_loaded,
+                  None, len(self._customers), self._page_size)
+
+    def _on_more_customers_loaded(self, data):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        new_rows = data or []
+        if self._cached_remainder is None and len(new_rows) < self._page_size:
+            self._has_more = False
+        if not new_rows:
+            self._loading_more = False
+            return
+        self._customers.extend(new_rows)
+        self._append_customer_cards(new_rows)
+
+    def _append_customer_cards(self, new_rows):
+        # New cards are inserted just before the trailing stretch by the batch
+        # renderer (see _insert_card_before_stretch), so we no longer take the
+        # stretch out of the layout here - repeatedly take()-ing and discarding
+        # a QLayoutItem was the suspected trigger for a native Qt memory-reuse
+        # crash under heavy infinite-scroll append churn.
+        from utils.auth import SessionManager
+        self._render_can_edit = SessionManager.has_permission("customers", "edit")
+        self._render_can_delete = SessionManager.has_permission("customers", "delete")
+        self._render_token = getattr(self, "_render_token", 0) + 1
+        self._render_queue = list(new_rows)
+        self._rendering = True
+        self._render_next_batch(self._render_token)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -1122,12 +1220,18 @@ class CustomersPage(QWidget):
         self.cards_layout.addWidget(self._empty_lbl)
 
         self.scroll_area.setWidget(self.cards_container)
+        # Lazy "load more" as the user nears the bottom of the list.
+        self.scroll_area.verticalScrollBar().valueChanged.connect(self._on_scroll_near_bottom)
         card_layout.addWidget(self.scroll_area)
         root.addWidget(card)
 
         self._loader = LoadingOverlay(self, "Loading customer records...")
 
     def _populate_table(self, customers=None):
+        # Invalidate any in-flight incremental render so stale batches abort.
+        self._render_token = getattr(self, "_render_token", 0) + 1
+        token = self._render_token
+
         if hasattr(self, "cards_container"):
             self.cards_container.setUpdatesEnabled(False)
         try:
@@ -1149,28 +1253,93 @@ class CustomersPage(QWidget):
                 self._empty_lbl.show()
                 self._update_selection_ui()
                 self._filter_table_now()
-            else:
-                from PySide6.QtWidgets import QApplication
-                app = QApplication.instance()
-                for idx, c in enumerate(data):
-                    c_card = self._create_customer_card(c)
-                    self.cards_layout.addWidget(c_card)
-                    self._customer_cards.append((c, c_card))
-                    if idx > 0 and idx % 25 == 0:
-                        if hasattr(self, "_loader") and self._loader and self._loader.isVisible():
-                            self._loader.spin_step()
-                        elif app:
-                            app.processEvents()
+                # No batches will run - finish the pipeline immediately.
+                if hasattr(self, "_loader"):
+                    self._loader.hide_overlay()
+                self._rendering = False
+                self._reload_finished()
+                return
 
-                self.cards_layout.addStretch()
-
-                self._update_selection_ui()
-                self._filter_table_now()
+            self._empty_lbl.hide()
+            # Hoist per-render-invariant permission checks out of the per-row loop.
+            from utils.auth import SessionManager
+            self._render_can_edit = SessionManager.has_permission("customers", "edit")
+            self._render_can_delete = SessionManager.has_permission("customers", "delete")
+            self._render_queue = list(data)
         finally:
             if hasattr(self, "cards_container"):
                 self.cards_container.setUpdatesEnabled(True)
 
-    def _create_customer_card(self, c: dict) -> QFrame:
+        # Build the cards incrementally so the main thread is never blocked
+        # for more than one batch at a time.
+        self._rendering = True
+        self._render_next_batch(token)
+
+    @staticmethod
+    def _insert_card_before_stretch(layout, card):
+        # Insert just before a trailing stretch spacer if one exists, rather
+        # than ever taking the spacer out of the layout - repeatedly
+        # take()-ing and discarding a QLayoutItem was the suspected trigger
+        # for a native Qt memory-reuse crash under heavy append churn.
+        count = layout.count()
+        if count > 0 and layout.itemAt(count - 1).widget() is None:
+            layout.insertWidget(count - 1, card)
+        else:
+            layout.addWidget(card)
+
+    def _render_next_batch(self, token, batch_size=15):
+        # Abort if a newer populate call has superseded this render.
+        if token != getattr(self, "_render_token", 0):
+            return
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+
+        queue = getattr(self, "_render_queue", [])
+        batch = queue[:batch_size]
+        del queue[:batch_size]
+
+        can_edit = getattr(self, "_render_can_edit", False)
+        can_delete = getattr(self, "_render_can_delete", False)
+
+        if hasattr(self, "cards_container"):
+            self.cards_container.setUpdatesEnabled(False)
+        try:
+            for c in batch:
+                c_card = self._create_customer_card(c, can_edit, can_delete)
+                self._insert_card_before_stretch(self.cards_layout, c_card)
+                self._customer_cards.append((c, c_card))
+        finally:
+            if hasattr(self, "cards_container"):
+                self.cards_container.setUpdatesEnabled(True)
+
+        if hasattr(self, "_loader") and self._loader and self._loader.isVisible():
+            self._loader.spin_step()
+
+        if queue:
+            # Yield to the Qt event loop so paint/input events are processed
+            # between batches, then continue rendering.
+            QTimer.singleShot(0, lambda: self._render_next_batch(token, batch_size))
+        else:
+            # Add the trailing stretch only if one isn't already there (a
+            # previous append cycle may have left one in place - we never
+            # remove it, see _insert_card_before_stretch).
+            count = self.cards_layout.count()
+            if count == 0 or self.cards_layout.itemAt(count - 1).widget() is not None:
+                self.cards_layout.addStretch()
+            self._update_selection_ui()
+            self._filter_table_now()
+            # Full render pipeline complete - safe to hide the loader now and
+            # let a coalesced reload (if any was requested mid-render) run.
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
+            self._rendering = False
+            self._reload_finished()
+
+    def _create_customer_card(self, c: dict, can_edit: bool = None, can_delete: bool = None) -> QFrame:
         cid = int(c.get("id") or c.get("cus_id") or 0)
         card = QFrame()
         card.setObjectName("entryCard")
@@ -1231,9 +1400,12 @@ class CustomersPage(QWidget):
         actions_l.setContentsMargins(0, 0, 0, 0)
         actions_l.setSpacing(6)
 
-        from utils.auth import SessionManager
-        can_edit = SessionManager.has_permission("customers", "edit")
-        can_delete = SessionManager.has_permission("customers", "delete")
+        if can_edit is None or can_delete is None:
+            from utils.auth import SessionManager
+            if can_edit is None:
+                can_edit = SessionManager.has_permission("customers", "edit")
+            if can_delete is None:
+                can_delete = SessionManager.has_permission("customers", "delete")
 
         edit_btn = QPushButton()
         edit_btn.setIcon(get_icon("edit", color="#38BDF8" if can_edit else "#4B5563", size=QSize(14, 14)))
@@ -1403,6 +1575,8 @@ class CustomersPage(QWidget):
         if c.get("id"):
             repo.delete_customer(c["id"])
         self._customers = [x for x in self._customers if x is not c]
+        if hasattr(self, "_loader"):
+            self._loader.show_overlay("Updating customer records...")
         self._populate_table()
         try:
             from utils.signals import app_events
@@ -1530,6 +1704,8 @@ class CustomersPage(QWidget):
                 c["email"]   = result["email"]
                 c["address"] = result["address"]
                 c["status"]  = result["status"]
+                if hasattr(self, "_loader"):
+                    self._loader.show_overlay("Updating customer records...")
                 self._populate_table()
                 try:
                     from utils.signals import app_events
@@ -1576,6 +1752,8 @@ class CustomersPage(QWidget):
                         except Exception:
                             pass
                     self._customers.append(result)
+                    if hasattr(self, "_loader"):
+                        self._loader.show_overlay("Updating customer records...")
                     self._populate_table()
                     try:
                         from utils.signals import app_events

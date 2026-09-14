@@ -69,6 +69,21 @@ class ExpensesPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("mainBackground")
+        self._reload_in_flight = False
+        self._reload_pending = False
+        # Lazy-loading pagination state (mirrors billing_page pattern).
+        self._page_size = 50
+        self._has_more = True
+        self._loading_more = False
+        self._rendering = False
+        self._cached_remainder = None
+        self._summary = {
+            "total_all_time": 0.0, "total_this_year": 0.0,
+            "total_this_month": 0.0, "by_category": [],
+        }
+        self._search_debounce = QTimer(self)
+        self._search_debounce.setSingleShot(True)
+        self._search_debounce.timeout.connect(self._run_search_filter)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -283,12 +298,25 @@ class ExpensesPage(QWidget):
         self.exp_cards_layout.setContentsMargins(0, 0, 10, 0)
         self.exp_cards_layout.setSpacing(10)
 
-        t_lay.addWidget(self.exp_cards_container)
+        # Cap the visible list to ~7 rows (like a fixed-height table) - the rest
+        # scrolls within this nested area instead of growing the whole page.
+        self.exp_list_scroll = QScrollArea()
+        self.exp_list_scroll.setWidgetResizable(True)
+        self.exp_list_scroll.setFrameShape(QFrame.NoFrame)
+        self.exp_list_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.exp_list_scroll.setFixedHeight(520)  # ~7 rows at ~64px + 10px spacing
+        self.exp_list_scroll.setWidget(self.exp_cards_container)
+
+        t_lay.addWidget(self.exp_list_scroll)
         self.lay.addWidget(table_card)
         self.lay.addStretch(1)
 
         scroll.setWidget(content)
         root.addWidget(scroll)
+        self._scroll = scroll
+        # Load the next page as the user nears the bottom of the (nested,
+        # fixed-height) expense list - not the outer page scroll.
+        self.exp_list_scroll.verticalScrollBar().valueChanged.connect(self._on_scroll_near_bottom)
         self._loader = LoadingOverlay(self, "Loading expenses & analytics...")
 
         try:
@@ -308,31 +336,35 @@ class ExpensesPage(QWidget):
 
     # ── Data loading & Filtering ────────────────────────────────────────────
 
+    # NOTE: The KPI cards and category breakdown are driven by a DB aggregate
+    # (self._summary) covering the ENTIRE dataset, so they stay correct under
+    # pagination and are intentionally NOT recomputed from the client-side
+    # filters. The filters only narrow the rendered (already-loaded) card list.
     def _on_search_changed(self, text: str):
+        # Debounced - typing quickly used to clear-and-rebuild the whole card
+        # list on every single keystroke, which is what made search feel laggy.
+        self._search_debounce.start(150)
+
+    def _run_search_filter(self):
         self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
         self._load_table()
-        self._load_kpis()
-        self._load_breakdown()
 
     def _on_filter_changed(self, idx: int):
         is_custom = (idx == 5)
         self._custom_date_widget.setVisible(is_custom)
         self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
         self._load_table()
-        self._load_kpis()
-        self._load_breakdown()
+        self._reload_summary_for_filter()
 
     def _on_month_changed(self, idx: int):
         self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
         self._load_table()
-        self._load_kpis()
-        self._load_breakdown()
+        self._reload_summary_for_filter()
 
     def _on_date_range_changed(self):
         self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
         self._load_table()
-        self._load_kpis()
-        self._load_breakdown()
+        self._reload_summary_for_filter()
 
     def _reset_filters(self):
         if hasattr(self, "_search_input"):
@@ -351,6 +383,68 @@ class ExpensesPage(QWidget):
             self._custom_date_widget.setVisible(False)
         self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
         self._load_table()
+        self._reload_summary_for_filter()
+
+    def _current_filter_date_range(self):
+        """Translate the active period/month filter into a (start, end) ISO
+        date range for the breakdown chart's DB query. Mirrors the same
+        period/month semantics as _filter_expenses_list, but as a date range
+        instead of a per-row predicate."""
+        from datetime import date, timedelta
+
+        period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
+        month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
+        today = date.today()
+
+        MONTH_MAP = {
+            "January": 1, "February": 2, "March": 3, "April": 4,
+            "May": 5, "June": 6, "July": 7, "August": 8,
+            "September": 9, "October": 10, "November": 11, "December": 12,
+        }
+
+        start = end = None
+        if period_opt != "All Time":
+            if "Today" in period_opt:
+                start = end = today
+            elif "This Week" in period_opt:
+                start = today - timedelta(days=today.weekday())
+                end = start + timedelta(days=6)
+            elif "This Month" in period_opt:
+                start = today.replace(day=1)
+                end = today
+            elif "This Year" in period_opt:
+                start = today.replace(month=1, day=1)
+                end = today
+            elif "Custom Date" in period_opt and hasattr(self, "_dt_start") and hasattr(self, "_dt_end"):
+                start = self._dt_start.date().toPython()
+                end = self._dt_end.date().toPython()
+
+        if month_opt != "All Months" and month_opt in MONTH_MAP:
+            m_num = MONTH_MAP[month_opt]
+            year = today.year
+            month_start = date(year, m_num, 1)
+            month_end = (date(year, m_num + 1, 1) - timedelta(days=1)) if m_num < 12 else date(year, 12, 31)
+            start = month_start if start is None or month_start > start else start
+            end = month_end if end is None or month_end < end else end
+
+        if start is None and end is None:
+            return None, None
+        return (start or date(2000, 1, 1)).isoformat(), (end or today).isoformat()
+
+    def _reload_summary_for_filter(self):
+        # Re-fetch the category breakdown scoped to the active filter, so the
+        # chart (and the "top category" KPI, which reads the same data)
+        # actually change when the user filters instead of always showing
+        # all-time totals.
+        start, end = self._current_filter_date_range()
+        run_async(self, repo.get_expenses_summary, self._on_filtered_summary_loaded, None, start, end)
+
+    def _on_filtered_summary_loaded(self, summary):
+        from shiboken6 import isValid
+        if not isValid(self):
+            return
+        if summary:
+            self._summary = summary
         self._load_kpis()
         self._load_breakdown()
 
@@ -448,47 +542,196 @@ class ExpensesPage(QWidget):
             self.reload()
 
     def reload(self):
+        # Coalesce overlapping reloads: if a reload (fetch + batch-render) is
+        # already running, don't start a second one in parallel - just remember
+        # to run exactly one more pass once the current one fully finishes.
+        if getattr(self, "_reload_in_flight", False):
+            self._reload_pending = True
+            return
+        self._reload_in_flight = True
+        self._reload_pending = False
+
         self._dirty = False
         self.refresh_permissions()
 
-        # Instant render from pre-loaded memory cache if available
+        # Pagination resets on every full reload - we always re-fetch page 0.
+        self._has_more = True
+        self._loading_more = False
+
+        # Instant render from the pre-loaded memory cache if available. The
+        # login welcome sequence may have cached the FULL expense list; only
+        # slice off the first page for immediate render - the rest stays in
+        # memory (_cached_remainder) and serves subsequent scroll pages with
+        # zero DB round-trips. KPI/breakdown totals come from the full cached
+        # list so they remain accurate.
         from utils.data_cache import DataCache
         cached = DataCache.get("expenses")
         if cached is not None and not getattr(self, "_has_loaded_once", False):
             self._has_loaded_once = True
+            self._cached_remainder = list(cached[self._page_size:])
+            self._summary = self._compute_summary_from_rows(cached)
+            page = list(cached[:self._page_size])
+            if len(cached) <= self._page_size:
+                self._has_more = False
             if hasattr(self, "_loader"):
                 self._loader.show_overlay("Loading expenses & analytics...")
-                QTimer.singleShot(60, lambda: self._on_expenses_loaded(cached))
+                QTimer.singleShot(60, lambda: self._on_expenses_loaded(page))
             else:
-                self._on_expenses_loaded(cached)
+                self._on_expenses_loaded(page)
             return
 
+        self._cached_remainder = None
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading expenses & analytics...")
-        run_async(self, repo.get_all_expenses, self._on_expenses_loaded_and_cache)
+        run_async(self, self._fetch_first_page, self._on_first_page_loaded,
+                  None, self._page_size)
 
-    def _on_expenses_loaded_and_cache(self, data):
-        from utils.data_cache import DataCache
-        if data is not None:
-            DataCache.set("expenses", data)
-        self._on_expenses_loaded(data)
+    @staticmethod
+    def _fetch_first_page(page_size):
+        # Summary aggregate (whole dataset) + first page of rows in one worker hop.
+        return repo.get_expenses_summary(), repo.get_expenses_page(0, page_size)
+
+    def _on_first_page_loaded(self, result):
+        summary, page = result if result else ({}, [])
+        self._summary = summary or {
+            "total_all_time": 0.0, "total_this_year": 0.0,
+            "total_this_month": 0.0, "by_category": [],
+        }
+        if len(page) < self._page_size:
+            self._has_more = False
+        self._on_expenses_loaded(page)
+
+    @staticmethod
+    def _compute_summary_from_rows(rows):
+        """Derive the KPI/breakdown aggregate from a full in-memory list (used
+        only when the login welcome sequence already cached every row)."""
+        from datetime import datetime as _dt
+        now = _dt.now()
+        total_all = 0.0
+        total_year = 0.0
+        total_month = 0.0
+        cat_totals = {}
+        for exp in rows or []:
+            amt = float(exp.get("amount", 0.0) or 0.0)
+            total_all += amt
+            cat = exp.get("category", "Other") or "Other"
+            cat_totals[cat] = cat_totals.get(cat, 0.0) + amt
+            d = None
+            for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y"):
+                try:
+                    d = _dt.strptime(str(exp.get("date", "")), fmt)
+                    break
+                except (ValueError, TypeError):
+                    continue
+            if d:
+                if d.year == now.year:
+                    total_year += amt
+                    if d.month == now.month:
+                        total_month += amt
+        by_category = sorted(
+            ({"category": c, "total": t} for c, t in cat_totals.items() if t > 0),
+            key=lambda x: x["total"], reverse=True,
+        )
+        return {
+            "total_all_time": total_all, "total_this_year": total_year,
+            "total_this_month": total_month, "by_category": by_category,
+        }
+
+    def _reload_finished(self):
+        self._reload_in_flight = False
+        self._loading_more = False
+        if getattr(self, "_reload_pending", False):
+            self._reload_pending = False
+            QTimer.singleShot(0, self.reload)
 
     def _on_expenses_loaded(self, data):
-        try:
-            from shiboken6 import isValid
-            if not isValid(self):
-                return
-            all_exp = data or []
-            self._expenses = all_exp
-            self._filtered_expenses = self._filter_expenses_list(all_exp)
-            self._load_table()
-            self._load_kpis()
-            self._load_breakdown()
-        finally:
-            if hasattr(self, "_loader"):
-                self._loader.hide_overlay()
+        from shiboken6 import isValid
+        if not isValid(self):
+            # Nothing rendered; release the reload guard so future reloads work.
+            self._reload_finished()
+            return
+        all_exp = data or []
+        self._expenses = all_exp
+        self._filtered_expenses = self._filter_expenses_list(all_exp)
+        # NOTE: the loading overlay is intentionally NOT hidden here. It is
+        # hidden by _load_table / _render_next_batch once the LAST card batch
+        # has actually finished rendering, not right after the fetch.
+        self._load_table()
+        self._load_kpis()
+        self._load_breakdown()
+
+    def _load_more_expenses(self):
+        if self._loading_more or not self._has_more:
+            return
+        if self._rendering:
+            return
+        self._loading_more = True
+        if self._cached_remainder is not None:
+            # Serve the next slice straight from the cached full list - no DB hit.
+            more = self._cached_remainder[:self._page_size]
+            self._cached_remainder = self._cached_remainder[self._page_size:]
+            if not self._cached_remainder:
+                self._has_more = False
+            QTimer.singleShot(0, lambda: self._on_more_expenses_loaded(more))
+            return
+        run_async(self, repo.get_expenses_page, self._on_more_expenses_loaded,
+                  None, len(getattr(self, "_expenses", [])), self._page_size)
+
+    def _on_more_expenses_loaded(self, data):
+        from shiboken6 import isValid
+        if not isValid(self):
+            return
+        new_rows = data or []
+        if self._cached_remainder is None and len(new_rows) < self._page_size:
+            self._has_more = False
+        if not new_rows:
+            self._loading_more = False
+            return
+        if not hasattr(self, "_expenses") or self._expenses is None:
+            self._expenses = []
+        self._expenses.extend(new_rows)
+        self._append_expense_cards(new_rows)
+
+    def _append_expense_cards(self, new_rows):
+        # Only append rows that pass the active client-side filter.
+        visible = self._filter_expenses_list(new_rows)
+        # Keep the running filtered view in sync for the record-count label.
+        if not hasattr(self, "_filtered_expenses") or self._filtered_expenses is None:
+            self._filtered_expenses = []
+        self._filtered_expenses.extend(visible)
+        n = len(self._filtered_expenses)
+        if hasattr(self, "_count_lbl"):
+            self._count_lbl.setText(f"{n} record{'s' if n != 1 else ''}")
+
+        if not visible:
+            self._loading_more = False
+            return
+
+        # NOTE: we deliberately never remove/re-add the trailing stretch spacer
+        # (previously done via layout.takeAt() on every append) - repeatedly
+        # taking a QLayoutItem out of a layout and discarding it was the
+        # suspected cause of a native Qt memory-reuse crash. _render_next_batch
+        # now inserts new cards just BEFORE the permanent stretch instead.
+        self._render_can_del = SessionManager.has_permission("expenses", "delete")
+        self._render_can_edit = SessionManager.has_permission("expenses", "edit")
+        self._render_token = getattr(self, "_render_token", 0) + 1
+        self._render_queue = list(visible)
+        self._rendering = True
+        self._render_next_batch(self._render_token)
+
+    def _on_scroll_near_bottom(self, value):
+        if not hasattr(self, "exp_list_scroll"):
+            return
+        sb = self.exp_list_scroll.verticalScrollBar()
+        if sb.maximum() - value < 200:
+            self._load_more_expenses()
 
     def _load_table(self):
+        # Bump the render token so any batch still in flight from a previous
+        # populate/filter call cancels itself instead of appending stale rows.
+        self._render_token = getattr(self, "_render_token", 0) + 1
+        token = self._render_token
+
         if hasattr(self, "exp_cards_container"):
             self.exp_cards_container.setUpdatesEnabled(False)
         try:
@@ -502,6 +745,9 @@ class ExpensesPage(QWidget):
 
             expenses = getattr(self, "_filtered_expenses", self._expenses if hasattr(self, "_expenses") else [])
 
+            n = len(expenses)
+            self._count_lbl.setText(f"{n} record{'s' if n != 1 else ''}")
+
             if not expenses:
                 empty_card = QFrame()
                 empty_card.setObjectName("entryCard")
@@ -512,19 +758,79 @@ class ExpensesPage(QWidget):
                 el.addWidget(empty_lbl)
                 self.exp_cards_layout.addWidget(empty_card)
                 self.exp_cards_layout.addStretch()
-            else:
-                for exp in expenses:
-                    card = self._create_expense_card(exp)
-                    self.exp_cards_layout.addWidget(card)
-                self.exp_cards_layout.addStretch()
-
-            n = len(expenses)
-            self._count_lbl.setText(f"{n} record{'s' if n != 1 else ''}")
+                # No batches will run, so the full pipeline is done here: hide
+                # the loader immediately and release the reload guard.
+                if hasattr(self, "_loader"):
+                    self._loader.hide_overlay()
+                self._rendering = False
+                self._reload_finished()
+                return
         finally:
             if hasattr(self, "exp_cards_container"):
                 self.exp_cards_container.setUpdatesEnabled(True)
 
-    def _create_expense_card(self, exp: dict) -> QFrame:
+        # Hoist per-row-invariant permission check out of the render loop.
+        self._render_can_del = SessionManager.has_permission("expenses", "delete")
+        self._render_can_edit = SessionManager.has_permission("expenses", "edit")
+        self._render_queue = list(expenses)
+        self._rendering = True
+        self._render_next_batch(token)
+
+    @staticmethod
+    def _insert_card_before_stretch(layout, card):
+        # Insert just before a trailing stretch spacer if one exists, rather
+        # than ever taking the spacer out of the layout - repeatedly
+        # take()-ing and discarding a QLayoutItem was the suspected trigger
+        # for a native Qt memory-reuse crash under heavy append churn.
+        count = layout.count()
+        if count > 0 and layout.itemAt(count - 1).widget() is None:
+            layout.insertWidget(count - 1, card)
+        else:
+            layout.addWidget(card)
+
+    def _render_next_batch(self, token, batch_size=15):
+        # Abort if a newer populate/filter cycle superseded this one.
+        if token != getattr(self, "_render_token", None):
+            return
+        from shiboken6 import isValid
+        if not isValid(self):
+            return
+
+        queue = getattr(self, "_render_queue", [])
+        batch = queue[:batch_size]
+        del queue[:batch_size]
+
+        if hasattr(self, "exp_cards_container"):
+            self.exp_cards_container.setUpdatesEnabled(False)
+        try:
+            for exp in batch:
+                card = self._create_expense_card(exp, self._render_can_del, self._render_can_edit)
+                self._insert_card_before_stretch(self.exp_cards_layout, card)
+        finally:
+            if hasattr(self, "exp_cards_container"):
+                self.exp_cards_container.setUpdatesEnabled(True)
+
+        if queue:
+            # Yield to the Qt event loop so the UI stays responsive between batches.
+            QTimer.singleShot(0, lambda: self._render_next_batch(token, batch_size))
+        else:
+            # Only add a trailing stretch if one isn't already present (never
+            # remove it, see _insert_card_before_stretch).
+            count = self.exp_cards_layout.count()
+            if count == 0 or self.exp_cards_layout.itemAt(count - 1).widget() is not None:
+                self.exp_cards_layout.addStretch()
+            # Full render pipeline complete - safe to hide the loader now and
+            # let a coalesced reload (if any was requested mid-render) run.
+            self._rendering = False
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
+            self._reload_finished()
+
+    def _create_expense_card(self, exp: dict, can_del: bool = None, can_edit: bool = None) -> QFrame:
+        if can_del is None:
+            can_del = SessionManager.has_permission("expenses", "delete")
+        if can_edit is None:
+            can_edit = SessionManager.has_permission("expenses", "edit")
         card = QFrame()
         card.setObjectName("entryCard")
         lay = QHBoxLayout(card)
@@ -558,8 +864,18 @@ class ExpensesPage(QWidget):
         amt_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         lay.addWidget(amt_lbl, 2)
 
-        # Col 4: Delete Action Button
-        can_del = SessionManager.has_permission("expenses", "delete")
+        # Col 4: Edit / Delete Action Buttons
+        if can_edit:
+            edit_btn = QPushButton()
+            edit_btn.setIcon(get_icon("edit", color="#9CA3AF", size=QSize(14, 14)))
+            edit_btn.setIconSize(QSize(14, 14))
+            edit_btn.setFixedSize(32, 32)
+            edit_btn.setStyleSheet("background: transparent; border: none;")
+            edit_btn.setCursor(Qt.PointingHandCursor)
+            edit_btn.setToolTip("Edit expense")
+            edit_btn.clicked.connect(lambda _, e=exp: self._open_edit_expense(e))
+            lay.addWidget(edit_btn, alignment=Qt.AlignVCenter)
+
         if can_del:
             del_btn = QPushButton()
             del_btn.setIcon(btn_icon_red("trash"))
@@ -574,41 +890,28 @@ class ExpensesPage(QWidget):
         return card
 
     def _load_kpis(self):
-        expenses = getattr(self, "_filtered_expenses", getattr(self, "_expenses", []))
-        total_filtered = sum(e.get("amount", 0.0) for e in expenses)
-
+        # KPIs come from the whole-dataset DB aggregate (self._summary), NOT from
+        # the loaded/paginated list, so the totals stay correct as the user only
+        # scrolls through a subset of rows.
+        summary = getattr(self, "_summary", {}) or {}
         now = datetime.now()
-        month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
-        period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
-        filter_desc = month_opt if month_opt != "All Months" else period_opt
 
-        self._kpi_total.set(f"₱ {total_filtered:,.0f}", f"Total for {filter_desc}")
+        total_year = float(summary.get("total_this_year", 0.0) or 0.0)
+        total_month = float(summary.get("total_this_month", 0.0) or 0.0)
+        by_category = summary.get("by_category", []) or []
+        total_all = float(summary.get("total_all_time", 0.0) or 0.0)
 
-        # This Month total (Current calendar month across all recorded expenses)
-        all_raw = getattr(self, "_expenses", [])
-        cur_month_total = 0.0
-        for exp in all_raw:
-            try:
-                d = datetime.strptime(str(exp["date"]), "%b %d, %Y")
-            except (ValueError, TypeError):
-                continue
-            if d.month == now.month and d.year == now.year:
-                cur_month_total += exp.get("amount", 0.0)
+        self._kpi_total.set(f"₱ {total_year:,.0f}", f"Total for {now.year}")
+        self._kpi_month.set(f"₱ {total_month:,.0f}", now.strftime("%B %Y"))
 
-        self._kpi_month.set(f"₱ {cur_month_total:,.0f}", now.strftime("%B %Y"))
-
-        # Top Category for the selected month / active filter
-        cat_totals = {}
-        for exp in expenses:
-            cat = exp.get("category", "General")
-            cat_totals[cat] = cat_totals.get(cat, 0.0) + exp.get("amount", 0.0)
-
-        if cat_totals and total_filtered > 0:
-            top_cat, top_amt = max(cat_totals.items(), key=lambda x: x[1])
-            pct = (top_amt / total_filtered * 100) if total_filtered > 0 else 0
-            self._kpi_top.set(top_cat, f"₱ {top_amt:,.0f} ({pct:.0f}% in {filter_desc})")
+        if by_category and total_all > 0:
+            top = by_category[0]
+            top_cat = top.get("category", "—")
+            top_amt = float(top.get("total", 0.0) or 0.0)
+            pct = (top_amt / total_all * 100) if total_all > 0 else 0
+            self._kpi_top.set(top_cat, f"₱ {top_amt:,.0f} ({pct:.0f}% of all-time)")
         else:
-            self._kpi_top.set("—", f"No expenses ({filter_desc})")
+            self._kpi_top.set("—", "No expenses recorded")
 
     def _load_breakdown(self):
         if self._chart_view is not None:
@@ -616,49 +919,58 @@ class ExpensesPage(QWidget):
             self._chart_view.deleteLater()
             self._chart_view = None
 
-        expenses = getattr(self, "_filtered_expenses", getattr(self, "_expenses", []))
-        
-        # Calculate breakdown from filtered expenses
-        cat_totals = {}
-        for exp in expenses:
-            cat = exp.get("category", "Other")
-            cat_totals[cat] = cat_totals.get(cat, 0.0) + exp.get("amount", 0.0)
+        # Breakdown comes from a DB aggregate (self._summary["by_category"]),
+        # scoped to the active filter by _reload_summary_for_filter() - NOT
+        # from the loaded/paginated list, so it stays accurate regardless of
+        # how many rows have been scrolled into view.
+        summary = getattr(self, "_summary", {}) or {}
+        breakdown = [
+            {"category": r.get("category", "Other"), "total": float(r.get("total", 0.0) or 0.0)}
+            for r in (summary.get("by_category", []) or [])
+            if float(r.get("total", 0.0) or 0.0) > 0
+        ]
 
-        breakdown = [{"category": c, "total": t} for c, t in cat_totals.items() if t > 0]
-        breakdown.sort(key=lambda x: x["total"], reverse=True)
-
-        month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
-        period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
-        filter_desc = month_opt if month_opt != "All Months" else period_opt
         if hasattr(self, "_bd_title"):
-            self._bd_title.setText(f"Breakdown by Category ({filter_desc})")
+            period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
+            month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
+            if period_opt == "All Time" and month_opt == "All Months":
+                label = "All Time"
+            elif month_opt != "All Months":
+                label = month_opt if period_opt == "All Time" else f"{month_opt}, {period_opt}"
+            else:
+                label = period_opt
+            self._bd_title.setText(f"Breakdown by Category ({label})")
 
         if not breakdown:
             self._breakdown_card.hide()
             return
         self._breakdown_card.show()
 
-        from PySide6.QtCharts import QChart, QChartView, QPieSeries, QLegend
+        import math
+        from PySide6.QtCharts import QChart, QChartView, QBarSeries, QBarSet, QBarCategoryAxis, QCategoryAxis
         from PySide6.QtGui import QCursor
         from PySide6.QtWidgets import QToolTip
 
-        series = QPieSeries()
-        series.setHoleSize(0.55)
+        series = QBarSeries()
+        series.setLabelsVisible(True)
         total_exp = sum(row["total"] for row in breakdown) or 1.0
         label_color = QColor("#0F172A" if _is_light() else "#F9FAFB")
+        axis_label_color = QColor("#5B6B84" if _is_light() else "#9CA3AF")
+        max_val = 0.0
 
         for row in breakdown:
             cat = row["category"]
             tot = row["total"]
             color_hex = _CATEGORY_COLORS.get(cat, "#94A3B8")
-            sl = series.append(f"{cat} (₱{tot:,.0f})", tot)
-            sl.setColor(QColor(color_hex))
-            sl.setLabelColor(label_color)
+            bset = QBarSet(f"{cat} (₱{tot:,.0f})")
+            bset.append(tot)
+            bset.setColor(QColor(color_hex))
+            bset.setLabelColor(label_color)
+            series.append(bset)
+            max_val = max(max_val, tot)
 
-            def _make_hover(s=sl, c=cat, t=tot, col=color_hex):
-                def _on_hover(state):
-                    s.setExploded(state)
-                    s.setLabelVisible(state)
+            def _make_hover(s=bset, c=cat, t=tot, col=color_hex):
+                def _on_hover(state, _index):
                     if state:
                         pct = (t / total_exp) * 100
                         QToolTip.showText(
@@ -671,7 +983,7 @@ class ExpensesPage(QWidget):
                         QToolTip.hideText()
                 return _on_hover
 
-            sl.hovered.connect(_make_hover())
+            bset.hovered.connect(_make_hover())
 
         chart = QChart()
         chart.addSeries(series)
@@ -679,8 +991,42 @@ class ExpensesPage(QWidget):
         chart.setBackgroundBrush(Qt.transparent)
         chart.setMargins(QMargins(0, 0, 0, 0))
         chart.legend().setAlignment(Qt.AlignRight)
-        chart.legend().setMarkerShape(QLegend.MarkerShape.MarkerShapeCircle)
-        chart.legend().setLabelColor(QColor("#5B6B84" if _is_light() else "#9CA3AF"))
+        chart.legend().setLabelColor(axis_label_color)
+
+        axis_x = QBarCategoryAxis()
+        axis_x.append(["Expenses"])
+        axis_x.setLabelsColor(axis_label_color)
+        chart.addAxis(axis_x, Qt.AlignBottom)
+        series.attachAxis(axis_x)
+
+        # Same "nice round number" tick algorithm as the dashboard chart, with
+        # labels built as plain f-strings (not QValueAxis.setLabelFormat) so
+        # the ₱ sign always renders correctly.
+        upper = max(max_val * 1.15, 1.0)
+        target_ticks = 5
+        raw_step = upper / (target_ticks - 1)
+        magnitude = 10 ** int(math.floor(math.log10(max(raw_step, 1))))
+        residual = raw_step / magnitude
+        if residual <= 1.5:
+            clean_step = 1.0 * magnitude
+        elif residual <= 3.0:
+            clean_step = 2.5 * magnitude
+        elif residual <= 7.0:
+            clean_step = 5.0 * magnitude
+        else:
+            clean_step = 10.0 * magnitude
+
+        num_steps = max(1, int(math.ceil(upper / clean_step)))
+        final_max = num_steps * clean_step
+
+        axis_y = QCategoryAxis()
+        axis_y.setRange(0, final_max)
+        for i in range(num_steps + 1):
+            val = clean_step * i
+            axis_y.append(f"₱{val:,.0f}", val)
+        axis_y.setLabelsColor(axis_label_color)
+        chart.addAxis(axis_y, Qt.AlignLeft)
+        series.attachAxis(axis_y)
 
         self._chart_view = QChartView(chart)
         self._chart_view.setRenderHint(QPainter.Antialiasing)
@@ -749,6 +1095,69 @@ class ExpensesPage(QWidget):
         except Exception:
             pass
         success(self, message="Expense recorded.")
+
+    def _open_edit_expense(self, exp: dict):
+        if not SessionManager.has_permission("expenses", "edit"):
+            error(self, title="Access Denied", message="You do not have permission to edit expenses.")
+            return
+        from PySide6.QtWidgets import (
+            QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox, QDateEdit
+        )
+        from PySide6.QtCore import QDate
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit Expense")
+        dlg.setMinimumWidth(380)
+        form = QFormLayout(dlg)
+        form.setSpacing(12)
+
+        date_edit = QDateEdit(QDate.fromString(exp["date"], "MMM dd, yyyy"))
+        date_edit.setCalendarPopup(True)
+        date_edit.setDisplayFormat("MMM dd, yyyy")
+        form.addRow("Date:", date_edit)
+
+        cat_cb = QComboBox()
+        for c in EXPENSE_CATEGORIES:
+            cat_cb.addItem(c)
+        idx = cat_cb.findText(exp.get("category", ""))
+        if idx >= 0:
+            cat_cb.setCurrentIndex(idx)
+        form.addRow("Category:", cat_cb)
+
+        desc_edit = QLineEdit(exp.get("description", ""))
+        desc_edit.setPlaceholderText("Description")
+        form.addRow("Description:", desc_edit)
+
+        amt_edit = QLineEdit(f"{exp.get('amount', 0.0):,.2f}")
+        amt_edit.setPlaceholderText("0.00")
+        form.addRow("Amount (₱):", amt_edit)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        form.addRow(btns)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+        try:
+            amt = float(amt_edit.text().replace(",", "").strip())
+        except ValueError:
+            QMessageBox.warning(self, "Invalid", "Enter a valid amount.")
+            return
+        date_str = date_edit.date().toString("MMM dd, yyyy")
+        repo.update_expense(exp["id"], {
+            "category": cat_cb.currentText(),
+            "description": desc_edit.text().strip() or "—",
+            "amount": amt,
+            "date": date_str,
+        })
+        self.reload()
+        try:
+            from utils.signals import app_events
+            app_events().expense_saved.emit()
+            app_events().data_changed.emit()
+        except Exception:
+            pass
+        success(self, message="Expense updated.")
 
     def _delete_expense(self, exp: dict):
         if not SessionManager.has_permission("expenses", "delete"):

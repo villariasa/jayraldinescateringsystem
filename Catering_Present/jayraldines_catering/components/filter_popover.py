@@ -70,7 +70,6 @@ class FilterPopover(QFrame):
     def __init__(self, parent=None, statuses=None, categories=None):
         super().__init__(parent, Qt.SubWindow | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self._statuses   = statuses or []
         self._categories = categories or []
@@ -172,6 +171,11 @@ class FilterPopover(QFrame):
             self._status_lbl.setStyleSheet(_section_label_style())
         if hasattr(self, "_cat_lbl"):
             self._cat_lbl.setStyleSheet(_section_label_style())
+        # This widget is never resized to fit its content before being shown
+        # the first time (it's constructed hidden in __init__), so without
+        # this it can display at whatever default/zero size Qt happened to
+        # leave it at, clipping the chips out of view and looking blank.
+        self.adjustSize()
         global_pos = anchor_btn.mapToGlobal(QPoint(0, anchor_btn.height() + 6))
         x = global_pos.x()
         screen = QApplication.screenAt(global_pos) or QApplication.primaryScreen()
@@ -180,8 +184,8 @@ class FilterPopover(QFrame):
             pw = self.sizeHint().width()
             x = max(sg.left() + 4, min(x, sg.right() - pw - 4))
         self.move(x, global_pos.y())
-        self.raise_()
         self.show()
+        self.raise_()
 
     def toggle_anchored(self, anchor_btn):
         if self.isVisible():

@@ -631,6 +631,19 @@ class BillingPage(QWidget):
         super().__init__(parent)
         self._dirty = True  # Load on first show
         self._invoices = []
+        self._reload_in_flight = False
+        self._reload_pending = False
+        self._page_size = 50
+        self._has_more = True
+        self._loading_more = False
+        self._cached_remainder = None
+        # True while a batch-render chain (initial page OR scroll-appended page)
+        # is actively mutating cards_layout - blocks a new load-more from
+        # starting mid-chain, which corrupts the shared render token/layout
+        # state and can crash PySide (QWidgetItem errors) if the user scrolls
+        # right after the page opens, before the initial page finishes rendering.
+        self._rendering = False
+        self._summary = {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
         self._build_ui()
         app_events().payment_recorded.connect(self._mark_dirty_and_reload)
         app_events().booking_updated.connect(self._mark_dirty_and_reload)
@@ -651,50 +664,149 @@ class BillingPage(QWidget):
             self.reload()
 
     def reload(self):
+        # Coalesce overlapping reloads: if a reload (fetch + batch-render) is
+        # already running, don't start a second one in parallel - just remember
+        # to run exactly one more pass once the current one fully finishes.
+        if getattr(self, "_reload_in_flight", False):
+            self._reload_pending = True
+            return
+        self._reload_in_flight = True
+        self._reload_pending = False
+
         self._dirty = False
         self.refresh_permissions()
 
-        # Instant render from pre-loaded memory cache if available
+        # Pagination resets on every full reload - we always re-fetch page 0.
+        self._has_more = True
+        self._loading_more = False
+
+        # Instant render from pre-loaded memory cache if available. The login
+        # welcome sequence may have cached the FULL invoice list; only slice
+        # off the first page for immediate render - the rest stays in memory
+        # and serves subsequent "load more" scrolls with zero DB round-trip.
         from utils.data_cache import DataCache
         cached = DataCache.get("invoices")
         if cached is not None and not getattr(self, "_has_loaded_once", False):
             self._has_loaded_once = True
+            self._cached_remainder = list(cached[self._page_size:])
+            self._summary = self._compute_summary_from_rows(cached)
+            page = list(cached[:self._page_size])
+            if len(cached) <= self._page_size:
+                self._has_more = False
             if hasattr(self, "_loader"):
                 self._loader.show_overlay("Loading billing records & invoices...")
-                QTimer.singleShot(60, lambda: self._on_invoices_loaded(cached))
+                QTimer.singleShot(60, lambda: self._on_invoices_loaded(page))
             else:
-                self._on_invoices_loaded(cached)
+                self._on_invoices_loaded(page)
             return
 
+        self._cached_remainder = None
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading billing records & invoices...")
-        run_async(self, repo.get_all_invoices, self._on_invoices_loaded_and_cache)
+        run_async(self, self._fetch_first_page, self._on_first_page_loaded, None, self._page_size)
 
-    def _on_invoices_loaded_and_cache(self, data):
-        from utils.data_cache import DataCache
-        if data is not None:
-            DataCache.set("invoices", data)
-        self._on_invoices_loaded(data)
+    @staticmethod
+    def _fetch_first_page(page_size):
+        return repo.get_invoices_summary(), repo.get_invoices_page(0, page_size)
+
+    def _on_first_page_loaded(self, result):
+        summary, page = result if result else ({}, [])
+        self._summary = summary or {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
+        if len(page) < self._page_size:
+            self._has_more = False
+        self._on_invoices_loaded(page)
+
+    @staticmethod
+    def _compute_summary_from_rows(rows):
+        total_rcv = sum(float(i.get("paid", 0.0) or 0.0) for i in rows)
+        total_pending = sum(max(0.0, float(i.get("amount", 0.0) or 0.0) - float(i.get("paid", 0.0) or 0.0)) for i in rows if i.get("status") != "Paid")
+        return {"total_received": total_rcv, "total_pending": total_pending, "events_count": len(rows)}
+
+    def _reload_finished(self):
+        self._reload_in_flight = False
+        self._loading_more = False
+        if self._reload_pending:
+            self._reload_pending = False
+            QTimer.singleShot(0, self.reload)
 
     def refresh_permissions(self):
-        if self._invoices:
-            self._populate_table()
+        # main_window.py calls this on EVERY nav visit to this page, not just
+        # when permissions actually change - so we must not unconditionally
+        # rebuild the (possibly multi-page, scrolled-through) card list here,
+        # or simply re-clicking the Billing nav item destroys/rebuilds it every time.
+        if not self._invoices:
+            return
+        from utils.auth import SessionManager
+        can_edit = SessionManager.has_permission("expenses", "edit") or SessionManager.has_permission("bookings", "edit")
+        can_delete = SessionManager.has_permission("expenses", "delete") or SessionManager.has_permission("bookings", "delete")
+        sig = (can_edit, can_delete)
+        if sig == getattr(self, "_last_perm_sig", None):
+            return
+        self._last_perm_sig = sig
+        self._populate_table()
 
     def _on_invoices_loaded(self, data):
-        try:
-            from shiboken6 import isValid
-            if not isValid(self):
-                return
-            new_rows = data or []
-            old_sig = [(i.get("db_id"), i.get("paid"), i.get("status")) for i in self._invoices]
-            new_sig = [(i.get("db_id"), i.get("paid"), i.get("status")) for i in new_rows]
-            if old_sig == new_sig:
-                return
-            self._invoices = new_rows
-            self._populate_table()
-        finally:
-            if hasattr(self, "_loader"):
-                self._loader.hide_overlay()
+        from shiboken6 import isValid
+        if not isValid(self):
+            return
+        self._invoices = data or []
+        # _populate_table() kicks off async batch rendering; the loader is
+        # hidden by _render_next_batch once the LAST batch finishes, not here.
+        self._populate_table()
+
+    def _load_more_invoices(self):
+        if self._loading_more or not self._has_more:
+            return
+        # Don't start appending to cards_layout while the initial page's own
+        # batch-render chain is still actively mutating it - scrolling right
+        # after opening Billing used to hit this and corrupt the layout.
+        if self._rendering:
+            return
+        self._loading_more = True
+        if self._cached_remainder is not None:
+            # Serve the next slice straight from the cached full list - no DB hit.
+            more = self._cached_remainder[:self._page_size]
+            self._cached_remainder = self._cached_remainder[self._page_size:]
+            if not self._cached_remainder:
+                self._has_more = False
+            QTimer.singleShot(0, lambda: self._on_more_invoices_loaded(more))
+            return
+        run_async(self, repo.get_invoices_page, self._on_more_invoices_loaded,
+                  None, len(self._invoices), self._page_size)
+
+    def _on_more_invoices_loaded(self, data):
+        from shiboken6 import isValid
+        if not isValid(self):
+            return
+        new_rows = data or []
+        if self._cached_remainder is None and len(new_rows) < self._page_size:
+            self._has_more = False
+        if not new_rows:
+            self._loading_more = False
+            return
+        self._invoices.extend(new_rows)
+        self._append_invoice_cards(new_rows)
+
+    def _append_invoice_cards(self, new_rows):
+        # NOTE: we deliberately never remove/re-add the trailing stretch spacer
+        # (previously done via layout.takeAt() on every append) - repeatedly
+        # taking a QLayoutItem out of a layout and discarding it was the
+        # suspected cause of a native Qt memory-reuse crash. _render_next_batch
+        # now inserts new cards just BEFORE the permanent stretch instead.
+        from utils.auth import SessionManager
+        can_edit = SessionManager.has_permission("expenses", "edit") or SessionManager.has_permission("bookings", "edit")
+        can_delete = SessionManager.has_permission("expenses", "delete") or SessionManager.has_permission("bookings", "delete")
+
+        self._render_token = getattr(self, "_render_token", 0) + 1
+        self._render_queue = list(new_rows)
+        self._render_perms = (can_edit, can_delete)
+        self._rendering = True
+        self._render_next_batch(self._render_token)
+
+    def _on_scroll_near_bottom(self, value):
+        sb = self.scroll_area.verticalScrollBar()
+        if sb.maximum() - value < 200:
+            self._load_more_invoices()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -777,6 +889,7 @@ class BillingPage(QWidget):
         self.cards_layout.setSpacing(12)
 
         self.scroll_area.setWidget(self.cards_container)
+        self.scroll_area.verticalScrollBar().valueChanged.connect(self._on_scroll_near_bottom)
         inv_tab_lay.addWidget(self.scroll_area)
         self.tabs.addTab(invoices_tab, "Invoices")
 
@@ -803,16 +916,14 @@ class BillingPage(QWidget):
             self._populate_ledger()
 
     def _populate_table(self):
-        # Refresh Billing summary metrics directly from active invoice records
+        # Summary metrics come from a DB-side aggregate (self._summary), NOT from
+        # summing self._invoices - under pagination that list only holds the rows
+        # loaded so far, which would understate totals once more data exists than
+        # is currently on screen.
         try:
-            if self._invoices:
-                total_rcv = sum(float(i.get("paid", 0.0) or 0.0) for i in self._invoices)
-                total_pending = sum(max(0.0, float(i.get("amount", 0.0) or 0.0) - float(i.get("paid", 0.0) or 0.0)) for i in self._invoices if i.get("status") != "Paid")
-                events_cnt = len(self._invoices)
-            else:
-                total_rcv = 0.0
-                total_pending = 0.0
-                events_cnt = 0
+            total_rcv = self._summary.get("total_received", 0.0)
+            total_pending = self._summary.get("total_pending", 0.0)
+            events_cnt = self._summary.get("events_count", 0)
 
             if hasattr(self, "_dp1_val"):
                 self._dp1_val.setText(f"₱ {total_rcv:,.2f}")
@@ -828,20 +939,81 @@ class BillingPage(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
+        # Invalidate any batch-render still in flight from a previous call.
+        self._render_token = getattr(self, "_render_token", 0) + 1
+
         if not self._invoices:
             empty_lbl = QLabel("No invoices found.")
             empty_lbl.setObjectName("subtitle")
             empty_lbl.setAlignment(Qt.AlignCenter)
             self.cards_layout.addWidget(empty_lbl)
             self.cards_layout.addStretch()
-        else:
-            for inv in self._invoices:
-                i_card = self._create_invoice_card(inv)
-                self.cards_layout.addWidget(i_card)
-            self.cards_layout.addStretch()
+            if hasattr(self, "tabs") and self.tabs.currentIndex() == 1:
+                self._populate_ledger()
+            self._rendering = False
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
+            self._reload_finished()
+            return
 
-        if hasattr(self, "tabs") and self.tabs.currentIndex() == 1:
-            self._populate_ledger()
+        from utils.auth import SessionManager
+        can_edit = SessionManager.has_permission("expenses", "edit") or SessionManager.has_permission("bookings", "edit")
+        can_delete = SessionManager.has_permission("expenses", "delete") or SessionManager.has_permission("bookings", "delete")
+        self._last_perm_sig = (can_edit, can_delete)
+
+        self._render_queue = list(self._invoices)
+        self._render_perms = (can_edit, can_delete)
+        self._rendering = True
+        self._render_next_batch(self._render_token)
+
+    @staticmethod
+    def _insert_card_before_stretch(layout, card):
+        # Insert just before a trailing stretch spacer if one exists, rather
+        # than ever taking the spacer out of the layout - repeatedly
+        # take()-ing and discarding a QLayoutItem was the suspected trigger
+        # for a native Qt memory-reuse crash under heavy append churn.
+        count = layout.count()
+        if count > 0 and layout.itemAt(count - 1).widget() is None:
+            layout.insertWidget(count - 1, card)
+        else:
+            layout.addWidget(card)
+
+    def _render_next_batch(self, token: int, batch_size: int = 15):
+        # A newer reload/populate call superseded this one; stop.
+        if token != getattr(self, "_render_token", None):
+            return
+        from shiboken6 import isValid
+        if not isValid(self):
+            return
+
+        batch = self._render_queue[:batch_size]
+        del self._render_queue[:batch_size]
+        can_edit, can_delete = self._render_perms
+
+        self.cards_container.setUpdatesEnabled(False)
+        for inv in batch:
+            i_card = self._create_invoice_card(inv, can_edit, can_delete)
+            self._insert_card_before_stretch(self.cards_layout, i_card)
+        self.cards_container.setUpdatesEnabled(True)
+
+        if self._render_queue:
+            QTimer.singleShot(0, lambda: self._render_next_batch(token))
+        else:
+            # Add the trailing stretch only if one isn't already there (a
+            # previous append cycle may have left one in place - we never
+            # remove it, see _insert_card_before_stretch).
+            count = self.cards_layout.count()
+            if count == 0 or self.cards_layout.itemAt(count - 1).widget() is not None:
+                self.cards_layout.addStretch()
+            if hasattr(self, "tabs") and self.tabs.currentIndex() == 1:
+                self._populate_ledger()
+            self._loading_more = False
+            self._rendering = False
+            # Full render pipeline complete - safe to hide the loader now and
+            # let a coalesced reload (if any was requested mid-render) run.
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
+            self._reload_finished()
 
     def _populate_ledger(self):
         try:
@@ -867,7 +1039,7 @@ class BillingPage(QWidget):
             self.ledger_table.setItem(row, 3, amt_item)
             self.ledger_table.setItem(row, 4, status_item)
 
-    def _create_invoice_card(self, inv: dict) -> QFrame:
+    def _create_invoice_card(self, inv: dict, can_edit: bool, can_delete: bool) -> QFrame:
         card = QFrame()
         card.setObjectName("entryCard")
         lay = QHBoxLayout(card)
@@ -957,10 +1129,6 @@ class BillingPage(QWidget):
             col_status.addWidget(unver_lbl)
 
         lay.addLayout(col_status)
-
-        from utils.auth import SessionManager
-        can_edit = SessionManager.has_permission("expenses", "edit") or SessionManager.has_permission("bookings", "edit")
-        can_delete = SessionManager.has_permission("expenses", "delete") or SessionManager.has_permission("bookings", "delete")
 
         # Col 4: Action Buttons
         actions_w = QFrame()

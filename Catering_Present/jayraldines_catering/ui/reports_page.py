@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QHBoxLayout, QFrame, QLabel, QPushButton, QTableWidget,
                                QTableWidgetItem, QHeaderView, QScrollArea,
                                QMessageBox, QToolTip, QFileDialog, QMenu, QSizePolicy)
-from PySide6.QtCore import Qt, QMargins, QPointF, QSize
+from PySide6.QtCore import Qt, QMargins, QPointF, QSize, QTimer
 from datetime import datetime, date
 from PySide6.QtGui import QAction, QFont, QColor, QPainter, QLinearGradient, QPen, QCursor
 
@@ -720,6 +720,21 @@ class ReportsPage(QWidget):
         self._period = "All Time"
         self._dirty = False
 
+        # ── DOM pagination state (per pipeline) ───────────────────────────────
+        # Reports load the full period-scoped dataset once (KPIs & charts need it),
+        # but the two record lists render only a page of cards at a time and append
+        # the rest on scroll — so we never build a QFrame for a row nobody views.
+        self._bk_page_size = 50
+        self._bk_has_more = False
+        self._bk_loading_more = False
+        self._bk_remainder = []
+        self._bk_rendering = False  # busy-flag: a batch chain is actively mutating table_cards_layout
+        self._exp_page_size = 50
+        self._exp_has_more = False
+        self._exp_loading_more = False
+        self._exp_remainder = []
+        self._exp_rendering = False  # busy-flag: a batch chain is actively mutating exp_cards_layout
+
         self.root_layout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -1025,6 +1040,10 @@ class ReportsPage(QWidget):
         except Exception:
             pass
 
+        # ── Scroll-to-load-more wiring for the two record lists ───────────────
+        self._bookings_scroll.verticalScrollBar().valueChanged.connect(self._on_bookings_scroll)
+        self._expenses_scroll.verticalScrollBar().valueChanged.connect(self._on_expenses_scroll)
+
         # ── Final assembly ────────────────────────────────────────────────────
         self.scroll_area.setWidget(self.scroll_content)
         self.root_layout.addWidget(self.scroll_area)
@@ -1090,10 +1109,16 @@ class ReportsPage(QWidget):
 
     def reload(self):
         """Kick off a background fetch of ALL reports data — never blocks the GUI."""
+        # Coalesce overlapping reloads: a reload spans the background fetch AND the
+        # two async batch-render pipelines. If one is already in flight, don't start
+        # a second in parallel — just remember to run exactly one more pass once the
+        # current one fully finishes (see _reload_finished).
+        if getattr(self, "_reload_in_flight", False):
+            self._reload_pending = True
+            return
+        self._reload_in_flight = True
+        self._reload_pending = False
         self._dirty = False
-        prev = getattr(self, "_reports_loader", None)
-        if prev is not None and prev.isRunning():
-            return  # already refreshing
 
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Generating analytics & financial reports...")
@@ -1104,9 +1129,28 @@ class ReportsPage(QWidget):
             if hasattr(self, "_loader"):
                 self._loader.hide_overlay()
             print(f"[Reports] Load error: {msg}")
+            self._reload_finished()
         loader.load_error.connect(_on_rep_err)
         self._reports_loader = loader
         loader.start()
+
+    def _reload_finished(self):
+        self._reload_in_flight = False
+        if getattr(self, "_reload_pending", False):
+            self._reload_pending = False
+            QTimer.singleShot(0, self.reload)
+
+    def _report_render_step(self):
+        """Called once by each async render pipeline (table & expenses) when it truly
+        finishes. Only the LAST one to finish hides the loader and closes out the
+        reload — so the overlay never disappears mid-render."""
+        if getattr(self, "_render_pending", 0) <= 0:
+            return  # not part of a coordinated reload (e.g. period filter click)
+        self._render_pending -= 1
+        if self._render_pending == 0:
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
+            self._reload_finished()
 
     def _fetch_all_reports_data(self):
         """Runs entirely in a background thread — fetches all data in one batch."""
@@ -1132,14 +1176,20 @@ class ReportsPage(QWidget):
             if not isValid(self):
                 return
             self._cached_data = data
+            # Synchronous sections first — they finish before any loader hide.
             self._reload_kpis(data)
-            self._reload_table(data.get("bookings", []))
-            self._load_expenses(data.get("expenses", []), data.get("profit", []))
             self._reload_locations(data.get("locations", []))
             self._reload_sales_evaluation_from_data(data.get("sales_eval", {}), data.get("eval_year", datetime.now().year))
-        finally:
+            # Two async batch-render pipelines. The loader is hidden (and the reload
+            # closed out) only once BOTH complete — see _report_render_step, invoked
+            # from each pipeline's final batch / empty-state path.
+            self._render_pending = 2
+            self._reload_table(data.get("bookings", []))
+            self._load_expenses(data.get("expenses", []), data.get("profit", []))
+        except Exception:
             if hasattr(self, "_loader"):
                 self._loader.hide_overlay()
+            self._reload_finished()
 
     def _reload_locations(self, db_data):
         """Update the locations chart with pre-fetched data (GUI thread safe)."""
@@ -1458,15 +1508,23 @@ class ReportsPage(QWidget):
 
     def _reload_table(self, all_bookings: list = None):
         """Rebuild booking table cards from pre-fetched list (safe to call on GUI thread)."""
+        # Invalidate any in-flight batched render before clearing
+        self._table_render_token = getattr(self, "_table_render_token", 0) + 1
         while self.table_cards_layout.count():
             item = self.table_cards_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
+        # Reset pagination for the new period/reload; the populated branch re-arms it.
+        self._bk_has_more = False
+        self._bk_loading_more = False
+        self._bk_remainder = []
+
         if all_bookings is None:
             if getattr(self, "_cached_data", None):
                 all_bookings = self._cached_data.get("bookings", [])
             else:
+                self._report_render_step()  # nothing to render; release the loader slot
                 return  # Async data not ready yet
 
         p = getattr(self, "_period", "All Time")
@@ -1517,48 +1575,11 @@ class ReportsPage(QWidget):
             if hasattr(self, "_bookings_scroll"):
                 self._bookings_scroll.setFixedHeight(60)
             self._t_head_lbl.setText("Recent Booking Statistics")
+            self._bk_rendering = False  # empty state: no batch chain will run
+            self._report_render_step()  # no batches run for empty state
         else:
-            for b in filtered_bookings:
-                pax_val = int(b.get("pax", 0))
-                limit_status = "LIMIT REACHED" if pax_val >= 600 else ("NEAR LIMIT" if pax_val >= 400 else "")
-                card = QFrame()
-                card.setObjectName("entryCard")
-                card.setFixedHeight(56)
-                cl = QHBoxLayout(card)
-                cl.setContentsMargins(16, 8, 16, 8)
-                cl.setSpacing(16)
-
-                # Col 1: Ref & Date
-                c1 = QVBoxLayout()
-                c1.setSpacing(2)
-                id_lbl = QLabel(b.get("id", ""))
-                id_lbl.setStyleSheet(f"font-weight: 800; font-size: 13px; color: {AccentManager().current};")
-                d_lbl = QLabel(b.get("date", ""))
-                d_lbl.setObjectName("subtitle")
-                c1.addWidget(id_lbl)
-                c1.addWidget(d_lbl)
-                cl.addLayout(c1, 2)
-
-                # Col 2: Client Name & Package
-                c2 = QVBoxLayout()
-                c2.setSpacing(2)
-                client_lbl = QLabel(b.get("name", ""))
-                client_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
-                pkg_lbl = QLabel(f"Package: {b.get('package', '—')}")
-                pkg_lbl.setObjectName("subtitle")
-                c2.addWidget(client_lbl)
-                c2.addWidget(pkg_lbl)
-                cl.addLayout(c2, 3)
-
-                # Col 3: Pax Badge & Status Badge
-                pax_badge = create_pax_limit_badge(pax_val, limit_status)
-                status_badge = create_status_badge(b.get("status", "").capitalize())
-                cl.addWidget(pax_badge, alignment=Qt.AlignVCenter)
-                cl.addWidget(status_badge, alignment=Qt.AlignVCenter)
-
-                self.table_cards_layout.addWidget(card)
-
             total_b = len(filtered_bookings)
+            # Finalize scroll height / header text upfront (depend only on count)
             if hasattr(self, "_bookings_scroll"):
                 if total_b > 7:
                     # Exactly 7 rows visible with smooth scroll for remaining
@@ -1567,6 +1588,120 @@ class ReportsPage(QWidget):
                 else:
                     self._bookings_scroll.setFixedHeight(max(60, total_b * 56 + max(0, total_b - 1) * 10))
                     self._t_head_lbl.setText(f"Recent Booking Statistics ({total_b} record{'s' if total_b != 1 else ''})")
+
+            # Hoist per-row-invariant computation out of the loop
+            self._table_accent = AccentManager().current
+            # DOM pagination: render only the first page of cards now; keep the
+            # remaining filtered rows in memory and append them on scroll-near-bottom.
+            # Header text/count above is derived from the FULL filtered list, so it
+            # stays accurate no matter how many pages are currently rendered.
+            self._bk_remainder = list(filtered_bookings[self._bk_page_size:])
+            self._bk_has_more = len(filtered_bookings) > self._bk_page_size
+            self._bk_loading_more = False
+            self._bk_rendering = True  # a batch chain is about to start filling the layout
+            self._table_queue = list(filtered_bookings[:self._bk_page_size])
+            self._render_table_batch(self._table_render_token)
+
+    @staticmethod
+    def _insert_card_before_stretch(layout, card):
+        # Insert just before a trailing stretch spacer if one exists, rather
+        # than ever taking the spacer out of the layout - repeatedly
+        # take()-ing and discarding a QLayoutItem was the suspected trigger
+        # for a native Qt memory-reuse crash under heavy append churn.
+        count = layout.count()
+        if count > 0 and layout.itemAt(count - 1).widget() is None:
+            layout.insertWidget(count - 1, card)
+        else:
+            layout.addWidget(card)
+
+    def _render_table_batch(self, token, batch_size=15):
+        """Build a batch of booking cards, then yield to the event loop."""
+        if token != getattr(self, "_table_render_token", None):
+            return  # a newer render superseded this one
+        queue = getattr(self, "_table_queue", [])
+        if not queue:
+            return
+        batch = queue[:batch_size]
+        del queue[:batch_size]
+        accent = getattr(self, "_table_accent", None) or AccentManager().current
+
+        self.table_cards_container.setUpdatesEnabled(False)
+        for b in batch:
+            pax_val = int(b.get("pax", 0))
+            limit_status = "LIMIT REACHED" if pax_val >= 600 else ("NEAR LIMIT" if pax_val >= 400 else "")
+            card = QFrame()
+            card.setObjectName("entryCard")
+            card.setFixedHeight(56)
+            cl = QHBoxLayout(card)
+            cl.setContentsMargins(16, 8, 16, 8)
+            cl.setSpacing(16)
+
+            # Col 1: Ref & Date
+            c1 = QVBoxLayout()
+            c1.setSpacing(2)
+            id_lbl = QLabel(b.get("id", ""))
+            id_lbl.setStyleSheet(f"font-weight: 800; font-size: 13px; color: {accent};")
+            d_lbl = QLabel(b.get("date", ""))
+            d_lbl.setObjectName("subtitle")
+            c1.addWidget(id_lbl)
+            c1.addWidget(d_lbl)
+            cl.addLayout(c1, 2)
+
+            # Col 2: Client Name & Package
+            c2 = QVBoxLayout()
+            c2.setSpacing(2)
+            client_lbl = QLabel(b.get("name", ""))
+            client_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
+            pkg_lbl = QLabel(f"Package: {b.get('package', '—')}")
+            pkg_lbl.setObjectName("subtitle")
+            c2.addWidget(client_lbl)
+            c2.addWidget(pkg_lbl)
+            cl.addLayout(c2, 3)
+
+            # Col 3: Pax Badge & Status Badge
+            pax_badge = create_pax_limit_badge(pax_val, limit_status)
+            status_badge = create_status_badge(b.get("status", "").capitalize())
+            cl.addWidget(pax_badge, alignment=Qt.AlignVCenter)
+            cl.addWidget(status_badge, alignment=Qt.AlignVCenter)
+
+            self._insert_card_before_stretch(self.table_cards_layout, card)
+        self.table_cards_container.setUpdatesEnabled(True)
+
+        if queue:
+            QTimer.singleShot(0, lambda: self._render_table_batch(token, batch_size))
+        else:
+            self._bk_loading_more = False  # this page finished appending
+            self._bk_rendering = False  # chain drained — safe to append more on scroll
+            self._report_render_step()  # last batch done — release the loader slot
+
+    def _on_bookings_scroll(self, value):
+        sb = self._bookings_scroll.verticalScrollBar()
+        if sb.maximum() - value < 200:
+            self._load_more_bookings()
+
+    def _load_more_bookings(self):
+        """Append the next page of booking cards from the in-memory remainder — no
+        DB round-trip, since the full period-scoped list is already loaded."""
+        if getattr(self, "_bk_loading_more", False) or not getattr(self, "_bk_has_more", False):
+            return
+        # Don't append while the initial page's own batch chain is still mutating
+        # table_cards_layout — interleaving the two chains corrupts layout bookkeeping.
+        if getattr(self, "_bk_rendering", False):
+            return
+        self._bk_loading_more = True
+        more = self._bk_remainder[:self._bk_page_size]
+        self._bk_remainder = self._bk_remainder[self._bk_page_size:]
+        if not self._bk_remainder:
+            self._bk_has_more = False
+        if not more:
+            self._bk_loading_more = False
+            return
+        # Reuse the existing batch renderer (batch_size=15) to append the new cards.
+        self._bk_rendering = True  # scroll-append chain starting
+        self._table_render_token = getattr(self, "_table_render_token", 0) + 1
+        self._table_accent = AccentManager().current
+        self._table_queue = list(more)
+        self._render_table_batch(self._table_render_token)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -1596,12 +1731,20 @@ class ReportsPage(QWidget):
 
     def _load_expenses(self, all_exp: list = None, profit_data: list = None):
         """Rebuild expense cards from pre-fetched data (safe to call on GUI thread)."""
+        # Invalidate any in-flight batched render before clearing
+        self._exp_render_token = getattr(self, "_exp_render_token", 0) + 1
         while self.exp_cards_layout.count():
             item = self.exp_cards_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
+        # Reset pagination for the new period/reload; the populated branch re-arms it.
+        self._exp_has_more = False
+        self._exp_loading_more = False
+        self._exp_remainder = []
+
         if all_exp is None:
+            self._report_render_step()  # nothing to render; release the loader slot
             return  # Async data not ready yet
 
         p = getattr(self, "_period", "All Time")
@@ -1642,7 +1785,8 @@ class ReportsPage(QWidget):
                         expenses.append(exp)
 
         self._expenses = expenses
-        total_exp = 0.0
+        # total_exp depends only on amounts, compute upfront (independent of widgets)
+        total_exp = sum(exp["amount"] for exp in expenses)
 
         if not expenses:
             empty_lbl = QLabel("No expenses recorded.")
@@ -1653,47 +1797,11 @@ class ReportsPage(QWidget):
                 self._expenses_scroll.setFixedHeight(60)
             if hasattr(self, "_exp_title"):
                 self._exp_title.setText("Expenses")
+            self._exp_rendering = False  # empty state: no batch chain will run
+            self._report_render_step()  # no batches run for empty state
         else:
-            for exp in expenses:
-                card = QFrame()
-                card.setObjectName("entryCard")
-                card.setFixedHeight(56)
-                el = QHBoxLayout(card)
-                el.setContentsMargins(16, 8, 16, 8)
-                el.setSpacing(14)
-
-                c1 = QVBoxLayout()
-                c1.setSpacing(2)
-                d_lbl = QLabel(exp["date"])
-                d_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
-                cat_lbl = QLabel(f"Category: {exp['category']}")
-                cat_lbl.setObjectName("subtitle")
-                c1.addWidget(d_lbl)
-                c1.addWidget(cat_lbl)
-                el.addLayout(c1, 2)
-
-                desc_lbl = QLabel(exp["description"])
-                desc_lbl.setStyleSheet("font-size: 12px;")
-                el.addWidget(desc_lbl, 3)
-
-                amt_lbl = QLabel(f"₱ {exp['amount']:,.2f}")
-                amt_lbl.setStyleSheet("font-weight: 800; font-size: 14px; color: #EF4444;")
-                el.addWidget(amt_lbl, 2)
-
-                del_btn = QPushButton()
-                del_btn.setIcon(btn_icon_red("trash"))
-                del_btn.setIconSize(QSize(14, 14))
-                del_btn.setFixedSize(32, 32)
-                del_btn.setStyleSheet("background: transparent; border: none;")
-                del_btn.setCursor(Qt.PointingHandCursor)
-                del_btn.setToolTip("Delete expense")
-                del_btn.clicked.connect(lambda _, eid=exp["id"]: self._delete_expense(eid))
-                el.addWidget(del_btn)
-
-                self.exp_cards_layout.addWidget(card)
-                total_exp += exp["amount"]
-
             total_e = len(expenses)
+            # Finalize scroll height / title upfront (depend only on count)
             if hasattr(self, "_expenses_scroll"):
                 if total_e > 7:
                     # Exactly 7 rows visible with smooth scroll for remaining
@@ -1704,6 +1812,16 @@ class ReportsPage(QWidget):
                     self._expenses_scroll.setFixedHeight(max(60, total_e * 56 + max(0, total_e - 1) * 10))
                     if hasattr(self, "_exp_title"):
                         self._exp_title.setText(f"Expenses ({total_e} record{'s' if total_e != 1 else ''})")
+
+            # DOM pagination: render only the first page now; the rest stays in
+            # memory and is appended on scroll. total_exp / net profit below are
+            # computed from the FULL filtered list, so they remain accurate.
+            self._exp_remainder = list(expenses[self._exp_page_size:])
+            self._exp_has_more = len(expenses) > self._exp_page_size
+            self._exp_loading_more = False
+            self._exp_rendering = True  # a batch chain is about to start filling the layout
+            self._exp_queue = list(expenses[:self._exp_page_size])
+            self._render_expense_batch(self._exp_render_token)
 
         # Use pre-fetched profit_data if available, else fall back to synchronous call
         _profit_data = profit_data if profit_data is not None else []
@@ -1716,6 +1834,91 @@ class ReportsPage(QWidget):
             f"Total Revenue (YTD): ₱ {total_rev:,.2f}   |   "
             f"Net Profit: ₱ {net:,.2f}"
         )
+
+    def _render_expense_batch(self, token, batch_size=15):
+        """Build a batch of expense cards, then yield to the event loop."""
+        if token != getattr(self, "_exp_render_token", None):
+            return  # a newer render superseded this one
+        queue = getattr(self, "_exp_queue", [])
+        if not queue:
+            return
+        batch = queue[:batch_size]
+        del queue[:batch_size]
+
+        self.exp_cards_container.setUpdatesEnabled(False)
+        for exp in batch:
+            card = QFrame()
+            card.setObjectName("entryCard")
+            card.setFixedHeight(56)
+            el = QHBoxLayout(card)
+            el.setContentsMargins(16, 8, 16, 8)
+            el.setSpacing(14)
+
+            c1 = QVBoxLayout()
+            c1.setSpacing(2)
+            d_lbl = QLabel(exp["date"])
+            d_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
+            cat_lbl = QLabel(f"Category: {exp['category']}")
+            cat_lbl.setObjectName("subtitle")
+            c1.addWidget(d_lbl)
+            c1.addWidget(cat_lbl)
+            el.addLayout(c1, 2)
+
+            desc_lbl = QLabel(exp["description"])
+            desc_lbl.setStyleSheet("font-size: 12px;")
+            el.addWidget(desc_lbl, 3)
+
+            amt_lbl = QLabel(f"₱ {exp['amount']:,.2f}")
+            amt_lbl.setStyleSheet("font-weight: 800; font-size: 14px; color: #EF4444;")
+            el.addWidget(amt_lbl, 2)
+
+            del_btn = QPushButton()
+            del_btn.setIcon(btn_icon_red("trash"))
+            del_btn.setIconSize(QSize(14, 14))
+            del_btn.setFixedSize(32, 32)
+            del_btn.setStyleSheet("background: transparent; border: none;")
+            del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.setToolTip("Delete expense")
+            del_btn.clicked.connect(lambda _, eid=exp["id"]: self._delete_expense(eid))
+            el.addWidget(del_btn)
+
+            self._insert_card_before_stretch(self.exp_cards_layout, card)
+        self.exp_cards_container.setUpdatesEnabled(True)
+
+        if queue:
+            QTimer.singleShot(0, lambda: self._render_expense_batch(token, batch_size))
+        else:
+            self._exp_loading_more = False  # this page finished appending
+            self._exp_rendering = False  # chain drained — safe to append more on scroll
+            self._report_render_step()  # last batch done — release the loader slot
+
+    def _on_expenses_scroll(self, value):
+        sb = self._expenses_scroll.verticalScrollBar()
+        if sb.maximum() - value < 200:
+            self._load_more_expenses()
+
+    def _load_more_expenses(self):
+        """Append the next page of expense cards from the in-memory remainder — no
+        DB round-trip, since the full period-scoped list is already loaded."""
+        if getattr(self, "_exp_loading_more", False) or not getattr(self, "_exp_has_more", False):
+            return
+        # Don't append while the initial page's own batch chain is still mutating
+        # exp_cards_layout — interleaving the two chains corrupts layout bookkeeping.
+        if getattr(self, "_exp_rendering", False):
+            return
+        self._exp_loading_more = True
+        more = self._exp_remainder[:self._exp_page_size]
+        self._exp_remainder = self._exp_remainder[self._exp_page_size:]
+        if not self._exp_remainder:
+            self._exp_has_more = False
+        if not more:
+            self._exp_loading_more = False
+            return
+        # Reuse the existing batch renderer (batch_size=15) to append the new cards.
+        self._exp_rendering = True  # scroll-append chain starting
+        self._exp_render_token = getattr(self, "_exp_render_token", 0) + 1
+        self._exp_queue = list(more)
+        self._render_expense_batch(self._exp_render_token)
 
     def _open_add_expense(self):
         from PySide6.QtWidgets import QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox, QDateEdit

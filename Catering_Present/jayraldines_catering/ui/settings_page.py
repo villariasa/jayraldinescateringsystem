@@ -1233,6 +1233,8 @@ class SettingsPage(QWidget):
         self._smtp_pass_f = QLineEdit(smtp["smtp_pass"])
         self._smtp_pass_f.setEchoMode(QLineEdit.Password)
         self._smtp_pass_f.setPlaceholderText("App password or SMTP password")
+        from utils.password_field import add_show_password_toggle
+        add_show_password_toggle(self._smtp_pass_f)
 
         if not can_edit:
             self._smtp_host_f.setReadOnly(True)
@@ -1972,6 +1974,17 @@ class SettingsPage(QWidget):
         return card
 
     def _load_audit_log(self):
+        # Coalesce overlapping reloads: multiple data-changed signals (data_changed,
+        # customer_saved, booking_saved, payment_saved), showEvent, reload(), the
+        # filter and the refresh button can all fire in quick succession. If a
+        # fetch + batch-render is already running, don't start a second one in
+        # parallel - just remember to run exactly one more pass once it finishes.
+        if getattr(self, "_audit_reload_in_flight", False):
+            self._audit_reload_pending = True
+            return
+        self._audit_reload_in_flight = True
+        self._audit_reload_pending = False
+
         from utils.data_loader import run_async
         dev_choice = self.audit_device_filter.currentText() if hasattr(self, "audit_device_filter") else "All Logs & Devices"
         dev_filter = None
@@ -1981,6 +1994,12 @@ class SettingsPage(QWidget):
             dev_filter = "Desktop"
         run_async(self, lambda: repo.get_audit_log(50, device_filter=dev_filter), self._on_audit_logs_loaded)
 
+    def _audit_reload_finished(self):
+        self._audit_reload_in_flight = False
+        if getattr(self, "_audit_reload_pending", False):
+            self._audit_reload_pending = False
+            QTimer.singleShot(0, self._load_audit_log)
+
     def _on_audit_logs_loaded(self, logs):
         try:
             from shiboken6 import isValid
@@ -1988,6 +2007,10 @@ class SettingsPage(QWidget):
                 return
         except Exception:
             pass
+        # Invalidate any batch render still in flight from a previous call.
+        self._audit_render_token = getattr(self, "_audit_render_token", 0) + 1
+        token = self._audit_render_token
+
         while self.audit_cards_layout.count():
             item = self.audit_cards_layout.takeAt(0)
             if item.widget():
@@ -2002,16 +2025,42 @@ class SettingsPage(QWidget):
             item.setAlignment(Qt.AlignCenter)
             el.addWidget(item)
             self.audit_cards_layout.addWidget(empty_card)
-        else:
-            action_colors = {
-                "APPROVE": "#22C55E", "CREATE": "#3B82F6", "ADD": "#3B82F6", "CANCEL": "#EF4444",
-                "DELETE": "#EF4444", "REMOVE": "#EF4444", "PAYMENT": "#10B981", "DOWN_PAYMENT": "#10B981",
-                "UPDATE": "#8B5CF6", "EDIT": "#8B5CF6", "STATUS_CHANGE": "#6366F1",
-                "ADD_CHARGE": "#38BDF8", "DELETE_CHARGE": "#F43F5E",
-                "FOLLOW_UP": "#EC4899", "COMPLETE_FOLLOW_UP": "#14B8A6", "DELETE_FOLLOW_UP": "#64748B",
-                "ADJUST_STOCK": "#06B6D4", "MERGE_IMPORT": "#F59E0B", "REPLACE_IMPORT": "#EA580C",
-            }
-            for log in logs:
+            self.audit_cards_layout.addStretch()
+            # No batches run on the empty path - finish the reload cycle now.
+            self._audit_reload_finished()
+            return
+
+        # Render incrementally so a large audit log never blocks the UI thread.
+        self._audit_render_queue = list(logs)
+        self._render_next_audit_batch(token)
+
+    def _render_next_audit_batch(self, token, batch_size=15):
+        # Bail out if a newer render started or the page was destroyed.
+        if token != getattr(self, "_audit_render_token", 0):
+            return
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+
+        # Per-item-invariant lookup table, built once per batch (not per row).
+        action_colors = {
+            "APPROVE": "#22C55E", "CREATE": "#3B82F6", "ADD": "#3B82F6", "CANCEL": "#EF4444",
+            "DELETE": "#EF4444", "REMOVE": "#EF4444", "PAYMENT": "#10B981", "DOWN_PAYMENT": "#10B981",
+            "UPDATE": "#8B5CF6", "EDIT": "#8B5CF6", "STATUS_CHANGE": "#6366F1",
+            "ADD_CHARGE": "#38BDF8", "DELETE_CHARGE": "#F43F5E",
+            "FOLLOW_UP": "#EC4899", "COMPLETE_FOLLOW_UP": "#14B8A6", "DELETE_FOLLOW_UP": "#64748B",
+            "ADJUST_STOCK": "#06B6D4", "MERGE_IMPORT": "#F59E0B", "REPLACE_IMPORT": "#EA580C",
+        }
+
+        batch = self._audit_render_queue[:batch_size]
+        self._audit_render_queue = self._audit_render_queue[batch_size:]
+
+        self.audit_cards_container.setUpdatesEnabled(False)
+        try:
+            for log in batch:
                 card = QFrame()
                 card.setObjectName("entryCard")
                 cl = QHBoxLayout(card)
@@ -2026,14 +2075,14 @@ class SettingsPage(QWidget):
                 act_lbl.setStyleSheet(f"font-weight: 800; font-size: 11px; color: {act_color}; padding: 2px 6px; background: rgba(255,255,255,0.05); border-radius: 4px;")
                 actor_lbl = QLabel(f"By: {log.get('actor', 'User')}")
                 actor_lbl.setObjectName("subtitle")
-                
+
                 dev_val = str(log.get("device") or "Desktop / Server")
                 is_tablet = "tablet" in dev_val.lower() or "kiosk" in dev_val.lower()
                 dev_icon = "📱" if is_tablet else "💻"
                 dev_color = "#38BDF8" if is_tablet else "#10B981"
                 dev_badge = QLabel(f"{dev_icon} {dev_val}")
                 dev_badge.setStyleSheet(f"font-size: 10px; font-weight: 700; color: {dev_color};")
-                
+
                 c1.addWidget(act_lbl, alignment=Qt.AlignLeft)
                 c1.addWidget(actor_lbl)
                 c1.addWidget(dev_badge)
@@ -2049,8 +2098,16 @@ class SettingsPage(QWidget):
                 cl.addWidget(time_lbl, 2)
 
                 self.audit_cards_layout.addWidget(card)
+        finally:
+            self.audit_cards_container.setUpdatesEnabled(True)
 
-        self.audit_cards_layout.addStretch()
+        if self._audit_render_queue:
+            # Yield to the event loop before rendering the next batch.
+            QTimer.singleShot(0, lambda: self._render_next_audit_batch(token, batch_size))
+        else:
+            self.audit_cards_layout.addStretch()
+            # Full pipeline (fetch + all batches) done - finish the reload cycle.
+            self._audit_reload_finished()
 
     def _build_daily_report_card(self):
         card = QFrame()
