@@ -24,6 +24,9 @@ build/
 installer_output/
 app_package.zip
 *.spec
+# jayraldines.spec is a real, committed PyInstaller spec that build_installer.py
+# / CI depends on - it's not an auto-generated artifact like the rest of *.spec.
+!jayraldines.spec
 *.exe
 *.msi
 *.tar.gz
