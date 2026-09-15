@@ -1540,7 +1540,11 @@ function renderStepPreview(card) {
         };
         lastCreatedOrder = await api.placeOrder(payload);
         closeModal(confirmModalId);
-        toast("Booking successfully created!", "success");
+        if (lastCreatedOrder && lastCreatedOrder._synced) {
+          toast("Booking successfully created and synced to the central server!", "success");
+        } else {
+          toast("Booking saved on this tablet - will sync automatically once connected to the central server.", "warning");
+        }
         renderReceipt(card);
       } catch (err) {
         toast("Failed to place order: " + err.message, "error");

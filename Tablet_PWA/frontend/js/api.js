@@ -393,14 +393,21 @@ export const api = {
     // 1. Always record order in local SQLite
     const res = repo.createOrder(data);
 
-    // 2. If connected, push to Live Central DB immediately; if offline, keep pending
+    // 2. Push to the central server immediately - this used to be a
+    // fire-and-forget call whose result nobody looked at, so a booking
+    // could silently sit unsynced (network hiccup, server briefly down)
+    // with zero indication to the user beyond a generic "pending" count
+    // buried in Settings. Now we wait for the result and report it back so
+    // the caller can tell the user whether it actually reached the server.
+    let synced = false;
     try {
-      api.autoSyncPendingRecords().catch((e) => {
-        console.warn("[LiveDB] Auto-sync scheduled for next reconnection:", e);
-      });
-    } catch (_) {}
+      const syncResult = await api.autoSyncPendingRecords();
+      synced = Boolean(syncResult);
+    } catch (e) {
+      console.warn("[LiveDB] Auto-sync scheduled for next reconnection:", e);
+    }
 
-    return res;
+    return { ...res, _synced: synced };
   },
 
   async downloadReceipt(bookingId) {

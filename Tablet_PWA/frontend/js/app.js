@@ -1120,15 +1120,36 @@ async function openQuickPackagesModal() {
 }
 
 // ── Quick Option: Event Types Modal ──────────────────────────────────
-function openQuickEventTypesModal() {
-  const events = [
-    { title: "Wedding Reception", icon: "sparkles", desc: "Celebrate eternal love with romantic table setups, gourmet carving stations, and five-star banquet service." },
-    { title: "Birthday Party & Milestone", icon: "heart", desc: "From joyful kiddie parties to grand 50th jubilees, delight all your guests with hearty savory feasts." },
-    { title: "Debut (18th / 21st)", icon: "sparkles", desc: "Make her once-in-a-lifetime debut magical with stylish themed buffet staging and VIP service." },
-    { title: "Corporate Event & Seminar", icon: "clipboardCheck", desc: "Punctual, professional catering for executive conferences, product launches, and annual banquets." },
-    { title: "Anniversary Celebration", icon: "calendar", desc: "Honor cherished years together with custom menus tailored to family favorites and loved ones." },
-    { title: "Family Reunion & Fiesta", icon: "utensils", desc: "Gather the whole clan for unforgettable Filipino feast spreads, crispy lechon, and refreshing beverages." },
-  ];
+// Description/icon copy for known occasion names - purely cosmetic. The
+// actual LIST of occasions itself must come from the real `occasions` table
+// (catering.db, synced down via /api/sync/lan-sync) so it reflects whatever
+// Admin has configured in Settings > Occasion Types, instead of a fixed
+// 6-item array baked into this file that never matched what's actually
+// manageable on the desktop app.
+const _EVENT_TYPE_COPY = {
+  "wedding": { icon: "sparkles", desc: "Celebrate eternal love with romantic table setups, gourmet carving stations, and five-star banquet service." },
+  "birthday": { icon: "heart", desc: "From joyful kiddie parties to grand milestone jubilees, delight all your guests with hearty savory feasts." },
+  "debut": { icon: "sparkles", desc: "Make her once-in-a-lifetime debut magical with stylish themed buffet staging and VIP service." },
+  "corporate event": { icon: "clipboardCheck", desc: "Punctual, professional catering for executive conferences, product launches, and annual banquets." },
+  "anniversary": { icon: "calendar", desc: "Honor cherished years together with custom menus tailored to family favorites and loved ones." },
+  "christening": { icon: "heart", desc: "Welcome the newest member of the family with a warm, joyful celebration spread." },
+  "graduation": { icon: "sparkles", desc: "Celebrate every milestone achievement with a feast worthy of the occasion." },
+  "holiday party": { icon: "calendar", desc: "Gather everyone together for a festive, memorable holiday celebration." },
+};
+const _DEFAULT_EVENT_TYPE_COPY = { icon: "utensils", desc: "Let us tailor a personalized catering package for your upcoming celebration." };
+
+async function openQuickEventTypesModal() {
+  let occasions = [];
+  try {
+    occasions = await api.getOccasions();
+  } catch (err) {
+    console.warn("[app] getOccasions failed, using fallback list:", err);
+  }
+  const events = (occasions && occasions.length ? occasions : [{ name: "Wedding" }, { name: "Birthday" }, { name: "Debut" }])
+    .map(o => {
+      const copy = _EVENT_TYPE_COPY[String(o.name || "").trim().toLowerCase()] || _DEFAULT_EVENT_TYPE_COPY;
+      return { title: o.name, icon: copy.icon, desc: copy.desc };
+    });
 
   openModal({
     id: "quick-events-modal",

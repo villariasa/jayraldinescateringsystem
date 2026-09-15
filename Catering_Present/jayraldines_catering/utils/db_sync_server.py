@@ -1080,31 +1080,47 @@ def perform_server_sync(payload: dict) -> dict:
                     for itm in items:
                         try:
                             itm_id = itm.get("bmi_item_id") or itm.get("item_id") or itm.get("mi_id") or None
+                            # The tablet's payload already carries the dish
+                            # name/category/price/quantity (its own local
+                            # booking_menu_items row, synced as-is) - this
+                            # used to be extracted only to resolve a MISSING
+                            # item_id and then thrown away, so the INSERT
+                            # below never wrote bmi_item_name/bmi_category,
+                            # leaving every tablet-created booking's dishes
+                            # NULL (rendered as a raw Python dict repr on the
+                            # printed order slip instead of the dish name).
+                            itm_name = (itm.get("bmi_item_name") or itm.get("name") or itm.get("item_name") or "").strip()
+                            itm_category = (itm.get("bmi_category") or itm.get("category") or "").strip()
+                            itm_price = itm.get("bmi_price") if itm.get("bmi_price") is not None else itm.get("price")
+                            itm_qty = itm.get("bmi_quantity") if itm.get("bmi_quantity") is not None else itm.get("quantity")
                             if itm_id:
                                 try:
-                                    chk_mi = db.fetchone("SELECT mi_id FROM menu_items WHERE mi_id = %s" if db.get_engine_type() == "postgres" else "SELECT mi_id FROM menu_items WHERE mi_id = ?", (itm_id,))
+                                    chk_mi = db.fetchone("SELECT mi_id, mi_name, mi_category FROM menu_items WHERE mi_id = %s" if db.get_engine_type() == "postgres" else "SELECT mi_id, mi_name, mi_category FROM menu_items WHERE mi_id = ?", (itm_id,))
                                     if not chk_mi:
                                         itm_id = None
+                                    elif not itm_name:
+                                        # Payload didn't include a name - fall back to the
+                                        # server's own menu_items record for this id.
+                                        itm_name = chk_mi.get("mi_name") or ""
+                                        itm_category = itm_category or (chk_mi.get("mi_category") or "")
                                 except Exception:
                                     itm_id = None
-                            if not itm_id:
-                                itm_name = (itm.get("bmi_item_name") or itm.get("name") or itm.get("item_name") or "").strip()
-                                if itm_name:
-                                    chk_name = db.fetchone("SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(?) LIMIT 1", (itm_name,))
-                                    if chk_name:
-                                        itm_id = chk_name["mi_id"]
-                            if itm_id:
+                            if not itm_id and itm_name:
+                                chk_name = db.fetchone("SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(?) LIMIT 1", (itm_name,))
+                                if chk_name:
+                                    itm_id = chk_name["mi_id"]
+                            if itm_id or itm_name:
                                 if db.get_engine_type() == "postgres":
                                     db.execute("""
-                                        INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id)
-                                        VALUES (%s, %s)
+                                        INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
+                                        VALUES (%s, %s, %s, %s, %s, %s)
                                         ON CONFLICT DO NOTHING;
-                                    """, (bk_id, itm_id))
+                                    """, (bk_id, itm_id, itm_name or "", itm_category or "Selected Dishes", itm_price or 0.0, itm_qty or 1))
                                 else:
                                     db.execute("""
-                                        INSERT OR IGNORE INTO booking_menu_items (bmi_booking_id, bmi_item_id)
-                                        VALUES (?, ?)
-                                    """, (bk_id, itm_id))
+                                        INSERT OR IGNORE INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
+                                        VALUES (?, ?, ?, ?, ?, ?)
+                                    """, (bk_id, itm_id, itm_name or "", itm_category or "Selected Dishes", itm_price or 0.0, itm_qty or 1))
                         except Exception as bmie:
                             logger.warning(f"[SyncServer] booking_menu_item note: {bmie}")
 

@@ -290,7 +290,11 @@ class OrderPrintDialog(QDialog):
         by_cat = {}
         for d in dishes:
             cat = d.get("category") or "Menu Dishes"
-            d_name = d.get("name") or d.get("item_name") or str(d)
+            # Never fall back to str(d) - a dish record with a missing name
+            # (e.g. a legacy/unresolved item_id) used to print the raw
+            # Python dict repr ("{'item_id': 32, 'name': None, ...}")
+            # straight onto the order slip.
+            d_name = d.get("name") or d.get("item_name") or (f"Item #{d['item_id']}" if d.get("item_id") else None)
             if d_name:
                 by_cat.setdefault(cat, []).append(d_name)
 

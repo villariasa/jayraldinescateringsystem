@@ -59,10 +59,11 @@ function _detectDeviceType() {
     category,
     osName,
     typeTag,
-    // NOTE: must stay pure ASCII/Latin-1 - sent verbatim as the raw
-    // "X-Device-Host" HTTP header (see performLanSync/checkLanStatus). A
-    // non-Latin1 character here makes fetch() throw before any request is
-    // even sent, which looks like a connection/CORS failure but isn't.
+    // NOTE: must stay pure ASCII/Latin-1 - this value is sent verbatim as the
+    // raw "X-Device-Host" HTTP header (see performLanSync/checkLanStatus).
+    // An emoji or any other non-Latin1 character here makes fetch() throw
+    // "String contains non ISO-8859-1 code point" before any request is even
+    // sent, which looks like a connection/CORS failure but is actually this.
     hostname: `${osName} ${category}`,
     os_info: `${osName} ${category} (${typeTag})`
   };
@@ -392,14 +393,21 @@ export const api = {
     // 1. Always record order in local SQLite
     const res = repo.createOrder(data);
 
-    // 2. If connected, push to Live Central DB immediately; if offline, keep pending
+    // 2. Push to the central server immediately - this used to be a
+    // fire-and-forget call whose result nobody looked at, so a booking
+    // could silently sit unsynced (network hiccup, server briefly down)
+    // with zero indication to the user beyond a generic "pending" count
+    // buried in Settings. Now we wait for the result and report it back so
+    // the caller can tell the user whether it actually reached the server.
+    let synced = false;
     try {
-      api.autoSyncPendingRecords().catch((e) => {
-        console.warn("[LiveDB] Auto-sync scheduled for next reconnection:", e);
-      });
-    } catch (_) {}
+      const syncResult = await api.autoSyncPendingRecords();
+      synced = Boolean(syncResult);
+    } catch (e) {
+      console.warn("[LiveDB] Auto-sync scheduled for next reconnection:", e);
+    }
 
-    return res;
+    return { ...res, _synced: synced };
   },
 
   async downloadReceipt(bookingId) {
@@ -462,6 +470,13 @@ export const api = {
     const urls = _getSyncBaseUrls(host, port);
     const cleanHost = (host || "").trim().replace(/^https?:\/\//i, "").split(":")[0] || "127.0.0.1";
     const dev = _getTabletDeviceInfo();
+    // Every failure used to be swallowed identically ("Central Server
+    // Unreachable", no detail) whether it was a real network timeout, a CORS
+    // rejection, or a client-side exception thrown before any request even
+    // went out (e.g. the past "non ISO-8859-1 code point" header bug) -
+    // making it impossible to tell those apart from the UI alone. Capture
+    // and surface the actual last error so the on-screen message (and
+    // console) shows the real cause going forward.
     let lastError = null;
 
     for (const base of urls) {

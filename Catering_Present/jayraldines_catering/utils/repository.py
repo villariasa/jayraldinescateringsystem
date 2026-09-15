@@ -1416,12 +1416,18 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
     d["color_theme"] = d.get("color_theme") or "#2563EB"
     d["color"] = d.get("color_theme") or "#2563EB"
 
-    # Fetch selected dishes from booking_menu_items
+    # Fetch selected dishes from booking_menu_items. COALESCE against
+    # menu_items by item_id as a defensive fallback for any pre-existing
+    # rows left with a NULL name/category (e.g. tablet-created bookings
+    # synced before bmi_item_name/bmi_category were populated server-side).
     dish_rows = db.fetchall("""
-        SELECT bmi_item_id AS item_id, bmi_item_name AS name, bmi_category AS category
-        FROM booking_menu_items
-        WHERE bmi_booking_id = %s
-        ORDER BY bmi_id ASC
+        SELECT bmi.bmi_item_id AS item_id,
+               COALESCE(NULLIF(bmi.bmi_item_name, ''), mi.mi_name) AS name,
+               COALESCE(NULLIF(bmi.bmi_category, ''), mi.mi_category) AS category
+        FROM booking_menu_items bmi
+        LEFT JOIN menu_items mi ON mi.mi_id = bmi.bmi_item_id
+        WHERE bmi.bmi_booking_id = %s
+        ORDER BY bmi.bmi_id ASC
     """, (db_id,))
     if dish_rows:
         d["dishes"] = [dict(r) for r in dish_rows]
