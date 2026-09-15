@@ -187,7 +187,21 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, ngrok-skip-browser-warning")
+        # Echo back whatever headers the browser/WebView's preflight actually
+        # asked for (falling back to the static list below when none was
+        # sent, e.g. for a non-preflight response). A hardcoded allow-list
+        # here previously omitted the X-Device-Id/X-Device-Host/X-Device-OS
+        # headers the Tablet PWA/APK sends on every real request - the server
+        # itself reads those headers (see _record_client_session below), but
+        # since they weren't in this allow-list, the browser's CORS preflight
+        # check silently rejected them before the real request could even be
+        # sent, even though a plain top-level navigation (which never
+        # triggers CORS) worked fine and looked "connected".
+        requested_headers = self.headers.get("Access-Control-Request-Headers")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            requested_headers or "Content-Type, Authorization, Accept, X-Requested-With, ngrok-skip-browser-warning, X-Device-Id, X-Device-Host, X-Device-OS"
+        )
         self.send_header("Content-Type", content_type)
         self.end_headers()
 
