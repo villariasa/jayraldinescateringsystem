@@ -1584,6 +1584,7 @@ async function renderDatabaseTab(content) {
           diagBox.style.color = "var(--danger)";
           diagBox.innerHTML = `
             <b>❌ Central Server Unreachable at <code>http://${escapeHtml(curHost)}:${escapeHtml(port || '8000')}</code></b><br>
+            ${stat.error ? `<span style="font-size:12px; color:var(--danger); display:block; margin-top:4px;"><b>Reason:</b> ${escapeHtml(stat.error)}</span>` : ''}
             <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:4px;">
               • Verify that this tablet and the PC are connected to the <b>same Wi-Fi network</b>.<br>
               • Verify that the Jayraldine's Catering desktop app or <code>run_lan_sync_server.bat</code> is running on the PC.<br>
@@ -2214,6 +2215,7 @@ function _renderLiveDbConfigModal() {
         diagBox.style.color = "var(--danger)";
         diagBox.innerHTML = `
           <b>❌ Cannot reach Central Server at <code>http://${escapeHtml(cleanDisplayHost(host))}:${escapeHtml(String(port))}</code></b><br>
+          ${stat && stat.error ? `<span style="font-size:12px; color:var(--danger); display:block; margin-top:4px;"><b>Reason:</b> ${escapeHtml(stat.error)}</span>` : ''}
           <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:6px;">
             1. Confirm that both tablet and laptop are connected to the exact same Wi-Fi.<br>
             2. Make sure Jayraldine's Catering or <code>START_SERVER_FOR_TABLET.bat</code> is running on the laptop.<br>

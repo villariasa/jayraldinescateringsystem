@@ -463,15 +463,23 @@ export const api = {
     const urls = _getSyncBaseUrls(host, port);
     const cleanHost = (host || "").trim().replace(/^https?:\/\//i, "").split(":")[0] || "127.0.0.1";
     const dev = _getTabletDeviceInfo();
+    // Every failure used to be swallowed identically ("Central Server
+    // Unreachable", no detail) whether it was a real network timeout, a CORS
+    // rejection, or a client-side exception thrown before any request even
+    // went out (e.g. the past "non ISO-8859-1 code point" header bug) -
+    // making it impossible to tell those apart from the UI alone. Capture
+    // and surface the actual last error so the on-screen message (and
+    // console) shows the real cause going forward.
+    let lastError = null;
 
     for (const base of urls) {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3500);
-        const q = `?host=${encodeURIComponent(cleanHost)}&port=8000&device_id=${encodeURIComponent(dev.device_id)}&hostname=${encodeURIComponent(dev.hostname)}&os_info=${encodeURIComponent(dev.os_info)}&app_version=${encodeURIComponent(dev.app_version)}&active_module=${encodeURIComponent(dev.active_module)}`;
+        const q = `?host=${encodeURIComponent(cleanHost)}&port=${encodeURIComponent(port)}&device_id=${encodeURIComponent(dev.device_id)}&hostname=${encodeURIComponent(dev.hostname)}&os_info=${encodeURIComponent(dev.os_info)}&app_version=${encodeURIComponent(dev.app_version)}&active_module=${encodeURIComponent(dev.active_module)}`;
         const res = await fetch(`${base}/api/sync/lan-status${q}`, {
           signal: controller.signal,
-          headers: { 
+          headers: {
             "Accept": "application/json",
             "X-Device-Id": dev.device_id,
             "X-Device-Host": dev.hostname,
@@ -489,13 +497,16 @@ export const api = {
           window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: isLive, server: base } }));
           return data;
         }
+        lastError = `HTTP ${res.status} from ${base}`;
       } catch (e) {
+        lastError = `${e.name || "Error"}: ${e.message || e}`;
+        console.error(`[checkLanStatus] fetch to ${base} failed:`, e);
         // Fall through to next candidate URL
       }
     }
     _liveDbConnected = false;
-    window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: false } }));
-    return { online: false, db_connected: false, pending_bookings: 0, pending_customers: 0 };
+    window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: false, error: lastError } }));
+    return { online: false, db_connected: false, pending_bookings: 0, pending_customers: 0, error: lastError };
   },
 
   async performLanSync(params) {
