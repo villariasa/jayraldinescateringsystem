@@ -263,7 +263,13 @@ class ExpensesPage(QWidget):
         self._kpi_total = _KpiCard("Total Expenses (This Year)")
         self._kpi_month = _KpiCard("This Month")
         self._kpi_top   = _KpiCard("Top Category")
-        for c in (self._kpi_total, self._kpi_month, self._kpi_top):
+        # Unlike the other three cards (fixed this-year/this-month/top-
+        # category reference points), this one actually tracks whatever
+        # Period/Month filter is currently selected - without it, the client
+        # had no way to see a total figure for e.g. "Today" or a custom date
+        # range, only the fixed all-time cards regardless of the filter.
+        self._kpi_filtered = _KpiCard("Total (Selected Filter)")
+        for c in (self._kpi_total, self._kpi_month, self._kpi_top, self._kpi_filtered):
             kpi_row.addWidget(c)
         self.lay.addLayout(kpi_row)
 
@@ -658,6 +664,12 @@ class ExpensesPage(QWidget):
         # has actually finished rendering, not right after the fetch.
         self._load_table()
         self._load_kpis()
+        # The default filter is "This Month" (not "All Time"), but the
+        # initial self._summary above is always an unfiltered/all-time
+        # aggregate - without this, the new "Total (Selected Filter)" KPI
+        # would show the all-time total on first load while its own label
+        # says "This Month", until the user manually touched the filter.
+        self._reload_summary_for_filter()
 
     def _load_more_expenses(self):
         if self._loading_more or not self._has_more:
@@ -918,6 +930,13 @@ class ExpensesPage(QWidget):
             self._kpi_top.set(top_cat, f"₱ {top_amt:,.0f} ({pct:.0f}% of all-time)")
         else:
             self._kpi_top.set("—", "No expenses recorded")
+
+        if hasattr(self, "_kpi_filtered"):
+            total_filtered = float(summary.get("total_filtered", total_all) or 0.0)
+            period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
+            month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
+            label_bits = [b for b in (period_opt, None if month_opt == "All Months" else month_opt) if b]
+            self._kpi_filtered.set(f"₱ {total_filtered:,.0f}", " · ".join(label_bits) or "All Time")
 
     # ── Add / delete ─────────────────────────────────────────────────────────
 

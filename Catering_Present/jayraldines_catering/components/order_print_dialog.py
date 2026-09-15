@@ -376,10 +376,11 @@ class OrderPrintDialog(QDialog):
 
         remarks_html = ""
         if clean_notes and not compact:
+            # No background fill - border only, to conserve printer ink.
             remarks_html = f"""
-            <div style="margin-top:10px; padding:8px 12px; background-color:#FEF3C7; border:1px solid #FDE68A; border-radius:6px;">
-                <div style="font-size:10.5px; font-weight:bold; color:#92400E; margin-bottom:3px;">SPECIAL INSTRUCTIONS &amp; REMARKS:</div>
-                <div style="font-size:11.5px; color:#78350F; line-height:1.4;">{clean_notes}</div>
+            <div style="margin-top:10px; padding:8px 12px; border:1px solid #0F172A; border-radius:6px;">
+                <div style="font-size:10.5px; font-weight:bold; color:#0F172A; margin-bottom:3px;">SPECIAL INSTRUCTIONS &amp; REMARKS:</div>
+                <div style="font-size:11.5px; color:#0F172A; line-height:1.4;">{clean_notes}</div>
             </div>
             """
 

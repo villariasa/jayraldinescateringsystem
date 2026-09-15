@@ -1894,22 +1894,31 @@ def get_default_billing_window() -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
-def get_invoices_summary(date_start: str = None, date_end: str = None) -> dict:
-    """Aggregate totals across ALL non-cancelled invoices, independent of how many
+def get_invoices_summary(date_start: str = None, date_end: str = None,
+                          customer: str = None, paid_status: str = None) -> dict:
+    """Aggregate totals across non-cancelled invoices, independent of how many
     pages have been loaded into the UI - keeps summary cards accurate under pagination.
 
     date_start/date_end: optional ISO date bounds on the invoice's event_date
-    (both must be given together to apply; None/None = all-time, unfiltered -
-    this is what Billing's KPI header always uses). Pass a period's date range
-    to scope this the same way Reports' period selector does, so the two
-    pages' "Unpaid"/"Received" figures use ONE consistent calculation instead
-    of Reports re-deriving its own separate (and previously mismatched)
-    aggregate from the bookings table."""
+    (both must be given together to apply; None/None = unbounded).
+    customer/paid_status: same semantics as get_invoices_page() - pass the
+    Billing page's CURRENT active filter state so the header KPI cards
+    reflect whatever filter is applied instead of always showing an
+    unrelated all-time total, which is what the client found confusing when
+    changing filters never visibly changed the header numbers. Call with no
+    args at all for a true all-time/unfiltered aggregate (e.g. Reports)."""
     where = "WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')"
     params: list = []
     if date_start and date_end:
         where += " AND i.inv_event_date BETWEEN %s AND %s"
         params.extend([date_start, date_end])
+    if customer:
+        where += " AND i.inv_customer_name ILIKE %s"
+        params.append(f"%{customer}%")
+    if paid_status == "unpaid":
+        where += " AND CAST(i.inv_status AS TEXT) IN ('Unpaid', 'Partial')"
+    elif paid_status == "paid":
+        where += " AND CAST(i.inv_status AS TEXT) = 'Paid'"
     row = db.fetchone(f"""
         SELECT
             COALESCE(SUM(i.inv_amount_paid), 0.0) AS total_received,
@@ -2200,11 +2209,20 @@ def get_payment_ledger(year: int = None, month: int = None) -> list[dict]:
     Each payment_records row keeps its own pr_payment_date - a later payment
     never overwrites an earlier one's date, so down payment and subsequent
     payments both show their real, distinct dates here."""
+    # NOTE: pr_is_downpayment only exists in the Postgres schema - the SQLite
+    # schema never had that column, so selecting it directly raised "no such
+    # column: pr.pr_is_downpayment" on every call, silently emptying the
+    # Ledger tab regardless of how much payment data actually existed.
+    # Derive the same distinction instead: the earliest payment_records row
+    # per invoice IS the down payment, any later one is a remaining/full
+    # payment - works identically on both engines, no schema change needed.
     sql = """
         SELECT pr.pr_id            AS id,
                pr.pr_payment_date  AS payment_date,
                i.inv_customer_name AS customer,
-               pr.pr_is_downpayment AS is_downpayment,
+               CASE WHEN pr.pr_id = (
+                   SELECT MIN(pr2.pr_id) FROM payment_records pr2 WHERE pr2.pr_invoice_id = pr.pr_invoice_id
+               ) THEN 1 ELSE 0 END AS is_downpayment,
                pr.pr_amount        AS amount,
                i.inv_status        AS status,
                i.inv_booking_id    AS booking_id
@@ -3070,10 +3088,17 @@ def get_expenses_summary(date_start: str = None, date_end: str = None) -> dict:
         {"category": r["category"] or "Other", "total": float(r["total"] or 0.0)}
         for r in (cat_rows or [])
     ]
+    # Unlike total_all_time/total_this_year/total_this_month (fixed reference
+    # points, unaffected by the filter by design - see docstring), this DOES
+    # track whatever period the user has actively filtered to, so the UI can
+    # show a "Filtered Total" figure next to the Period/Month filter controls
+    # instead of only ever showing All Time/This Month regardless of filter.
+    total_filtered = sum(c["total"] for c in by_category) if (date_start and date_end) else (float(row["total_all_time"] or 0.0) if row else 0.0)
     return {
         "total_all_time":  float(row["total_all_time"] or 0.0) if row else 0.0,
         "total_this_year": float(row["total_this_year"] or 0.0) if row else 0.0,
         "total_this_month": float(row["total_this_month"] or 0.0) if row else 0.0,
+        "total_filtered":  total_filtered,
         "by_category":     by_category,
     }
 

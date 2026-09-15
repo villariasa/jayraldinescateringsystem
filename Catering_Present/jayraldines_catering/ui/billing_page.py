@@ -644,11 +644,20 @@ class BillingPage(QWidget):
         # right after the page opens, before the initial page finishes rendering.
         self._rendering = False
         self._summary = {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
-        # Default fetch scope: 1 month back / 2 months ahead of today (windowed),
-        # no customer filter, default paid-status view = Unpaid Invoices only.
-        self._filter_date_start, self._filter_date_end = repo.get_default_billing_window()
+        # Default fetch scope: Unpaid Invoices, no date window (must show
+        # every outstanding balance regardless of event date, not just
+        # near-term ones - see _on_filter_changed for why "unpaid" always
+        # clears the window), no customer filter.
+        self._filter_date_start = None
+        self._filter_date_end = None
         self._filter_customer = None
         self._filter_paid_status = "unpaid"
+        # Header KPI cards default to All Time (self._summary); this tracks
+        # an OPTIONAL separate period filter (Today/This Week/This Month/
+        # This Year) scoping just the 4 header cards, independent of the
+        # invoice list's own customer/paid-status/date-window filters above.
+        self._header_period = None
+        self._header_summary = None
         self._build_ui()
         app_events().payment_recorded.connect(self._mark_dirty_and_reload)
         app_events().booking_updated.connect(self._mark_dirty_and_reload)
@@ -678,6 +687,16 @@ class BillingPage(QWidget):
         self._reload_in_flight = True
         self._reload_pending = False
 
+        # Bump the data-fetch generation so any IN-FLIGHT fetch from a
+        # previous reload/load-more/search (background thread, may resolve
+        # at any time) is recognized as stale and ignored when it lands,
+        # instead of clobbering whatever the user is now looking at - e.g.
+        # typing a search query right after the page opens used to let the
+        # default-filter fetch land AFTER the search results and silently
+        # wipe them back out.
+        self._data_gen = getattr(self, "_data_gen", 0) + 1
+        gen = self._data_gen
+
         self._dirty = False
         self.refresh_permissions()
         self._populate_customer_filter()
@@ -698,31 +717,33 @@ class BillingPage(QWidget):
         if (cached is not None and not getattr(self, "_has_loaded_once", False)
                 and not self._filters_active()):
             self._has_loaded_once = True
-            # KPI totals always reflect ALL invoices, regardless of which
-            # subset the default filter displays below.
-            self._summary = self._compute_summary_from_rows(cached)
-            # Default view (paid_status == "unpaid") shows only unpaid/partial
-            # invoices - the login-time cache is the FULL unfiltered list
-            # (get_all_invoices(), sorted by created_at), so it must be
-            # filtered here the same way get_invoices_page()'s WHERE clause
-            # would, or the cached fast-path would show paid invoices too.
+            # Header KPI cards must reflect whatever filter is currently
+            # applied (the client found it confusing when the header numbers
+            # stayed fixed regardless of the active filter) - so the summary
+            # is computed from the SAME filtered subset shown below, not the
+            # raw unfiltered cache. Default view (paid_status == "unpaid")
+            # shows only unpaid/partial invoices - the login-time cache is
+            # the FULL unfiltered list (get_all_invoices(), sorted by
+            # created_at), so it must be filtered here the same way
+            # get_invoices_page()'s WHERE clause would.
             if self._filter_paid_status == "unpaid":
                 cached = [i for i in cached if i.get("status") in ("Unpaid", "Partial")]
+            self._summary = self._compute_summary_from_rows(cached)
             self._cached_remainder = list(cached[self._page_size:])
             page = list(cached[:self._page_size])
             if len(cached) <= self._page_size:
                 self._has_more = False
             if hasattr(self, "_loader"):
                 self._loader.show_overlay("Loading billing records & invoices...")
-                QTimer.singleShot(60, lambda: self._on_invoices_loaded(page))
+                QTimer.singleShot(60, lambda: self._on_invoices_loaded(page, gen))
             else:
-                self._on_invoices_loaded(page)
+                self._on_invoices_loaded(page, gen)
             return
 
         self._cached_remainder = None
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading billing records & invoices...")
-        run_async(self, self._fetch_first_page, self._on_first_page_loaded, None,
+        run_async(self, self._fetch_first_page, lambda result, g=gen: self._on_first_page_loaded(result, g), None,
                   self._page_size, self._filter_date_start, self._filter_date_end,
                   self._filter_customer, self._filter_paid_status)
 
@@ -739,16 +760,21 @@ class BillingPage(QWidget):
 
     @staticmethod
     def _fetch_first_page(page_size, date_start, date_end, customer, paid_status):
-        return (repo.get_invoices_summary(),
+        # Header KPI summary is now scoped to the SAME active filter as the
+        # invoice list below it, so the numbers actually move when the
+        # filter changes instead of always showing an all-time total.
+        return (repo.get_invoices_summary(date_start, date_end, customer, paid_status),
                 repo.get_invoices_page(0, page_size, date_start, date_end,
                                        customer, paid_status))
 
-    def _on_first_page_loaded(self, result):
+    def _on_first_page_loaded(self, result, gen=None):
+        if gen is not None and gen != getattr(self, "_data_gen", None):
+            return  # Superseded by a newer reload/search - discard.
         summary, page = result if result else ({}, [])
         self._summary = summary or {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
         if len(page) < self._page_size:
             self._has_more = False
-        self._on_invoices_loaded(page)
+        self._on_invoices_loaded(page, gen)
 
     @staticmethod
     def _compute_summary_from_rows(rows):
@@ -779,10 +805,12 @@ class BillingPage(QWidget):
         self._last_perm_sig = sig
         self._populate_table()
 
-    def _on_invoices_loaded(self, data):
+    def _on_invoices_loaded(self, data, gen=None):
         from shiboken6 import isValid
         if not isValid(self):
             return
+        if gen is not None and gen != getattr(self, "_data_gen", None):
+            return  # Superseded by a newer reload/search - discard.
         self._invoices = data or []
         # _populate_table() kicks off async batch rendering; the loader is
         # hidden by _render_next_batch once the LAST batch finishes, not here.
@@ -797,23 +825,26 @@ class BillingPage(QWidget):
         if self._rendering:
             return
         self._loading_more = True
+        gen = getattr(self, "_data_gen", 0)
         if self._cached_remainder is not None:
             # Serve the next slice straight from the cached full list - no DB hit.
             more = self._cached_remainder[:self._page_size]
             self._cached_remainder = self._cached_remainder[self._page_size:]
             if not self._cached_remainder:
                 self._has_more = False
-            QTimer.singleShot(0, lambda: self._on_more_invoices_loaded(more))
+            QTimer.singleShot(0, lambda: self._on_more_invoices_loaded(more, gen))
             return
-        run_async(self, repo.get_invoices_page, self._on_more_invoices_loaded,
+        run_async(self, repo.get_invoices_page, lambda data, g=gen: self._on_more_invoices_loaded(data, g),
                   None, len(self._invoices), self._page_size,
                   self._filter_date_start, self._filter_date_end,
                   self._filter_customer, self._filter_paid_status)
 
-    def _on_more_invoices_loaded(self, data):
+    def _on_more_invoices_loaded(self, data, gen=None):
         from shiboken6 import isValid
         if not isValid(self):
             return
+        if gen is not None and gen != getattr(self, "_data_gen", None):
+            return  # Superseded by a newer reload/search - discard.
         new_rows = data or []
         if self._cached_remainder is None and len(new_rows) < self._page_size:
             self._has_more = False
@@ -867,14 +898,38 @@ class BillingPage(QWidget):
         # Down Payment Tracking Summary Cards
         self._dp_summary_box = QFrame()
         self._dp_summary_box.setObjectName("card")
-        dp_lay = QHBoxLayout(self._dp_summary_box)
-        dp_lay.setContentsMargins(20, 16, 20, 16)
+        dp_outer_lay = QVBoxLayout(self._dp_summary_box)
+        dp_outer_lay.setContentsMargins(20, 16, 20, 16)
+        dp_outer_lay.setSpacing(10)
+
+        # Header-cards-only period filter - independent of the invoice
+        # list's own customer/paid-status/date-window filters below.
+        dp_period_row = QHBoxLayout()
+        dp_period_row.setSpacing(8)
+        dp_period_lbl = QLabel("Figures for:")
+        dp_period_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #6B7280;")
+        dp_period_row.addWidget(dp_period_lbl)
+        self._header_period_combo = QComboBox()
+        self._header_period_combo.setFixedHeight(34)
+        self._header_period_combo.setMinimumWidth(190)
+        self._header_period_combo.addItem("All Time (Default)", None)
+        self._header_period_combo.addItem("Today (As of Today)", "Today (As of Today)")
+        self._header_period_combo.addItem("This Week", "This Week")
+        self._header_period_combo.addItem("This Month", "This Month")
+        self._header_period_combo.addItem("This Year", "This Year")
+        self._header_period_combo.currentIndexChanged.connect(self._on_header_period_changed)
+        dp_period_row.addWidget(self._header_period_combo)
+        dp_period_row.addStretch()
+        dp_outer_lay.addLayout(dp_period_row)
+
+        dp_lay = QHBoxLayout()
         dp_lay.setSpacing(24)
+        dp_outer_lay.addLayout(dp_lay)
 
         # DP (Down Payments Received)
         dp1 = QVBoxLayout()
         dp1.setSpacing(4)
-        dp1_lbl = QLabel("TOTAL RECEIVED")
+        self._dp1_lbl = dp1_lbl = QLabel("TOTAL RECEIVED")
         dp1_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp1_val = QLabel("₱ 0.00")
         self._dp1_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #22C55E;")
@@ -885,7 +940,7 @@ class BillingPage(QWidget):
         # Unpaid Balance
         dp2 = QVBoxLayout()
         dp2.setSpacing(4)
-        dp2_lbl = QLabel("UNPAID BALANCE")
+        self._dp2_lbl = dp2_lbl = QLabel("UNPAID BALANCE")
         dp2_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp2_val = QLabel("₱ 0.00")
         self._dp2_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #F59E0B;")
@@ -896,7 +951,7 @@ class BillingPage(QWidget):
         # Total (DP + Unpaid)
         dp4 = QVBoxLayout()
         dp4.setSpacing(4)
-        dp4_lbl = QLabel("TOTAL (RECEIVED + UNPAID)")
+        self._dp4_lbl = dp4_lbl = QLabel("TOTAL (RECEIVED + UNPAID)")
         dp4_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp4_val = QLabel("₱ 0.00")
         self._dp4_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #A78BFA;")
@@ -907,7 +962,7 @@ class BillingPage(QWidget):
         # Active Events
         dp3 = QVBoxLayout()
         dp3.setSpacing(4)
-        dp3_lbl = QLabel("ACTIVE EVENTS")
+        self._dp3_lbl = dp3_lbl = QLabel("ACTIVE EVENTS")
         dp3_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp3_val = QLabel("0 Events")
         self._dp3_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #38BDF8;")
@@ -1042,14 +1097,18 @@ class BillingPage(QWidget):
         self._filter_customer = None if (not cust or cust == "All Customers") else cust
 
         mode = self._paid_filter.currentData()
-        if mode == "all":
-            # The ONE mode that breaks out of the default date window entirely
-            # and loads the full invoice history (no paid-status filter either).
-            self._filter_paid_status = None
+        if mode in ("all", "unpaid"):
+            # "unpaid" must show EVERY outstanding invoice regardless of how
+            # old/far-out its event date is - collecting on an old unpaid
+            # balance is exactly the point of this view. Keeping the default
+            # 1-month-back/2-months-ahead window on it was silently hiding
+            # unpaid/partial invoices outside that range, forcing a manual
+            # search to find them even though they matched the filter.
+            self._filter_paid_status = None if mode == "all" else mode
             self._filter_date_start = None
             self._filter_date_end = None
         else:
-            # None -> default (windowed, unpaid-prioritized), or "unpaid"/"paid"
+            # None -> default (windowed, unpaid-prioritized), or "paid"
             # bucket, both keeping the default date window.
             self._filter_paid_status = mode
             self._filter_date_start, self._filter_date_end = repo.get_default_billing_window()
@@ -1061,20 +1120,29 @@ class BillingPage(QWidget):
         self._has_more = True
         self._loading_more = False
         self.reload()
+        if getattr(self, "_header_period", None):
+            # A header Period override is active - re-combine it with the
+            # newly-changed customer/paid-status filter too, instead of
+            # leaving the header stuck on the pre-change combination.
+            self._on_header_period_changed()
 
     def _on_billing_tab_changed(self, idx: int):
         if idx == 1:
             self._populate_ledger()
 
-    def _populate_table(self):
-        # Summary metrics come from a DB-side aggregate (self._summary), NOT from
-        # summing self._invoices - under pagination that list only holds the rows
-        # loaded so far, which would understate totals once more data exists than
-        # is currently on screen.
+    def _apply_header_kpis(self):
+        # Header cards default to the DB-side ALL-TIME aggregate
+        # (self._summary), NOT a sum of self._invoices - under pagination
+        # that list only holds the rows loaded so far. When a header Period
+        # filter is active, self._header_summary (fetched separately, scoped
+        # to that period) is shown instead - re-applied here on every
+        # _populate_table() call so a list reload/search doesn't stomp the
+        # period-filtered header back to All Time.
         try:
-            total_rcv = self._summary.get("total_received", 0.0)
-            total_pending = self._summary.get("total_pending", 0.0)
-            events_cnt = self._summary.get("events_count", 0)
+            source = self._header_summary if getattr(self, "_header_period", None) else self._summary
+            total_rcv = source.get("total_received", 0.0)
+            total_pending = source.get("total_pending", 0.0)
+            events_cnt = source.get("events_count", 0)
 
             if hasattr(self, "_dp1_val"):
                 self._dp1_val.setText(f"₱ {total_rcv:,.2f}")
@@ -1084,8 +1152,56 @@ class BillingPage(QWidget):
                 self._dp4_val.setText(f"₱ {(total_rcv + total_pending):,.2f}")
             if hasattr(self, "_dp3_val"):
                 self._dp3_val.setText(f"{events_cnt} Event{'s' if events_cnt != 1 else ''}")
+
+            period = getattr(self, "_header_period", None)
+            suffix = f" ({period})" if period else ""
+            for lbl_attr, base in (
+                ("_dp1_lbl", "TOTAL RECEIVED"), ("_dp2_lbl", "UNPAID BALANCE"),
+                ("_dp4_lbl", "TOTAL (RECEIVED + UNPAID)"), ("_dp3_lbl", "ACTIVE EVENTS"),
+            ):
+                if hasattr(self, lbl_attr):
+                    getattr(self, lbl_attr).setText(base + suffix)
         except Exception:
             pass
+
+    def _current_header_period_range(self):
+        """(date_start, date_end) ISO strings for the header KPI Period
+        filter, scoped by invoice event_date - or (None, None) for All Time."""
+        from datetime import date, timedelta
+        period = getattr(self, "_header_period", None)
+        today = date.today()
+        if not period or period == "All Time":
+            return None, None
+        if period == "Today (As of Today)":
+            return today.isoformat(), today.isoformat()
+        if period == "This Week":
+            start = today - timedelta(days=today.weekday())
+            return start.isoformat(), today.isoformat()
+        if period == "This Month":
+            return today.replace(day=1).isoformat(), today.isoformat()
+        if period == "This Year":
+            return today.replace(month=1, day=1).isoformat(), today.isoformat()
+        return None, None
+
+    def _on_header_period_changed(self):
+        self._header_period = self._header_period_combo.currentData()
+        if not self._header_period:
+            self._header_summary = None
+            self._apply_header_kpis()
+            return
+        date_start, date_end = self._current_header_period_range()
+        # Combine with whatever customer/paid-status filter is currently
+        # active on the invoice list, so the two controls stack instead of
+        # the period override silently discarding the list's own filter.
+        run_async(self, repo.get_invoices_summary, self._on_header_summary_loaded, None,
+                  date_start, date_end, self._filter_customer, self._filter_paid_status)
+
+    def _on_header_summary_loaded(self, summary):
+        self._header_summary = summary or {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
+        self._apply_header_kpis()
+
+    def _populate_table(self):
+        self._apply_header_kpis()
 
         while self.cards_layout.count():
             item = self.cards_layout.takeAt(0)
@@ -1179,7 +1295,11 @@ class BillingPage(QWidget):
     def _populate_ledger(self):
         try:
             entries = repo.get_payment_ledger()
-        except Exception:
+        except Exception as exc:
+            # Previously swallowed silently, so a real query/schema failure
+            # here looked identical to "genuinely no payment records exist" -
+            # impossible to tell apart from the UI alone.
+            print(f"[BillingPage] get_payment_ledger failed: {exc}")
             entries = []
 
         self.ledger_table.setRowCount(len(entries))
@@ -1568,11 +1688,18 @@ class BillingPage(QWidget):
         self._has_more = False
         self._loading_more = False
         self._cached_remainder = None
+        # Bump the generation so a still-in-flight default-filter fetch from
+        # the initial page load (or a previous search) can't land after this
+        # and silently overwrite the search results the user is now seeing.
+        self._data_gen = getattr(self, "_data_gen", 0) + 1
+        gen = self._data_gen
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Searching invoices...")
-        run_async(self, repo.search_invoices, self._on_search_results, None, q)
+        run_async(self, repo.search_invoices, lambda results, g=gen: self._on_search_results(results, g), None, q)
 
-    def _on_search_results(self, results):
+    def _on_search_results(self, results, gen=None):
+        if gen is not None and gen != getattr(self, "_data_gen", None):
+            return  # A newer search/reload has since started - discard.
         self._invoices = results or []
         self._populate_table()
 

@@ -1428,3 +1428,20 @@ if (typeof window !== "undefined") {
 setInterval(() => {
   api.ensureLiveConnection().catch(() => {});
 }, 15000);
+
+// Periodically pull fresh master data (menu items, packages, occasions,
+// customers) from the central server every 60 seconds while connected, so
+// changes made on the desktop app (or any other tablet/laptop) show up here
+// without requiring a manual "Sync Now" or app restart. This is a DEDICATED
+// timer, deliberately separate from the connection-heartbeat interval above
+// - the two used to share the same 15000ms constant as ensureLiveConnection's
+// own internal "already synced recently" cache guard, which made a real data
+// pull happen only as an accidental, unreliable side effect of timing (real
+// pulls landed roughly every OTHER 15s tick, or less often under network
+// latency/backgrounded-tab timer throttling) rather than on any predictable
+// schedule.
+setInterval(() => {
+  if (api.isLiveConnected()) {
+    api.syncWithServer().catch(() => {});
+  }
+}, 60000);
