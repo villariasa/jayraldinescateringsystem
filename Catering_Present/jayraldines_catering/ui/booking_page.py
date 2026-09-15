@@ -1878,9 +1878,11 @@ class BookingPage(QWidget):
                 layout.addStretch()
             if tab_idx is not None:
                 self._tab_rendering[tab_idx] = False
-            # Full render pipeline for this (active) tab is complete - safe to
-            # hide the loader now and let any coalesced reload run.
-            if getattr(self, "_loader", None):
+            # Only hide the loader once this tab truly has nothing left to
+            # load in the background - otherwise it disappears after page 0
+            # while auto-continue is still silently fetching later pages.
+            tab_has_more = self._tab_has_more.get(tab_idx) if tab_idx is not None else False
+            if getattr(self, "_loader", None) and not tab_has_more:
                 self._loader.hide_overlay()
             self._reload_finished()
             # Keep quietly loading the next page for THIS tab in the

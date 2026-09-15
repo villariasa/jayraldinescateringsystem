@@ -898,6 +898,9 @@ class CustomersPage(QWidget):
         # batch chain is still mutating the same layout (see race fix).
         self._rendering = False
         self._cached_remainder = None
+        # Default view: only customers with a booking in the last 6 months.
+        # Toggle to "Show All" reveals dormant/never-booked customers too.
+        self._active_only = True
         self._reload_timer = QTimer(self)
         self._reload_timer.setSingleShot(True)
         self._reload_timer.setInterval(80)
@@ -937,6 +940,13 @@ class CustomersPage(QWidget):
     def reload(self):
         self._mark_dirty()
         self.refresh_permissions()
+        self._do_reload()
+
+    def _on_status_filter_changed(self, _idx):
+        self._active_only = bool(self._status_filter.currentData())
+        # Force the next reload to re-fetch (cache only applies to Show All,
+        # and a prior Show All population must not leak into Active or vice versa).
+        self._has_populated_once = False
         self._do_reload()
 
     def refresh_permissions(self):
@@ -987,11 +997,11 @@ class CustomersPage(QWidget):
         self._loading_more = False
 
         # Instant render from the pre-loaded memory cache if available. The login
-        # welcome sequence may have cached the FULL customer list; only slice off
-        # the first page for immediate render - the remainder stays in memory and
-        # serves subsequent "load more" scrolls with ZERO db round-trips.
+        # welcome sequence may have cached the FULL, unfiltered customer list, so
+        # it's only valid for the "Show All" view - the default "Active Customers"
+        # filter always goes through the DB so the 12-month window is honored.
         from utils.data_cache import DataCache
-        cached = DataCache.get("customers_loyalty")
+        cached = DataCache.get("customers_loyalty") if not self._active_only else None
         if cached is not None and not getattr(self, "_has_populated_once", False):
             self._has_populated_once = True
             self._cached_remainder = list(cached[self._page_size:])
@@ -1011,7 +1021,7 @@ class CustomersPage(QWidget):
             self._loader.show_overlay("Loading customer records...")
         run_async(self, repo.get_customers_page,
                   lambda data, gen=gen: self._on_first_page_loaded(data, gen),
-                  None, 0, self._page_size)
+                  None, 0, self._page_size, self._active_only)
 
     def _on_first_page_loaded(self, data, gen=None):
         page = data or []
@@ -1072,7 +1082,7 @@ class CustomersPage(QWidget):
             QTimer.singleShot(0, lambda: self._on_more_customers_loaded(more))
             return
         run_async(self, repo.get_customers_page, self._on_more_customers_loaded,
-                  None, len(self._customers), self._page_size)
+                  None, len(self._customers), self._page_size, self._active_only)
 
     def _on_more_customers_loaded(self, data):
         try:
@@ -1146,7 +1156,10 @@ class CustomersPage(QWidget):
 
         root.addLayout(header)
 
-        # Search Bar
+        # Search Bar + Active/Show-All filter
+        search_row = QHBoxLayout()
+        search_row.setSpacing(10)
+
         self._search = QLineEdit()
         self._search.setObjectName("searchBox")
         self._search.setPlaceholderText("Search customers...")
@@ -1156,7 +1169,18 @@ class CustomersPage(QWidget):
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._filter_table_now)
         self._search.textChanged.connect(lambda: self._search_timer.start(120))
-        root.addWidget(self._search)
+        search_row.addWidget(self._search)
+
+        self._status_filter = QComboBox()
+        self._status_filter.setFixedHeight(38)
+        self._status_filter.setMinimumWidth(200)
+        self._status_filter.addItem("Active Customers (Default)", True)
+        self._status_filter.addItem("Show All", False)
+        self._status_filter.currentIndexChanged.connect(self._on_status_filter_changed)
+        search_row.addWidget(self._status_filter)
+
+        search_row.addStretch()
+        root.addLayout(search_row)
 
         card = QFrame()
         card.setObjectName("card")
@@ -1332,9 +1356,10 @@ class CustomersPage(QWidget):
                 self.cards_layout.addStretch()
             self._update_selection_ui()
             self._filter_table_now()
-            # Full render pipeline complete - safe to hide the loader now and
-            # let a coalesced reload (if any was requested mid-render) run.
-            if hasattr(self, "_loader"):
+            # Only hide the loader once there's truly nothing left to load in
+            # the background - otherwise the overlay disappears after page 0
+            # while auto-continue is still silently fetching later pages.
+            if hasattr(self, "_loader") and not self._has_more:
                 self._loader.hide_overlay()
             self._rendering = False
             self._reload_finished()

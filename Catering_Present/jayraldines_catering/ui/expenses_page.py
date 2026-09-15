@@ -194,6 +194,9 @@ class ExpensesPage(QWidget):
         self._filter_combo.setFixedHeight(34)
         self._filter_combo.setMinimumWidth(160)
         self._filter_combo.setStyleSheet(combo_style)
+        # Default to "This Month" (recent) instead of "All Time", mirroring
+        # Billing/Orders defaulting to a recent window instead of full history.
+        self._filter_combo.setCurrentIndex(3)
         self._filter_combo.currentIndexChanged.connect(self._on_filter_changed)
         filter_row.addWidget(self._filter_combo)
 
@@ -359,7 +362,7 @@ class ExpensesPage(QWidget):
             self._search_input.blockSignals(False)
         if hasattr(self, "_filter_combo"):
             self._filter_combo.blockSignals(True)
-            self._filter_combo.setCurrentIndex(0)
+            self._filter_combo.setCurrentIndex(3)  # "This Month" - matches the default
             self._filter_combo.blockSignals(False)
         if hasattr(self, "_month_combo"):
             self._month_combo.blockSignals(True)

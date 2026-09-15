@@ -896,11 +896,12 @@ CREATE OR REPLACE PROCEDURE sp_add_payment_record(
 )
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_total  NUMERIC;
-    v_paid   NUMERIC;
-    v_status invoice_status;
+    v_total       NUMERIC;
+    v_paid        NUMERIC;
+    v_status      invoice_status;
+    v_booking_id  INT;
 BEGIN
-    SELECT inv_total_amount, inv_amount_paid INTO v_total, v_paid
+    SELECT inv_total_amount, inv_amount_paid, inv_booking_id INTO v_total, v_paid, v_booking_id
     FROM invoices WHERE inv_id = p_invoice_id FOR UPDATE;
 
     IF NOT FOUND THEN
@@ -926,6 +927,10 @@ BEGIN
     UPDATE invoices
     SET inv_amount_paid = p_new_paid, inv_status = v_status, inv_updated_at = NOW()
     WHERE inv_id = p_invoice_id;
+
+    UPDATE bookings
+    SET bk_amount_paid = p_new_paid, bk_updated_at = NOW()
+    WHERE bk_id = v_booking_id;
 
     p_new_status := v_status::TEXT;
 END;

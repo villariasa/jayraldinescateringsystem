@@ -645,10 +645,10 @@ class BillingPage(QWidget):
         self._rendering = False
         self._summary = {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
         # Default fetch scope: 1 month back / 2 months ahead of today (windowed),
-        # no customer filter, no explicit paid-status (unpaid-prioritized sort).
+        # no customer filter, default paid-status view = Unpaid Invoices only.
         self._filter_date_start, self._filter_date_end = repo.get_default_billing_window()
         self._filter_customer = None
-        self._filter_paid_status = None
+        self._filter_paid_status = "unpaid"
         self._build_ui()
         app_events().payment_recorded.connect(self._mark_dirty_and_reload)
         app_events().booking_updated.connect(self._mark_dirty_and_reload)
@@ -698,8 +698,17 @@ class BillingPage(QWidget):
         if (cached is not None and not getattr(self, "_has_loaded_once", False)
                 and not self._filters_active()):
             self._has_loaded_once = True
-            self._cached_remainder = list(cached[self._page_size:])
+            # KPI totals always reflect ALL invoices, regardless of which
+            # subset the default filter displays below.
             self._summary = self._compute_summary_from_rows(cached)
+            # Default view (paid_status == "unpaid") shows only unpaid/partial
+            # invoices - the login-time cache is the FULL unfiltered list
+            # (get_all_invoices(), sorted by created_at), so it must be
+            # filtered here the same way get_invoices_page()'s WHERE clause
+            # would, or the cached fast-path would show paid invoices too.
+            if self._filter_paid_status == "unpaid":
+                cached = [i for i in cached if i.get("status") in ("Unpaid", "Partial")]
+            self._cached_remainder = list(cached[self._page_size:])
             page = list(cached[:self._page_size])
             if len(cached) <= self._page_size:
                 self._has_more = False
@@ -724,7 +733,7 @@ class BillingPage(QWidget):
         was captured under the default scope only."""
         default_start, default_end = repo.get_default_billing_window()
         return (self._filter_customer is not None
-                or self._filter_paid_status is not None
+                or self._filter_paid_status != "unpaid"
                 or self._filter_date_start != default_start
                 or self._filter_date_end != default_end)
 
@@ -862,10 +871,10 @@ class BillingPage(QWidget):
         dp_lay.setContentsMargins(20, 16, 20, 16)
         dp_lay.setSpacing(24)
 
-        # Total Payments / DP Received
+        # DP (Down Payments Received)
         dp1 = QVBoxLayout()
         dp1.setSpacing(4)
-        dp1_lbl = QLabel("TOTAL PAYMENTS RECEIVED")
+        dp1_lbl = QLabel("DP")
         dp1_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp1_val = QLabel("₱ 0.00")
         self._dp1_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #22C55E;")
@@ -873,10 +882,10 @@ class BillingPage(QWidget):
         dp1.addWidget(self._dp1_val)
         dp_lay.addLayout(dp1)
 
-        # Pending Balance
+        # Unpaid Balance
         dp2 = QVBoxLayout()
         dp2.setSpacing(4)
-        dp2_lbl = QLabel("PENDING BALANCE / UNPAID")
+        dp2_lbl = QLabel("UNPAID BALANCE")
         dp2_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp2_val = QLabel("₱ 0.00")
         self._dp2_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #F59E0B;")
@@ -884,10 +893,21 @@ class BillingPage(QWidget):
         dp2.addWidget(self._dp2_val)
         dp_lay.addLayout(dp2)
 
-        # Active Billing Events
+        # Total (DP + Unpaid)
+        dp4 = QVBoxLayout()
+        dp4.setSpacing(4)
+        dp4_lbl = QLabel("TOTAL (DP + UNPAID)")
+        dp4_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
+        self._dp4_val = QLabel("₱ 0.00")
+        self._dp4_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #A78BFA;")
+        dp4.addWidget(dp4_lbl)
+        dp4.addWidget(self._dp4_val)
+        dp_lay.addLayout(dp4)
+
+        # Active Events
         dp3 = QVBoxLayout()
         dp3.setSpacing(4)
-        dp3_lbl = QLabel("ACTIVE / UPCOMING EVENTS")
+        dp3_lbl = QLabel("ACTIVE EVENTS")
         dp3_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp3_val = QLabel("0 Events")
         self._dp3_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #38BDF8;")
@@ -932,9 +952,10 @@ class BillingPage(QWidget):
         self._paid_filter = QComboBox()
         self._paid_filter.setFixedHeight(34)
         self._paid_filter.setMinimumWidth(170)
-        # data=None -> default windowed, unpaid-prioritized sort (NOT "Show All")
-        self._paid_filter.addItem("Recent (Default)", None)
-        self._paid_filter.addItem("Unpaid Invoices", "unpaid")
+        # Default view: unpaid/partial invoices only, so unpaid balances are
+        # immediately visible without switching filters.
+        self._paid_filter.addItem("Unpaid Invoices (Default)", "unpaid")
+        self._paid_filter.addItem("Recent (Windowed, All)", None)
         self._paid_filter.addItem("Show All Paid", "paid")
         self._paid_filter.addItem("Show All (Full History)", "all")
         self._paid_filter.currentIndexChanged.connect(self._on_filter_changed)
@@ -1043,6 +1064,8 @@ class BillingPage(QWidget):
                 self._dp1_val.setText(f"₱ {total_rcv:,.2f}")
             if hasattr(self, "_dp2_val"):
                 self._dp2_val.setText(f"₱ {total_pending:,.2f}")
+            if hasattr(self, "_dp4_val"):
+                self._dp4_val.setText(f"₱ {(total_rcv + total_pending):,.2f}")
             if hasattr(self, "_dp3_val"):
                 self._dp3_val.setText(f"{events_cnt} Event{'s' if events_cnt != 1 else ''}")
         except Exception:
@@ -1123,9 +1146,10 @@ class BillingPage(QWidget):
                 self._populate_ledger()
             self._loading_more = False
             self._rendering = False
-            # Full render pipeline complete - safe to hide the loader now and
-            # let a coalesced reload (if any was requested mid-render) run.
-            if hasattr(self, "_loader"):
+            # Only hide the loader once there's truly nothing left to load in
+            # the background - otherwise the overlay disappears after page 0
+            # while auto-continue is still silently fetching later pages.
+            if hasattr(self, "_loader") and not self._has_more:
                 self._loader.hide_overlay()
             self._reload_finished()
             # Keep quietly loading the next page in the background instead of

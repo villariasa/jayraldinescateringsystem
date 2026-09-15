@@ -150,6 +150,33 @@ def bump_db_version() -> int:
     global _db_version
     _db_version = int(time.time() * 1000)
     logger.debug(f"[SyncServer] Database revision bumped to {_db_version}")
+
+    # The server machine's OWN UI otherwise has no way to know a remote
+    # client just wrote to its database - client_sync.py's version watcher
+    # already refreshes CLIENT screens when the server's version changes,
+    # but nothing told the SERVER's own screen to refresh when a client's
+    # write lands here. This runs on the sync server's background thread,
+    # so the signal emit is marshaled onto the main/GUI thread via
+    # QTimer.singleShot(0, ...), same as client_sync.py's watcher does.
+    try:
+        from PySide6.QtCore import QTimer
+
+        def _emit_ui_events():
+            try:
+                from utils.signals import app_events
+                ev = app_events()
+                ev.data_changed.emit()
+                ev.booking_updated.emit()
+                ev.payment_recorded.emit()
+                ev.customer_saved.emit()
+                ev.menu_saved.emit()
+            except Exception as ue:
+                logger.debug(f"[SyncServer] UI signal emit note: {ue}")
+
+        QTimer.singleShot(0, _emit_ui_events)
+    except Exception as exc:
+        logger.debug(f"[SyncServer] Could not schedule UI refresh signal: {exc}")
+
     return _db_version
 
 

@@ -2179,7 +2179,7 @@ def get_additional_charges(booking_id: int) -> list[dict]:
 def _recalc_booking_totals(booking_id: int) -> None:
     """Recompute bk_total_amount / invoice totals as base + additional charges,
     then re-derive Paid/Partial/Unpaid from the single source-of-truth helper."""
-    row = db.fetchone("SELECT bk_base_total, bk_total_amount, bk_amount_paid FROM bookings WHERE bk_id = %s", (booking_id,))
+    row = db.fetchone("SELECT bk_base_total, bk_total_amount FROM bookings WHERE bk_id = %s", (booking_id,))
     if not row:
         return
     base = row.get("bk_base_total")
@@ -2187,18 +2187,24 @@ def _recalc_booking_totals(booking_id: int) -> None:
     charges_row = db.fetchone("SELECT COALESCE(SUM(ac_amount), 0.0) AS s FROM booking_additional_charges WHERE ac_booking_id = %s", (booking_id,))
     charges_sum = float(charges_row["s"]) if charges_row else 0.0
     new_total = base + charges_sum
-    paid = float(row.get("bk_amount_paid") or 0.0)
 
     db.execute("UPDATE bookings SET bk_total_amount = %s WHERE bk_id = %s", (new_total, booking_id))
 
-    inv_row = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = %s", (booking_id,))
+    # Read the paid amount from invoices.inv_amount_paid - the authoritative
+    # column actually shown/summed on the Billing page - instead of
+    # bookings.bk_amount_paid, which some payment paths can leave stale.
+    # Using the stale bookings copy here silently corrupted inv_balance/inv_status
+    # whenever an additional charge was added after such a payment.
+    inv_row = db.fetchone("SELECT inv_id, inv_amount_paid FROM invoices WHERE inv_booking_id = %s", (booking_id,))
     if inv_row:
+        paid = float(inv_row.get("inv_amount_paid") or 0.0)
         new_status = db.compute_invoice_status(new_total, paid)
         new_balance = max(0.0, new_total - paid)
         db.execute(
             "UPDATE invoices SET inv_total_amount = %s, inv_balance = %s, inv_status = %s WHERE inv_id = %s",
             (new_total, new_balance, new_status, inv_row["inv_id"]),
         )
+        db.execute("UPDATE bookings SET bk_amount_paid = %s WHERE bk_id = %s", (paid, booking_id))
 
 
 def add_additional_charge(booking_id: int, description: str, amount: float, added_by: str = "") -> list[dict]:
@@ -3084,7 +3090,13 @@ def get_profit_summary() -> list[dict]:
 # CUSTOMER LOYALTY & FOLLOW-UPS
 # ---------------------------------------------------------------------------
 
-_CUSTOMER_LOYALTY_ROW_SQL = """
+_CUSTOMER_ACTIVITY_SUBQ = (
+    "(SELECT MAX(bk_event_date) FROM bookings "
+    "WHERE (bk_customer_id = c.cus_id OR LOWER(bk_customer_name) = LOWER(c.cus_name)) "
+    "AND bk_status != 'CANCELLED')"
+)
+
+_CUSTOMER_LOYALTY_ROW_SQL = f"""
         SELECT c.cus_id              AS id,
                c.cus_name           AS name,
                c.cus_contact        AS contact,
@@ -3093,7 +3105,8 @@ _CUSTOMER_LOYALTY_ROW_SQL = """
                (SELECT COUNT(*) FROM bookings WHERE (bk_customer_id = c.cus_id OR LOWER(bk_customer_name) = LOWER(c.cus_name)) AND bk_status != 'CANCELLED') AS total_events,
                (SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE (bk_customer_id = c.cus_id OR LOWER(bk_customer_name) = LOWER(c.cus_name)) AND bk_status != 'CANCELLED') AS total_spent,
                c.cus_status::TEXT   AS status,
-               c.cus_loyalty_tier::TEXT AS loyalty_tier
+               c.cus_loyalty_tier::TEXT AS loyalty_tier,
+               {_CUSTOMER_ACTIVITY_SUBQ} AS last_event_date
         FROM customers c
 """
 
@@ -3112,6 +3125,7 @@ def _rows_to_customer_loyalty_dicts(rows) -> list[dict]:
             "total_spent":  float(r["total_spent"] or 0.0),
             "status":       r["status"],
             "loyalty_tier": r["loyalty_tier"] or ("Gold" if int(r["total_events"] or 0) >= 5 or float(r["total_spent"] or 0.0) >= 100000 else ("Silver" if int(r["total_events"] or 0) >= 3 or float(r["total_spent"] or 0.0) >= 50000 else "Bronze")),
+            "last_event_date": r["last_event_date"],
         }
         for r in rows
     ]
@@ -3122,13 +3136,24 @@ def get_all_customers_with_loyalty() -> list[dict]:
     return _rows_to_customer_loyalty_dicts(rows)
 
 
-def get_customers_page(offset: int = 0, limit: int = 50) -> list[dict]:
+def get_customers_page(offset: int = 0, limit: int = 50, active_only: bool = False) -> list[dict]:
     """Fetch one page of customers (with loyalty stats), name-ordered.
     Used for incremental/lazy loading so the UI never fetches or renders rows
-    nobody is looking at."""
+    nobody is looking at.
+
+    active_only: when True, restricts to customers with at least one
+    (non-cancelled) booking dated within the last 6 months - the default
+    "Active Customers" view. Pass False for "Show All"."""
+    where = ""
+    params: list = []
+    if active_only:
+        cutoff = (date.today() - timedelta(days=182)).isoformat()
+        where = f" WHERE {_CUSTOMER_ACTIVITY_SUBQ} >= %s"
+        params.append(cutoff)
+    params.extend([limit, offset])
     rows = db.fetchall(
-        _CUSTOMER_LOYALTY_ROW_SQL + " ORDER BY c.cus_name LIMIT %s OFFSET %s",
-        (limit, offset),
+        _CUSTOMER_LOYALTY_ROW_SQL + where + " ORDER BY c.cus_name LIMIT %s OFFSET %s",
+        tuple(params),
     )
     return _rows_to_customer_loyalty_dicts(rows)
 
