@@ -20,9 +20,20 @@ import utils.menu_store as menu_store
 import utils.repository as repo
 from utils.data_loader import run_async
 
-_CATEGORIES = ["Main Course", "Noodles", "Soup", "Vegetables", "Dessert", "Drinks", "Bread", "Other"]
 _PACKAGES   = ["Budget", "Standard", "Premium", "Custom"]
 _STATUSES   = ["Available", "Unavailable", "Out of Stock", "Seasonal"]
+
+
+def _get_categories() -> list[str]:
+    """Menu item categories, editable in Settings > Menu Categories instead
+    of being a fixed hardcoded list - user can now add/rename/delete them."""
+    try:
+        cats = repo.get_all_menu_categories()
+        if cats:
+            return cats
+    except Exception:
+        pass
+    return ["Main Course", "Noodles", "Soup", "Vegetables", "Dessert", "Drinks", "Bread", "Other"]
 
 
 def save_uploaded_image(file_path: str, subfolder: str = "menu") -> str:
@@ -128,7 +139,7 @@ class MenuItemDialog(QDialog):
             self.desc_field.setText(self._item_data.get("description", ""))
 
         self.cat_field = QComboBox()
-        self.cat_field.addItems(_CATEGORIES)
+        self.cat_field.addItems(_get_categories())
         if self._edit_mode:
             idx = self.cat_field.findText(self._item_data.get("category", ""))
             if idx >= 0:
@@ -326,7 +337,7 @@ class AddMenuItemDialog(QDialog):
         self.item_field.setPlaceholderText("e.g. Lechon de Leche")
 
         self.cat_field = QComboBox()
-        self.cat_field.addItems(_CATEGORIES)
+        self.cat_field.addItems(_get_categories())
 
         self.pkg_field = QComboBox()
         self.pkg_field.addItems(_PACKAGES)
@@ -962,7 +973,7 @@ class AddMultipleMenuItemsDialog(QDialog):
         self.table.setCellWidget(r, 0, name_edit)
 
         cat_combo = QComboBox()
-        cat_combo.addItems(_CATEGORIES)
+        cat_combo.addItems(_get_categories())
         cat_combo.setFixedHeight(34)
         self.table.setCellWidget(r, 1, cat_combo)
 
@@ -1234,11 +1245,17 @@ class MenuPage(QWidget):
         try:
             from utils.signals import app_events
             app_events().data_changed.connect(self._mark_dirty)
+            app_events().menu_saved.connect(self._mark_dirty_and_reload)
         except Exception:
             pass
 
     def _mark_dirty(self):
         self._dirty = True
+
+    def _mark_dirty_and_reload(self):
+        self._dirty = True
+        if self.isVisible():
+            self._do_reload()
 
     def showEvent(self, event):
         super().showEvent(event)

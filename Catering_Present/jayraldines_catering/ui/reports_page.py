@@ -1493,7 +1493,36 @@ class ReportsPage(QWidget):
         total_revenue = sum(_parse_amount(b.get("total", 0)) for b in target_b)
         total_expenses = sum(float(e.get("amount", 0) or 0) for e in filtered_e)
         profit = total_revenue - total_expenses
-        total_unpaid = sum(float(b.get("balance", 0) or 0) for b in target_b)
+
+        # "Unpaid"/Outstanding balance must match Billing's figure exactly -
+        # both now go through repo.get_invoices_summary() (the invoices
+        # table, excluding CANCELLED, correct per-invoice balance logic).
+        # This used to be re-derived here from the bookings table with
+        # different status-inclusion rules (only CONFIRMED/COMPLETED, or
+        # falling back to including CANCELLED when there were none), which
+        # is why it never agreed with Billing's number.
+        if p in ("All Time", "All", ""):
+            unpaid_start = unpaid_end = None
+        elif p == "Today":
+            unpaid_start = unpaid_end = today.isoformat()
+        elif p == "This Week":
+            start_w2 = today - timedelta(days=today.weekday())
+            unpaid_start, unpaid_end = start_w2.isoformat(), (start_w2 + timedelta(days=6)).isoformat()
+        elif p == "This Month":
+            unpaid_start = today.replace(day=1).isoformat()
+            unpaid_end = today.isoformat()
+        elif p == "This Year":
+            unpaid_start = today.replace(month=1, day=1).isoformat()
+            unpaid_end = today.isoformat()
+        elif p == "Last Year":
+            unpaid_start = date(today.year - 1, 1, 1).isoformat()
+            unpaid_end = date(today.year - 1, 12, 31).isoformat()
+        else:
+            unpaid_start = unpaid_end = None
+        try:
+            total_unpaid = repo.get_invoices_summary(unpaid_start, unpaid_end).get("total_pending", 0.0)
+        except Exception:
+            total_unpaid = sum(float(b.get("balance", 0) or 0) for b in target_b)
 
         # Calculate today, week, and month bookings from all bookings
         start_w = today - timedelta(days=today.weekday())

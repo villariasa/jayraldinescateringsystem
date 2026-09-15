@@ -271,7 +271,10 @@ class SettingsPage(QWidget):
             ev.data_changed.connect(self._mark_dirty_and_reload)
             ev.customer_saved.connect(self._mark_dirty_and_reload)
             ev.booking_saved.connect(self._mark_dirty_and_reload)
-            ev.payment_saved.connect(self._mark_dirty_and_reload)
+            # NOTE: was "payment_saved" - not a real signal (see utils/signals.py),
+            # so this connection silently never fired; payments recorded on a
+            # remote client never refreshed Settings' audit log until now.
+            ev.payment_recorded.connect(self._mark_dirty_and_reload)
         except Exception:
             pass
 
@@ -431,6 +434,9 @@ class SettingsPage(QWidget):
         self._card_occasions = self._build_occasions_card()
         lay.addWidget(self._card_occasions)
 
+        self._card_menu_categories = self._build_menu_categories_card()
+        lay.addWidget(self._card_menu_categories)
+
         self._card_policy = self._build_policy_card()
         lay.addWidget(self._card_policy)
 
@@ -466,7 +472,7 @@ class SettingsPage(QWidget):
     _SLOT_ORDER = [
         "view_only_banner", "current_user", "user_mgmt", "server_db",
         "session_security", "business", "sales_targets", "import",
-        "occasions", "policy", "smtp", "theme", "backup", "tablet_sync",
+        "occasions", "menu_categories", "policy", "smtp", "theme", "backup", "tablet_sync",
         "audit", "daily_report", "diagnostics", "purge",
     ]
     _ALWAYS_PRESENT_SLOTS = {
@@ -550,6 +556,7 @@ class SettingsPage(QWidget):
             "sales_targets":    (True, self._build_sales_targets_card),
             "import":           (True, self._build_import_card),
             "occasions":        (True, self._build_occasions_card),
+            "menu_categories":  (True, self._build_menu_categories_card),
             "policy":           (True, self._build_policy_card),
             "smtp":             (True, self._build_smtp_card),
             "backup":           (True, self._build_backup_card),
@@ -2046,6 +2053,130 @@ class SettingsPage(QWidget):
                 repo.delete_occasion(name)
                 self._load_occasions()
                 app_events().data_changed.emit()
+            except Exception as e:
+                QMessageBox.warning(self, "Error", str(e))
+
+    def _build_menu_categories_card(self):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(16)
+
+        can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
+        can_create = SessionManager.is_admin() or SessionManager.has_permission("settings", "create")
+        can_delete = SessionManager.is_admin() or SessionManager.has_permission("settings", "delete")
+
+        head = QHBoxLayout()
+        sec_title = QLabel("Menu Categories")
+        sec_title.setObjectName("h3")
+        head.addWidget(sec_title)
+        head.addStretch()
+        if can_create:
+            add_btn = QPushButton("  Add")
+            add_btn.setObjectName("primaryButton")
+            add_btn.setFixedHeight(30)
+            add_btn.setIcon(btn_icon_primary("plus"))
+            add_btn.clicked.connect(self._add_menu_category)
+            head.addWidget(add_btn)
+        lay.addLayout(head)
+
+        hint = QLabel("Categories available when adding/editing a menu item (e.g. Main Course, Dessert).")
+        hint.setObjectName("subtitle")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        self._mc_list = QListWidget()
+        self._mc_list.setFixedHeight(200)
+        self._mc_list.setFocusPolicy(Qt.NoFocus)
+        lay.addWidget(self._mc_list)
+        self._load_menu_categories()
+
+        if can_edit or can_delete:
+            btn_row = QHBoxLayout()
+            btn_row.addStretch()
+            if can_edit:
+                edit_btn = QPushButton("  Rename")
+                edit_btn.setObjectName("secondaryButton")
+                edit_btn.setFixedHeight(30)
+                edit_btn.clicked.connect(self._edit_menu_category)
+                btn_row.addWidget(edit_btn)
+            if can_delete:
+                del_btn = QPushButton("  Delete")
+                del_btn.setObjectName("secondaryButton")
+                del_btn.setFixedHeight(30)
+                del_btn.clicked.connect(self._delete_menu_category)
+                btn_row.addWidget(del_btn)
+            lay.addLayout(btn_row)
+
+        return card
+
+    def _load_menu_categories(self):
+        from utils.data_loader import run_async
+        run_async(self, repo.get_all_menu_categories, self._on_menu_categories_loaded)
+
+    def _on_menu_categories_loaded(self, categories):
+        try:
+            from shiboken6 import isValid
+            if not isValid(self):
+                return
+        except Exception:
+            pass
+        if hasattr(self, "_mc_list"):
+            self._mc_list.clear()
+            for name in (categories or []):
+                self._mc_list.addItem(QListWidgetItem(name))
+
+    def _add_menu_category(self):
+        if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "create"):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot add menu categories.")
+            return
+        text, ok = QInputDialog.getText(self, "Add Menu Category", "Category name:")
+        if ok and text.strip():
+            try:
+                repo.add_menu_category(text.strip())
+                self._load_menu_categories()
+                app_events().menu_saved.emit()
+            except Exception as e:
+                QMessageBox.warning(self, "Error", str(e))
+
+    def _edit_menu_category(self):
+        if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot edit menu categories.")
+            return
+        item = self._mc_list.currentItem()
+        if not item:
+            QMessageBox.information(self, "Select", "Please select a category to rename.")
+            return
+        old_name = item.text()
+        text, ok = QInputDialog.getText(self, "Rename Menu Category", "New name:", text=old_name)
+        if ok and text.strip() and text.strip() != old_name:
+            try:
+                repo.update_menu_category(old_name, text.strip())
+                self._load_menu_categories()
+                app_events().menu_saved.emit()
+            except Exception as e:
+                QMessageBox.warning(self, "Error", str(e))
+
+    def _delete_menu_category(self):
+        if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "delete"):
+            QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot delete menu categories.")
+            return
+        item = self._mc_list.currentItem()
+        if not item:
+            QMessageBox.information(self, "Select", "Please select a category to delete.")
+            return
+        name = item.text()
+        reply = QMessageBox.question(
+            self, "Delete Menu Category",
+            f"Delete '{name}'? Existing menu items using this category will keep it as free text until re-edited.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            try:
+                repo.delete_menu_category(name)
+                self._load_menu_categories()
+                app_events().menu_saved.emit()
             except Exception as e:
                 QMessageBox.warning(self, "Error", str(e))
 

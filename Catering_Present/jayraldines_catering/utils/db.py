@@ -1177,6 +1177,19 @@ def callproc_cursor(proc: str, cursor_name: str = None, in_params: tuple = ()) -
 
 def callproc_out(proc: str, in_params: tuple = (), out_names: list = None) -> Optional[Dict[str, Any]]:
     """Emulate stored procedure execution with OUT parameters for SQLite, or run PostgreSQL procedure."""
+    # ── Client Workstation Write-Through Proxy ──
+    # Mirrors execute()'s proxy, which only ever covered raw SQL - this was
+    # missing entirely for stored-procedure calls (sp_create_booking,
+    # sp_pay_invoice, etc.), so those writes never reached the server from a
+    # client workstation. Best-effort: local emulation still runs regardless
+    # so the UI stays responsive even if the server is unreachable.
+    try:
+        from utils.client_sync import is_client_mode, proxy_callproc, get_server_url
+        if is_client_mode():
+            proxy_callproc(proc, in_params=in_params, out_names=out_names, void=False, server_url=get_server_url())
+    except Exception as _proxy_err:
+        log.debug(f"[db.callproc_out] Client proxy error (non-fatal): {_proxy_err}")
+
     if not _ensure_connected():
         return None
 
@@ -1221,6 +1234,14 @@ def callproc_out(proc: str, in_params: tuple = (), out_names: list = None) -> Op
 
 def callproc_void(proc: str, in_params: tuple = ()) -> bool:
     """Emulate void stored procedure execution for SQLite, or run PostgreSQL procedure."""
+    # ── Client Workstation Write-Through Proxy ── (see callproc_out for why)
+    try:
+        from utils.client_sync import is_client_mode, proxy_callproc, get_server_url
+        if is_client_mode():
+            proxy_callproc(proc, in_params=in_params, void=True, server_url=get_server_url())
+    except Exception as _proxy_err:
+        log.debug(f"[db.callproc_void] Client proxy error (non-fatal): {_proxy_err}")
+
     if not _ensure_connected():
         return False
 

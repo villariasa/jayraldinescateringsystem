@@ -59,7 +59,12 @@ function _detectDeviceType() {
     category,
     osName,
     typeTag,
-    hostname: `📱 ${osName} ${category}`,
+    // NOTE: must stay pure ASCII/Latin-1 - this value is sent verbatim as the
+    // raw "X-Device-Host" HTTP header (see performLanSync/checkLanStatus).
+    // An emoji or any other non-Latin1 character here makes fetch() throw
+    // "String contains non ISO-8859-1 code point" before any request is even
+    // sent, which looks like a connection/CORS failure but is actually this.
+    hostname: `${osName} ${category}`,
     os_info: `${osName} ${category} (${typeTag})`
   };
 }

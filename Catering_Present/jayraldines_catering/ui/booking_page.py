@@ -2310,7 +2310,11 @@ class BookingPage(QWidget):
                        confirm_label="Delete", danger=True):
             return
         if b.get("db_id"):
-            repo.delete_booking(b["db_id"])
+            ok = repo.delete_booking(b["db_id"])
+            if not ok:
+                QMessageBox.warning(self, "Delete Failed",
+                    "The booking could not be deleted. Please check your connection to the server and try again.")
+                return
             repo.write_audit_log(get_actor(), "DELETE", "bookings", b["db_id"], {"customer": b.get("name"), "amount": b.get("total")}, None)
         self._bookings = [x for x in self._bookings if x["id"] != ref]
         self._populate_table()

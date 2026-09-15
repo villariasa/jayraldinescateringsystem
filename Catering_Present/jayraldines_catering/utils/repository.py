@@ -715,6 +715,78 @@ def delete_occasion(name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# MENU CATEGORIES
+# ---------------------------------------------------------------------------
+
+_DEFAULT_MENU_CATEGORIES = ["Main Course", "Noodles", "Soup", "Vegetables", "Dessert", "Drinks", "Bread", "Other"]
+
+
+def get_all_menu_categories() -> list[str]:
+    try:
+        rows = db.fetchall(
+            "SELECT mc_name AS name FROM menu_categories WHERE mc_is_active = 1 OR mc_is_active IS NULL ORDER BY mc_id"
+        )
+        if rows:
+            res = [str(r["name"]).strip() for r in rows if r.get("name") and str(r["name"]).strip()]
+            if res:
+                return res
+    except Exception as exc:
+        print(f"[repository] get_all_menu_categories error: {exc}")
+
+    try:
+        for d in _DEFAULT_MENU_CATEGORIES:
+            db.execute("INSERT INTO menu_categories (mc_name, mc_is_active) VALUES (%s, 1) ON CONFLICT (mc_name) DO NOTHING", (d,))
+    except Exception:
+        pass
+    return list(_DEFAULT_MENU_CATEGORIES)
+
+
+def add_menu_category(name: str) -> None:
+    if not name or not name.strip():
+        return
+    clean_name = name.strip()
+    db.execute(
+        "INSERT INTO menu_categories (mc_name, mc_is_active) VALUES (%s, 1) ON CONFLICT (mc_name) DO UPDATE SET mc_is_active = 1",
+        (clean_name,),
+    )
+    write_audit_log(action="CREATE", table_name="menu_categories", record_id=0, new_value={"name": clean_name})
+
+
+def update_menu_category(old_name: str, new_name: str) -> None:
+    if not new_name or not new_name.strip():
+        return
+    db.execute(
+        "UPDATE menu_categories SET mc_name = %s WHERE mc_name = %s",
+        (new_name.strip(), old_name.strip()),
+    )
+    # Keep existing menu items pointing at the renamed category instead of
+    # silently orphaning them under the old (now-gone) name.
+    db.execute(
+        "UPDATE menu_items SET mi_category = %s WHERE mi_category = %s",
+        (new_name.strip(), old_name.strip()),
+    )
+    write_audit_log(
+        action="UPDATE",
+        table_name="menu_categories",
+        record_id=0,
+        old_value={"name": old_name.strip()},
+        new_value={"name": new_name.strip()}
+    )
+
+
+def delete_menu_category(name: str) -> None:
+    if not name:
+        return
+    db.execute("DELETE FROM menu_categories WHERE mc_name = %s", (name.strip(),))
+    write_audit_log(
+        action="DELETE",
+        table_name="menu_categories",
+        record_id=0,
+        old_value={"name": name.strip()}
+    )
+
+
+# ---------------------------------------------------------------------------
 # PACKAGES
 # ---------------------------------------------------------------------------
 
@@ -1650,7 +1722,7 @@ def check_date_capacity(event_date, exclude_id: int = 0) -> dict:
     }
 
 
-def delete_booking(db_id: int) -> None:
+def delete_booking(db_id: int) -> bool:
     c_name = ""
     amt = None
     try:
@@ -1660,13 +1732,16 @@ def delete_booking(db_id: int) -> None:
             amt = row.get("bk_total_amount")
     except Exception:
         pass
-    db.callproc_void("sp_delete_booking", in_params=(db_id,))
+    ok = db.callproc_void("sp_delete_booking", in_params=(db_id,))
+    if not ok:
+        return False
     write_audit_log(
         action="DELETE",
         table_name="bookings",
         record_id=db_id,
         old_value={"customer": c_name or f"Order #{db_id}", "amount": amt}
     )
+    return True
 
 
 def complete_booking(db_id: int) -> bool:
@@ -1774,6 +1849,27 @@ def get_invoices_page(offset: int = 0, limit: int = 50, date_start: str = None, 
     return _rows_to_invoice_dicts(rows)
 
 
+def search_invoices(query: str, limit: int = 100) -> list[dict]:
+    """Search invoices by customer name/invoice ref, ignoring the paid-status
+    and date-window filters entirely. Used by Billing's search box - without
+    this, typing a customer's name only ever searched WITHIN whatever subset
+    the current filter had already loaded (e.g. "Unpaid Invoices" default),
+    so an already-paid invoice for that customer would silently not be found
+    even though it exists, looking like the record had vanished."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    rows = db.fetchall(
+        _INVOICE_ROW_SQL + """
+        AND (i.inv_customer_name ILIKE %s OR i.inv_invoice_ref ILIKE %s)
+        ORDER BY (CASE WHEN CAST(i.inv_status AS TEXT) IN ('Unpaid', 'Partial') THEN 0 ELSE 1 END), i.inv_event_date DESC
+        LIMIT %s
+        """,
+        (f"%{q}%", f"%{q}%", limit),
+    )
+    return _rows_to_invoice_dicts(rows)
+
+
 def get_default_billing_window() -> tuple[str, str]:
     """1 month back -> 2 months ahead of today, as ISO date strings. This is
     the default scope for the Billing list so it doesn't load the entire
@@ -1792,10 +1888,23 @@ def get_default_billing_window() -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
-def get_invoices_summary() -> dict:
+def get_invoices_summary(date_start: str = None, date_end: str = None) -> dict:
     """Aggregate totals across ALL non-cancelled invoices, independent of how many
-    pages have been loaded into the UI - keeps summary cards accurate under pagination."""
-    row = db.fetchone("""
+    pages have been loaded into the UI - keeps summary cards accurate under pagination.
+
+    date_start/date_end: optional ISO date bounds on the invoice's event_date
+    (both must be given together to apply; None/None = all-time, unfiltered -
+    this is what Billing's KPI header always uses). Pass a period's date range
+    to scope this the same way Reports' period selector does, so the two
+    pages' "Unpaid"/"Received" figures use ONE consistent calculation instead
+    of Reports re-deriving its own separate (and previously mismatched)
+    aggregate from the bookings table."""
+    where = "WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')"
+    params: list = []
+    if date_start and date_end:
+        where += " AND i.inv_event_date BETWEEN %s AND %s"
+        params.extend([date_start, date_end])
+    row = db.fetchone(f"""
         SELECT
             COALESCE(SUM(i.inv_amount_paid), 0.0) AS total_received,
             COALESCE(SUM(
@@ -1808,8 +1917,8 @@ def get_invoices_summary() -> dict:
             ), 0.0) AS total_pending,
             COUNT(*) AS events_count
         FROM invoices i
-        WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
-    """)
+        {where}
+    """, tuple(params))
     if not row:
         return {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
     return {

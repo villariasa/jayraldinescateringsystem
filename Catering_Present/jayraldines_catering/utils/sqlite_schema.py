@@ -50,6 +50,13 @@ CREATE TABLE IF NOT EXISTS occasions (
     occ_is_active INTEGER DEFAULT 1
 );
 
+-- Menu Categories Master Table
+CREATE TABLE IF NOT EXISTS menu_categories (
+    mc_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mc_name TEXT NOT NULL UNIQUE,
+    mc_is_active INTEGER DEFAULT 1
+);
+
 -- Customers Master Table
 CREATE TABLE IF NOT EXISTS customers (
     cus_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -691,6 +698,13 @@ def init_sqlite_db(conn: sqlite3.Connection):
         occasions = ["Wedding", "Birthday", "Debut", "Corporate Event", "Anniversary", "Christening", "Graduation", "Holiday Party"]
         for occ in occasions:
             cursor.execute("INSERT OR IGNORE INTO occasions (occ_name) VALUES (?)", (occ,))
+
+    # Seed Menu Categories if empty
+    cursor.execute("SELECT COUNT(*) FROM menu_categories")
+    if cursor.fetchone()[0] == 0:
+        menu_cats = ["Main Course", "Noodles", "Soup", "Vegetables", "Dessert", "Drinks", "Bread", "Other"]
+        for cat in menu_cats:
+            cursor.execute("INSERT OR IGNORE INTO menu_categories (mc_name) VALUES (?)", (cat,))
 
     # Seed Address Data if empty
     cursor.execute("SELECT COUNT(*) FROM address_provinces")

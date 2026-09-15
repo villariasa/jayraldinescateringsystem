@@ -108,6 +108,34 @@ def is_client_mode() -> bool:
 
 
 # ─────────────────────────────────────────────────────────────
+# Proxy health tracking - db.execute()/fetchall()/fetchone() silently fall
+# back to the local SQLite cache whenever a proxy call fails (by design, so
+# the UI never hard-blocks on a flaky network), but that meant callers had
+# no way to tell "0 results" apart from "couldn't reach the server, showing
+# stale/incomplete local data". This tracks the outcome of the MOST RECENT
+# proxy call so screens that need to know (e.g. Connected Devices) can warn
+# the user instead of silently showing a misleadingly small local view.
+# ─────────────────────────────────────────────────────────────
+
+_last_proxy_ok: bool = True
+_last_proxy_error: Optional[str] = None
+
+
+def _mark_proxy_result(ok: bool, error: Optional[str] = None) -> None:
+    global _last_proxy_ok, _last_proxy_error
+    _last_proxy_ok = ok
+    _last_proxy_error = error
+
+
+def get_last_proxy_status() -> Tuple[bool, Optional[str]]:
+    """(ok, error_message) for the most recent client-mode proxy write/read.
+    Meaningless when not in client mode (always reports ok=True)."""
+    if not is_client_mode():
+        return True, None
+    return _last_proxy_ok, _last_proxy_error
+
+
+# ─────────────────────────────────────────────────────────────
 # Internal HTTP helpers
 # ─────────────────────────────────────────────────────────────
 
@@ -167,9 +195,47 @@ def proxy_write(sql: str, params: tuple = (), server_url: Optional[str] = None) 
         timeout=3.0
     )
     if result and result.get("ok"):
+        _mark_proxy_result(True)
         return True
     log.warning(f"[ClientSync] Write proxy failed for: {sql[:80]} | result={result}")
+    _mark_proxy_result(False, f"Write failed: {sql[:60]}")
     return False
+
+
+def proxy_callproc(proc: str, in_params: tuple = (), out_names: Optional[list] = None,
+                    void: bool = True, server_url: Optional[str] = None) -> Optional[Dict]:
+    """
+    Run a stored-procedure emulation (sp_create_booking, sp_delete_booking,
+    sp_pay_invoice, etc.) on the SERVER's own DB via /api/db/callproc.
+
+    db.execute()'s write-through proxy only ever covered raw SQL statements -
+    callproc_void()/callproc_out() (used by nearly every booking/payment
+    mutation) had no proxy path at all, so on a client workstation those
+    calls only ever wrote to that machine's own local SQLite cache and never
+    reached the server. This is the missing counterpart to proxy_write().
+
+    Returns {"ok": True} (void) or {"ok": True, "result": {...}} (out) on
+    success, None if the server is unreachable or rejected the call (caller
+    should treat that as non-fatal, same as proxy_write - the local
+    emulation still runs so the UI stays responsive either way).
+    """
+    if server_url is None:
+        server_url = get_server_url()
+    if not server_url:
+        return None
+
+    params_list = [str(p) if p is not None else None for p in (in_params or [])]
+    result = _post_json(
+        f"{server_url}/api/db/callproc",
+        {"proc": proc, "in_params": params_list, "out_names": out_names, "void": void},
+        timeout=5.0
+    )
+    if result and result.get("ok"):
+        _mark_proxy_result(True)
+        return result
+    log.warning(f"[ClientSync] callproc proxy failed for: {proc} | result={result}")
+    _mark_proxy_result(False, f"callproc failed: {proc}")
+    return None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -193,10 +259,13 @@ def proxy_fetchall(sql: str, params: tuple = (), server_url: Optional[str] = Non
         timeout=3.0
     )
     if result is None:
+        _mark_proxy_result(False, "Server unreachable")
         return None
     if "error" in result:
         log.warning(f"[ClientSync] Query error from server: {result['error']} | SQL: {sql[:80]}")
+        _mark_proxy_result(False, f"Query error: {result['error']}")
         return None
+    _mark_proxy_result(True)
     return result.get("rows", [])
 
 
@@ -217,10 +286,13 @@ def proxy_fetchone(sql: str, params: tuple = (), server_url: Optional[str] = Non
         timeout=3.0
     )
     if result is None:
+        _mark_proxy_result(False, "Server unreachable")
         return None
     if "error" in result:
         log.warning(f"[ClientSync] Query error from server: {result['error']} | SQL: {sql[:80]}")
+        _mark_proxy_result(False, f"Query error: {result['error']}")
         return None
+    _mark_proxy_result(True)
     return result.get("row")
 
 

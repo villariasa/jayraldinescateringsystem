@@ -874,7 +874,7 @@ class BillingPage(QWidget):
         # DP (Down Payments Received)
         dp1 = QVBoxLayout()
         dp1.setSpacing(4)
-        dp1_lbl = QLabel("DP")
+        dp1_lbl = QLabel("TOTAL RECEIVED")
         dp1_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp1_val = QLabel("₱ 0.00")
         self._dp1_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #22C55E;")
@@ -896,7 +896,7 @@ class BillingPage(QWidget):
         # Total (DP + Unpaid)
         dp4 = QVBoxLayout()
         dp4.setSpacing(4)
-        dp4_lbl = QLabel("TOTAL (DP + UNPAID)")
+        dp4_lbl = QLabel("TOTAL (RECEIVED + UNPAID)")
         dp4_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
         self._dp4_val = QLabel("₱ 0.00")
         self._dp4_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #A78BFA;")
@@ -922,6 +922,22 @@ class BillingPage(QWidget):
         invoices_tab = QWidget()
         inv_tab_lay = QVBoxLayout(invoices_tab)
         inv_tab_lay.setContentsMargins(0, 12, 0, 0)
+
+        # Dedicated Billing search box - previously this page had no search of
+        # its own and relied entirely on the global topbar search dispatcher
+        # (main_window.py routing into filter_search()), which isn't visible
+        # while sitting on this page's own filter row.
+        self._search = QLineEdit()
+        self._search.setObjectName("searchBox")
+        self._search.setPlaceholderText("Search invoices (customer, invoice #, status)...")
+        self._search.setFixedHeight(38)
+        self._search.setMaximumWidth(320)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(150)
+        self._search_timer.timeout.connect(lambda: self.filter_search(self._search.text()))
+        self._search.textChanged.connect(lambda: self._search_timer.start())
+        inv_tab_lay.addWidget(self._search)
 
         # ── Filter bar: customer + paid-status (server-side DB filters) ───────
         filter_row = QHBoxLayout()
@@ -1432,11 +1448,25 @@ class BillingPage(QWidget):
 
     def _delete_invoice_dict(self, inv: dict):
         if not confirm(self, title="Delete Invoice",
-                       message=f"Are you sure you want to delete invoice '{inv.get('invoice', '')}'? This cannot be undone.",
+                       message=f"Are you sure you want to delete invoice '{inv.get('invoice', '')}'? "
+                                "This also cancels the linked booking (so it no longer shows on Orders/Calendar). "
+                                "This cannot be undone.",
                        confirm_label="Delete", danger=True):
             return
         if inv.get("db_id"):
             repo.delete_invoice(inv["db_id"])
+        # Deleting the invoice only ever removed the `invoices` row - the
+        # linked booking kept whatever status it had (e.g. CONFIRMED), so it
+        # kept showing up on Orders/Calendar (both filter out CANCELLED only)
+        # even though its billing entry was gone. Cancel the booking too, the
+        # same way Orders' own "Decline" action does, so it disappears
+        # everywhere consistently.
+        if inv.get("booking_id"):
+            try:
+                repo.update_booking_status(inv["booking_id"], "CANCELLED", "Invoice deleted from Billing")
+                app_events().booking_updated.emit()
+            except Exception as exc:
+                print(f"[BillingPage] Failed to cancel linked booking after invoice delete: {exc}")
         if inv in self._invoices:
             self._invoices.remove(inv)
         self._populate_table()
@@ -1525,22 +1555,26 @@ class BillingPage(QWidget):
                 pass
 
     def filter_search(self, text):
-        q = text.lower().strip()
+        # Search the FULL invoice set (ignoring the paid-status/date-window
+        # filters) via a server-side query, rather than filtering only
+        # within whatever subset the current filter already loaded. Without
+        # this, e.g. searching a customer's name while "Unpaid Invoices
+        # (Default)" is active would silently miss that customer's already-
+        # paid invoices, looking like the record had disappeared.
+        q = (text or "").strip()
         if not q:
-            self._populate_table()
+            self.reload()
             return
-        orig = self._invoices
-        filtered = [
-            i for i in orig
-            if q in str(i.get("customer") or "").lower()
-            or q in str(i.get("invoice") or "").lower()
-            or q in str(i.get("status") or "").lower()
-            or q in _fmt_date(i.get("event_date") or "").lower()
-        ]
-        saved = self._invoices
-        self._invoices = filtered
+        self._has_more = False
+        self._loading_more = False
+        self._cached_remainder = None
+        if hasattr(self, "_loader"):
+            self._loader.show_overlay("Searching invoices...")
+        run_async(self, repo.search_invoices, self._on_search_results, None, q)
+
+    def _on_search_results(self, results):
+        self._invoices = results or []
         self._populate_table()
-        self._invoices = saved
 
     def export_csv(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export Invoices", "invoices.csv", "CSV Files (*.csv)")

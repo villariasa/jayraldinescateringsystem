@@ -82,6 +82,19 @@ class ConnectedDevicesPanel(QFrame):
 
         lay.addLayout(hdr_row)
 
+        # Shown only when this machine is a client and the last proxy
+        # read to the server failed - otherwise this table would silently
+        # show just this machine's own stale local cache with no indication
+        # that it's not the real, centrally-accurate picture.
+        self._proxy_warning_lbl = QLabel()
+        self._proxy_warning_lbl.setWordWrap(True)
+        self._proxy_warning_lbl.setStyleSheet(
+            "background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.4);"
+            "border-radius: 8px; padding: 8px 12px; color: #FCA5A5; font-size: 12px; font-weight: 600;"
+        )
+        self._proxy_warning_lbl.hide()
+        lay.addWidget(self._proxy_warning_lbl)
+
         # ── KPI Stats Bar ───────────────────────────────────────────────────
         self._kpi_row = QHBoxLayout()
         self._kpi_row.setSpacing(12)
@@ -162,6 +175,23 @@ class ConnectedDevicesPanel(QFrame):
         try:
             stats = get_server_connection_stats()
             devices = get_connected_devices()
+
+            try:
+                from utils.client_sync import is_client_mode, get_last_proxy_status
+                if is_client_mode():
+                    ok, err = get_last_proxy_status()
+                    if not ok:
+                        self._proxy_warning_lbl.setText(
+                            f"⚠ Could not reach the central server — showing this machine's own local "
+                            f"cache only, which may be missing terminals connected elsewhere. ({err or 'unreachable'})"
+                        )
+                        self._proxy_warning_lbl.show()
+                    else:
+                        self._proxy_warning_lbl.hide()
+                else:
+                    self._proxy_warning_lbl.hide()
+            except Exception:
+                self._proxy_warning_lbl.hide()
 
             # Update KPI Cards
             self._card_db.findChild(QLabel, "kpiVal").setText(stats.get("database_name", "PostgreSQL"))

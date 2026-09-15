@@ -300,8 +300,10 @@ class OrderPrintDialog(QDialog):
         cat_font = "12px" if not compact else "11px"
 
         if by_cat:
-            html = '<table style="width:100%; border-collapse:collapse; margin-top:6px; background-color:#FFFBEB; border:2px solid #F59E0B; border-radius:4px;">'
-            html += '<tr style="background-color:#F59E0B; color:#FFFFFF;">'
+            # Border-only, no fill - keeps the dishes table visually set apart
+            # without burning through ink on a solid printed background.
+            html = '<table style="width:100%; border-collapse:collapse; margin-top:6px; border:2px solid #F59E0B; border-radius:4px;">'
+            html += '<tr style="border-bottom:2px solid #F59E0B; color:#F59E0B;">'
             html += f'<th style="padding:7px 12px; text-align:left; font-size:{cat_font}; width:28%;">Course / Category</th>'
             html += f'<th style="padding:7px 12px; text-align:left; font-size:{cat_font}; width:72%;">Selected Food &amp; Menu</th>'
             html += '</tr>'
@@ -309,8 +311,8 @@ class OrderPrintDialog(QDialog):
                 items_str = "<br/>".join([f"● <b>{it}</b>" for it in items])
                 html += f"""
                 <tr style="border-bottom:1px solid #FDE68A;">
-                    <td style="padding:8px 12px; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#78350F;">{cat}</td>
-                    <td style="padding:8px 12px; vertical-align:top; font-size:{item_font}; font-weight:700; color:#7C2D12; line-height:1.6;">{items_str}</td>
+                    <td style="padding:8px 12px; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#0F172A;">{cat}</td>
+                    <td style="padding:8px 12px; vertical-align:top; font-size:{item_font}; font-weight:700; color:#0F172A; line-height:1.6;">{items_str}</td>
                 </tr>
                 """
             html += '</table>'
@@ -394,25 +396,21 @@ class OrderPrintDialog(QDialog):
             </tr>
         </table>
 
-        <!-- Date | Name | Time | Pax summary strip. Background is set on the
-             <tr>/<td> elements, NOT the outer <table> - Qt's rich-text print
-             pipeline does not reliably paint a background-color declared on
-             the <table> tag itself (confirmed: the dishes table below uses a
-             <tr>-level background and prints fine), which was leaving the
-             white value text invisible against an unpainted white page. -->
-        <table style="width:100%; border-collapse:collapse; margin-top:8px; border-radius:4px;">
-            <tr style="background-color:#0F172A;">
-                <td style="padding:7px 10px; text-align:center; background-color:#0F172A; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase;">Date<br/>
-                    <span style="color:#FFFFFF; font-size:{strip_font}; font-weight:800;">{date_str}</span>
+        <!-- Date | Name | Time | Pax summary strip - border only, no fill, so
+             printing doesn't burn through ink on a solid dark background. -->
+        <table style="width:100%; border-collapse:collapse; margin-top:8px; border:1.5px solid #0F172A; border-radius:4px;">
+            <tr>
+                <td style="padding:7px 10px; text-align:center; color:#0F172A; font-size:9px; font-weight:bold; text-transform:uppercase;">Date<br/>
+                    <span style="color:#0F172A; font-size:{strip_font}; font-weight:800;">{date_str}</span>
                 </td>
-                <td style="padding:7px 10px; text-align:center; background-color:#0F172A; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #334155;">Name<br/>
-                    <span style="color:#FFFFFF; font-size:{strip_font}; font-weight:800;">{cust_name}</span>
+                <td style="padding:7px 10px; text-align:center; color:#0F172A; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #0F172A;">Name<br/>
+                    <span style="color:#0F172A; font-size:{strip_font}; font-weight:800;">{cust_name}</span>
                 </td>
-                <td style="padding:7px 10px; text-align:center; background-color:#0F172A; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #334155;">Time<br/>
-                    <span style="color:#FFFFFF; font-size:{strip_font}; font-weight:800;">{time_str}</span>
+                <td style="padding:7px 10px; text-align:center; color:#0F172A; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #0F172A;">Time<br/>
+                    <span style="color:#0F172A; font-size:{strip_font}; font-weight:800;">{time_str}</span>
                 </td>
-                <td style="padding:7px 10px; text-align:center; background-color:#0F172A; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #334155;">Pax<br/>
-                    <span style="color:#FFFFFF; font-size:{strip_font}; font-weight:800;">{pax}</span>
+                <td style="padding:7px 10px; text-align:center; color:#0F172A; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #0F172A;">Pax<br/>
+                    <span style="color:#0F172A; font-size:{strip_font}; font-weight:800;">{pax}</span>
                 </td>
             </tr>
         </table>

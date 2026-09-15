@@ -59,7 +59,17 @@ class InputActivationGuard(QObject):
                 if et == QEvent.FocusIn:
                     obj.setReadOnly(False)
                 elif et == QEvent.FocusOut:
-                    obj.setReadOnly(True)
+                    # A QCompleter's popup opening sends its target line edit
+                    # a synthetic FocusOut with reason()==PopupFocusReason -
+                    # purely a style/cosmetic notification, NOT a real loss of
+                    # keyboard focus (hasFocus() stays True and the widget
+                    # keeps receiving key events). Re-locking on this fake
+                    # blur made every searchable customer field stop
+                    # accepting input after exactly one typed character, as
+                    # soon as the completer popup appeared. Only re-lock on a
+                    # genuine focus-out.
+                    if event.reason() != Qt.PopupFocusReason:
+                        obj.setReadOnly(True)
                 elif et == QEvent.MouseButtonPress and obj.isReadOnly():
                     obj.setReadOnly(False)
 

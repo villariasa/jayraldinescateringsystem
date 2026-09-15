@@ -165,11 +165,30 @@ def bump_db_version() -> int:
             try:
                 from utils.signals import app_events
                 ev = app_events()
+                # A remote client write is proxied through one generic SQL
+                # executor (see _handle_db_write), so there's no reliable way
+                # to know which table/module was actually touched here - emit
+                # every mutation signal so whichever page the server operator
+                # happens to be looking at (Orders, Billing, Customers, Menu,
+                # Expenses, Cash Flow) reacts, not just a subset. Previously
+                # this only emitted a partial set (data_changed/
+                # booking_updated/payment_recorded/customer_saved/menu_saved)
+                # which never included booking_saved/booking_created -
+                # Orders' page only wires its ACTIVE reload to booking_saved,
+                # so new bookings from a client never appeared on the
+                # server's own Orders page until it was re-navigated to.
                 ev.data_changed.emit()
+                ev.booking_saved.emit()
+                ev.booking_created.emit()
                 ev.booking_updated.emit()
+                ev.invoice_saved.emit()
+                ev.invoice_created.emit()
                 ev.payment_recorded.emit()
+                ev.kitchen_updated.emit()
                 ev.customer_saved.emit()
                 ev.menu_saved.emit()
+                ev.expense_saved.emit()
+                ev.cash_flow_saved.emit()
             except Exception as ue:
                 logger.debug(f"[SyncServer] UI signal emit note: {ue}")
 
@@ -519,6 +538,10 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self._handle_db_write()
             return
 
+        if path == "/api/db/callproc":
+            self._handle_db_callproc()
+            return
+
         if path == "/api/db/query":
             self._handle_db_query()
             return
@@ -706,6 +729,70 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": True, "version": get_db_version()}).encode("utf-8"))
         except Exception as exc:
             logger.error(f"[SyncServer] /api/db/write error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_db_callproc(self):
+        """
+        POST /api/db/callproc
+        Body: {"proc": "sp_delete_booking", "in_params": [...], "out_names": [...] or null, "void": true/false}
+        Runs a stored-procedure emulation (db.callproc_void / db.callproc_out) on the
+        server's own DB. This exists because db.execute()'s client-proxy (see
+        db.execute/fetchall) only ever covers raw SQL statements - callproc_void/
+        callproc_out (used by sp_create_booking, sp_delete_booking, sp_pay_invoice,
+        sp_update_booking, etc.) had NO proxy path at all, so on a client
+        workstation those calls silently only ever wrote to that machine's own
+        local SQLite cache and never reached the server - e.g. deleting a booking
+        from a client would remove it locally but leave it fully intact on the
+        server (and every other machine), looking exactly like "delete did
+        nothing" with zero error shown.
+        Returns {"ok": true, "result": {...}|true, "version": N} or {"error": "..."}.
+        """
+        try:
+            payload = self._read_json_body()
+        except Exception as e:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": f"Bad JSON: {e}"}).encode("utf-8"))
+            return
+
+        proc = str(payload.get("proc", "")).strip()
+        in_params = payload.get("in_params", [])
+        if isinstance(in_params, list):
+            in_params = tuple(in_params)
+        out_names = payload.get("out_names")
+        is_void = bool(payload.get("void", True))
+
+        # Only allow calling one of the known emulated stored procedures -
+        # this isn't arbitrary SQL, so there's no injection surface, but the
+        # allowlist still keeps this endpoint from being repurposed to call
+        # something unexpected.
+        if not proc.startswith("sp_"):
+            self._set_cors_headers(403)
+            self.wfile.write(json.dumps({"error": "Only sp_* stored procedures may be called via /api/db/callproc"}).encode("utf-8"))
+            return
+
+        try:
+            if is_void:
+                ok = db.callproc_void(proc, in_params=in_params)
+                if not ok:
+                    self._set_cors_headers(500)
+                    self.wfile.write(json.dumps({"error": f"{proc} failed on server"}).encode("utf-8"))
+                    return
+                bump_db_version()
+                self._set_cors_headers(200)
+                self.wfile.write(json.dumps({"ok": True, "result": True, "version": get_db_version()}).encode("utf-8"))
+            else:
+                result = db.callproc_out(proc, in_params=in_params, out_names=out_names)
+                if result is None:
+                    self._set_cors_headers(500)
+                    self.wfile.write(json.dumps({"error": f"{proc} failed on server"}).encode("utf-8"))
+                    return
+                bump_db_version()
+                clean = {k: (str(v) if v is not None else None) for k, v in result.items()}
+                self._set_cors_headers(200)
+                self.wfile.write(json.dumps({"ok": True, "result": clean, "version": get_db_version()}).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] /api/db/callproc error ({proc}): {exc}", exc_info=True)
             self._set_cors_headers(500)
             self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
 
