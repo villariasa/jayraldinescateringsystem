@@ -1293,6 +1293,18 @@ class MenuPage(QWidget):
         self._update_items_selection_ui()
         self._update_pkgs_selection_ui()
 
+        # Per-card Edit/Delete buttons are baked in at render time, so a role
+        # change (e.g. logging back in as Admin after a Staff session) would
+        # otherwise leave already-rendered cards showing the PREVIOUS user's
+        # permissions. Rebuild both card lists when the permission set changes.
+        sig = (can_create, can_edit, can_delete)
+        if sig != getattr(self, "_last_perm_sig", None):
+            self._last_perm_sig = sig
+            if getattr(self, "_menu_items_data", None) and not getattr(self, "_items_rendering", False):
+                self._populate_table()
+            if getattr(self, "_packages_data", None) and not getattr(self, "_pkgs_rendering", False):
+                self._populate_packages_table()
+
     def _do_reload(self):
         # Coalesce overlapping reloads: if a reload (fetch + batch-render of
         # either the items or packages pipeline) is already running, don't start

@@ -1047,6 +1047,19 @@ class BookingPage(QWidget):
         can_delete = SessionManager.has_permission("bookings", "delete")
         can_edit = SessionManager.has_permission("bookings", "edit")
 
+        # Per-card Edit/Delete buttons are baked in at render time (not toggled
+        # here), so a role change (e.g. logging back in as Admin after a Staff
+        # session) would otherwise leave already-rendered cards showing the
+        # PREVIOUS user's permissions. Force a full card rebuild when the
+        # effective permission set actually changes.
+        sig = (can_create, can_edit, can_delete)
+        if sig != getattr(self, "_last_perm_sig", None):
+            self._last_perm_sig = sig
+            if getattr(self, "_bookings", None) is not None:
+                self._dirty = True
+                if self.isVisible():
+                    self._refresh_bookings()
+
         if hasattr(self, "btn_new"):
             self.btn_new.setEnabled(can_create)
             self.btn_new.setVisible(can_create)
@@ -2064,8 +2077,8 @@ class BookingPage(QWidget):
             confirm_btn.hide()
         if not can_delete:
             del_btn.hide()
-        if not can_edit and not can_delete:
-            actions_w.hide()
+        # Print/export must stay visible even for view-only access - never hide
+        # the whole actions row, or the print icon disappears along with it.
 
         lay.addWidget(actions_w)
 

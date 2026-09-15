@@ -387,7 +387,7 @@ class SettingsPage(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
 
         content = QWidget()
-        lay = QVBoxLayout(content)
+        self._content_lay = lay = QVBoxLayout(content)
         lay.setContentsMargins(32, 28, 32, 28)
         lay.setSpacing(20)
 
@@ -397,51 +397,60 @@ class SettingsPage(QWidget):
 
         can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
         can_delete = SessionManager.is_admin() or SessionManager.has_permission("settings", "delete")
+        is_admin = SessionManager.is_admin()
 
-        if not can_edit:
-            view_banner = QFrame()
-            view_banner.setObjectName("viewBanner")
-            view_banner.setStyleSheet("""
-                QFrame#viewBanner {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(245, 158, 11, 0.16), stop:1 rgba(217, 119, 6, 0.08));
-                    border: 1.5px solid rgba(245, 158, 11, 0.45);
-                    border-radius: 10px;
-                }
-            """)
-            vb_lay = QHBoxLayout(view_banner)
-            vb_lay.setContentsMargins(16, 12, 16, 12)
-            vb_lay.setSpacing(12)
-            vb_icon = QLabel("🔒")
-            vb_icon.setStyleSheet("font-size: 20px;")
-            vb_lay.addWidget(vb_icon)
-            vb_text = QLabel(
-                "<b>VIEW-ONLY ACCESS:</b> You have view-only permission for Settings. "
-                "Adding, modifying, saving settings, importing data, restoring backups, and purging records are strictly disabled."
-            )
-            vb_text.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: 500;")
-            vb_text.setWordWrap(True)
-            vb_lay.addWidget(vb_text, 1)
-            lay.addWidget(view_banner)
+        # Permission-gated cards are tracked as self._card_<slot> (None when
+        # not currently built) so refresh_permissions() can remove/rebuild/
+        # reinsert them at the correct position when a different user logs in.
+        self._card_view_only_banner = self._build_view_only_banner() if not can_edit else None
+        if self._card_view_only_banner is not None:
+            lay.addWidget(self._card_view_only_banner)
 
-        lay.addWidget(self._build_current_user_card())
-        if SessionManager.is_admin():
-            lay.addWidget(self._build_user_management_card())
-            lay.addWidget(self._build_server_database_card())
+        self._card_current_user = self._build_current_user_card()
+        lay.addWidget(self._card_current_user)
+
+        self._card_user_mgmt = self._build_user_management_card() if is_admin else None
+        if self._card_user_mgmt is not None:
+            lay.addWidget(self._card_user_mgmt)
+
+        self._card_server_db = self._build_server_database_card() if is_admin else None
+        if self._card_server_db is not None:
+            lay.addWidget(self._card_server_db)
+
         lay.addWidget(self._build_session_security_card())
-        lay.addWidget(self._build_business_card())
-        lay.addWidget(self._build_sales_targets_card())
-        lay.addWidget(self._build_import_card())
-        lay.addWidget(self._build_occasions_card())
-        lay.addWidget(self._build_policy_card())
-        lay.addWidget(self._build_smtp_card())
+
+        self._card_business = self._build_business_card()
+        lay.addWidget(self._card_business)
+
+        self._card_sales_targets = self._build_sales_targets_card()
+        lay.addWidget(self._card_sales_targets)
+
+        self._card_import = self._build_import_card()
+        lay.addWidget(self._card_import)
+
+        self._card_occasions = self._build_occasions_card()
+        lay.addWidget(self._card_occasions)
+
+        self._card_policy = self._build_policy_card()
+        lay.addWidget(self._card_policy)
+
+        self._card_smtp = self._build_smtp_card()
+        lay.addWidget(self._card_smtp)
+
         lay.addWidget(self._build_theme_card())
-        lay.addWidget(self._build_backup_card())
+
+        self._card_backup = self._build_backup_card()
+        lay.addWidget(self._card_backup)
+
         lay.addWidget(self._build_tablet_sync_card())
         lay.addWidget(self._build_audit_card())
         lay.addWidget(self._build_daily_report_card())
         lay.addWidget(self._build_diagnostics_card())
-        if can_edit and can_delete:
-            lay.addWidget(self._build_purge_data_card())
+
+        self._card_purge = self._build_purge_data_card() if (can_edit and can_delete) else None
+        if self._card_purge is not None:
+            lay.addWidget(self._card_purge)
+
         lay.addStretch()
 
         scroll.setWidget(content)
@@ -449,6 +458,123 @@ class SettingsPage(QWidget):
 
         from components.loading_overlay import LoadingOverlay
         self._loader = LoadingOverlay(self, "Loading system configuration...")
+
+    # ── Permission-refresh support ──────────────────────────────────────────
+    # Slot order mirrors the on-screen card order built in _build_ui(). Slots
+    # not in _ALWAYS_PRESENT_SLOTS are permission-gated and tracked via a
+    # self._card_<slot> attribute (None when not currently built).
+    _SLOT_ORDER = [
+        "view_only_banner", "current_user", "user_mgmt", "server_db",
+        "session_security", "business", "sales_targets", "import",
+        "occasions", "policy", "smtp", "theme", "backup", "tablet_sync",
+        "audit", "daily_report", "diagnostics", "purge",
+    ]
+    _ALWAYS_PRESENT_SLOTS = {
+        "session_security", "theme", "tablet_sync", "audit",
+        "daily_report", "diagnostics",
+    }
+
+    def _build_view_only_banner(self):
+        view_banner = QFrame()
+        view_banner.setObjectName("viewBanner")
+        view_banner.setStyleSheet("""
+            QFrame#viewBanner {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(245, 158, 11, 0.16), stop:1 rgba(217, 119, 6, 0.08));
+                border: 1.5px solid rgba(245, 158, 11, 0.45);
+                border-radius: 10px;
+            }
+        """)
+        vb_lay = QHBoxLayout(view_banner)
+        vb_lay.setContentsMargins(16, 12, 16, 12)
+        vb_lay.setSpacing(12)
+        vb_icon = QLabel("🔒")
+        vb_icon.setStyleSheet("font-size: 20px;")
+        vb_lay.addWidget(vb_icon)
+        vb_text = QLabel(
+            "<b>VIEW-ONLY ACCESS:</b> You have view-only permission for Settings. "
+            "Adding, modifying, saving settings, importing data, restoring backups, and purging records are strictly disabled."
+        )
+        vb_text.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: 500;")
+        vb_text.setWordWrap(True)
+        vb_lay.addWidget(vb_text, 1)
+        return view_banner
+
+    def _insert_index_for_slot(self, slot: str) -> int:
+        """Layout index a slot's widget should occupy, based on which earlier
+        slots currently have an active (built) widget. Index 0 is the title,
+        which is never removed/rebuilt."""
+        idx = 1
+        for s in self._SLOT_ORDER:
+            if s == slot:
+                break
+            if s in self._ALWAYS_PRESENT_SLOTS:
+                idx += 1
+            elif getattr(self, f"_card_{s}", None) is not None:
+                idx += 1
+        return idx
+
+    def refresh_permissions(self):
+        """Re-evaluate the logged-in user's permissions and rebuild any
+        permission-gated cards/controls so switching users (e.g. a Staff
+        view-only session followed by an Admin login) is reflected
+        immediately. Called by main_window.py after a login/user switch, if
+        this (singleton, reused) page instance exposes the method."""
+        can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
+        can_delete = SessionManager.is_admin() or SessionManager.has_permission("settings", "delete")
+        can_create = SessionManager.is_admin() or SessionManager.has_permission("settings", "create")
+        is_admin = SessionManager.is_admin()
+        sig = (can_edit, can_delete, can_create, is_admin)
+        if sig == getattr(self, "_last_perm_sig", None):
+            return
+        self._last_perm_sig = sig
+        # Cheap field-level toggle - this combo isn't part of a rebuilt card.
+        if hasattr(self, "timeout_combo"):
+            self.timeout_combo.setEnabled(can_edit)
+        self._rebuild_permission_gated_cards(can_edit, can_delete, can_create, is_admin)
+
+    def _rebuild_permission_gated_cards(self, can_edit, can_delete, can_create, is_admin):
+        # NOTE: _build_user_management_card() and _build_server_database_card()
+        # only assign instance attributes / connect signals on the NEW widgets
+        # they create (e.g. self.user_panel, self._connected_devices_panel),
+        # with no module/global-level signal or QTimer registration. The old
+        # card (and any QTimer/panel parented to it, e.g. ConnectedDevicesPanel's
+        # self._refresh_timer) is destroyed via deleteLater() below, so
+        # rebuilding these is safe and does not leak timers or duplicate
+        # connections.
+        builders = {
+            "view_only_banner": (not can_edit, self._build_view_only_banner),
+            "current_user":     (True, self._build_current_user_card),
+            "user_mgmt":        (is_admin, self._build_user_management_card),
+            "server_db":        (is_admin, self._build_server_database_card),
+            "business":         (True, self._build_business_card),
+            "sales_targets":    (True, self._build_sales_targets_card),
+            "import":           (True, self._build_import_card),
+            "occasions":        (True, self._build_occasions_card),
+            "policy":           (True, self._build_policy_card),
+            "smtp":             (True, self._build_smtp_card),
+            "backup":           (True, self._build_backup_card),
+            "purge":            (can_edit and can_delete, self._build_purge_data_card),
+        }
+
+        for slot, (should_exist, builder) in builders.items():
+            attr = f"_card_{slot}"
+            old = getattr(self, attr, None)
+            idx = self._insert_index_for_slot(slot)
+            if old is not None:
+                self._content_lay.removeWidget(old)
+                old.setParent(None)
+                old.deleteLater()
+                setattr(self, attr, None)
+            if should_exist:
+                new_widget = builder()
+                self._content_lay.insertWidget(idx, new_widget)
+                setattr(self, attr, new_widget)
+
+        # Rebuilt cards (business/policy/smtp/occasions/sales targets) start
+        # out with cached/default field values; repopulate them with the
+        # actual persisted settings right away instead of waiting for the
+        # next dirty-reload/showEvent.
+        self._load_all_settings_async()
 
     def _build_current_user_card(self):
         card = QFrame()

@@ -516,12 +516,24 @@ class ExpensesPage(QWidget):
 
     def refresh_permissions(self):
         can_create = SessionManager.has_permission("expenses", "create")
+        can_edit = SessionManager.has_permission("expenses", "edit")
+        can_delete = SessionManager.has_permission("expenses", "delete")
         if hasattr(self, "btn_add"):
             self.btn_add.setEnabled(can_create)
             self.btn_add.setVisible(can_create)
         if hasattr(self, "btn_import"):
             self.btn_import.setEnabled(can_create)
             self.btn_import.setVisible(can_create)
+
+        # Per-card Edit/Delete buttons are baked in at render time, so a role
+        # change (e.g. logging back in as Admin after a Staff session) would
+        # otherwise leave already-rendered cards showing the PREVIOUS user's
+        # permissions. Rebuild the card list when the permission set changes.
+        sig = (can_create, can_edit, can_delete)
+        if sig != getattr(self, "_last_perm_sig", None):
+            self._last_perm_sig = sig
+            if getattr(self, "_expenses", None) and not getattr(self, "_rendering", False):
+                self._load_table()
 
     def showEvent(self, event):
         super().showEvent(event)

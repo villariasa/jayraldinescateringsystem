@@ -394,19 +394,24 @@ class OrderPrintDialog(QDialog):
             </tr>
         </table>
 
-        <!-- Date | Name | Time | Pax summary strip -->
-        <table style="width:100%; border-collapse:collapse; margin-top:8px; background-color:#0F172A; border-radius:4px;">
-            <tr>
-                <td style="padding:7px 10px; text-align:center; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase;">Date<br/>
+        <!-- Date | Name | Time | Pax summary strip. Background is set on the
+             <tr>/<td> elements, NOT the outer <table> - Qt's rich-text print
+             pipeline does not reliably paint a background-color declared on
+             the <table> tag itself (confirmed: the dishes table below uses a
+             <tr>-level background and prints fine), which was leaving the
+             white value text invisible against an unpainted white page. -->
+        <table style="width:100%; border-collapse:collapse; margin-top:8px; border-radius:4px;">
+            <tr style="background-color:#0F172A;">
+                <td style="padding:7px 10px; text-align:center; background-color:#0F172A; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase;">Date<br/>
                     <span style="color:#FFFFFF; font-size:{strip_font}; font-weight:800;">{date_str}</span>
                 </td>
-                <td style="padding:7px 10px; text-align:center; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #334155;">Name<br/>
+                <td style="padding:7px 10px; text-align:center; background-color:#0F172A; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #334155;">Name<br/>
                     <span style="color:#FFFFFF; font-size:{strip_font}; font-weight:800;">{cust_name}</span>
                 </td>
-                <td style="padding:7px 10px; text-align:center; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #334155;">Time<br/>
+                <td style="padding:7px 10px; text-align:center; background-color:#0F172A; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #334155;">Time<br/>
                     <span style="color:#FFFFFF; font-size:{strip_font}; font-weight:800;">{time_str}</span>
                 </td>
-                <td style="padding:7px 10px; text-align:center; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #334155;">Pax<br/>
+                <td style="padding:7px 10px; text-align:center; background-color:#0F172A; color:#94A3B8; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #334155;">Pax<br/>
                     <span style="color:#FFFFFF; font-size:{strip_font}; font-weight:800;">{pax}</span>
                 </td>
             </tr>
@@ -527,17 +532,18 @@ ADDITIONAL ITEMS (NO CHARGES):
         if not file_path:
             return
 
-        ok = False
-        if len(self._bookings) == 1:
-            ok = exporter.export_order_slip_pdf(file_path, self._bookings[0], self._business)
-        if not ok:
-            # Fallback (also the only path for multi-order PDFs): print the
-            # same A4-paginated HTML preview straight to a PDF file.
-            printer = QPrinter(QPrinter.HighResolution)
-            self._configure_a4(printer)
-            printer.setOutputFormat(QPrinter.PdfFormat)
-            printer.setOutputFileName(file_path)
-            self._doc_browser.document().print_(printer)
+        # Always render the exported PDF from the exact same HTML document
+        # shown in the on-screen preview (and used for Print) - a separate
+        # ReportLab-based PDF path used to exist here for single orders, which
+        # silently produced a DIFFERENT layout (no Date|Name|Time|Pax strip,
+        # red instead of amber dish header, no half-page pairing) than what
+        # the user saw in the preview. Using one shared rendering pipeline
+        # guarantees the exported PDF always matches the preview exactly.
+        printer = QPrinter(QPrinter.HighResolution)
+        self._configure_a4(printer)
+        printer.setOutputFormat(QPrinter.PdfFormat)
+        printer.setOutputFileName(file_path)
+        self._print_document(printer)
         success(self, message=f"Order slip PDF exported successfully:\n{os.path.basename(file_path)}")
 
     def _print_order(self):
@@ -550,5 +556,49 @@ ADDITIONAL ITEMS (NO CHARGES):
         dialog = QPrintDialog(printer, self)
         dialog.setWindowTitle("Print Banquet Order Slip" if len(self._bookings) == 1 else "Print Banquet Order Slips")
         if dialog.exec() == QPrintDialog.Accepted:
-            self._doc_browser.document().print_(printer)
+            self._print_document(printer)
             success(self, message="Order slip sent to printer successfully." if len(self._bookings) == 1 else "Order slips sent to printer successfully.")
+
+    def _print_document(self, printer):
+        # document().print_(printer) renders the QTextDocument at whatever
+        # layout width it currently has from being displayed in the on-screen
+        # QTextBrowser - it does NOT reliably rescale to fill the printer's
+        # page, so the slip came out tiny in the corner of the A4 page.
+        # Manually painting via QPainter + drawContents(), with an explicit
+        # scale factor computed from the printer's actual page width, gives
+        # full deterministic control and guarantees the content fills the
+        # page - this is Qt's own recommended technique for this exact case.
+        from PySide6.QtGui import QPainter
+        from PySide6.QtCore import QRectF
+
+        doc = self._doc_browser.document()
+        page_rect = printer.pageRect(QPrinter.DevicePixel)
+        doc_size = doc.size()
+        if page_rect.width() <= 0 or page_rect.height() <= 0 or doc_size.width() <= 0 or doc_size.height() <= 0:
+            doc.print_(printer)
+            return
+
+        scale = page_rect.width() / doc_size.width()
+        page_height_doc_units = page_rect.height() / scale
+        total_height = doc_size.height()
+
+        painter = QPainter()
+        if not painter.begin(printer):
+            doc.print_(printer)
+            return
+        try:
+            y_offset = 0.0
+            first_page = True
+            while y_offset < total_height:
+                if not first_page:
+                    printer.newPage()
+                first_page = False
+                painter.save()
+                painter.scale(scale, scale)
+                painter.translate(0, -y_offset)
+                slice_height = min(page_height_doc_units, total_height - y_offset)
+                doc.drawContents(painter, QRectF(0, y_offset, doc_size.width(), slice_height))
+                painter.restore()
+                y_offset += page_height_doc_units
+        finally:
+            painter.end()

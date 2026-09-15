@@ -955,6 +955,16 @@ class CustomersPage(QWidget):
         can_delete = SessionManager.has_permission("customers", "delete")
         can_edit = SessionManager.has_permission("customers", "edit")
 
+        # Per-card Edit/Delete buttons are baked in at render time, so a role
+        # change (e.g. logging back in as Admin after a Staff session) would
+        # otherwise leave already-rendered cards showing the PREVIOUS user's
+        # permissions. Rebuild the card list when the permission set changes.
+        sig = (can_create, can_edit, can_delete)
+        if sig != getattr(self, "_last_perm_sig", None):
+            self._last_perm_sig = sig
+            if self._customers and not getattr(self, "_rendering", False):
+                self._populate_table()
+
         if hasattr(self, "add_btn"):
             self.add_btn.setEnabled(can_create)
             self.add_btn.setVisible(can_create)

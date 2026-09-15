@@ -266,6 +266,16 @@ class CashFlowPage(QWidget):
         if hasattr(self, "_lbl_selected_count"):
             self._lbl_selected_count.setVisible(can_delete)
 
+        # Per-row Edit/Delete controls are baked in at render time, so a role
+        # change (e.g. logging back in as Admin after a Staff session) would
+        # otherwise leave already-rendered rows showing the PREVIOUS user's
+        # permissions. Rebuild the table when the permission set changes.
+        sig = (can_create, can_edit, can_delete)
+        if sig != getattr(self, "_last_perm_sig", None):
+            self._last_perm_sig = sig
+            if getattr(self, "_transactions", None) and not getattr(self, "_rendering", False):
+                self._populate_table()
+
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh_permissions()
