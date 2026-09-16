@@ -1987,3 +1987,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Encapsulated PDF compilation and disk serialization into dedicated `QRunnable` worker tasks.
 - Displays animated indeterminate progress bar in application status bar while compiling large monthly sales reports.
 - Emits completion signal with output file path, prompting user with 1-tap "Open File" and "Show in Folder" actions.
+
+### Thermal Receipt Printer Hardware Status Polling
+- Integrated low-level ESC/POS real-time status inquiry command (`0x10, 0x04, 0x01`).
+- Accurately detects and reports hardware conditions: Normal, Paper Low, Paper Out, Cover Open, Cutter Jam.
+- Displays warning dialog on cashier screen before attempting to dispatch print jobs to offline printers.
