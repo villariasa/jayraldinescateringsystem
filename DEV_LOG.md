@@ -2018,3 +2018,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Executed `PRAGMA journal_mode=WAL;` and `PRAGMA synchronous=NORMAL;` on local SQLite database connection pool.
 - Eliminates database locking contentions between UI read queries and background synchronization write workers.
 - Improves simultaneous read/write transaction throughput by more than 300%.
+
+### Prepared SQL Statements & Parameter Binding
+- Standardized all database queries in `utils/repository.py` to strictly use parameterized inputs (`%s` / `?`).
+- Completely eliminates SQL injection attack surfaces across all customer input fields and search filters.
+- Accelerates repeated query execution plans in PostgreSQL via backend statement caching.
