@@ -1942,3 +1942,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Shift management workflow capturing Opening Float, Cash Sales, Card Slips, E-Wallet Confirmations, and Petty Cash Out.
 - Cashier enters physical denomination breakdown (₱1000, ₱500, ₱200, ₱100, coins) without seeing expected system total.
 - System flags overage or shortage with mandatory cashier notes and supervisor sign-off.
+
+### Multi-User Role Authorization in PySide6 Views
+- Implemented role-based widget decorator: `@require_permission('CAN_MODIFY_PRICES')`.
+- Hides or disables unauthorized UI buttons, menus, and sensitive financial reports for standard staff accounts.
+- Prompts for temporary supervisor PIN authentication when elevated permissions are requested on-the-fly.
