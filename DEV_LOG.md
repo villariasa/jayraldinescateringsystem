@@ -2033,3 +2033,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured automated background task checking invoice due dates daily at 09:00 AM.
 - Dispatches professional payment reminders via SMS gateway and SMTP email: 7-day notice, 3-day notice, and overdue notice.
 - Templates dynamically inject client name, event date, outstanding balance, and bank transfer details.
+
+### Expenses Excel Export with openpyxl
+- Built automated Excel workbook generator formatting monthly expenses into corporate accounting spreadsheets.
+- Applies professional styling: Theme header fills, currency number formatting (`₱#,##0.00`), and auto-fit column widths.
+- Generates dynamic Excel formula summaries (`=SUM(E2:E50)`) rather than static calculated values for accountant usability.
