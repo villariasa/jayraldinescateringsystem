@@ -1952,3 +1952,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Designed modal numeric PIN pad dialog allowing instant cashier user switching in under 2 seconds.
 - Replaces tedious username/password typing during high-volume banquet cashier shift changes.
 - Automatically locks terminal back to PIN screen after 5 minutes of continuous idle time.
+
+### PyInstaller sys._MEIPASS Asset Path Resolution
+- Standardized asset resolver utility: `get_resource_path(relative_path)` checking `sys._MEIPASS` when frozen.
+- Resolves icon paths, default SQLite database templates, and QSS style sheets reliably across dev and production.
+- Prevents missing asset crashes when application is packaged into standalone Windows installer binaries.
