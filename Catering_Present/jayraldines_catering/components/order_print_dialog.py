@@ -36,6 +36,18 @@ import utils.repository as repo
 import utils.exporter as exporter
 from components.dialogs import success
 
+# Fixed reference width ("CSS px") the slip's HTML is built against - also
+# used to pin the QTextDocument's layout width right before printing (see
+# _print_document), so the printed/exported output is always measured
+# against the SAME width the HTML was designed for, regardless of whatever
+# size the on-screen preview widget happens to be at that moment.
+_SLIP_LAYOUT_WIDTH = 800
+# Half of A4's portrait aspect ratio (210 x 297mm => height = width * 1.4142)
+# at the same reference width - a single order slip is deliberately sized to
+# cover about HALF an A4 page, so a second slip can be printed on the same
+# sheet, rather than a full page per order.
+_SLIP_HALF_HEIGHT = round(_SLIP_LAYOUT_WIDTH * 1.4142 / 2)
+
 
 class OrderPrintDialog(QDialog):
     """
@@ -298,53 +310,47 @@ class OrderPrintDialog(QDialog):
             if d_name:
                 by_cat.setdefault(cat, []).append(d_name)
 
-        # Larger, highlighted styling so the selected food/menu stands out
-        # from the rest of the slip, per the print-layout spec.
+        # Moderate, legible sizing budgeted for a half-A4-page slip.
         item_font = "13px" if not compact else "12px"
-        cat_font = "12px" if not compact else "11px"
+        cat_font = "11.5px" if not compact else "11px"
+        cell_pad = "8px 10px" if not compact else "8px 12px"
 
         if by_cat:
-            # Border-only, no fill - keeps the dishes table visually set apart
-            # without burning through ink on a solid printed background.
-            html = '<table style="width:100%; border-collapse:collapse; margin-top:6px; border:2px solid #F59E0B; border-radius:4px;">'
-            html += '<tr style="border-bottom:2px solid #F59E0B; color:#F59E0B;">'
-            html += f'<th style="padding:7px 12px; text-align:left; font-size:{cat_font}; width:28%;">Course / Category</th>'
-            html += f'<th style="padding:7px 12px; text-align:left; font-size:{cat_font}; width:72%;">Selected Food &amp; Menu</th>'
+            # Black borders/text throughout (only the business name stays
+            # brand-colored) - the header row keeps a light gray fill per
+            # the approved reference layout, since it's minimal ink and
+            # helps the header row stand out for kitchen staff at a glance.
+            html = '<table style="width:100%; border-collapse:collapse; margin-top:6px; border:2px solid #000000;">'
+            html += '<tr style="border-bottom:2px solid #000000; background-color:#EEEEEE; color:#000000;">'
+            html += f'<th style="padding:{cell_pad}; text-align:left; font-size:{cat_font}; width:28%;">Course / Category</th>'
+            html += f'<th style="padding:{cell_pad}; text-align:left; font-size:{cat_font}; width:72%;">Selected Food &amp; Menu</th>'
             html += '</tr>'
             for cat, items in by_cat.items():
                 items_str = "<br/>".join([f"● <b>{it}</b>" for it in items])
                 html += f"""
-                <tr style="border-bottom:1px solid #FDE68A;">
-                    <td style="padding:8px 12px; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#0F172A;">{cat}</td>
-                    <td style="padding:8px 12px; vertical-align:top; font-size:{item_font}; font-weight:700; color:#0F172A; line-height:1.6;">{items_str}</td>
+                <tr style="border-bottom:1px solid #000000;">
+                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#000000;">{cat}</td>
+                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{item_font}; font-weight:700; color:#000000; line-height:1.6;">{items_str}</td>
                 </tr>
                 """
             html += '</table>'
         else:
-            html = '<p style="font-size:12px; font-style:italic; color:#64748B;">Standard catering package inclusions apply.</p>'
+            html = '<p style="font-size:12px; font-style:italic; color:#000000;">Standard catering package inclusions apply.</p>'
         return html
 
     def _build_addons_html(self, booking: dict, compact: bool = False) -> str:
         add_ons = self._get_clean_addons(booking)
-        font_sz = "11px" if compact else "12px"
+        font_sz = "12px" if compact else "13px"
         if add_ons:
-            html = '<table style="width:100%; border-collapse:collapse; margin-top:6px;">'
-            html += '<tr style="background-color:#475569; color:#FFFFFF;">'
-            html += '<th style="padding:5px 10px; text-align:center; font-size:11px; width:8%;">#</th>'
-            html += '<th style="padding:5px 10px; text-align:left; font-size:11px; width:62%;">Item / Add-on Description</th>'
-            html += '<th style="padding:5px 10px; text-align:left; font-size:11px; width:30%;">Logistics</th>'
-            html += '</tr>'
-            for i, a_item in enumerate(add_ons, 1):
-                html += f"""
-                <tr style="border-bottom:1px solid #E2E8F0;">
-                    <td style="padding:5px 10px; text-align:center; font-size:{font_sz}; color:#64748B; font-weight:bold;">{i}</td>
-                    <td style="padding:5px 10px; font-size:{font_sz}; font-weight:bold; color:#0F172A;">{a_item}</td>
-                    <td style="padding:5px 10px; font-size:11px; color:#64748B;">[  ] Prepared / In Van</td>
-                </tr>
-                """
-            html += '</table>'
+            # Bulleted list — no table, no price columns, no logistics column.
+            # Matches reference layout: just a plain list of add-on names.
+            items_html = "".join(
+                f'<div style="font-size:{font_sz}; color:#000000; margin-bottom:2px;">&#8226; {a}</div>'
+                for a in add_ons
+            )
+            html = f'<div style="margin-top:4px;">{items_html}</div>'
         else:
-            html = '<p style="font-size:11px; font-style:italic; color:#64748B;">No additional add-on items specified.</p>'
+            html = '<p style="font-size:12px; font-style:italic; color:#000000; margin:2px 0 0 0;">No additional add-on items specified.</p>'
         return html
 
     def _build_slip_body(self, booking: dict, compact: bool = False) -> str:
@@ -369,108 +375,145 @@ class OrderPrintDialog(QDialog):
         dishes_html = self._build_dishes_html(booking, compact=compact)
         addons_html = self._build_addons_html(booking, compact=compact)
 
-        h_title = "16px" if not compact else "13px"
-        h_ref = "13px" if not compact else "11px"
-        strip_font = "14px" if not compact else "12px"
+        # Font sizes scaled to match reference screenshot exactly.
+        h_title   = "22px" if not compact else "14px"   # Business name
+        strip_lbl = "9px"  if not compact else "8px"    # DATE / NAME / TIME / PAX labels
+        strip_val = "16px" if not compact else "12px"   # Values in the strip row
         section_font = "12px" if not compact else "10.5px"
+        venue_font   = "16px" if not compact else "12px"
 
+        # Special Instructions — plain bold-uppercase label + italic text,
+        # NO border box.  Matches the reference screenshot exactly.
         remarks_html = ""
         if clean_notes and not compact:
-            # No background fill - border only, to conserve printer ink.
             remarks_html = f"""
-            <div style="margin-top:10px; padding:8px 12px; border:1px solid #0F172A; border-radius:6px;">
-                <div style="font-size:10.5px; font-weight:bold; color:#0F172A; margin-bottom:3px;">SPECIAL INSTRUCTIONS &amp; REMARKS:</div>
-                <div style="font-size:11.5px; color:#0F172A; line-height:1.4;">{clean_notes}</div>
+            <div style="margin-top:10px;">
+                <div style="font-size:{section_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.3px; margin-bottom:2px;">Special Instructions &amp; Remarks:</div>
+                <div style="font-size:{section_font}; font-style:italic; color:#000000; line-height:1.4;">{clean_notes}</div>
             </div>
             """
 
-        now_str = datetime.now().strftime("%b %d, %Y at %I:%M %p")
+        strip_pad = "10px 12px" if not compact else "7px 8px"
+        gap_lg = "12px" if not compact else "8px"
+        gap_md = "8px"  if not compact else "5px"
+        gap_sm = "4px"  if not compact else "2px"
+
+        # Bottom separator line — a single thin horizontal rule at the very
+        # end of the slip (visible in the reference screenshot).
+        bottom_sep = (
+            '<hr style="border:none; border-top:1.5px solid #000000; margin-top:14px; margin-bottom:0;"/>'
+            if not compact else ""
+        )
+
+        addons_section = ""
+        if not compact:
+            addons_section = f"""
+            <div style="margin-top:{gap_lg};">
+                <div style="font-size:{section_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.3px;">Additional Items &amp; Add-ons (No Rates Shown)</div>
+                {addons_html}
+            </div>
+            """
 
         return f"""
-        <table style="width:100%; border-bottom:2px solid #E11D48; padding-bottom:6px;">
+        <!-- Business header — only name in brand red, rest plain black. -->
+        <div style="font-size:{h_title}; font-weight:900; color:#E11D48; line-height:1.1;">{biz.get('name', "Jayraldine's Catering")}</div>
+        <div style="font-size:10px; color:#000000; margin-top:1px;">{biz.get('address', 'Cebu City')} &middot; Tel: {biz.get('contact', '')}</div>
+        <div style="font-size:10px; font-weight:800; color:#000000; letter-spacing:0.5px; margin-top:3px;">BANQUET EVENT ORDER &ndash; {order_ref}</div>
+
+        <!-- Date | Name | Time | Pax strip -->
+        <table style="width:100%; border-collapse:collapse; margin-top:{gap_md}; border:1.5px solid #000000;">
             <tr>
-                <td style="vertical-align:top;">
-                    <div style="font-size:{h_title}; font-weight:900; color:#E11D48;">{biz.get('name', "Jayraldine's Catering")}</div>
-                    <div style="font-size:9.5px; color:#64748B;">{biz.get('address', 'Cebu City')} · Tel: {biz.get('contact', '')}</div>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000;">
+                    Date<br/><span style="font-size:{strip_val}; font-weight:800;">{date_str}</span>
                 </td>
-                <td style="text-align:right; vertical-align:top;">
-                    <div style="font-size:9px; font-weight:bold; color:#E11D48; letter-spacing:1px;">BANQUET EVENT ORDER</div>
-                    <div style="font-size:{h_ref}; font-weight:900; color:#0F172A;">{order_ref}</div>
-                    {'' if compact else f'<div style="font-size:9px; color:#64748B;">Printed: {now_str}</div>'}
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000;">
+                    Name<br/><span style="font-size:{strip_val}; font-weight:800; text-transform:uppercase;">{cust_name}</span>
+                </td>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000;">
+                    Time<br/><span style="font-size:{strip_val}; font-weight:800;">{time_str}</span>
+                </td>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase;">
+                    Pax<br/><span style="font-size:{strip_val}; font-weight:800;">{pax}</span>
                 </td>
             </tr>
         </table>
 
-        <!-- Date | Name | Time | Pax summary strip - border only, no fill, so
-             printing doesn't burn through ink on a solid dark background. -->
-        <table style="width:100%; border-collapse:collapse; margin-top:8px; border:1.5px solid #0F172A; border-radius:4px;">
-            <tr>
-                <td style="padding:7px 10px; text-align:center; color:#0F172A; font-size:9px; font-weight:bold; text-transform:uppercase;">Date<br/>
-                    <span style="color:#0F172A; font-size:{strip_font}; font-weight:800;">{date_str}</span>
-                </td>
-                <td style="padding:7px 10px; text-align:center; color:#0F172A; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #0F172A;">Name<br/>
-                    <span style="color:#0F172A; font-size:{strip_font}; font-weight:800;">{cust_name}</span>
-                </td>
-                <td style="padding:7px 10px; text-align:center; color:#0F172A; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #0F172A;">Time<br/>
-                    <span style="color:#0F172A; font-size:{strip_font}; font-weight:800;">{time_str}</span>
-                </td>
-                <td style="padding:7px 10px; text-align:center; color:#0F172A; font-size:9px; font-weight:bold; text-transform:uppercase; border-left:1px solid #0F172A;">Pax<br/>
-                    <span style="color:#0F172A; font-size:{strip_font}; font-weight:800;">{pax}</span>
-                </td>
-            </tr>
-        </table>
+        <!-- Venue / Location -->
+        <div style="margin-top:{gap_md}; font-size:{strip_lbl}; font-weight:700; color:#000000; text-transform:uppercase;">Venue / Location</div>
+        <div style="font-size:{venue_font}; font-weight:800; color:#000000; margin-top:{gap_sm};">{venue}</div>
 
-        <table style="width:100%; margin-top:6px;">
-            <tr>
-                <td style="font-size:{section_font}; color:#475569;"><b>Venue:</b> {venue}</td>
-                <td style="font-size:{section_font}; color:#475569; text-align:right;"><b>Occasion:</b> {occasion}{f' · <b>Contact:</b> {contact}' if contact and not compact else ''}</td>
-            </tr>
-        </table>
-
-        <div style="margin-top:{'10px' if not compact else '6px'}; font-size:{section_font}; font-weight:800; color:#0F172A; text-transform:uppercase; letter-spacing:0.4px;">
-            Package: <span style="color:#E11D48;">{pkg_name}</span>
+        <!-- Occasion + Contact -->
+        <div style="margin-top:{gap_sm}; font-size:{section_font}; color:#000000;">
+            <b>Occasion:</b> {occasion}{f' &nbsp;&nbsp; <b>Contact:</b> {contact}' if contact and not compact else ''}
         </div>
+
+        <!-- Package name -->
+        <div style="margin-top:{gap_lg}; font-size:{section_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.4px;">Package: {pkg_name}</div>
         {dishes_html}
 
-        {'' if compact else f'<div style="margin-top:10px; font-size:{section_font}; font-weight:700; color:#0F172A; text-transform:uppercase;">Additional Items &amp; Add-ons (No Rates Shown)</div>'}
-        {addons_html if not compact else ''}
+        {addons_section}
         {remarks_html}
+        {bottom_sep}
         """
 
-    def _generate_slip_html(self) -> str:
-        base_style = """
-            <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin:0; padding:0; color:#0F172A; }
-            </style>
-        """
+    _BASE_STYLE = """
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin:0; padding:0; color:#000000; }
+        </style>
+    """
 
+    @staticmethod
+    def _half_page_wrap(inner_html: str) -> str:
+        # Fixed HEIGHT on the table/cell itself (not an additive spacer
+        # appended after the content, which was a real bug - it made the
+        # total height = content height + spacer height, so it drifted well
+        # past half a page instead of ever landing ON half a page). A
+        # `height` attribute directly on the table + cell tells Qt's table
+        # layout to allocate exactly that much vertical space - content
+        # shorter than the target simply leaves the rest of the cell blank
+        # (vertical-align:top keeps content pinned to the top, not
+        # centered), which is exactly "occupies the top half, bottom half
+        # stays blank."
+        return f"""<table width="{_SLIP_LAYOUT_WIDTH}" height="{_SLIP_HALF_HEIGHT}" style="width:{_SLIP_LAYOUT_WIDTH}px; height:{_SLIP_HALF_HEIGHT}px; border-collapse:collapse;">
+        <tr><td height="{_SLIP_HALF_HEIGHT}" style="padding:16px 14px; vertical-align:top;">
+        {inner_html}
+        </td></tr></table>"""
+
+    def _build_page_bodies(self) -> list[str]:
+        """One entry per PHYSICAL A4 sheet - a single order's half-page box,
+        or two orders' half-page boxes plus a cut line. Kept separate
+        (rather than one giant concatenated HTML blob) so printing can
+        measure/scale/draw each physical page independently and precisely,
+        instead of guessing page boundaries from cumulative content height
+        (which doesn't understand CSS page-break-after at all and would let
+        one page's content drift into the next as more pages are added)."""
         n = len(self._bookings)
         if n <= 1:
             booking = self._bookings[0] if self._bookings else {}
-            body = self._build_slip_body(booking, compact=False)
-            return f"<!DOCTYPE html><html><head>{base_style}</head><body>{body}</body></html>"
+            return [self._half_page_wrap(self._build_slip_body(booking, compact=False))]
 
-        # 2+ orders: pair them two-per-A4-page (half page each). An odd one
-        # out at the end gets its own full page.
-        pages_html = []
+        pages = []
         i = 0
         while i < n:
             pair = self._bookings[i:i + 2]
             if len(pair) == 2:
-                half_a = self._build_slip_body(pair[0], compact=True)
-                half_b = self._build_slip_body(pair[1], compact=True)
-                page = f"""
-                <div style="padding:10px 6px;">{half_a}</div>
-                <div style="text-align:center; color:#94A3B8; font-size:10px; margin:2px 0; border-top:2px dashed #CBD5E1;">✂ — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — ✂</div>
-                <div style="padding:10px 6px;">{half_b}</div>
-                """
+                half_a = self._half_page_wrap(self._build_slip_body(pair[0], compact=False))
+                half_b = self._half_page_wrap(self._build_slip_body(pair[1], compact=False))
+                pages.append(f"""
+                {half_a}
+                <div style="text-align:center; color:#000000; font-size:10px; margin:2px 0; border-top:1px dashed #000000;">✂ — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — ✂</div>
+                {half_b}
+                """)
             else:
-                page = f'<div style="padding:14px 8px;">{self._build_slip_body(pair[0], compact=False)}</div>'
-            pages_html.append(page)
+                pages.append(self._half_page_wrap(self._build_slip_body(pair[0], compact=False)))
             i += 2
+        return pages
 
-        joined = '<div style="page-break-after: always;"></div>'.join(pages_html)
-        return f"<!DOCTYPE html><html><head>{base_style}</head><body>{joined}</body></html>"
+    def _generate_slip_html(self) -> str:
+        """Full HTML for the on-screen scrollable preview - all pages
+        concatenated with CSS page-break-after hints between them."""
+        joined = '<div style="page-break-after: always;"></div>'.join(self._build_page_bodies())
+        return f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head><body>{joined}</body></html>"
 
     def _copy_slip_text(self):
         blocks = []
@@ -563,45 +606,63 @@ ADDITIONAL ITEMS (NO CHARGES):
             success(self, message="Order slip sent to printer successfully." if len(self._bookings) == 1 else "Order slips sent to printer successfully.")
 
     def _print_document(self, printer):
-        # document().print_(printer) renders the QTextDocument at whatever
-        # layout width it currently has from being displayed in the on-screen
-        # QTextBrowser - it does NOT reliably rescale to fill the printer's
-        # page, so the slip came out tiny in the corner of the A4 page.
-        # Manually painting via QPainter + drawContents(), with an explicit
-        # scale factor computed from the printer's actual page width, gives
-        # full deterministic control and guarantees the content fills the
-        # page - this is Qt's own recommended technique for this exact case.
+        # Each PHYSICAL A4 sheet is rendered from its own independent
+        # scratch QTextDocument (built fresh from _build_page_bodies(),
+        # NOT the live on-screen QTextBrowser's document/HTML) so page
+        # boundaries are exact and deterministic - printing straight from
+        # one giant concatenated document and slicing it by cumulative
+        # height doesn't understand CSS page-break-after at all, so a pair
+        # of orders could drift across the wrong page boundary once more
+        # pages were involved. Each page is pinned to the same fixed
+        # reference width used when the HTML was built (_SLIP_LAYOUT_WIDTH)
+        # and painted at an explicit scale to fill the printer's actual page
+        # width - this is the same core technique as before, just applied
+        # per-page instead of to one combined blob.
         from PySide6.QtGui import QPainter
         from PySide6.QtCore import QRectF
 
-        doc = self._doc_browser.document()
         page_rect = printer.pageRect(QPrinter.DevicePixel)
-        doc_size = doc.size()
-        if page_rect.width() <= 0 or page_rect.height() <= 0 or doc_size.width() <= 0 or doc_size.height() <= 0:
-            doc.print_(printer)
+        if page_rect.width() <= 0 or page_rect.height() <= 0:
+            self._doc_browser.document().print_(printer)
             return
-
-        scale = page_rect.width() / doc_size.width()
-        page_height_doc_units = page_rect.height() / scale
-        total_height = doc_size.height()
 
         painter = QPainter()
         if not painter.begin(printer):
-            doc.print_(printer)
+            self._doc_browser.document().print_(printer)
             return
         try:
-            y_offset = 0.0
-            first_page = True
-            while y_offset < total_height:
-                if not first_page:
+            page_bodies = self._build_page_bodies()
+            for page_idx, body_html in enumerate(page_bodies):
+                if page_idx > 0:
                     printer.newPage()
-                first_page = False
-                painter.save()
-                painter.scale(scale, scale)
-                painter.translate(0, -y_offset)
-                slice_height = min(page_height_doc_units, total_height - y_offset)
-                doc.drawContents(painter, QRectF(0, y_offset, doc_size.width(), slice_height))
-                painter.restore()
-                y_offset += page_height_doc_units
+
+                scratch = QTextDocument()
+                scratch.setHtml(f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head><body>{body_html}</body></html>")
+                scratch.setTextWidth(_SLIP_LAYOUT_WIDTH)
+                doc_size = scratch.size()
+                if doc_size.width() <= 0 or doc_size.height() <= 0:
+                    continue
+
+                scale = page_rect.width() / doc_size.width()
+                page_height_doc_units = page_rect.height() / scale
+                total_height = doc_size.height()
+
+                # A single physical page's content should already fit within
+                # one page (it's built to a fixed half-A4 height), but if an
+                # unusually long order overflows anyway, fall back to
+                # slicing it across additional pages rather than clipping it.
+                y_offset = 0.0
+                first_slice = True
+                while y_offset < total_height:
+                    if not first_slice:
+                        printer.newPage()
+                    first_slice = False
+                    painter.save()
+                    painter.scale(scale, scale)
+                    painter.translate(0, -y_offset)
+                    slice_height = min(page_height_doc_units, total_height - y_offset)
+                    scratch.drawContents(painter, QRectF(0, y_offset, doc_size.width(), slice_height))
+                    painter.restore()
+                    y_offset += page_height_doc_units
         finally:
             painter.end()
