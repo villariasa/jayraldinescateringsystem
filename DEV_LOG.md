@@ -2059,3 +2059,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented global event filter on `QApplication` intercepting rapid keystroke sequences emitted by USB barcode scanners.
 - Distinguishes barcode scans from human keyboard typing by analyzing inter-character timing thresholds (under 30ms per char).
 - Automatically routes scanned loyalty card barcodes or inventory SKU tags to relevant handler regardless of active focus.
+
+### Touchscreen UI Optimization for All-In-One Terminals
+- Refactored PySide6 stylesheets establishing minimum touch target dimensions (minimum 44px height x 80px width).
+- Increased spacing between table action buttons to prevent accidental tap errors on resistive touchscreens.
+- Added generous padding to text input fields and combo boxes for comfortable finger tapping.
