@@ -2095,3 +2095,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Calendar scheduler validates venue hall availability across overlapping reservation timestamps.
 - Prevents double-booking of shared facilities (e.g. Grand Ballroom, Garden Pavillion, VIP Dining Room).
 - Displays clear visual warning badge highlighting conflicting reservations during date selection.
+
+### Menu Item Allergen Warning System
+- Structured allergen tagging dialog allowing chef to tag menu dishes with standard allergen flags:
+  - Peanuts, Dairy, Gluten, Shellfish, Soy, Eggs.
+- Prominently displays high-contrast allergy warning badges on customer booking contracts and kitchen preparation chits.
+- Protects client safety and ensures compliance with consumer hospitality regulations.
