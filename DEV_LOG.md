@@ -1845,3 +1845,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated Python's built-in `faulthandler` in `Catering_Present/jayraldines_catering/main.py`.
 - Enables low-level C stack trace capture into `crash_traces.log` during unrecoverable native segmentation faults.
 - Operates across all active threads (`all_threads=True`), preserving diagnostic visibility even when Python's `sys.excepthook` is bypassed.
+
+### PySide6 Qt Plugin Discovery in Frozen PyInstaller Bundles
+- Resolved missing Qt platform plugin errors (`qwindows.dll`) in standalone PyInstaller executables.
+- Added comprehensive search roots across `_MEIPASS/PySide6/Qt/plugins`, `_internal/PySide6/Qt/plugins`, and runtime executable directories.
+- Dynamically sets `QT_PLUGIN_PATH` prior to `QApplication` instantiation to guarantee seamless launch on clean target PCs.
