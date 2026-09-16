@@ -1972,3 +1972,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Built custom `QStyledItemDelegate` rendering formatted currency cells (₱ 1,234.50) with right-alignment.
 - Embedded interactive action buttons (View, Edit, Print, Cancel) directly inside table rows.
 - Optimized paint performance by caching pen, brush, and font allocations during viewport scroll updates.
+
+### Fast Customer Lookup with QCompleter
+- Integrated `QCompleter` on customer name and phone number input fields in the booking wizard.
+- Queries cached customer database records asynchronously with fuzzy substring matching.
+- Auto-populates billing address, tax identification number, and discount category upon customer selection.
