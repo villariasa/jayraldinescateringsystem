@@ -1920,3 +1920,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Server-side Python script rendering formal branded catering invoices using ReportLab Platypus framework.
 - Supports multi-page table auto-splitting with repeated table headers and dynamic running footers.
 - Embeds high-resolution catering vector logo, payment instructions, and QR code verification links.
+
+### Kitchen Order Routing & Station Chit Splitting
+- Automatically splits catering order items across distinct preparation slip destinations:
+  - Hot Kitchen Chit: Roast meats, pasta, rice, hot entrees.
+  - Cold Larder Chit: Salads, appetizers, cold desserts.
+  - Beverage Chit: Signature drinks, coffee station, bar mixes.
+- Eliminates kitchen confusion and streamlines simultaneous station production.
