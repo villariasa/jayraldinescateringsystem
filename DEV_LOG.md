@@ -1838,3 +1838,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added automated SQLite to PostgreSQL installer data migration.
 - Upgraded setup wizard to modern 880x590 layout.
 - Verified 100% pass rate on full QA test suite.
+
+## September 16, 2026 - Desktop PySide6 Architecture, Native Crash Recovery & Daily Dev Notes
+
+### Native Crash Logging with Python faulthandler
+- Integrated Python's built-in `faulthandler` in `Catering_Present/jayraldines_catering/main.py`.
+- Enables low-level C stack trace capture into `crash_traces.log` during unrecoverable native segmentation faults.
+- Operates across all active threads (`all_threads=True`), preserving diagnostic visibility even when Python's `sys.excepthook` is bypassed.
