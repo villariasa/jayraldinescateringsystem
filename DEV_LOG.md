@@ -2090,3 +2090,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented interactive visual calendar component supporting Month, Week, and Day visualization modes.
 - Color-codes event blocks according to reservation status: Yellow (Quotation), Blue (Confirmed), Green (Completed).
 - Double-clicking an event block immediately opens the comprehensive event detail management modal.
+
+### Multi-Venue Conflict Detection & Prevention
+- Calendar scheduler validates venue hall availability across overlapping reservation timestamps.
+- Prevents double-booking of shared facilities (e.g. Grand Ballroom, Garden Pavillion, VIP Dining Room).
+- Displays clear visual warning badge highlighting conflicting reservations during date selection.
