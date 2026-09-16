@@ -2137,3 +2137,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Embedded searchable audit log viewer in system settings table filtering events by User, Date, and Action Type.
 - Highlights sensitive operations: Manual price overrides, custom discount approvals, booking cancellations, and cash drawer kicks.
 - Immutable log table protected against unauthorized tampering or record deletion.
+
+### Windows Service Installation for db_sync_server.py
+- Documented configuration script utilizing NSSM (Non-Sucking Service Manager) to install `db_sync_server.py` as a Windows Service.
+- Service name: `JayraldinesSyncServer`, configured with automatic recovery and restart on failure.
+- Runs silently in the background on the central server machine without requiring an active desktop login session.
