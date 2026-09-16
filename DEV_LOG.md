@@ -1932,3 +1932,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated image capture and attachment tool in expenses dialogue allowing cashier to upload paper receipt scans.
 - Automatically resizes high-resolution photos into lightweight 300KB JPEGs and generates 80x80 thumbnail previews.
 - Stored in `%APPDATA%/JayraldinesCatering/receipts/` with SHA-256 content-addressable filenames.
+
+### Real-Time Booking Gross Margin Computation
+- Real-time financial analytics dashboard computing: `Gross Profit = Total Booking Invoiced - Sum(Booking Expenses)`.
+- Categorizes cost breakdown: Raw Food Cost (%), Direct Labor (%), Logistics (%), and Venue Rental (%).
+- Flags bookings where actual food expenses exceed standard 32% food cost benchmark.
