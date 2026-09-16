@@ -1982,3 +1982,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Built animated backdrop overlay widget (`QGraphicsOpacityEffect`) dimming main window when modals appear.
 - Intercepts mouse click events outside modal boundaries to trigger subtle dialog shake animation.
 - Provides polished, modern desktop application aesthetics matching modern web standards.
+
+### Asynchronous PDF Report Generation Engine
+- Encapsulated PDF compilation and disk serialization into dedicated `QRunnable` worker tasks.
+- Displays animated indeterminate progress bar in application status bar while compiling large monthly sales reports.
+- Emits completion signal with output file path, prompting user with 1-tap "Open File" and "Show in Folder" actions.
