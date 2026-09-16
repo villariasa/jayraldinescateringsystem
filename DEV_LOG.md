@@ -2079,3 +2079,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated dockable side-panel widget (`QDockWidget`) hosting Chef Jay culinary and management assistant.
 - Conversational chat interface styled with sleek bubble message cards and typing animation indicator.
 - Allows manager to dock, undock, or float the AI assistant across multi-monitor workstations.
+
+### Chef Jay Context Grounding & Dynamic Table Injection
+- Injects sanitized real-time system context into AI model system instructions:
+  - Upcoming 7-day bookings summary, critical inventory shortages, and overdue accounts receivable totals.
+- Grounded prompts ensure Chef Jay generates accurate, context-aware business recommendations without hallucination.
+- Automatically trims context token window to maintain rapid sub-second assistant response times.
