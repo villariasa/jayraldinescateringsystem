@@ -549,7 +549,7 @@ class MainWindow(QMainWindow):
             self._search_debounce_timer = QTimer(self)
             self._search_debounce_timer.setSingleShot(True)
             self._search_debounce_timer.timeout.connect(self._dispatch_search)
-        self._search_debounce_timer.start(150)
+        self._search_debounce_timer.start(500)
 
     def _dispatch_search(self):
         page = self.stack.currentWidget()

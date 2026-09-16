@@ -486,7 +486,7 @@ class CashFlowPage(QWidget):
         self._search_text = text.strip()
         # Debounced - _load_data() re-fetches from the DB, so firing it on
         # every single keystroke was the actual cause of laggy search here.
-        self._search_timer.start(150)
+        self._search_timer.start(500)
 
     def _set_date_filter(self, date_str: str = None):
         self._filter_date = date_str

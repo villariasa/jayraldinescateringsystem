@@ -269,7 +269,7 @@ class ExpensesPage(QWidget):
         # had no way to see a total figure for e.g. "Today" or a custom date
         # range, only the fixed all-time cards regardless of the filter.
         self._kpi_filtered = _KpiCard("Total (Selected Filter)")
-        for c in (self._kpi_total, self._kpi_month, self._kpi_top, self._kpi_filtered):
+        for c in (self._kpi_filtered, self._kpi_total, self._kpi_month, self._kpi_top):
             kpi_row.addWidget(c)
         self.lay.addLayout(kpi_row)
 
@@ -338,7 +338,7 @@ class ExpensesPage(QWidget):
     def _on_search_changed(self, text: str):
         # Debounced - typing quickly used to clear-and-rebuild the whole card
         # list on every single keystroke, which is what made search feel laggy.
-        self._search_debounce.start(150)
+        self._search_debounce.start(500)
 
     def _run_search_filter(self):
         self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
@@ -738,6 +738,23 @@ class ExpensesPage(QWidget):
             self._load_more_expenses()
 
     def _load_table(self):
+        # The "Total (Selected Filter)" KPI must reflect the SEARCH text too,
+        # not just the Period/Month dropdowns - the client wants the total to
+        # update automatically as they type, matching exactly what's visible
+        # in the card list below. self._filtered_expenses already combines
+        # period + month + search (see _filter_expenses_list), so summing it
+        # directly here is simpler and more accurate than the separate
+        # DB-scoped total_filtered query, which never factored in search text.
+        if hasattr(self, "_kpi_filtered"):
+            visible = getattr(self, "_filtered_expenses", None) or []
+            search_active = bool(getattr(self, "_search_input", None) and self._search_input.text().strip())
+            total_visible = sum(float(e.get("amount", 0) or 0) for e in visible)
+            period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
+            month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
+            bits = [b for b in (period_opt, None if month_opt == "All Months" else month_opt,
+                                "matching search" if search_active else None) if b]
+            self._kpi_filtered.set(f"₱ {total_visible:,.0f}", " · ".join(bits) or "All Time")
+
         # Bump the render token so any batch still in flight from a previous
         # populate/filter call cancels itself instead of appending stale rows.
         self._render_token = getattr(self, "_render_token", 0) + 1
@@ -931,12 +948,11 @@ class ExpensesPage(QWidget):
         else:
             self._kpi_top.set("—", "No expenses recorded")
 
-        if hasattr(self, "_kpi_filtered"):
-            total_filtered = float(summary.get("total_filtered", total_all) or 0.0)
-            period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
-            month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
-            label_bits = [b for b in (period_opt, None if month_opt == "All Months" else month_opt) if b]
-            self._kpi_filtered.set(f"₱ {total_filtered:,.0f}", " · ".join(label_bits) or "All Time")
+        # "Total (Selected Filter)" (_kpi_filtered) is intentionally NOT set
+        # here - it's driven by _load_table() instead, which sums the actual
+        # client-side filtered/searched list, so it includes the search text
+        # too (this DB summary's total_filtered never could, since search is
+        # client-side only).
 
     # ── Add / delete ─────────────────────────────────────────────────────────
 

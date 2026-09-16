@@ -989,7 +989,11 @@ class BillingPage(QWidget):
         self._search.setMaximumWidth(320)
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
-        self._search_timer.setInterval(150)
+        # Long enough to let the user actually finish typing before firing a
+        # search (each search hits the DB + re-renders the card list) -
+        # 150ms fired on almost every keystroke for anyone typing at a
+        # normal pace, making it feel like it was fighting the user's typing.
+        self._search_timer.setInterval(500)
         self._search_timer.timeout.connect(lambda: self.filter_search(self._search.text()))
         self._search.textChanged.connect(lambda: self._search_timer.start())
         inv_tab_lay.addWidget(self._search)

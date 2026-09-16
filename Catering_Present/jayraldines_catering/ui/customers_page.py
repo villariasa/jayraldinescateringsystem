@@ -1178,7 +1178,7 @@ class CustomersPage(QWidget):
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._filter_table_now)
-        self._search.textChanged.connect(lambda: self._search_timer.start(120))
+        self._search.textChanged.connect(lambda: self._search_timer.start(500))
         search_row.addWidget(self._search)
 
         self._status_filter = QComboBox()
@@ -1809,7 +1809,7 @@ class CustomersPage(QWidget):
 
     def _filter_table(self, _text=""):
         if hasattr(self, "_search_timer"):
-            self._search_timer.start(120)
+            self._search_timer.start(500)
         else:
             self._filter_table_now()
 

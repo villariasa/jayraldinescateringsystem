@@ -2558,7 +2558,7 @@ class BookingPage(QWidget):
     def filter_search(self, text):
         self._search_query = str(text or "")
         if hasattr(self, "_search_timer"):
-            self._search_timer.start(80)
+            self._search_timer.start(500)
         else:
             self._populate_table()
 
