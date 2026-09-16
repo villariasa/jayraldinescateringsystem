@@ -2023,3 +2023,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized all database queries in `utils/repository.py` to strictly use parameterized inputs (`%s` / `?`).
 - Completely eliminates SQL injection attack surfaces across all customer input fields and search filters.
 - Accelerates repeated query execution plans in PostgreSQL via backend statement caching.
+
+### Customer Accounts Ledger & Balance Tracking
+- Structured customer balance tracking ledger capturing historical invoice total, cumulative payments, and outstanding balances.
+- Generates customer statement of account (SOA) with itemized booking milestones and payment verification numbers.
+- Alerts sales representatives when a prospective booking client has delinquent unsettled balances from previous events.
