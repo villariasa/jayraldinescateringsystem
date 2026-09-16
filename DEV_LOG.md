@@ -1900,3 +1900,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented robust reconnect loop in database helper: 1s initial delay, multiplying by 1.5 up to 15s max cap.
 - Visual status bar widget displays animated connection retry counter when LAN server machine is rebooting.
 - Automatically flushes pending read/write queries once connection is verified.
+
+### Dual-Mode Database Repository Abstraction
+- Designed abstract database repository interface providing drop-in compatibility for local SQLite and centralized PostgreSQL.
+- Sanitizes SQL dialect variations: translates SQLite `AUTOINCREMENT` and date functions into PostgreSQL equivalents.
+- Allows single-workstation standalone installations or enterprise multi-terminal client-server deployments.
