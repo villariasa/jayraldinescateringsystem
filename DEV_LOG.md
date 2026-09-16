@@ -1977,3 +1977,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated `QCompleter` on customer name and phone number input fields in the booking wizard.
 - Queries cached customer database records asynchronously with fuzzy substring matching.
 - Auto-populates billing address, tax identification number, and discount category upon customer selection.
+
+### Modal Dialog Event Filtering & Backdrop Dimming
+- Built animated backdrop overlay widget (`QGraphicsOpacityEffect`) dimming main window when modals appear.
+- Intercepts mouse click events outside modal boundaries to trigger subtle dialog shake animation.
+- Provides polished, modern desktop application aesthetics matching modern web standards.
