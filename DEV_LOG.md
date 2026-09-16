@@ -2002,3 +2002,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated automated migration check at startup comparing current database version against `schema_migrations` table.
 - Executes forward SQL migration scripts sequentially (`V001__init.sql`, `V002__add_expense_columns.sql`).
 - Automatically takes a timestamped SQLite database backup snapshot prior to executing any structural alterations.
+
+### Database Sync Conflict Resolution Protocol
+- Outlined conflict resolution logic for concurrent updates between desktop management console and mobile kiosks.
+- Employs deterministic server-wins strategy paired with client update notifications when record timestamps diverge.
+- Retains conflicting client mutations in `sync_conflict_archive` for administrative auditing and manual review.
