@@ -1997,3 +1997,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented raster graphic conversion algorithm transforming monochrome PNG logo into ESC/POS `GS v 0` format.
 - Applies Floyd-Steinberg error-diffusion dithering for crisp graphic printing on thermal paper.
 - Caches converted raster byte array in printer NV memory to accelerate consecutive receipt print times.
+
+### Desktop Database Schema Migration Runner
+- Integrated automated migration check at startup comparing current database version against `schema_migrations` table.
+- Executes forward SQL migration scripts sequentially (`V001__init.sql`, `V002__add_expense_columns.sql`).
+- Automatically takes a timestamped SQLite database backup snapshot prior to executing any structural alterations.
