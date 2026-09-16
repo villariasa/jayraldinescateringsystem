@@ -2116,3 +2116,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated delivery logistics modal tracking driver assignments, transport van plate numbers, and scheduled departure times.
 - Calculates required transit departure time based on event start time and destination traffic buffer.
 - Prints driver trip ticket containing venue map coordinates, client contact numbers, and delivery packing checklists.
+
+### Post-Event Teardown & Asset Return Checklist
+- Digital audit checklist verified by warehouse coordinator upon transport vehicle return:
+  - Chafing dishes, burner covers, serving spoons, water pitchers, dinnerware sets, and table linens.
+  - Flags missing or damaged assets and automatically generates security deposit deduction line items.
+- Streamlines inventory control across high-volume weekend event schedules.
