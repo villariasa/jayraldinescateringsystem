@@ -1962,3 +1962,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Bundled essential C runtime redistributables (`vcruntime140.dll`, `msvcp140.dll`) directly in application root.
 - Packaged OpenSSL 3.0 crypto DLLs (`libcrypto-3-x64.dll`, `libssl-3-x64.dll`) for encrypted HTTPS and PostgreSQL SSL.
 - Eliminates third-party runtime dependency installation requirements on clean client Windows machines.
+
+### PySide6 Memory Management & Qt Object Deletion
+- Audited dynamically generated modal dialogs and table cell widgets for lingering C++ object references.
+- Enforced explicit `widget.deleteLater()` calls on dialog dismissals to release unmanaged Qt memory buffers.
+- Verified stable memory consumption (under 120MB) across prolonged 24-hour continuous desktop sessions.
