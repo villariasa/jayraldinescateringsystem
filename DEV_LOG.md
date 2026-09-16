@@ -1880,3 +1880,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Enhanced REST/WebSocket synchronization daemon with JSON Web Token (JWT) request authentication.
 - Configured rate-limiting middleware restricting client poll frequency to prevent denial-of-service on server PC.
 - Added strict payload schema verification prior to committing remote tablet transactions into master database.
+
+### PySide6 Event Loop & QThreadPool Decoupling
+- Offloaded heavy database queries and network synchronization to `QRunnable` worker tasks running in `QThreadPool`.
+- Dispatches UI updates back to main thread via custom Qt signals and slots (`QtCore.Signal`).
+- Eliminates application window freezing and "Not Responding" Windows OS warnings during heavy report exports.
