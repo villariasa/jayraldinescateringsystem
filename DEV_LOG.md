@@ -1870,3 +1870,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Refactored `utils/repository.py` to enforce strict transactional safety using context-managed database sessions.
 - Added automatic rollback on unhandled query exceptions preventing stalled database locks.
 - Implemented transparent connection re-establishment when network latency interrupts remote PostgreSQL sessions.
+
+### Order Print Dialog & ESC/POS Formatting
+- Updated `components/order_print_dialog.py` supporting formatted ESC/POS thermal printing chits.
+- Standardized 80mm receipt templates itemizing food packages, beverage add-ons, VAT (12%), and service fees.
+- Configured dynamic paper cutter triggers and dual cash drawer pulse kick signals.
