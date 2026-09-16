@@ -2106,3 +2106,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured dynamic package builder allowing customers to swap entrees and select optional dessert or beverage stations.
 - Automatically recalculates per-head pricing and total contract value: `Total = (Base Rate + Sum(Add-ons)) * Pax`.
 - Enforces minimum headcount constraints (e.g. minimum 50 pax for premium buffet tier).
+
+### Kitchen Waste & Scrap Management in Expenses
+- Added dedicated waste tracking module inside expenses page recording culinary scrap and unserved buffet food.
+- Categorizes waste reasons: Prep Trimmings, Overcooked / Burnt, Expired Ingredient, Leftover Buffet Return.
+- Generates monthly kitchen efficiency reports identifying cost-saving recipe portioning opportunities.
