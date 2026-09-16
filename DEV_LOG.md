@@ -2101,3 +2101,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - Peanuts, Dairy, Gluten, Shellfish, Soy, Eggs.
 - Prominently displays high-contrast allergy warning badges on customer booking contracts and kitchen preparation chits.
 - Protects client safety and ensures compliance with consumer hospitality regulations.
+
+### Catering Package Customizer & Differential Pricing
+- Configured dynamic package builder allowing customers to swap entrees and select optional dessert or beverage stations.
+- Automatically recalculates per-head pricing and total contract value: `Total = (Base Rate + Sum(Add-ons)) * Pax`.
+- Enforces minimum headcount constraints (e.g. minimum 50 pax for premium buffet tier).
