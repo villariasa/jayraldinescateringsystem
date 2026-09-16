@@ -2064,3 +2064,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Refactored PySide6 stylesheets establishing minimum touch target dimensions (minimum 44px height x 80px width).
 - Increased spacing between table action buttons to prevent accidental tap errors on resistive touchscreens.
 - Added generous padding to text input fields and combo boxes for comfortable finger tapping.
+
+### Inno Setup v4.1.35 Standalone Packaging Notes
+- Documented configuration for `Jayraldines_Catering_Setup_v4.1.35.exe` compilation.
+- Packages updated PySide6 binaries, database migration scripts, offline documentation, and required VC++ runtimes.
+- Implemented version detection performing seamless in-place upgrades preserving existing user data and local SQLite databases.
