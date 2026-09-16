@@ -1937,3 +1937,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Real-time financial analytics dashboard computing: `Gross Profit = Total Booking Invoiced - Sum(Booking Expenses)`.
 - Categorizes cost breakdown: Raw Food Cost (%), Direct Labor (%), Logistics (%), and Venue Rental (%).
 - Flags bookings where actual food expenses exceed standard 32% food cost benchmark.
+
+### Cashier Shift Handover & Blind Cash Reconciliation
+- Shift management workflow capturing Opening Float, Cash Sales, Card Slips, E-Wallet Confirmations, and Petty Cash Out.
+- Cashier enters physical denomination breakdown (₱1000, ₱500, ₱200, ₱100, coins) without seeing expected system total.
+- System flags overage or shortage with mandatory cashier notes and supervisor sign-off.
