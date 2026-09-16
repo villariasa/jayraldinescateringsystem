@@ -1947,3 +1947,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented role-based widget decorator: `@require_permission('CAN_MODIFY_PRICES')`.
 - Hides or disables unauthorized UI buttons, menus, and sensitive financial reports for standard staff accounts.
 - Prompts for temporary supervisor PIN authentication when elevated permissions are requested on-the-fly.
+
+### Fast Cashier Switching via Touch PIN Pad
+- Designed modal numeric PIN pad dialog allowing instant cashier user switching in under 2 seconds.
+- Replaces tedious username/password typing during high-volume banquet cashier shift changes.
+- Automatically locks terminal back to PIN screen after 5 minutes of continuous idle time.
