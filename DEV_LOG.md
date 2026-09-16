@@ -2074,3 +2074,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added one-click backup button in supervisor settings generating compressed database snapshots (`.sql.gz` / `.db.bak`).
 - Prompts user to select destination folder (USB flash drive or local backup directory).
 - Validates backup archive integrity immediately after creation using SHA-256 checksum comparison.
+
+### Chef Jay AI Conversational Dock Widget
+- Integrated dockable side-panel widget (`QDockWidget`) hosting Chef Jay culinary and management assistant.
+- Conversational chat interface styled with sleek bubble message cards and typing animation indicator.
+- Allows manager to dock, undock, or float the AI assistant across multi-monitor workstations.
