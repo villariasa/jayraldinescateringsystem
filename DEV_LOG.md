@@ -1910,3 +1910,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Enforced strict lifecycle progression: `QUOTATION` -> `RESERVED` -> `CONFIRMED` -> `IN_PREPARATION` -> `DELIVERED` -> `COMPLETED`.
 - Prevents illegal state jumps (e.g. directly moving from `QUOTATION` to `COMPLETED` without downpayment).
 - Requires supervisor PIN override for cancellation transitions once an event is marked `CONFIRMED`.
+
+### Senior Citizen & PWD Statutory Discount Engine
+- Integrated Philippine statutory discount calculations: 20% discount on food consumed by senior/PWD + 12% VAT exemption.
+- Enforces proportional calculation: `Discount = (Gross Food / Total Headcount) * Senior Count * 0.20`.
+- Archives senior/PWD booklet ID and customer full name directly into invoice database records.
