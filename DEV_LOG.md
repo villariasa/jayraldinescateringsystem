@@ -1915,3 +1915,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated Philippine statutory discount calculations: 20% discount on food consumed by senior/PWD + 12% VAT exemption.
 - Enforces proportional calculation: `Discount = (Gross Food / Total Headcount) * Senior Count * 0.20`.
 - Archives senior/PWD booklet ID and customer full name directly into invoice database records.
+
+### ReportLab Invoicing PDF Engine & Auto-Paging
+- Server-side Python script rendering formal branded catering invoices using ReportLab Platypus framework.
+- Supports multi-page table auto-splitting with repeated table headers and dynamic running footers.
+- Embeds high-resolution catering vector logo, payment instructions, and QR code verification links.
