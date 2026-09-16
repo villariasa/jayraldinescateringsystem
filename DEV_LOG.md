@@ -2054,3 +2054,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated `QSystemTrayIcon` allowing management application to minimize unobtrusively to Windows notification area.
 - Displays native Windows balloon toast notifications when new catering reservations are submitted from tablet kiosks.
 - Includes quick-access tray context menu: Open Console, View New Bookings, Pause Sync, Exit.
+
+### Hardware Barcode Scanner Listener via QObject.eventFilter
+- Implemented global event filter on `QApplication` intercepting rapid keystroke sequences emitted by USB barcode scanners.
+- Distinguishes barcode scans from human keyboard typing by analyzing inter-character timing thresholds (under 30ms per char).
+- Automatically routes scanned loyalty card barcodes or inventory SKU tags to relevant handler regardless of active focus.
