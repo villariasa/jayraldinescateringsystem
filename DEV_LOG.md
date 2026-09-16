@@ -2122,3 +2122,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - Chafing dishes, burner covers, serving spoons, water pitchers, dinnerware sets, and table linens.
   - Flags missing or damaged assets and automatically generates security deposit deduction line items.
 - Streamlines inventory control across high-volume weekend event schedules.
+
+### Customer Satisfaction (CSAT) Scoring in Orders
+- Order detail view includes customer feedback tab recording 1-to-5 star ratings across Food, Service, and Punctuality.
+- Archives client testimonial notes and coordinator performance remarks.
+- Feeds into sales team commission calculations and staff quarterly incentive bonuses.
