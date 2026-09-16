@@ -1419,11 +1419,33 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
     # Fetch selected dishes from booking_menu_items. COALESCE against
     # menu_items by item_id as a defensive fallback for any pre-existing
     # rows left with a NULL name/category (e.g. tablet-created bookings
-    # synced before bmi_item_name/bmi_category were populated server-side).
+    # synced before bmi_item_name/bmi_category were populated server-side),
+    # OR stuck with the old generic "Selected Dishes"/"Main Course"
+    # placeholder categories that used to be written for every dish
+    # regardless of what it actually was - prefer the real menu_items
+    # category for those existing rows too, not just genuinely-empty ones.
+    # bmi_item_id is NULL for a lot of real rows (dishes were historically
+    # saved as plain strings, no id at all - see create_booking) - joining
+    # ONLY by id silently misses every one of those, which is exactly why
+    # every dish fell back to the same generic "Menu Dishes"/"Selected
+    # Dishes" bucket regardless of what it actually was. Falling back to a
+    # name match MUST be a scalar subquery (LIMIT 1), not a LEFT JOIN - if
+    # more than one menu_items row shares the same dish name (e.g. the same
+    # dish listed under two categories), a plain JOIN fans out into
+    # duplicate rows, which is exactly what happened: every dish got
+    # printed 2-4x, once per matching menu_items row.
     dish_rows = db.fetchall("""
         SELECT bmi.bmi_item_id AS item_id,
-               COALESCE(NULLIF(bmi.bmi_item_name, ''), mi.mi_name) AS name,
-               COALESCE(NULLIF(bmi.bmi_category, ''), mi.mi_category) AS category
+               COALESCE(
+                   NULLIF(bmi.bmi_item_name, ''),
+                   mi.mi_name,
+                   (SELECT mi2.mi_name FROM menu_items mi2 WHERE LOWER(mi2.mi_name) = LOWER(bmi.bmi_item_name) ORDER BY mi2.mi_id LIMIT 1)
+               ) AS name,
+               COALESCE(
+                   NULLIF(CASE WHEN bmi.bmi_category IN ('Selected Dishes', 'Menu Dishes') THEN '' ELSE bmi.bmi_category END, ''),
+                   mi.mi_category,
+                   (SELECT mi2.mi_category FROM menu_items mi2 WHERE LOWER(mi2.mi_name) = LOWER(bmi.bmi_item_name) ORDER BY mi2.mi_id LIMIT 1)
+               ) AS category
         FROM booking_menu_items bmi
         LEFT JOIN menu_items mi ON mi.mi_id = bmi.bmi_item_id
         WHERE bmi.bmi_booking_id = %s
@@ -1454,6 +1476,28 @@ def update_booking_color_theme(db_id_or_ref, color_theme: str) -> bool:
     except Exception as exc:
         print(f"[repository] update_booking_color_theme failed: {exc}")
         return False
+
+
+def _lookup_menu_item_category(item_id=None, item_name: str = None) -> Optional[str]:
+    """Real category (Main Course, Dessert, Beverage, etc.) for a menu item,
+    by id or by name. Used when saving a booking's selected dishes so
+    booking_menu_items.bmi_category records the ACTUAL category instead of a
+    generic placeholder like "Selected Dishes"/"Main Course" - the kitchen
+    needs to know what each dish actually IS, not a made-up bucket name that
+    lumped every dish (mains, desserts, drinks alike) under one label on the
+    printed order slip."""
+    try:
+        if item_id:
+            row = db.fetchone("SELECT mi_category FROM menu_items WHERE mi_id = %s", (item_id,))
+            if row and row.get("mi_category"):
+                return row["mi_category"]
+        if item_name:
+            row = db.fetchone("SELECT mi_category FROM menu_items WHERE LOWER(mi_name) = LOWER(%s) LIMIT 1", (item_name,))
+            if row and row.get("mi_category"):
+                return row["mi_category"]
+    except Exception:
+        pass
+    return None
 
 
 def create_booking(data: dict) -> Optional[dict]:
@@ -1543,11 +1587,11 @@ def create_booking(data: dict) -> Optional[dict]:
                         if isinstance(itm, dict):
                             i_id = itm.get("id") or itm.get("menu_item_id")
                             i_name = itm.get("name") or itm.get("item") or itm.get("item_name") or ""
-                            i_cat = itm.get("category") or "Main Course"
+                            i_cat = itm.get("category") or _lookup_menu_item_category(i_id, i_name) or "Main Course"
                         else:
                             i_id = None
                             i_name = str(itm).strip()
-                            i_cat = "Selected Dishes"
+                            i_cat = _lookup_menu_item_category(None, i_name) or "Selected Dishes"
                         if i_name:
                             db.execute("""
                                 INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
@@ -1649,11 +1693,11 @@ def update_booking(db_id: int, data: dict) -> None:
                     if isinstance(itm, dict):
                         i_id = itm.get("id") or itm.get("menu_item_id")
                         i_name = itm.get("name") or itm.get("item") or itm.get("item_name") or ""
-                        i_cat = itm.get("category") or "Main Course"
+                        i_cat = itm.get("category") or _lookup_menu_item_category(i_id, i_name) or "Main Course"
                     else:
                         i_id = None
                         i_name = str(itm).strip()
-                        i_cat = "Selected Dishes"
+                        i_cat = _lookup_menu_item_category(None, i_name) or "Selected Dishes"
                     if i_name:
                         db.execute("""
                             INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)

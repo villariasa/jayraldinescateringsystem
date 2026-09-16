@@ -1610,8 +1610,14 @@ class CustomersPage(QWidget):
         if not SessionManager.has_permission("customers", "delete"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete customers.")
             return
+        event_count = int(c.get("events") or 0)
+        warning = (
+            f" This will ALSO permanently delete all {event_count} of their booking(s), "
+            f"including linked invoices and payment records."
+            if event_count > 0 else ""
+        )
         if not confirm(self, title="Delete Customer",
-                       message=f"Are you sure you want to delete '{c['name']}'? This cannot be undone.",
+                       message=f"Are you sure you want to delete '{c['name']}'?{warning} This cannot be undone.",
                        confirm_label="Delete", danger=True):
             return
         if c.get("id"):
@@ -1624,6 +1630,11 @@ class CustomersPage(QWidget):
             from utils.signals import app_events
             app_events().customer_saved.emit()
             app_events().data_changed.emit()
+            if event_count > 0:
+                # Their bookings/invoices were also just deleted (see
+                # sp_delete_customer) - refresh Orders/Billing/Calendar too.
+                app_events().booking_updated.emit()
+                app_events().invoice_saved.emit()
         except Exception:
             pass
         self._show_toast("Customer Deleted", "Customer deleted successfully.")

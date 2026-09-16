@@ -976,6 +976,30 @@ def _prepare_pg_sql(sql: str, params: Any = ()) -> str:
     return re.sub(r"%(?!s|d|f|\([a-zA-Z0-9_]+\)s|%)", "%%", sql)
 
 
+def _bump_server_version_if_applicable() -> None:
+    """After a successful LOCAL write, tell the LAN sync hub's version
+    counter to advance - but only on the machine actually running the
+    server (or a standalone install). Client machines' writes are proxied
+    to the server first (see execute()/callproc_void()/callproc_out()),
+    which already bumps the version there via the HTTP handlers in
+    db_sync_server.py - those handlers are only ever reached from an
+    INBOUND request from another machine, so a write made directly through
+    the SERVER machine's own desktop UI (an in-process call, no HTTP
+    request involved) never bumped the version at all. That left every
+    connected client's realtime watcher polling a permanently-stale
+    version number, silently unaware anything had changed - even across a
+    logout/login, since relogin just re-checks the same stale counter.
+    """
+    try:
+        from utils.client_sync import is_client_mode
+        if is_client_mode():
+            return
+        from utils import db_sync_server
+        db_sync_server.bump_db_version()
+    except Exception:
+        pass
+
+
 def execute(sql: str, params: tuple = ()) -> None:
     # ── Client Workstation Write-Through Proxy ──
     # When this machine is a client, send the write to the server first,
@@ -1026,6 +1050,9 @@ def execute(sql: str, params: tuple = ()) -> None:
             raise
         finally:
             _pg_putconn(conn)
+
+    if sql.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "REPLACE")):
+        _bump_server_version_if_applicable()
 
 
 def fetchall(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
@@ -1196,10 +1223,12 @@ def callproc_out(proc: str, in_params: tuple = (), out_names: list = None) -> Op
     if _engine_type == "sqlite":
         with _db_lock:
             try:
-                return _emulate_sqlite_procedure_out(proc, in_params, out_names)
+                result = _emulate_sqlite_procedure_out(proc, in_params, out_names)
             except Exception as exc:
                 log.error(f"[SQLite] Procedure emulation failed for {proc}: {exc}")
                 return None
+        _bump_server_version_if_applicable()
+        return result
 
     # PostgreSQL Execution
     conn = _pg_getconn()
@@ -1217,10 +1246,13 @@ def callproc_out(proc: str, in_params: tuple = (), out_names: list = None) -> Op
             row = cur.fetchone()
             conn.commit()
             if row is None:
-                return {}
-            if out_names:
-                return dict(zip(out_names, row))
-            return {}
+                result = {}
+            elif out_names:
+                result = dict(zip(out_names, row))
+            else:
+                result = {}
+        _bump_server_version_if_applicable()
+        return result
     except Exception as exc:
         try:
             conn.rollback()
@@ -1248,10 +1280,13 @@ def callproc_void(proc: str, in_params: tuple = ()) -> bool:
     if _engine_type == "sqlite":
         with _db_lock:
             try:
-                return _emulate_sqlite_procedure_void(proc, in_params)
+                ok = _emulate_sqlite_procedure_void(proc, in_params)
             except Exception as exc:
                 log.error(f"[SQLite] Void procedure emulation failed for {proc}: {exc}")
                 return False
+        if ok:
+            _bump_server_version_if_applicable()
+        return ok
 
     conn = _pg_getconn()
     if conn is None:
@@ -1262,6 +1297,7 @@ def callproc_void(proc: str, in_params: tuple = ()) -> bool:
         with conn.cursor() as cur:
             cur.execute(sql, in_params if in_params else ())
         conn.commit()
+        _bump_server_version_if_applicable()
         return True
     except Exception as exc:
         try:
@@ -1740,6 +1776,27 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
         """, (p[1], p[2], p[3], p[4], p[5], p[0]))
 
     elif proc == "sp_delete_customer":
+        # bookings.bk_customer_id has NO "ON DELETE CASCADE" (unlike every
+        # other customer-referencing table), so deleting a customer with any
+        # booking on record used to fail outright with a raw FK constraint
+        # error. Per explicit request: deleting a customer must also delete
+        # their orders/billing history so the delete can actually succeed.
+        # Bookings can be linked either by the real FK (bk_customer_id) or,
+        # for older/walk-in rows, only by a matching customer name - delete
+        # both cases so nothing is left silently orphaned. Everything below
+        # bookings (booking_menu_items, booking_items, invoices, and via
+        # invoices payment_records) already cascades automatically once the
+        # booking row itself is gone.
+        cur.execute("SELECT cus_name FROM customers WHERE cus_id = ?", (p[0],))
+        cust_row = cur.fetchone()
+        cust_name = cust_row[0] if cust_row else None
+        if cust_name:
+            cur.execute(
+                "DELETE FROM bookings WHERE bk_customer_id = ? OR LOWER(bk_customer_name) = LOWER(?)",
+                (p[0], cust_name),
+            )
+        else:
+            cur.execute("DELETE FROM bookings WHERE bk_customer_id = ?", (p[0],))
         cur.execute("DELETE FROM customers WHERE cus_id = ?", (p[0],))
 
     elif proc == "sp_update_menu_item":

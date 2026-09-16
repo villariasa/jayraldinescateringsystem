@@ -662,6 +662,11 @@ class BillingPage(QWidget):
         app_events().payment_recorded.connect(self._mark_dirty_and_reload)
         app_events().booking_updated.connect(self._mark_dirty_and_reload)
         app_events().booking_created.connect(self._mark_dirty_and_reload)
+        # Previously missing - a direct invoice edit/creation (not funneled
+        # through a booking-status/payment change) never actively refreshed
+        # this page on another machine.
+        app_events().invoice_saved.connect(self._mark_dirty_and_reload)
+        app_events().invoice_created.connect(self._mark_dirty_and_reload)
 
     def _mark_dirty(self):
         self._dirty = True

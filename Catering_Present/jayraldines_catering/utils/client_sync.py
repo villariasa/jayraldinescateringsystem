@@ -555,12 +555,28 @@ def start_realtime_version_watcher(
 
                         def _emit_ui_events():
                             try:
+                                # Must mirror db_sync_server.py's bump_db_version()
+                                # emit set exactly - this only had 5 of the 12 real
+                                # signals, so e.g. a booking/expense/cash-flow
+                                # transaction created on ANOTHER machine never
+                                # actively refreshed Orders/Expenses/Cash Flow here
+                                # (booking_saved/expense_saved/cash_flow_saved were
+                                # simply never emitted), even though the DB write
+                                # itself synced correctly - it just silently waited
+                                # for the next manual page visit instead.
                                 ev = app_events()
                                 ev.data_changed.emit()
+                                ev.booking_saved.emit()
+                                ev.booking_created.emit()
                                 ev.booking_updated.emit()
+                                ev.invoice_saved.emit()
+                                ev.invoice_created.emit()
                                 ev.payment_recorded.emit()
+                                ev.kitchen_updated.emit()
                                 ev.customer_saved.emit()
                                 ev.menu_saved.emit()
+                                ev.expense_saved.emit()
+                                ev.cash_flow_saved.emit()
                             except Exception as ue:
                                 log.debug(f"[ClientSync] UI signal emit note: {ue}")
 

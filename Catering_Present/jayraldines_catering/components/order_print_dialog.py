@@ -42,11 +42,12 @@ from components.dialogs import success
 # against the SAME width the HTML was designed for, regardless of whatever
 # size the on-screen preview widget happens to be at that moment.
 _SLIP_LAYOUT_WIDTH = 800
-# Half of A4's portrait aspect ratio (210 x 297mm => height = width * 1.4142)
-# at the same reference width - a single order slip is deliberately sized to
-# cover about HALF an A4 page, so a second slip can be printed on the same
-# sheet, rather than a full page per order.
-_SLIP_HALF_HEIGHT = round(_SLIP_LAYOUT_WIDTH * 1.4142 / 2)
+# A4 portrait = 210mm x 297mm -> height:width ratio = 297/210 = 1.41429.
+# Half of A4's height at the SAME reference width, in the same "css px"
+# units - the order container is forced to exactly this height so its
+# bottom border lands on the true vertical midpoint of the printed page,
+# not merely "however tall the content naturally is."
+_SLIP_HALF_HEIGHT = round(_SLIP_LAYOUT_WIDTH * (297 / 210) / 2)
 
 
 class OrderPrintDialog(QDialog):
@@ -293,13 +294,14 @@ class OrderPrintDialog(QDialog):
 
         return add_ons
 
-    def _build_dishes_html(self, booking: dict, compact: bool = False) -> str:
+    def _build_dishes_html(self, booking: dict, compact: bool = False, pad_scale: float = 1.0) -> str:
         dishes = booking.get("dishes") or []
         if not dishes and booking.get("menu_value"):
             raw_dishes = [d.strip() for d in str(booking["menu_value"]).split(",") if d.strip()]
             dishes = [{"name": rd, "category": "Selected Menu"} for rd in raw_dishes]
 
         by_cat = {}
+        seen_per_cat = {}
         for d in dishes:
             cat = d.get("category") or "Menu Dishes"
             # Never fall back to str(d) - a dish record with a missing name
@@ -308,19 +310,32 @@ class OrderPrintDialog(QDialog):
             # straight onto the order slip.
             d_name = d.get("name") or d.get("item_name") or (f"Item #{d['item_id']}" if d.get("item_id") else None)
             if d_name:
-                by_cat.setdefault(cat, []).append(d_name)
+                # Skip if this dish name is already listed under this
+                # category (case-insensitive) - a booking can end up with
+                # the same dish stored as more than one booking_menu_items
+                # row (e.g. added twice during editing, or a duplicate
+                # synced from another device), which used to print e.g.
+                # "Chicken Pandan" twice in a row instead of once.
+                seen = seen_per_cat.setdefault(cat, set())
+                key = d_name.strip().lower()
+                if key not in seen:
+                    seen.add(key)
+                    by_cat.setdefault(cat, []).append(d_name)
 
-        # Moderate, legible sizing budgeted for a half-A4-page slip.
+        # Moderate, legible sizing budgeted for a half-A4-page slip. Row
+        # padding (NOT font size) scales with pad_scale so a short dish list
+        # can be spread out to help fill a half-page box.
+        ps = pad_scale if not compact else 1.0
         item_font = "13px" if not compact else "12px"
         cat_font = "11.5px" if not compact else "11px"
-        cell_pad = "8px 10px" if not compact else "8px 12px"
+        cell_pad = f"{round(8 * ps)}px 10px" if not compact else "8px 12px"
 
         if by_cat:
             # Black borders/text throughout (only the business name stays
             # brand-colored) - the header row keeps a light gray fill per
             # the approved reference layout, since it's minimal ink and
             # helps the header row stand out for kitchen staff at a glance.
-            html = '<table style="width:100%; border-collapse:collapse; margin-top:6px; border:2px solid #000000;">'
+            html = '<table width="100%" style="width:100%; border-collapse:collapse; margin-top:6px; border:2px solid #000000;">'
             html += '<tr style="border-bottom:2px solid #000000; background-color:#EEEEEE; color:#000000;">'
             html += f'<th style="padding:{cell_pad}; text-align:left; font-size:{cat_font}; width:28%;">Course / Category</th>'
             html += f'<th style="padding:{cell_pad}; text-align:left; font-size:{cat_font}; width:72%;">Selected Food &amp; Menu</th>'
@@ -353,10 +368,14 @@ class OrderPrintDialog(QDialog):
             html = '<p style="font-size:12px; font-style:italic; color:#000000; margin:2px 0 0 0;">No additional add-on items specified.</p>'
         return html
 
-    def _build_slip_body(self, booking: dict, compact: bool = False) -> str:
+    def _build_slip_body(self, booking: dict, compact: bool = False, pad_scale: float = 1.0) -> str:
         """One order's content: Date | Name | Time | Pax summary strip, then
         package/menu (highlighted) and add-ons. `compact` shrinks fonts/
-        spacing for the two-per-page half-page layout."""
+        spacing for the two-per-page half-page layout. `pad_scale` grows the
+        WHITESPACE between sections (never font size) - used by
+        _build_order_container() to spread a short order's content out to
+        fill a half-A4 box instead of leaving it a small block with a big
+        empty gap underneath."""
         biz = self._business
         order_ref = str(booking.get("id") or booking.get("booking_ref") or "ORD-SLIP")
         cust_name = str(booking.get("name") or booking.get("customer_name") or "Valued Client")
@@ -372,7 +391,7 @@ class OrderPrintDialog(QDialog):
         notes_str = str(booking.get("notes") or "").strip()
         clean_notes = re.sub(r"\n?\[Add-ons:\s*.*?\]", "", notes_str, flags=re.IGNORECASE).strip()
 
-        dishes_html = self._build_dishes_html(booking, compact=compact)
+        dishes_html = self._build_dishes_html(booking, compact=compact, pad_scale=pad_scale)
         addons_html = self._build_addons_html(booking, compact=compact)
 
         # Font sizes scaled to match reference screenshot exactly.
@@ -393,10 +412,14 @@ class OrderPrintDialog(QDialog):
             </div>
             """
 
-        strip_pad = "10px 12px" if not compact else "7px 8px"
-        gap_lg = "12px" if not compact else "8px"
-        gap_md = "8px"  if not compact else "5px"
-        gap_sm = "4px"  if not compact else "2px"
+        # pad_scale only stretches whitespace for the non-compact (single/
+        # paired half-page) layout - the tiny compact metrics are untouched.
+        ps = pad_scale if not compact else 1.0
+        strip_pad_v = round(10 * ps) if not compact else 7
+        strip_pad = f"{strip_pad_v}px 12px" if not compact else "7px 8px"
+        gap_lg = f"{round(12 * ps)}px" if not compact else "8px"
+        gap_md = f"{round(8 * ps)}px"  if not compact else "5px"
+        gap_sm = f"{round(4 * ps)}px"  if not compact else "2px"
 
         # Bottom separator line — a single thin horizontal rule at the very
         # end of the slip (visible in the reference screenshot).
@@ -421,7 +444,7 @@ class OrderPrintDialog(QDialog):
         <div style="font-size:10px; font-weight:800; color:#000000; letter-spacing:0.5px; margin-top:3px;">BANQUET EVENT ORDER &ndash; {order_ref}</div>
 
         <!-- Date | Name | Time | Pax strip -->
-        <table style="width:100%; border-collapse:collapse; margin-top:{gap_md}; border:1.5px solid #000000;">
+        <table width="100%" style="width:100%; border-collapse:collapse; margin-top:{gap_md}; border:1.5px solid #000000;">
             <tr>
                 <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000;">
                     Date<br/><span style="font-size:{strip_val}; font-weight:800;">{date_str}</span>
@@ -462,26 +485,88 @@ class OrderPrintDialog(QDialog):
         </style>
     """
 
-    @staticmethod
-    def _half_page_wrap(inner_html: str) -> str:
-        # Fixed HEIGHT on the table/cell itself (not an additive spacer
-        # appended after the content, which was a real bug - it made the
-        # total height = content height + spacer height, so it drifted well
-        # past half a page instead of ever landing ON half a page). A
-        # `height` attribute directly on the table + cell tells Qt's table
-        # layout to allocate exactly that much vertical space - content
-        # shorter than the target simply leaves the rest of the cell blank
-        # (vertical-align:top keeps content pinned to the top, not
-        # centered), which is exactly "occupies the top half, bottom half
-        # stays blank."
-        return f"""<table width="{_SLIP_LAYOUT_WIDTH}" height="{_SLIP_HALF_HEIGHT}" style="width:{_SLIP_LAYOUT_WIDTH}px; height:{_SLIP_HALF_HEIGHT}px; border-collapse:collapse;">
-        <tr><td height="{_SLIP_HALF_HEIGHT}" style="padding:16px 14px; vertical-align:top;">
-        {inner_html}
-        </td></tr></table>"""
+    def _measure_height(self, body_html: str) -> float:
+        """Real rendered height (in the same reference-width doc units used
+        everywhere else) of a fully-built HTML fragment, via a throwaway
+        QTextDocument - this is what makes the container sizing below a
+        measured, code-verifiable calculation instead of a guess."""
+        scratch = QTextDocument()
+        scratch.setHtml(f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head><body>{body_html}</body></html>")
+        scratch.setTextWidth(_SLIP_LAYOUT_WIDTH)
+        return scratch.size().height()
+
+    def _build_order_container(self, booking: dict) -> str:
+        """One order, laid out to ACTUALLY fill a half-A4 box when its
+        content is short enough to fit one - not just a fixed-height outer
+        wrapper around a small, natural-sized block:
+
+        1. Render at pad_scale=1.0 (normal spacing) and measure its real
+           height.
+        2. If that's already >= half-page height, this is a LONG order -
+           leave it completely unconstrained (no forced height at all) so
+           it's free to run toward a full page, or paginate further, with
+           no risk of clipping/overlap.
+        3. Otherwise it's a SHORT order - iteratively grow pad_scale (more
+           whitespace between sections and dish-table rows, font size never
+           touched) and re-measure, converging on the multiplier that makes
+           the content's OWN height approach the half-page target. The
+           outer box still gets an explicit height as a hard guarantee the
+           bottom border lands exactly on the target line even if the
+           whitespace growth alone doesn't converge perfectly (e.g. a
+           1-dish order has too little content to stretch tastefully all
+           the way there).
+        """
+        # NO outer wrapping <table> around the real content anymore - that
+        # was the actual bug. Qt's rich-text table layout does not reliably
+        # size a NESTED table by percentage/attribute; wrapping the whole
+        # order in an extra <table width="..."> made Qt shrink that outer
+        # table to its own content's natural width regardless of what was
+        # specified, which is exactly why the dishes table (and everything
+        # else) ended up crammed into a narrow left column with a huge
+        # unused gap on the right. The strip/dishes/venue elements are
+        # width:100% block-level children placed DIRECTLY in <body> (whose
+        # width is already pinned via doc.setTextWidth(_SLIP_LAYOUT_WIDTH)
+        # in _print_document/_measure_height) - that direct-child placement
+        # is what makes width:100% actually span the full page reliably.
+        body = self._build_slip_body(booking, compact=False, pad_scale=1.0)
+        natural_h = self._measure_height(body)
+
+        if natural_h <= 0 or natural_h >= _SLIP_HALF_HEIGHT:
+            # Long order (or measurement failed) - return as-is, completely
+            # unconstrained; _print_document's pagination handles overflow
+            # if it runs past a full page.
+            return body
+
+        # Short order - converge pad_scale so the content's OWN height
+        # approaches the half-page target (grows whitespace between
+        # sections and dish-table row padding, never font size).
+        scale = 1.0
+        h = natural_h
+        for _ in range(6):
+            if h <= 0:
+                break
+            if abs(_SLIP_HALF_HEIGHT - h) <= 4:
+                break
+            scale = min(scale * (_SLIP_HALF_HEIGHT / h), 6.0)
+            body = self._build_slip_body(booking, compact=False, pad_scale=scale)
+            h = self._measure_height(body)
+            if h >= _SLIP_HALF_HEIGHT:
+                break
+
+        # Top up any remaining shortfall with a trailing spacer whose OWN
+        # width is irrelevant - as a block-level element it still occupies
+        # exactly its declared height in the page's vertical flow, without
+        # ever wrapping (and therefore never width-constraining) the real
+        # content above it. The measured deficit makes this an exact,
+        # calculated top-up, not a guessed constant.
+        deficit = max(0, round(_SLIP_HALF_HEIGHT - h))
+        spacer = f'<table height="{deficit}" style="height:{deficit}px;"><tr><td height="{deficit}" style="padding:0;"></td></tr></table>' if deficit > 0 else ""
+        return body + spacer
 
     def _build_page_bodies(self) -> list[str]:
-        """One entry per PHYSICAL A4 sheet - a single order's half-page box,
-        or two orders' half-page boxes plus a cut line. Kept separate
+        """One entry per PHYSICAL A4 sheet - a single order's box (half-page
+        if short, unconstrained/growing toward a full page if long), or two
+        short orders' half-page boxes plus a cut line. Kept separate
         (rather than one giant concatenated HTML blob) so printing can
         measure/scale/draw each physical page independently and precisely,
         instead of guessing page boundaries from cumulative content height
@@ -490,22 +575,22 @@ class OrderPrintDialog(QDialog):
         n = len(self._bookings)
         if n <= 1:
             booking = self._bookings[0] if self._bookings else {}
-            return [self._half_page_wrap(self._build_slip_body(booking, compact=False))]
+            return [self._build_order_container(booking)]
 
         pages = []
         i = 0
         while i < n:
             pair = self._bookings[i:i + 2]
             if len(pair) == 2:
-                half_a = self._half_page_wrap(self._build_slip_body(pair[0], compact=False))
-                half_b = self._half_page_wrap(self._build_slip_body(pair[1], compact=False))
+                half_a = self._build_order_container(pair[0])
+                half_b = self._build_order_container(pair[1])
                 pages.append(f"""
                 {half_a}
                 <div style="text-align:center; color:#000000; font-size:10px; margin:2px 0; border-top:1px dashed #000000;">✂ — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — ✂</div>
                 {half_b}
                 """)
             else:
-                pages.append(self._half_page_wrap(self._build_slip_body(pair[0], compact=False)))
+                pages.append(self._build_order_container(pair[0]))
             i += 2
         return pages
 

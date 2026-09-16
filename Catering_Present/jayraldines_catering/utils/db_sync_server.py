@@ -1098,10 +1098,17 @@ def perform_server_sync(payload: dict) -> dict:
                                     chk_mi = db.fetchone("SELECT mi_id, mi_name, mi_category FROM menu_items WHERE mi_id = %s" if db.get_engine_type() == "postgres" else "SELECT mi_id, mi_name, mi_category FROM menu_items WHERE mi_id = ?", (itm_id,))
                                     if not chk_mi:
                                         itm_id = None
-                                    elif not itm_name:
-                                        # Payload didn't include a name - fall back to the
-                                        # server's own menu_items record for this id.
-                                        itm_name = chk_mi.get("mi_name") or ""
+                                    else:
+                                        # Payload didn't include a name/category - fall
+                                        # back to the server's own menu_items record for
+                                        # this id (this used to only apply when the name
+                                        # was ALSO missing, so a payload with a name but
+                                        # no real category - e.g. a tablet-side booking
+                                        # saved before this same bug was fixed there too -
+                                        # still fell through to the generic "Selected
+                                        # Dishes" placeholder below).
+                                        if not itm_name:
+                                            itm_name = chk_mi.get("mi_name") or ""
                                         itm_category = itm_category or (chk_mi.get("mi_category") or "")
                                 except Exception:
                                     itm_id = None
