@@ -1890,3 +1890,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured modern catering desktop color system: Deep charcoal backgrounds, warm amber accents, and crisp white typography.
 - Built hot-reloading QSS stylesheet utility allowing visual styling iterations without restarting the desktop application.
 - Standardized border radii, elevation box-shadows, and hover micro-animations across all UI widgets.
+
+### High-DPI Scaling & Vector Icon Rendering
+- Configured `QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)`.
+- Prevents fractional pixel blurring on modern high-resolution 4K and 2K touchmonitors.
+- Scaled SVG icon assets dynamically using `QSvgRenderer` to guarantee razor-sharp UI presentation.
