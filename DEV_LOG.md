@@ -1865,3 +1865,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Enhanced `ui/expenses_page.py` supporting categorized operating disbursements: Ingredients, Utilities, Labor, Logistics, and Maintenance.
 - Linked expense line items directly to specific catering event IDs to evaluate real-world booking profit margins.
 - Built receipt voucher attachment storage linking scanned slips to accounting database records.
+
+### Repository Layer Connection Resilience & Transactions
+- Refactored `utils/repository.py` to enforce strict transactional safety using context-managed database sessions.
+- Added automatic rollback on unhandled query exceptions preventing stalled database locks.
+- Implemented transparent connection re-establishment when network latency interrupts remote PostgreSQL sessions.
