@@ -2028,3 +2028,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Structured customer balance tracking ledger capturing historical invoice total, cumulative payments, and outstanding balances.
 - Generates customer statement of account (SOA) with itemized booking milestones and payment verification numbers.
 - Alerts sales representatives when a prospective booking client has delinquent unsettled balances from previous events.
+
+### Automated Payment Reminders via Background Daemon
+- Configured automated background task checking invoice due dates daily at 09:00 AM.
+- Dispatches professional payment reminders via SMS gateway and SMTP email: 7-day notice, 3-day notice, and overdue notice.
+- Templates dynamically inject client name, event date, outstanding balance, and bank transfer details.
