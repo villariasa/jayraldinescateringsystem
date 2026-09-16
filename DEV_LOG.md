@@ -2038,3 +2038,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Built automated Excel workbook generator formatting monthly expenses into corporate accounting spreadsheets.
 - Applies professional styling: Theme header fills, currency number formatting (`₱#,##0.00`), and auto-fit column widths.
 - Generates dynamic Excel formula summaries (`=SUM(E2:E50)`) rather than static calculated values for accountant usability.
+
+### Billing Statement Print Preview Dialog
+- Embedded high-fidelity print preview dialog utilizing `QPrintPreviewDialog` and `QPrinter`.
+- Supports multi-page view, zoom controls (Fit Width, Fit Page, 100%), and direct output to physical printers or PDF files.
+- Provides immediate visual verification of invoice layout, logo positioning, and line item pagination before printing.
