@@ -2069,3 +2069,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented configuration for `Jayraldines_Catering_Setup_v4.1.35.exe` compilation.
 - Packages updated PySide6 binaries, database migration scripts, offline documentation, and required VC++ runtimes.
 - Implemented version detection performing seamless in-place upgrades preserving existing user data and local SQLite databases.
+
+### In-App Database Backup Utility
+- Added one-click backup button in supervisor settings generating compressed database snapshots (`.sql.gz` / `.db.bak`).
+- Prompts user to select destination folder (USB flash drive or local backup directory).
+- Validates backup archive integrity immediately after creation using SHA-256 checksum comparison.
