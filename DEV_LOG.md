@@ -1957,3 +1957,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized asset resolver utility: `get_resource_path(relative_path)` checking `sys._MEIPASS` when frozen.
 - Resolves icon paths, default SQLite database templates, and QSS style sheets reliably across dev and production.
 - Prevents missing asset crashes when application is packaged into standalone Windows installer binaries.
+
+### Dynamic Library Loading & MSVCRT/OpenSSL Dependencies
+- Bundled essential C runtime redistributables (`vcruntime140.dll`, `msvcp140.dll`) directly in application root.
+- Packaged OpenSSL 3.0 crypto DLLs (`libcrypto-3-x64.dll`, `libssl-3-x64.dll`) for encrypted HTTPS and PostgreSQL SSL.
+- Eliminates third-party runtime dependency installation requirements on clean client Windows machines.
