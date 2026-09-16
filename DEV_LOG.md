@@ -1992,3 +1992,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated low-level ESC/POS real-time status inquiry command (`0x10, 0x04, 0x01`).
 - Accurately detects and reports hardware conditions: Normal, Paper Low, Paper Out, Cover Open, Cutter Jam.
 - Displays warning dialog on cashier screen before attempting to dispatch print jobs to offline printers.
+
+### ESC/POS Raster Bit-Image Printing for Company Logo
+- Implemented raster graphic conversion algorithm transforming monochrome PNG logo into ESC/POS `GS v 0` format.
+- Applies Floyd-Steinberg error-diffusion dithering for crisp graphic printing on thermal paper.
+- Caches converted raster byte array in printer NV memory to accelerate consecutive receipt print times.
