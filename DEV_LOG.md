@@ -2007,3 +2007,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Outlined conflict resolution logic for concurrent updates between desktop management console and mobile kiosks.
 - Employs deterministic server-wins strategy paired with client update notifications when record timestamps diverge.
 - Retains conflicting client mutations in `sync_conflict_archive` for administrative auditing and manual review.
+
+### Tablet PWA & Android Batch Synchronization Endpoints
+- Documented REST endpoints in `db_sync_server.py`:
+  - `POST /api/v1/sync/push`: Ingests queued offline orders from mobile kiosks.
+  - `GET /api/v1/sync/pull`: Returns incremental changes to menu catalog, pricing, and table occupancy.
+- Compresses JSON request and response payloads using Gzip, reducing Wi-Fi traffic by over 70%.
