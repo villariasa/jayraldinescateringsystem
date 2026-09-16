@@ -1967,3 +1967,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Audited dynamically generated modal dialogs and table cell widgets for lingering C++ object references.
 - Enforced explicit `widget.deleteLater()` calls on dialog dismissals to release unmanaged Qt memory buffers.
 - Verified stable memory consumption (under 120MB) across prolonged 24-hour continuous desktop sessions.
+
+### Custom QTableWidget Delegates & Currency Formatting
+- Built custom `QStyledItemDelegate` rendering formatted currency cells (₱ 1,234.50) with right-alignment.
+- Embedded interactive action buttons (View, Edit, Print, Cancel) directly inside table rows.
+- Optimized paint performance by caching pen, brush, and font allocations during viewport scroll updates.
