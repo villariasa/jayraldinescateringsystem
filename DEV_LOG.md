@@ -2127,3 +2127,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Order detail view includes customer feedback tab recording 1-to-5 star ratings across Food, Service, and Punctuality.
 - Archives client testimonial notes and coordinator performance remarks.
 - Feeds into sales team commission calculations and staff quarterly incentive bonuses.
+
+### Multi-Currency Display & Exchange Rate Helper
+- System operates in Philippine Peso (₱ PHP) as base accounting currency.
+- Provides dynamic currency conversion tooltip displaying equivalent USD ($) or EUR (€) for international corporate clients.
+- Exchange rates configured manually in supervisor settings or synchronized via daily bank API feeds.
