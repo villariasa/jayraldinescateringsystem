@@ -1905,3 +1905,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Designed abstract database repository interface providing drop-in compatibility for local SQLite and centralized PostgreSQL.
 - Sanitizes SQL dialect variations: translates SQLite `AUTOINCREMENT` and date functions into PostgreSQL equivalents.
 - Allows single-workstation standalone installations or enterprise multi-terminal client-server deployments.
+
+### Order Status State Machine Transition Guards
+- Enforced strict lifecycle progression: `QUOTATION` -> `RESERVED` -> `CONFIRMED` -> `IN_PREPARATION` -> `DELIVERED` -> `COMPLETED`.
+- Prevents illegal state jumps (e.g. directly moving from `QUOTATION` to `COMPLETED` without downpayment).
+- Requires supervisor PIN override for cancellation transitions once an event is marked `CONFIRMED`.
