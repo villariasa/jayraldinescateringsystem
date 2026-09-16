@@ -2132,3 +2132,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - System operates in Philippine Peso (₱ PHP) as base accounting currency.
 - Provides dynamic currency conversion tooltip displaying equivalent USD ($) or EUR (€) for international corporate clients.
 - Exchange rates configured manually in supervisor settings or synchronized via daily bank API feeds.
+
+### Administrative Audit Log Viewer
+- Embedded searchable audit log viewer in system settings table filtering events by User, Date, and Action Type.
+- Highlights sensitive operations: Manual price overrides, custom discount approvals, booking cancellations, and cash drawer kicks.
+- Immutable log table protected against unauthorized tampering or record deletion.
