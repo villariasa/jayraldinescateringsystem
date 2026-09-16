@@ -1860,3 +1860,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Overhauled `ui/billing_page.py` with expanded ledger tracking: Total Billed, Amount Paid, and Remaining Balance.
 - Implemented real-time receivables computation reflecting partial downpayments and progressive installment vouchers.
 - Added color-coded payment status indicators: Paid (Emerald), Partial (Amber), and Overdue (Crimson).
+
+### Expenses Management & Cost Classification
+- Enhanced `ui/expenses_page.py` supporting categorized operating disbursements: Ingredients, Utilities, Labor, Logistics, and Maintenance.
+- Linked expense line items directly to specific catering event IDs to evaluate real-world booking profit margins.
+- Built receipt voucher attachment storage linking scanned slips to accounting database records.
