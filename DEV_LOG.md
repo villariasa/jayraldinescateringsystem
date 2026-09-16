@@ -2043,3 +2043,9 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Embedded high-fidelity print preview dialog utilizing `QPrintPreviewDialog` and `QPrinter`.
 - Supports multi-page view, zoom controls (Fit Width, Fit Page, 100%), and direct output to physical printers or PDF files.
 - Provides immediate visual verification of invoice layout, logo positioning, and line item pagination before printing.
+
+### Windows Registry Geometry & Preference Persistence
+- Utilized `QSettings` storing window geometry, split pane positions, and table column widths in Windows Registry:
+  - `HKEY_CURRENT_USER\Software\JayraldinesCatering\WindowSettings`.
+- Restores exact window layout and table sizing when the cashier or manager relaunches the application.
+- Eliminates manual column resizing on every application boot.
