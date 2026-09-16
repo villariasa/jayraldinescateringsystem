@@ -1855,3 +1855,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented high-resolution benchmarking via `time.perf_counter()` tracking cold boot milestones.
 - Controlled via `JAYRALDINES_PROFILE_STARTUP` environment flag (`1`, `true`, `on`).
 - Logs elapsed durations for logging setup, database connection pooling, Qt theme mounting, and main window instantiation.
+
+### Billing Page Overhaul & Accounts Receivable
+- Overhauled `ui/billing_page.py` with expanded ledger tracking: Total Billed, Amount Paid, and Remaining Balance.
+- Implemented real-time receivables computation reflecting partial downpayments and progressive installment vouchers.
+- Added color-coded payment status indicators: Paid (Emerald), Partial (Amber), and Overdue (Crimson).
