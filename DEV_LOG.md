@@ -1895,3 +1895,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured `QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)`.
 - Prevents fractional pixel blurring on modern high-resolution 4K and 2K touchmonitors.
 - Scaled SVG icon assets dynamically using `QSvgRenderer` to guarantee razor-sharp UI presentation.
+
+### Database Reconnection Logic with Exponential Backoff
+- Implemented robust reconnect loop in database helper: 1s initial delay, multiplying by 1.5 up to 15s max cap.
+- Visual status bar widget displays animated connection retry counter when LAN server machine is rebooting.
+- Automatically flushes pending read/write queries once connection is verified.
