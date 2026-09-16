@@ -1850,3 +1850,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Resolved missing Qt platform plugin errors (`qwindows.dll`) in standalone PyInstaller executables.
 - Added comprehensive search roots across `_MEIPASS/PySide6/Qt/plugins`, `_internal/PySide6/Qt/plugins`, and runtime executable directories.
 - Dynamically sets `QT_PLUGIN_PATH` prior to `QApplication` instantiation to guarantee seamless launch on clean target PCs.
+
+### Startup Latency Profiling Architecture
+- Implemented high-resolution benchmarking via `time.perf_counter()` tracking cold boot milestones.
+- Controlled via `JAYRALDINES_PROFILE_STARTUP` environment flag (`1`, `true`, `on`).
+- Logs elapsed durations for logging setup, database connection pooling, Qt theme mounting, and main window instantiation.
