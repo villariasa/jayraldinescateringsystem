@@ -2049,3 +2049,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - `HKEY_CURRENT_USER\Software\JayraldinesCatering\WindowSettings`.
 - Restores exact window layout and table sizing when the cashier or manager relaunches the application.
 - Eliminates manual column resizing on every application boot.
+
+### System Tray Icon & Desktop Notifications
+- Integrated `QSystemTrayIcon` allowing management application to minimize unobtrusively to Windows notification area.
+- Displays native Windows balloon toast notifications when new catering reservations are submitted from tablet kiosks.
+- Includes quick-access tray context menu: Open Console, View New Bookings, Pause Sync, Exit.
