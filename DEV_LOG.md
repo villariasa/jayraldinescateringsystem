@@ -1885,3 +1885,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Offloaded heavy database queries and network synchronization to `QRunnable` worker tasks running in `QThreadPool`.
 - Dispatches UI updates back to main thread via custom Qt signals and slots (`QtCore.Signal`).
 - Eliminates application window freezing and "Not Responding" Windows OS warnings during heavy report exports.
+
+### Qt Dark Mode Palette & Dynamic QSS Theming
+- Structured modern catering desktop color system: Deep charcoal backgrounds, warm amber accents, and crisp white typography.
+- Built hot-reloading QSS stylesheet utility allowing visual styling iterations without restarting the desktop application.
+- Standardized border radii, elevation box-shadows, and hover micro-animations across all UI widgets.
