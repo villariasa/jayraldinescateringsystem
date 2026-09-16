@@ -1875,3 +1875,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Updated `components/order_print_dialog.py` supporting formatted ESC/POS thermal printing chits.
 - Standardized 80mm receipt templates itemizing food packages, beverage add-ons, VAT (12%), and service fees.
 - Configured dynamic paper cutter triggers and dual cash drawer pulse kick signals.
+
+### Database Sync Server (db_sync_server.py) Hardening
+- Enhanced REST/WebSocket synchronization daemon with JSON Web Token (JWT) request authentication.
+- Configured rate-limiting middleware restricting client poll frequency to prevent denial-of-service on server PC.
+- Added strict payload schema verification prior to committing remote tablet transactions into master database.
