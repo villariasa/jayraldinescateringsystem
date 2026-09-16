@@ -1927,3 +1927,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
   - Cold Larder Chit: Salads, appetizers, cold desserts.
   - Beverage Chit: Signature drinks, coffee station, bar mixes.
 - Eliminates kitchen confusion and streamlines simultaneous station production.
+
+### Expense Receipt Image Attachment & Thumbnails
+- Integrated image capture and attachment tool in expenses dialogue allowing cashier to upload paper receipt scans.
+- Automatically resizes high-resolution photos into lightweight 300KB JPEGs and generates 80x80 thumbnail previews.
+- Stored in `%APPDATA%/JayraldinesCatering/receipts/` with SHA-256 content-addressable filenames.
