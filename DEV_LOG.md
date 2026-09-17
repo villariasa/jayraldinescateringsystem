@@ -2321,3 +2321,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Compares current stock on hand against calculated recipe needs and outputs supplier-specific purchase orders.
 - Tracks PO lifecycle: Draft, Approved by Head Chef, Transmitted to Supplier, and Received at Commissary.
 
+### Accounts Payable Aging & Cash Outflow Forecasts
+- Built Accounts Payable aging report categorizing vendor balances into Current, 1-30 Days, 31-60 Days, and 61+ Days.
+- Projects weekly cash disbursement requirements to prevent supply chain disruptions during peak catering months.
+- Provides payment approval queues for management with check voucher printing support.
+
