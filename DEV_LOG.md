@@ -2416,3 +2416,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Tested color contrast ratios to ensure WCAG AAA compliance across order lists and status indicators.
 - Reduces screen glare and eye strain for commissary coordinators operating in dimly lit banquet backstages.
 
+### Tableware Breakage & Loss Expense Tracking
+- Added loss and breakage registry logging damaged porcelain plates, shattered wine glasses, and bent silverware.
+- Categorizes breakage causes: In-Transit, Dining Floor Accident, Kitchen Dishwashing, or Client Guest Damage.
+- Feeds monthly breakage totals into operational expense ledgers to forecast quarterly replacement purchases.
+
