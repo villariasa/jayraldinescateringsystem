@@ -2221,3 +2221,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Eliminates stale or severed TCP sockets across long overnight idle periods on the commissary LAN router.
 - Enforced connection timeout limits preventing worker starvation during simultaneous multi-tablet sync bursts.
 
+### Perishable Inventory FIFO Batch Allocation
+- Designed First-In, First-Out (FIFO) stock rotation tracker for high-value meats, fresh seafood, and dairy products.
+- Tracks lot numbers, arrival timestamps, and supplier expiration dates on commissary walk-in chiller shelves.
+- Alerts prep supervisors when raw ingredient batches approach 48-hour shelf-life expiration thresholds.
+
