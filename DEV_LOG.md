@@ -2336,3 +2336,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Schedules weekly burner nozzle descaling, monthly grease trap pump-outs, and quarterly thermostat calibration.
 - Logs service contractor visit reports and equipment warranty expiration dates in the asset registry.
 
+### Service Crew Uniform Inventory & Laundry Management
+- Added staff uniform inventory tracker for chef coats, server button-downs, aprons, and formal neckties.
+- Monitors weekly laundry turnover to commercial dry cleaners and checks returned garment counts.
+- Flags missing garments against staff shift check-outs to prevent asset attrition.
+
