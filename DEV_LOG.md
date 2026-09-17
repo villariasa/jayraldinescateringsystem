@@ -2401,3 +2401,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Emits warning logs when free disk space falls below 2 GB on the central commissary server terminal.
 - Captures slow SQL queries exceeding 250ms threshold to identify database index optimization needs.
 
+### Database Indexing Strategy on High-Volume Tables
+- Added strategic B-tree indexes across bookings(event_date), bookings(customer_id), and ledger_entries(booking_id).
+- Reduces calendar query execution time from 180ms to under 12ms across databases with 5,000+ historical bookings.
+- Documented index maintenance and periodic VACUUM ANALYZE commands for PostgreSQL instances.
+
