@@ -2391,3 +2391,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Incorporates brand logo, responsive mobile-friendly layouts, and clear call-to-action payment buttons.
 - Configured SMTP retry queues handling temporary mail server throttling and delivery receipt tracking.
 
+### Automated SMS Gateway Event Reminder Dispatch
+- Configured SMS gateway hooks transmitting automated event reminders 72 hours and 24 hours prior to catering dates.
+- Alerts clients with venue coordinator contact details, remaining balance warnings, and final guest count confirmations.
+- Logs SMS dispatch status (Sent, Delivered, Failed) in the master event communications history.
+
