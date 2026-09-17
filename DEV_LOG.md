@@ -2286,3 +2286,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Automatically deducts replacement costs for chipped glassware, burnt tablecloths, or unreturned serving tongs.
 - Generates electronic deposit refund vouchers with client acknowledgment receipt and audit log trail.
 
+### Progressive Milestone Invoicing & Payment Schedules
+- Configured automated 3-stage billing milestones: 30% reservation downpayment, 50% midpoint payment, 20% final settlement.
+- Sends automated payment reminder notices with embedded bank account details 14 days before each due date.
+- Updates client ledger balances and generates updated Statements of Account upon each tranche payment.
+
