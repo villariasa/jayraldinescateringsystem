@@ -2426,3 +2426,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Measures vegetable peelings, meat trimmings, and post-buffet edible surplus for food bank partner collection.
 - Identifies opportunities for menu engineering and portion adjustments to lower overall cost of goods sold.
 
+### Banquet Cocktail Bar Liquor & Bar Supply Logistics
+- Documented beverage package inventory tracking for mocktails, cocktails, wine, and beer barrel supplies.
+- Controls liquor bottle seal inspection, pour spout calibration, and crushed ice storage in thermal chests.
+- Tracks rental glassware counts: highball glasses, rock glasses, and champagne flutes with return verification.
+
