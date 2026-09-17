@@ -2291,3 +2291,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Sends automated payment reminder notices with embedded bank account details 14 days before each due date.
 - Updates client ledger balances and generates updated Statements of Account upon each tranche payment.
 
+### Digital Payment QR-Ph & E-Wallet Reconciliation
+- Enhanced digital payment capture supporting QR-Ph national standard, GCash, and Maya mobile wallets.
+- Implements strict validation of 12-digit transaction reference IDs to prevent duplicate payment entry.
+- Integrates payment receipt image upload linking client bank transfer screenshots to ledger vouchers.
+
