@@ -2276,3 +2276,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Logs cake delivery arrival time, baker hand-off signoff, and cake table display location away from direct sunlight.
 - Tracks rental cake stands, decorative knives, and acrylic risers with security deposit return reconciliation.
 
+### Audio-Visual & Staging Add-On Asset Scheduling
+- Integrated audio-visual equipment add-ons into booking management: PA speakers, wireless mics, and projector screens.
+- Prevents double-booking of high-demand sound equipment across simultaneous weekend banquet reservations.
+- Documents technician deployment schedules and venue electrical outlet compatibility checks.
+
