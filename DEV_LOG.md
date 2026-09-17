@@ -2411,3 +2411,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Eliminates missing glyph boxes and misaligned text in generated PDF reports and on-screen Qt dialogs.
 - Standardizes currency symbol (₱ Philippine Peso) unicode font rendering across all runtime environments.
 
+### Dark Mode Palette Refinement for Low-Light Operations
+- Refined high-contrast dark theme palette (#0B1220 background, #1E293B cards, #F8FAFC text) for kitchen night shifts.
+- Tested color contrast ratios to ensure WCAG AAA compliance across order lists and status indicators.
+- Reduces screen glare and eye strain for commissary coordinators operating in dimly lit banquet backstages.
+
