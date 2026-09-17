@@ -2171,3 +2171,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Replaced with clean bold-uppercase section header and indented italic notes matching reference specifications.
 - Preserves high visual contrast while reducing printer ink consumption during high-volume batch runs.
 
+### Multi-Booking Half-A4 Page Packaging & Slicing
+- Configured paired order slip packaging allocating exactly half of standard A4 portrait height per booking.
+- Rendered dashed cut guidelines (✂ — — — — ✂) between paired slips for warehouse and van dispatch.
+- Preserved single-order fallback formatting ensuring solitary bookings occupy upper half with clean blank base.
+
