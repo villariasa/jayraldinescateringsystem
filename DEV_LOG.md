@@ -2201,3 +2201,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented atomic object store migrations preserving unsynchronized local drafts during application updates.
 - Added indexed lookup paths on event_date, status, and customer_phone for millisecond query performance.
 
+### Service Worker Background Sync Queueing
+- Integrated Workbox BackgroundSync plugin capturing failed order dispatch requests during ballroom Wi-Fi deadzones.
+- Queues POST requests in persistent IndexedDB storage with exponential backoff replay up to 24 hours.
+- Emits visual sync badge indicators in the tablet top-bar notifying service staff of pending uploads.
+
