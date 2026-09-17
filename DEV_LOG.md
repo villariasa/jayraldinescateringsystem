@@ -2251,3 +2251,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Incorporates standard 90-minute setup buffers prior to guest arrival for buffet station assembly and food warming.
 - Exports driver printouts with turn-by-turn landmark notes, venue security contact numbers, and loading dock rules.
 
+### Buffet Chafing Fuel Consumption Modeling
+- Created mathematical model calculating required gel and wick fuel cans based on total buffet service hours.
+- Budgets 2.5 hours per standard burner can with an extra 20% safety margin for outdoor and windy coastal venues.
+- Eliminates cold food complaints by standardizing burner lighting schedules 30 minutes before buffet opening.
+
