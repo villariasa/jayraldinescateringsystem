@@ -2431,3 +2431,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Controls liquor bottle seal inspection, pour spout calibration, and crushed ice storage in thermal chests.
 - Tracks rental glassware counts: highball glasses, rock glasses, and champagne flutes with return verification.
 
+### VIP Dining Table Place Card Automated Generator
+- Built automated place card PDF generator importing seating lists from Excel / CSV guest tables.
+- Renders elegant printable folded place cards with guest names, assigned table numbers, and dietary icons.
+- Saves event planners hours of manual printing and handwriting during upscale corporate banquets and weddings.
+
