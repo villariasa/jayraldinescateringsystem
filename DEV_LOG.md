@@ -2376,3 +2376,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Dispatches digital briefing packets to waitstaff and banquet captains 24 hours before event call-time.
 - Includes venue parking guidelines, staff meal schedules, and assigned banquet floor section responsibilities.
 
+### Staff Gratuity & Tip Distribution Formula
+- Codified transparent tipping pool distribution formula based on role weighting and hours worked.
+- Allocates shares across kitchen cooks (35%), service waitstaff (45%), and setup/utility crew (20%).
+- Generates tip payout vouchers verified by head captain and acknowledged by crew signatures.
+
