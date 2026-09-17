@@ -2311,3 +2311,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Automatically calculates applicable refund amounts and forfeiture fees upon booking status change to 'Cancelled'.
 - Updates master revenue projections and releases reserved commissary equipment back into available inventory.
 
+### Wholesale Supplier Directory & Credit Terms Tracking
+- Created supplier management registry storing poultry, seafood, dry goods, and vegetable produce vendor accounts.
+- Tracks supplier terms (Net 15, Net 30, COD), bank remittance details, and preferred representative contacts.
+- Monitors supplier price fluctuation trends over 12-month periods to optimize ingredient procurement costs.
+
