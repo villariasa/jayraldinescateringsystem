@@ -2351,3 +2351,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Synchronizes deep-frying and baking schedules with guest arrival announcements to prevent soggy or cold appetizers.
 - Recommends batch sizes of 40-50 pieces per heating cycle for optimum crispness and presentation.
 
+### Halal and Vegetarian Meal Segregation Standards
+- Documented strict kitchen separation protocols for Halal, Vegan, and Jain dietary requirement orders.
+- Mandates color-coded cutting boards (green for vegetable, yellow for poultry) and dedicated prep cookware.
+- Tags special dietary plates with distinct colored dish covers and service tray labels during banquet serving.
+
