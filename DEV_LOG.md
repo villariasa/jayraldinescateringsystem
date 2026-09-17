@@ -2161,3 +2161,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Converted add-on display to lightweight bulleted lists replacing heavy multi-column logistics tables.
 - Added italic fallback message 'No additional add-on items specified' for orders without extra charges.
 
+### Customer Name Uppercase Normalization in BEO Header
+- Enforced uppercase normalization for customer names across banquet order summary strips.
+- Improves readability at distance for banquet supervisors, dispatchers, and head chefs during event prep.
+- Prevents misattribution when handling multiple concurrent wedding and corporate event bookings.
+
