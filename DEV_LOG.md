@@ -2256,3 +2256,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Budgets 2.5 hours per standard burner can with an extra 20% safety margin for outdoor and windy coastal venues.
 - Eliminates cold food complaints by standardizing burner lighting schedules 30 minutes before buffet opening.
 
+### Banquet Service Staffing Ratio Calculations
+- Standardized staffing algorithms: 1 server per 20 guests for plated sit-down banquets; 1 per 30 guests for buffets.
+- Allocates dedicated carving station chefs, beverage refill attendants, and roaming busboys based on event scope.
+- Computes total labor cost estimates dynamically during catering package customization and contract drafting.
+
