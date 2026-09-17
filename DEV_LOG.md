@@ -2226,3 +2226,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Tracks lot numbers, arrival timestamps, and supplier expiration dates on commissary walk-in chiller shelves.
 - Alerts prep supervisors when raw ingredient batches approach 48-hour shelf-life expiration thresholds.
 
+### Dynamic Recipe Ingredient Scaling by Pax Multiplier
+- Implemented algorithmic recipe ingredient yield calculation based on confirmed booking guest counts.
+- Scales base 50-pax recipes up to 500+ pax banquets with non-linear seasoning and reduction adjustments.
+- Generates bulk commissary prep pull sheets specifying exact kilograms of poultry, beef, rice, and produce.
+
