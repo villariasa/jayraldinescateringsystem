@@ -2186,3 +2186,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Enables independent thermal slip printing at respective cooking lines to streamline high-volume banquet prep.
 - Configured fallback consolidation for small satellite venues operating with a single centralized kitchen printer.
 
+### Dual-Engine SQLite and PostgreSQL Query Compatibility
+- Audited SQL statements across utils/repository.py to ensure complete syntax parity across SQLite and PostgreSQL.
+- Replaced dialect-specific syntax with portable standard SQL constructs across date arithmetic and string concatenation.
+- Verified parameterized query bindings to prevent SQL injection vulnerabilities across desktop and network modes.
+
