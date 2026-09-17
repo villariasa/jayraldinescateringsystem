@@ -2331,3 +2331,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Requires snapshot of paper market receipt and supervisor sign-off before cash replenishment release.
 - Summarizes petty cash expenses by category for end-of-week custodian fund balancing.
 
+### Kitchen Heavy Equipment Preventative Maintenance
+- Established recurring maintenance log for commercial convection ovens, gas ranges, grease traps, and deep fryers.
+- Schedules weekly burner nozzle descaling, monthly grease trap pump-outs, and quarterly thermostat calibration.
+- Logs service contractor visit reports and equipment warranty expiration dates in the asset registry.
+
