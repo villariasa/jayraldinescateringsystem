@@ -2176,3 +2176,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Rendered dashed cut guidelines (✂ — — — — ✂) between paired slips for warehouse and van dispatch.
 - Preserved single-order fallback formatting ensuring solitary bookings occupy upper half with clean blank base.
 
+### QPrinter Device Pixel Bounding & Page Rect Scaling
+- Calibrated QPrinter.HighResolution document rendering to calculate dynamic scale factors from pageRect(DevicePixel).
+- Fixed text clipping and coordinate truncation when exporting BEO documents across differing laser printer DPIs.
+- Maintained deterministic 800px layout width reference across desktop preview, PDF export, and physical printers.
+
