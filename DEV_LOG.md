@@ -2191,3 +2191,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Replaced dialect-specific syntax with portable standard SQL constructs across date arithmetic and string concatenation.
 - Verified parameterized query bindings to prevent SQL injection vulnerabilities across desktop and network modes.
 
+### Mobile PWA Kiosk Responsive Touch Target Guidelines
+- Enforced minimum 48x48px interactive touch targets across tablet PWA modal buttons and order row selectors.
+- Implemented CSS touch-action manipulation to eliminate 300ms mobile browser tap delays during fast order taking.
+- Tuned form input padding and number-stepper buttons for grease-resistant capacitive stylus interaction.
+
