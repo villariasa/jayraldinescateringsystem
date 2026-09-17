@@ -2296,3 +2296,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implements strict validation of 12-digit transaction reference IDs to prevent duplicate payment entry.
 - Integrates payment receipt image upload linking client bank transfer screenshots to ledger vouchers.
 
+### Sequential Official Receipt (OR) Serialization
+- Enforced strict gapless numbering for generated Official Receipts (OR) in accordance with BIR compliance guidelines.
+- Restricts receipt voiding to administrative supervisors, requiring documented justification and audit recording.
+- Maintains separate serial series for Reservation Receipts, Invoices, and Official Tax Receipts.
+
