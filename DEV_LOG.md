@@ -2241,3 +2241,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Analyzes weekend multi-event equipment commitments against available clean inventory in the central warehouse.
 - Automatically flags rental equipment shortage warnings 72 hours prior to scheduled event dispatch.
 
+### Vehicle Fleet Maintenance & Dispatch Tracking
+- Added transport fleet management module tracking commissary delivery vans, chiller trucks, and utility pickups.
+- Logs oil changes, tire rotations, brake inspections, and LTFRB franchise renewal dates.
+- Prevents dispatch assignment of vehicles tagged with pending maintenance or mechanical safety flags.
+
