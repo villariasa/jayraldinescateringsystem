@@ -2301,3 +2301,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Restricts receipt voiding to administrative supervisors, requiring documented justification and audit recording.
 - Maintains separate serial series for Reservation Receipts, Invoices, and Official Tax Receipts.
 
+### Withholding Tax (BIR Form 2307) Deduction Handling
+- Added support for corporate clients subject to 1% (purchase of goods) or 2% (services) expanded withholding tax.
+- Automatically calculates creditable tax deductions and requires certificate attachment prior to final billing signoff.
+- Tracks quarterly 2307 receivables ledger for accountant tax filing and reconciliation.
+
