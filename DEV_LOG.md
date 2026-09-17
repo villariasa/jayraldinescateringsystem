@@ -2381,3 +2381,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Allocates shares across kitchen cooks (35%), service waitstaff (45%), and setup/utility crew (20%).
 - Generates tip payout vouchers verified by head captain and acknowledged by crew signatures.
 
+### Digital Contract Stylus Signature Capture on Tablet
+- Enhanced tablet contract signing modal supporting smooth Bezier curve vector stylus signature capture.
+- Embeds digital signatures directly into generated PDF catering agreements alongside client IP and timestamp.
+- Validates signature presence before allowing order status advancement to 'Contract Signed'.
+
