@@ -2396,3 +2396,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Alerts clients with venue coordinator contact details, remaining balance warnings, and final guest count confirmations.
 - Logs SMS dispatch status (Sent, Delivered, Failed) in the master event communications history.
 
+### System Telemetry & Background Resource Monitoring
+- Implemented background daemon thread monitoring local disk storage, RAM consumption, and database latency.
+- Emits warning logs when free disk space falls below 2 GB on the central commissary server terminal.
+- Captures slow SQL queries exceeding 250ms threshold to identify database index optimization needs.
+
