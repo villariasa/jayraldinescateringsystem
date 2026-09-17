@@ -2156,3 +2156,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized 16px prominent venue and event date summary strips for immediate kitchen visibility.
 - Enforced plain horizontal divider rules separating physical order slips without excessive toner waste.
 
+### Order Print Slip Add-Ons Representation Standards
+- Standardized presentation of add-ons on kitchen dispatch slips strictly hiding price and billing figures.
+- Converted add-on display to lightweight bulleted lists replacing heavy multi-column logistics tables.
+- Added italic fallback message 'No additional add-on items specified' for orders without extra charges.
+
