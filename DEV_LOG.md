@@ -2421,3 +2421,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Categorizes breakage causes: In-Transit, Dining Floor Accident, Kitchen Dishwashing, or Client Guest Damage.
 - Feeds monthly breakage totals into operational expense ledgers to forecast quarterly replacement purchases.
 
+### Kitchen Prep Scrap & Food Waste Minimization Logs
+- Formulated kitchen trim and scrap tracking protocols to calculate usable raw ingredient yield percentages.
+- Measures vegetable peelings, meat trimmings, and post-buffet edible surplus for food bank partner collection.
+- Identifies opportunities for menu engineering and portion adjustments to lower overall cost of goods sold.
+
