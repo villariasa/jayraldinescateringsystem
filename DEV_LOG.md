@@ -2166,3 +2166,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Improves readability at distance for banquet supervisors, dispatchers, and head chefs during event prep.
 - Prevents misattribution when handling multiple concurrent wedding and corporate event bookings.
 
+### Special Instructions & Remarks Section Restyling
+- Removed enclosed 1px solid border-box wrapper around special instructions and remarks on BEO slips.
+- Replaced with clean bold-uppercase section header and indented italic notes matching reference specifications.
+- Preserves high visual contrast while reducing printer ink consumption during high-volume batch runs.
+
