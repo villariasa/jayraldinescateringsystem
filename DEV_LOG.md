@@ -2371,3 +2371,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Recommends minimum KVA generator ratings when catering at raw venues with limited wall outlet capacity.
 - Prevents tripped circuit breakers and power blackouts during critical banquet dining moments.
 
+### Event Crew Briefing Sheet Dispatch System
+- Designed automated event briefing generator detailing call-times, dress codes, client VIP names, and allergy alerts.
+- Dispatches digital briefing packets to waitstaff and banquet captains 24 hours before event call-time.
+- Includes venue parking guidelines, staff meal schedules, and assigned banquet floor section responsibilities.
+
