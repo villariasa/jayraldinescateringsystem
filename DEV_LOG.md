@@ -2316,3 +2316,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Tracks supplier terms (Net 15, Net 30, COD), bank remittance details, and preferred representative contacts.
 - Monitors supplier price fluctuation trends over 12-month periods to optimize ingredient procurement costs.
 
+### Purchase Order (PO) Workflow Linked to Recipe Shortages
+- Designed automated Purchase Order generator triggered by upcoming weekend banquet ingredient requirements.
+- Compares current stock on hand against calculated recipe needs and outputs supplier-specific purchase orders.
+- Tracks PO lifecycle: Draft, Approved by Head Chef, Transmitted to Supplier, and Received at Commissary.
+
