@@ -2236,3 +2236,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documents temperature excursions and triggers immediate food safety corrective action alerts for kitchen staff.
 - Archives historical temperature audit logs in compliance with FDA and local sanitation regulatory standards.
 
+### Catering Equipment & Linen Par-Level Monitoring
+- Defined minimum par levels for stainless chafing dishes, burner covers, porcelain dinnerware, and folded linen napkins.
+- Analyzes weekend multi-event equipment commitments against available clean inventory in the central warehouse.
+- Automatically flags rental equipment shortage warnings 72 hours prior to scheduled event dispatch.
+
