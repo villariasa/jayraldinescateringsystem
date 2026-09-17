@@ -2271,3 +2271,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Embeds tasting notes directly into chef execution cards (e.g., 'reduce sugar in Pork Humba', 'extra garlic sauce').
 - Ensures identical replication of approved tasting profiles during full-scale 300-pax banquet production.
 
+### Wedding Cake Delivery & Ambient Temperature Care
+- Established wedding cake transport protocol specifying flat-floor vehicle placement and air conditioning setpoints (20°C).
+- Logs cake delivery arrival time, baker hand-off signoff, and cake table display location away from direct sunlight.
+- Tracks rental cake stands, decorative knives, and acrylic risers with security deposit return reconciliation.
+
