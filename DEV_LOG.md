@@ -2386,3 +2386,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Embeds digital signatures directly into generated PDF catering agreements alongside client IP and timestamp.
 - Validates signature presence before allowing order status advancement to 'Contract Signed'.
 
+### Branded Transactional Email Notification Templates
+- Overhauled HTML email templates for booking confirmations, balance reminders, and receipt acknowledgments.
+- Incorporates brand logo, responsive mobile-friendly layouts, and clear call-to-action payment buttons.
+- Configured SMTP retry queues handling temporary mail server throttling and delivery receipt tracking.
+
