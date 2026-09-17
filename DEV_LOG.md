@@ -2306,3 +2306,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Automatically calculates creditable tax deductions and requires certificate attachment prior to final billing signoff.
 - Tracks quarterly 2307 receivables ledger for accountant tax filing and reconciliation.
 
+### Tiered Booking Cancellation Policy Enforcement
+- Codified contractual cancellation rules: 100% refund (>30 days), 50% refund (15-30 days), non-refundable (<14 days).
+- Automatically calculates applicable refund amounts and forfeiture fees upon booking status change to 'Cancelled'.
+- Updates master revenue projections and releases reserved commissary equipment back into available inventory.
+
