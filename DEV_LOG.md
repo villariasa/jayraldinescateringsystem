@@ -2341,3 +2341,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Monitors weekly laundry turnover to commercial dry cleaners and checks returned garment counts.
 - Flags missing garments against staff shift check-outs to prevent asset attrition.
 
+### Beverage Station Supplies & Dispenser Management
+- Formulated standard beverage calculation formulas: 1.5 glasses of iced tea/juice and 0.8 cups of coffee per guest.
+- Tracks inventory for drink concentrates, purified water carboys, paper cups, stirring straws, and ice buckets.
+- Enforces dispenser sanitization schedules before and after every dispatched catering engagement.
+
