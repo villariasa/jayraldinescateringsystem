@@ -2366,3 +2366,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documents backup indoor hall locations, sidewall tent requirements, and mud-resistant electrical cord ramps.
 - Establishes mandatory 3-hour pre-event decision deadline for outdoor-to-indoor setup transitions.
 
+### Event Electrical Load & Generator Sizing Calculator
+- Created power consumption calculator summing wattage for electric food warmers, chillers, and lighting rigs.
+- Recommends minimum KVA generator ratings when catering at raw venues with limited wall outlet capacity.
+- Prevents tripped circuit breakers and power blackouts during critical banquet dining moments.
+
