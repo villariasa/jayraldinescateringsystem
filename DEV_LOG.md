@@ -2326,3 +2326,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Projects weekly cash disbursement requirements to prevent supply chain disruptions during peak catering months.
 - Provides payment approval queues for management with check voucher printing support.
 
+### Petty Cash Disbursement & Market Run Reimbursement
+- Implemented petty cash logging module for emergency wet-market purchases (calamansi, ice, herbs, charcoal).
+- Requires snapshot of paper market receipt and supervisor sign-off before cash replenishment release.
+- Summarizes petty cash expenses by category for end-of-week custodian fund balancing.
+
