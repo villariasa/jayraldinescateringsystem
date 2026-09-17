@@ -917,6 +917,62 @@ class DraggableMascotWidget(QWidget):
         else:
             self.drawer.hide()
 
+    def check_and_show_morning_briefing(self, force: bool = False):
+        """
+        Presents Chef Jay AI's Morning Operational Briefing upon app launch.
+        Crucial: strictly once-per-day. If already displayed today, it will NOT
+        repeat if the user closes and reopens the application on the same day.
+        """
+        try:
+            from PySide6.QtCore import QSettings
+            from datetime import datetime
+
+            if not self.isVisible():
+                return
+
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            settings = QSettings("Jayraldines", "CateringSystem")
+            last_date = settings.value("chef_jay/last_morning_briefing_date", "")
+
+            if not force and str(last_date) == today_str:
+                return  # Already completed today — do not repeat!
+
+            # Mark as done for today immediately so subsequent launches skip
+            settings.setValue("chef_jay/last_morning_briefing_date", today_str)
+            settings.sync()
+
+            # Fetch daily operational briefing
+            res = ai_client.daily_briefing()
+            ans = res.get("answer", "")
+            options = res.get("options", [])
+
+            # Mascot animation & verbal speech bubble
+            if hasattr(self, "mascot") and self.mascot:
+                self.mascot.set_state("happy")
+                self.mascot.say("👨‍🍳 Maayong buntag! Here is your Chef's Daily Briefing! 📋", duration_ms=5000)
+
+            # Open drawer and post the rich briefing card
+            if hasattr(self, "drawer") and self.drawer:
+                self._update_drawer_position()
+                self.drawer.show()
+                self.drawer.raise_()
+                self.raise_()
+
+                card = build_ai_card(
+                    ans,
+                    chart_spec=None,
+                    error="",
+                    action=None,
+                    options=options,
+                    on_option_send=self.drawer.ask,
+                    animate_typing=True,
+                    on_scroll_request=self.drawer._scroll_to_bottom
+                )
+                self.drawer._add_to_feed(card)
+        except Exception as exc:
+            print(f"[ChefJayAI] Morning briefing notice: {exc}")
+
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()

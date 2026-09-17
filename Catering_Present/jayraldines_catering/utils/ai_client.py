@@ -1028,6 +1028,15 @@ def _answer_notifications(q: str) -> dict:
 
 
 def _answer_daily_briefing(q: str) -> dict:
+    today_d = date.today()
+    all_b = _bookings()
+    today_bookings = []
+    for b in all_b:
+        d = _parse_date(b.get("date", ""))
+        status = str(b.get("status", "")).upper()
+        if d == today_d and status not in ("CANCELLED",):
+            today_bookings.append(b)
+
     k = _safe(repo.get_dashboard_kpis, {})
     overdue = _safe(repo.get_overdue_follow_ups, [])
     due_today = _safe(repo.get_todays_follow_ups, [])
@@ -1036,25 +1045,100 @@ def _answer_daily_briefing(q: str) -> dict:
     unpaid = [i for i in invoices if str(i.get("status", "")).lower() != "paid"]
     unpaid_total = sum(float(i.get("amount", 0)) - float(i.get("paid", 0)) for i in unpaid)
 
-    parts = [
-        f"Good day! Here's your briefing — "
-        f"{k.get('todays_events', 0)} event(s) today ({k.get('todays_pax', 0)} pax), "
-        f"{k.get('pending_bookings', 0)} pending booking(s) to review, "
-        f"{_peso(float(k.get('weekly_revenue', 0)))} revenue this week."
+    # Greeting based on current time
+    hour = datetime.now().hour
+    if hour < 12:
+        greeting = "Maayong buntag! 👨‍🍳 Good morning!"
+    elif hour < 18:
+        greeting = "Maayong hapon! 👨‍🍳 Good afternoon!"
+    else:
+        greeting = "Maayong gabi! 👨‍🍳 Good evening!"
+
+    date_label = datetime.now().strftime("%A, %B %d, %Y")
+    lines = [
+        f"**{greeting}**",
+        f"Here is your **Chef's Daily Operational Briefing** for *{date_label}*:\n"
     ]
+
+    # Events breakdown
+    if today_bookings:
+        total_pax = sum(int(b.get("pax", 0) or 0) for b in today_bookings)
+        lines.append(f"📅 **Today's Events ({len(today_bookings)} event(s) • {total_pax} total pax):**")
+        for b in today_bookings:
+            raw_time = b.get("time") or ""
+            t_str = repo.format_time_ampm(raw_time) if raw_time else "TBA"
+            cust = b.get("name") or b.get("customer_name") or "Valued Client"
+            occ = b.get("occasion") or "Catering"
+            venue = b.get("venue") or "TBA Venue"
+            pax = b.get("pax") or 0
+            lines.append(f"• **{t_str}** — {pax} pax {occ} for **{cust}** @ *{venue}*")
+
+        # Logistics & Equipment Check
+        chafing_sets = max(len(today_bookings) * 4, round(total_pax / 20))
+        burner_cans = chafing_sets * 2
+        waitstaff = max(len(today_bookings) * 2, round(total_pax / 25))
+        lines.append(f"\n📦 **Equipment & Crew Logistics Check:**")
+        lines.append(f"• Est. Chafing Dishes: **{chafing_sets} sets**")
+        lines.append(f"• Burner Fuel Cans: **{burner_cans} cans** (2.5h burn rate)")
+        lines.append(f"• Recommended Service Crew: **~{waitstaff} waitstaff / attendants**")
+    else:
+        k_events = k.get("todays_events", 0)
+        if k_events > 0:
+            lines.append(f"📅 **Today's Events:** **{k_events} event(s)** ({k.get('todays_pax', 0)} pax) scheduled for today.")
+        else:
+            lines.append("📅 **Today's Events:** No catering events scheduled for today (kitchen line clear).")
+
+    # Receivables & Alerts
+    alerts = []
     if unpaid:
-        parts.append(f"{len(unpaid)} unpaid invoice(s) totaling {_peso(unpaid_total)}.")
+        alerts.append(f"💳 **Receivables Alert:** **{len(unpaid)} unpaid invoice(s)** totaling **{_peso(unpaid_total)}**.")
     if overdue:
-        parts.append(f"⚠ {len(overdue)} OVERDUE follow-up(s): " +
-                     "; ".join(_followup_line(f) for f in overdue[:5]) + ".")
-    if due_today:
-        listing = "; ".join(f"{f['customer_name']} — {f['note']}" for f in due_today[:5])
-        parts.append(f"{len(due_today)} follow-up(s) due today: {listing}.")
-    if unread:
-        parts.append(f"{len(unread)} unread notification(s) — ask \"notifications\" to see them.")
-    if not (unpaid or overdue or due_today or unread):
-        parts.append("Nothing else needs your attention right now.")
-    return {"ok": True, "chart": None, "error": "", "answer": " ".join(parts)}
+        alerts.append(f"⚠️ **{len(overdue)} OVERDUE follow-up(s)** needing client contact.")
+    pending = k.get("pending_bookings", 0)
+    if pending > 0:
+        alerts.append(f"⏳ **{pending} pending booking(s)** waiting for supervisor review.")
+
+    if alerts:
+        lines.append("\n🔔 **Operational Alerts & Follow-ups:**")
+        for a in alerts:
+            lines.append(f"• {a}")
+    else:
+        lines.append("\n✅ **Status:** All receivables, bookings, and follow-ups are up to date!")
+
+    # Action options
+    options = []
+    if today_bookings or k.get("todays_events", 0) > 0:
+        options.append({"label": "📅 View Today's Schedule", "send": "today"})
+    if unpaid:
+        options.append({"label": f"💳 Unpaid Invoices ({_peso(unpaid_total)})", "send": "unpaid invoices"})
+    if pending > 0:
+        options.append({"label": f"⏳ Review {pending} Pending Bookings", "send": "pending bookings"})
+    options.append({"label": "📊 Sales Performance", "send": "monthly revenue"})
+
+    return {
+        "ok": True,
+        "chart": None,
+        "action": None,
+        "options": options,
+        "error": "",
+        "answer": "\n".join(lines)
+    }
+
+
+def _answer_reset_morning_briefing(q: str) -> dict:
+    from PySide6.QtCore import QSettings
+    settings = QSettings("Jayraldines", "CateringSystem")
+    settings.remove("chef_jay/last_morning_briefing_date")
+    settings.sync()
+    return {
+        "ok": True,
+        "chart": None,
+        "action": None,
+        "options": [{"label": "Show Briefing Now", "send": "briefing"}],
+        "error": "",
+        "answer": "🔄 **Morning Briefing Tracker Reset!**\nChef Jay's automatic morning greeting will trigger again the next time you open or log into the application."
+    }
+
 
 
 def _answer_greeting_and_mood(q: str) -> dict:
@@ -3427,8 +3511,8 @@ _INTENTS = [
                                 r"|\bexpenses?\b.{0,12}\blist\b|^\s*expenses?\s*$"
                                 r"|\bexpenses?\b.{0,20}\b(" + _RANGE_WORD_ALT + r")\b"
                                 r"|\b(" + _RANGE_WORD_ALT + r")\b.{0,20}\bexpenses?\b"),
-    (_answer_business_suggestions, r"\b(suggest|suggestion|suggestions|recommend|recommendation|recommendations|advise|advice|improve|improvement|improvements|grow|optimize|optimization)\b|\bhow.{0,20}\b(improve|grow|increase|optimize)\b"),
     (_answer_daily_briefing,    r"\bbriefing\b|\bbrief me\b|\bmorning summary\b|\bdaily summary\b|\bcatch me up\b|\bwhat's on today\b"),
+    (_answer_reset_morning_briefing, r"\breset (?:morning )?briefing\b|\breset (?:morning )?greeting\b"),
     (_answer_follow_ups,        r"\bfollow[\s-]?ups?\b"),
     (_answer_notifications,     r"\bnotifications?\b|\bunread\b|\banything new\b"),
     (_answer_pending,           r"\bpending\b|\bwaiting\b|\bfor review\b|\bto approve\b"),

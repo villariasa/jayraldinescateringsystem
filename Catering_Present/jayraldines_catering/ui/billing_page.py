@@ -858,6 +858,12 @@ class BillingPage(QWidget):
             return
         self._invoices.extend(new_rows)
         self._append_invoice_cards(new_rows)
+        # Auto-continue pagination only appends cards - it never re-ran the
+        # header KPI computation, so the header froze at the first batch's
+        # count while the table kept growing underneath it (e.g. "6 Events"
+        # header vs. 19 rows visible once all pages finished loading).
+        # Header must always match what's currently in the table.
+        self._apply_header_kpis()
 
     def _append_invoice_cards(self, new_rows):
         # NOTE: we deliberately never remove/re-add the trailing stretch spacer
@@ -1140,15 +1146,22 @@ class BillingPage(QWidget):
             self._populate_ledger()
 
     def _apply_header_kpis(self):
-        # Header cards default to the DB-side ALL-TIME aggregate
-        # (self._summary), NOT a sum of self._invoices - under pagination
-        # that list only holds the rows loaded so far. When a header Period
+        # Header cards default to summing self._invoices DIRECTLY - i.e.
+        # EXACTLY the rows currently shown in the table below - not a
+        # separate DB-side aggregate. Those used to disagree (e.g. table
+        # showing 19 invoices while the header said "6 Events") because the
+        # DB query and the list query could end up scoped slightly
+        # differently (default paid-status handling, date-window edge
+        # cases). Computing directly from the same list the client is
+        # looking at makes a mismatch structurally impossible - the numbers
+        # are always exactly "what's in the table." When a header Period
         # filter is active, self._header_summary (fetched separately, scoped
-        # to that period) is shown instead - re-applied here on every
-        # _populate_table() call so a list reload/search doesn't stomp the
-        # period-filtered header back to All Time.
+        # to that period - a deliberate, user-requested override of what's
+        # shown) is used instead, re-applied here on every _populate_table()
+        # call so a list reload/search doesn't stomp the period-filtered
+        # header back to matching the table.
         try:
-            source = self._header_summary if getattr(self, "_header_period", None) else self._summary
+            source = self._header_summary if getattr(self, "_header_period", None) else self._compute_summary_from_rows(self._invoices)
             total_rcv = source.get("total_received", 0.0)
             total_pending = source.get("total_pending", 0.0)
             events_cnt = source.get("events_count", 0)
@@ -1184,12 +1197,23 @@ class BillingPage(QWidget):
         if period == "Today (As of Today)":
             return today.isoformat(), today.isoformat()
         if period == "This Week":
+            # Full Mon-Sun week, not capped at today - bookings are
+            # routinely dated in the future, so an "as of today" cutoff
+            # silently dropped this week's upcoming events from the total.
             start = today - timedelta(days=today.weekday())
-            return start.isoformat(), today.isoformat()
+            end = start + timedelta(days=6)
+            return start.isoformat(), end.isoformat()
         if period == "This Month":
-            return today.replace(day=1).isoformat(), today.isoformat()
+            # Full calendar month (1st through last day), same reasoning.
+            if today.month == 12:
+                next_month_start = date(today.year + 1, 1, 1)
+            else:
+                next_month_start = date(today.year, today.month + 1, 1)
+            end = next_month_start - timedelta(days=1)
+            return today.replace(day=1).isoformat(), end.isoformat()
         if period == "This Year":
-            return today.replace(month=1, day=1).isoformat(), today.isoformat()
+            # Full calendar year (Jan 1 - Dec 31), same reasoning.
+            return today.replace(month=1, day=1).isoformat(), today.replace(month=12, day=31).isoformat()
         return None, None
 
     def _on_header_period_changed(self):

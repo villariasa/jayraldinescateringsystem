@@ -153,11 +153,14 @@ class MainWindow(QMainWindow):
 
         if SessionManager.is_logged_in():
             self.root_stack.setCurrentWidget(self.app_shell)
-            self._floating_ai.setVisible(SessionManager.has_permission("ai_chef_jay", "view"))
+            can_view_ai = SessionManager.has_permission("ai_chef_jay", "view")
+            self._floating_ai.setVisible(can_view_ai)
             self._floating_ai.show()
             self._floating_ai.raise_()
             self._navigate(0)
             QTimer.singleShot(400, self._show_welcome_greeting)
+            if can_view_ai:
+                QTimer.singleShot(1500, self._floating_ai.check_and_show_morning_briefing)
         else:
             self._floating_ai.hide()
             self.root_stack.setCurrentWidget(self._auth_welcome)
@@ -531,7 +534,10 @@ class MainWindow(QMainWindow):
         self._reset_idle_timer()
         if hasattr(self, "_floating_ai") and self._floating_ai:
             from utils.auth import SessionManager
-            self._floating_ai.setVisible(SessionManager.has_permission("ai_chef_jay", "view"))
+            can_view_ai = SessionManager.has_permission("ai_chef_jay", "view")
+            self._floating_ai.setVisible(can_view_ai)
+            if can_view_ai:
+                QTimer.singleShot(1500, self._floating_ai.check_and_show_morning_briefing)
         if len(self._pages) > 10 and self._pages[10] is not None:
             p = self._pages[10]
             if hasattr(p, "reload"):

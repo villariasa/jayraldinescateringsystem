@@ -2,10 +2,10 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QDialog, QFileDialog, QMessageBox, QInputDialog, QScrollArea,
-    QCheckBox, QComboBox, QLineEdit, QDateEdit, QSpinBox, QDoubleSpinBox,
+    QCheckBox, QComboBox, QLineEdit, QDateEdit, QTimeEdit, QSpinBox, QDoubleSpinBox,
     QTabWidget
 )
-from PySide6.QtCore import Qt, QSize, QDate, QTimer
+from PySide6.QtCore import Qt, QSize, QDate, QTime, QTimer
 from PySide6.QtGui import QColor
 import os
 import csv
@@ -988,6 +988,10 @@ class BookingPage(QWidget):
         self._filter_date_start, self._filter_date_end = repo.get_default_orders_window()
         self._filter_customer = None
         self._filter_event = None
+        # Time-of-day filter (24h "HH:MM" strings) - None means no time
+        # restriction (the default, full-day range).
+        self._filter_time_start = None
+        self._filter_time_end = None
 
         # Per-tab lazy pagination state (tab index -> value). Tabs page through
         # bookings independently by status so we never fetch/render rows nobody
@@ -1142,13 +1146,13 @@ class BookingPage(QWidget):
         )
 
     @staticmethod
-    def _fetch_reload_data(status, page_size, date_start, date_end, customer, event):
+    def _fetch_reload_data(status, page_size, date_start, date_end, customer, event, time_start=None, time_end=None):
         # Combined round trip: DB-side counts (accurate under pagination) plus
         # the active tab's first page. Both scoped by the active server-side
-        # filter (date window / customer / occasion).
+        # filter (date window / customer / occasion / time-of-day).
         return (
-            repo.get_booking_counts(date_start, date_end, customer, event),
-            repo.get_bookings_page(status, 0, page_size, date_start, date_end, customer, event),
+            repo.get_booking_counts(date_start, date_end, customer, event, time_start, time_end),
+            repo.get_bookings_page(status, 0, page_size, date_start, date_end, customer, event, time_start, time_end),
         )
 
     def _on_reload_loaded(self, idx, result):
@@ -1331,6 +1335,26 @@ class BookingPage(QWidget):
         self._date_to.setDate(QDate.fromString(self._filter_date_end, "yyyy-MM-dd"))
         self._date_to.dateChanged.connect(lambda _=None: self._on_server_filter_changed())
         server_filter_row.addWidget(self._date_to)
+
+        # Time-of-day filter, on top of the existing date range - lets the
+        # user narrow bookings down to a specific event time slot (e.g. to
+        # check what else is already scheduled around a given time), which
+        # the date range filter alone couldn't do.
+        server_filter_row.addWidget(QLabel("Time"))
+        self._time_from = QTimeEdit()
+        self._time_from.setDisplayFormat("h:mm AP")
+        self._time_from.setFixedHeight(38)
+        self._time_from.setTime(QTime(0, 0))
+        self._time_from.timeChanged.connect(lambda _=None: self._on_server_filter_changed())
+        server_filter_row.addWidget(self._time_from)
+
+        server_filter_row.addWidget(QLabel("to"))
+        self._time_to = QTimeEdit()
+        self._time_to.setDisplayFormat("h:mm AP")
+        self._time_to.setFixedHeight(38)
+        self._time_to.setTime(QTime(23, 59))
+        self._time_to.timeChanged.connect(lambda _=None: self._on_server_filter_changed())
+        server_filter_row.addWidget(self._time_to)
 
         server_filter_row.addWidget(QLabel("Customer"))
         self._customer_filter = QComboBox()
@@ -2477,10 +2501,11 @@ class BookingPage(QWidget):
         dlg.exec()
 
     def _current_filter_args(self):
-        # The 4 server-side filter values threaded into every DB fetch/count call
+        # The 6 server-side filter values threaded into every DB fetch/count call
         # so all 3 tabs (active now, or lazily loaded later) stay consistent.
         return (self._filter_date_start, self._filter_date_end,
-                self._filter_customer, self._filter_event)
+                self._filter_customer, self._filter_event,
+                self._filter_time_start, self._filter_time_end)
 
     def _on_server_filter_changed(self):
         # Read the current widget state into self._filter_* then reload. Applies
@@ -2500,6 +2525,16 @@ class BookingPage(QWidget):
         self._filter_customer = None if (not cust or cust == "All Customers") else cust
         ev = self._event_filter.currentText().strip()
         self._filter_event = None if (not ev or ev == "All Occasions") else ev
+        # Full 00:00-23:59 range means "no time restriction" - only treat it
+        # as an active filter once the user narrows it from the full day.
+        t_start = self._time_from.time()
+        t_end = self._time_to.time()
+        if t_start == QTime(0, 0) and t_end == QTime(23, 59):
+            self._filter_time_start = None
+            self._filter_time_end = None
+        else:
+            self._filter_time_start = t_start.toString("HH:mm")
+            self._filter_time_end = t_end.toString("HH:mm")
         # Force a DB reload (not the one-time memory cache) so counts + rows for
         # all tabs reflect the new filter. _refresh_bookings resets pagination for
         # all 3 tabs and re-fetches page 0 of the active tab.
@@ -2510,10 +2545,14 @@ class BookingPage(QWidget):
         # Restore the default 1-month-back / 2-months-ahead window and clear the
         # customer/occasion pickers, then reload once.
         self._filter_date_start, self._filter_date_end = repo.get_default_orders_window()
+        self._filter_time_start = None
+        self._filter_time_end = None
         self._suspend_filter_signals = True
         try:
             self._date_from.setDate(QDate.fromString(self._filter_date_start, "yyyy-MM-dd"))
             self._date_to.setDate(QDate.fromString(self._filter_date_end, "yyyy-MM-dd"))
+            self._time_from.setTime(QTime(0, 0))
+            self._time_to.setTime(QTime(23, 59))
             self._customer_filter.setCurrentIndex(0)
             self._event_filter.setCurrentIndex(0)
         finally:
@@ -2535,18 +2574,39 @@ class BookingPage(QWidget):
                 continue
         return None
 
+    def _parse_booking_time(self, val):
+        # Booking dicts carry event_time pre-formatted for display (e.g.
+        # "6:00 PM" via format_time_ampm); normalize to 24h "HH:MM" for
+        # comparison against the filter bounds. None on parse failure (row
+        # kept, not dropped, matching _parse_booking_date's behavior).
+        if not val:
+            return None
+        from datetime import datetime as _dt
+        s = str(val).strip()
+        for fmt in ("%I:%M %p", "%H:%M", "%H:%M:%S"):
+            try:
+                return _dt.strptime(s, fmt).strftime("%H:%M")
+            except ValueError:
+                continue
+        return None
+
     def _server_filter_rows(self, rows):
-        # Apply the same date/customer/occasion filter client-side to a pre-loaded
-        # (memory-cached) list, so the first-open cache path respects the default
-        # window and any active filter exactly like the DB path does.
-        ds, de, cust, ev = self._current_filter_args()
-        if not (ds and de) and not cust and not ev:
+        # Apply the same date/time/customer/occasion filter client-side to a
+        # pre-loaded (memory-cached) list, so the first-open cache path
+        # respects the default window and any active filter exactly like
+        # the DB path does.
+        ds, de, cust, ev, ts, te = self._current_filter_args()
+        if not (ds and de) and not cust and not ev and not (ts and te):
             return list(rows or [])
         out = []
         for b in rows or []:
             if ds and de:
                 iso = self._parse_booking_date(b.get("event_date") or b.get("date"))
                 if iso is not None and not (ds <= iso <= de):
+                    continue
+            if ts and te:
+                t_iso = self._parse_booking_time(b.get("event_time") or b.get("time"))
+                if t_iso is not None and not (ts <= t_iso <= te):
                     continue
             if cust and cust.lower() not in (b.get("customer_name") or "").lower():
                 continue

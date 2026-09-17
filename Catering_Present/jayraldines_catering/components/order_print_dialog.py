@@ -294,7 +294,8 @@ class OrderPrintDialog(QDialog):
 
         return add_ons
 
-    def _build_dishes_html(self, booking: dict, compact: bool = False, pad_scale: float = 1.0) -> str:
+    def _build_dishes_table_2col(self, booking: dict, compact: bool = False, pad_scale: float = 1.0) -> str:
+        """Renders strictly 2 columns: Category | Menu matching user specification."""
         dishes = booking.get("dishes") or []
         if not dishes and booking.get("menu_value"):
             raw_dishes = [d.strip() for d in str(booking["menu_value"]).split(",") if d.strip()]
@@ -304,78 +305,64 @@ class OrderPrintDialog(QDialog):
         seen_per_cat = {}
         for d in dishes:
             cat = d.get("category") or "Menu Dishes"
-            # Never fall back to str(d) - a dish record with a missing name
-            # (e.g. a legacy/unresolved item_id) used to print the raw
-            # Python dict repr ("{'item_id': 32, 'name': None, ...}")
-            # straight onto the order slip.
             d_name = d.get("name") or d.get("item_name") or (f"Item #{d['item_id']}" if d.get("item_id") else None)
             if d_name:
-                # Skip if this dish name is already listed under this
-                # category (case-insensitive) - a booking can end up with
-                # the same dish stored as more than one booking_menu_items
-                # row (e.g. added twice during editing, or a duplicate
-                # synced from another device), which used to print e.g.
-                # "Chicken Pandan" twice in a row instead of once.
                 seen = seen_per_cat.setdefault(cat, set())
                 key = d_name.strip().lower()
                 if key not in seen:
                     seen.add(key)
                     by_cat.setdefault(cat, []).append(d_name)
 
-        # Moderate, legible sizing budgeted for a half-A4-page slip. Row
-        # padding (NOT font size) scales with pad_scale so a short dish list
-        # can be spread out to help fill a half-page box.
         ps = pad_scale if not compact else 1.0
-        item_font = "13px" if not compact else "12px"
-        cat_font = "11.5px" if not compact else "11px"
-        cell_pad = f"{round(8 * ps)}px 10px" if not compact else "8px 12px"
+        item_font = "12px" if not compact else "10.5px"
+        cat_font = "11px" if not compact else "9.5px"
+        cell_pad = f"{round(7 * ps)}px 8px" if not compact else "4px 6px"
+
+        html = '<table width="100%" style="width:100%; border-collapse:collapse; border:1.5px solid #000000;">'
+        html += '<tr style="border-bottom:1.5px solid #000000; background-color:#EEEEEE; color:#000000;">'
+        html += f'<th style="padding:{cell_pad}; text-align:left; font-size:{cat_font}; font-weight:800; text-transform:uppercase; width:34%; border-right:1.5px solid #000000;">Category</th>'
+        html += f'<th style="padding:{cell_pad}; text-align:left; font-size:{cat_font}; font-weight:800; text-transform:uppercase; width:66%;">Menu</th>'
+        html += '</tr>'
 
         if by_cat:
-            # Black borders/text throughout (only the business name stays
-            # brand-colored) - the header row keeps a light gray fill per
-            # the approved reference layout, since it's minimal ink and
-            # helps the header row stand out for kitchen staff at a glance.
-            html = '<table width="100%" style="width:100%; border-collapse:collapse; margin-top:6px; border:2px solid #000000;">'
-            html += '<tr style="border-bottom:2px solid #000000; background-color:#EEEEEE; color:#000000;">'
-            html += f'<th style="padding:{cell_pad}; text-align:left; font-size:{cat_font}; width:28%;">Course / Category</th>'
-            html += f'<th style="padding:{cell_pad}; text-align:left; font-size:{cat_font}; width:72%;">Selected Food &amp; Menu</th>'
-            html += '</tr>'
             for cat, items in by_cat.items():
                 items_str = "<br/>".join([f"● <b>{it}</b>" for it in items])
                 html += f"""
                 <tr style="border-bottom:1px solid #000000;">
-                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#000000;">{cat}</td>
-                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{item_font}; font-weight:700; color:#000000; line-height:1.6;">{items_str}</td>
+                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#000000; border-right:1px solid #000000;">{cat}</td>
+                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{item_font}; font-weight:700; color:#000000; line-height:1.45;">{items_str}</td>
                 </tr>
                 """
-            html += '</table>'
         else:
-            html = '<p style="font-size:12px; font-style:italic; color:#000000;">Standard catering package inclusions apply.</p>'
+            html += f"""
+            <tr style="border-bottom:1px solid #000000;">
+                <td style="padding:{cell_pad}; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#000000; border-right:1px solid #000000;">Standard Inclusions</td>
+                <td style="padding:{cell_pad}; vertical-align:top; font-size:{item_font}; font-style:italic; color:#000000;">Standard catering package inclusions apply.</td>
+            </tr>
+            """
+        html += '</table>'
         return html
+
+    _build_foods_grid_html = _build_dishes_table_2col
+    _build_dishes_html = _build_dishes_table_2col
 
     def _build_addons_html(self, booking: dict, compact: bool = False) -> str:
         add_ons = self._get_clean_addons(booking)
-        font_sz = "12px" if compact else "13px"
+        font_sz = "11.5px" if compact else "12px"
         if add_ons:
-            # Bulleted list — no table, no price columns, no logistics column.
-            # Matches reference layout: just a plain list of add-on names.
             items_html = "".join(
                 f'<div style="font-size:{font_sz}; color:#000000; margin-bottom:2px;">&#8226; {a}</div>'
                 for a in add_ons
             )
-            html = f'<div style="margin-top:4px;">{items_html}</div>'
+            html = f'<div style="margin-top:3px;">{items_html}</div>'
         else:
-            html = '<p style="font-size:12px; font-style:italic; color:#000000; margin:2px 0 0 0;">No additional add-on items specified.</p>'
+            html = '<p style="font-size:11px; font-style:italic; color:#666666; margin:2px 0 0 0;">No additional add-on items specified.</p>'
         return html
 
     def _build_slip_body(self, booking: dict, compact: bool = False, pad_scale: float = 1.0) -> str:
-        """One order's content: Date | Name | Time | Pax summary strip, then
-        package/menu (highlighted) and add-ons. `compact` shrinks fonts/
-        spacing for the two-per-page half-page layout. `pad_scale` grows the
-        WHITESPACE between sections (never font size) - used by
-        _build_order_container() to spread a short order's content out to
-        fill a half-A4 box instead of leaving it a small block with a big
-        empty gap underneath."""
+        """One order's content formatted according to the two-column layout:
+        Top header with PACKAGE on right, DATE NAME TIME PAX strip,
+        VENUE + ADDITIONAL INSTRUCTIONS on left, and Category | Menu 2-column table on right."""
         biz = self._business
         order_ref = str(booking.get("id") or booking.get("booking_ref") or "ORD-SLIP")
         cust_name = str(booking.get("name") or booking.get("customer_name") or "Valued Client")
@@ -391,92 +378,105 @@ class OrderPrintDialog(QDialog):
         notes_str = str(booking.get("notes") or "").strip()
         clean_notes = re.sub(r"\n?\[Add-ons:\s*.*?\]", "", notes_str, flags=re.IGNORECASE).strip()
 
-        dishes_html = self._build_dishes_html(booking, compact=compact, pad_scale=pad_scale)
-        addons_html = self._build_addons_html(booking, compact=compact)
+        add_ons = self._get_clean_addons(booking)
+        foods_grid_html = self._build_dishes_table_2col(booking, compact=compact, pad_scale=pad_scale)
 
-        # Font sizes scaled to match reference screenshot exactly.
-        h_title   = "22px" if not compact else "14px"   # Business name
-        strip_lbl = "9px"  if not compact else "8px"    # DATE / NAME / TIME / PAX labels
-        strip_val = "16px" if not compact else "12px"   # Values in the strip row
-        section_font = "12px" if not compact else "10.5px"
-        venue_font   = "16px" if not compact else "12px"
-
-        # Special Instructions — plain bold-uppercase label + italic text,
-        # NO border box.  Matches the reference screenshot exactly.
-        remarks_html = ""
-        if clean_notes and not compact:
-            remarks_html = f"""
-            <div style="margin-top:10px;">
-                <div style="font-size:{section_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.3px; margin-bottom:2px;">Special Instructions &amp; Remarks:</div>
-                <div style="font-size:{section_font}; font-style:italic; color:#000000; line-height:1.4;">{clean_notes}</div>
-            </div>
-            """
-
-        # pad_scale only stretches whitespace for the non-compact (single/
-        # paired half-page) layout - the tiny compact metrics are untouched.
         ps = pad_scale if not compact else 1.0
-        strip_pad_v = round(10 * ps) if not compact else 7
-        strip_pad = f"{strip_pad_v}px 12px" if not compact else "7px 8px"
-        gap_lg = f"{round(12 * ps)}px" if not compact else "8px"
-        gap_md = f"{round(8 * ps)}px"  if not compact else "5px"
-        gap_sm = f"{round(4 * ps)}px"  if not compact else "2px"
+        h_title   = "22px" if not compact else "16px"
+        strip_lbl = "9px"  if not compact else "8px"
+        strip_val = "15px" if not compact else "12px"
+        section_lbl = "11px" if not compact else "9.5px"
+        venue_val = "15px" if not compact else "12px"
+        body_font = "11.5px" if not compact else "10px"
 
-        # Bottom separator line — a single thin horizontal rule at the very
-        # end of the slip (visible in the reference screenshot).
-        bottom_sep = (
-            '<hr style="border:none; border-top:1.5px solid #000000; margin-top:14px; margin-bottom:0;"/>'
-            if not compact else ""
-        )
+        printed_on_str = datetime.now().strftime("%Y-%m-%d %I:%M %p")
 
-        addons_section = ""
-        if not compact:
-            addons_section = f"""
-            <div style="margin-top:{gap_lg};">
-                <div style="font-size:{section_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.3px;">Additional Items &amp; Add-ons (No Rates Shown)</div>
-                {addons_html}
-            </div>
-            """
+        # Additional instructions content (clean notes + clean add-on items)
+        instr_parts = []
+        if clean_notes:
+            instr_parts.append(f'<div style="font-size:{body_font}; font-style:italic; color:#000000; line-height:1.35; margin-bottom:4px;">{clean_notes}</div>')
+        if add_ons:
+            items_html = "".join(
+                f'<div style="font-size:{body_font}; color:#000000; margin-bottom:2px;">&#8226; {a}</div>'
+                for a in add_ons
+            )
+            instr_parts.append(f'<div style="margin-top:2px;">{items_html}</div>')
+        if not instr_parts:
+            instr_parts.append(f'<div style="font-size:10.5px; font-style:italic; color:#666666;">No additional instructions or add-ons specified.</div>')
+        instructions_html = "".join(instr_parts)
+
+        strip_pad_v = round(7 * ps) if not compact else 5
+        strip_pad = f"{strip_pad_v}px 8px" if not compact else "5px 6px"
+
+        gap_top = f"{round(8 * ps)}px" if not compact else "5px"
+        gap_section = f"{round(14 * ps)}px" if not compact else "8px"
+        gap_footer = f"{round(18 * ps)}px" if not compact else "10px"
 
         return f"""
-        <!-- Business header — only name in brand red, rest plain black. -->
-        <div style="font-size:{h_title}; font-weight:900; color:#E11D48; line-height:1.1;">{biz.get('name', "Jayraldine's Catering")}</div>
-        <div style="font-size:10px; color:#000000; margin-top:1px;">{biz.get('address', 'Cebu City')} &middot; Tel: {biz.get('contact', '')}</div>
-        <div style="font-size:10px; font-weight:800; color:#000000; letter-spacing:0.5px; margin-top:3px;">BANQUET EVENT ORDER &ndash; {order_ref}</div>
-
-        <!-- Date | Name | Time | Pax strip -->
-        <table width="100%" style="width:100%; border-collapse:collapse; margin-top:{gap_md}; border:1.5px solid #000000;">
+        <!-- Top Section: Business Header on Left, PACKAGE on Right -->
+        <table width="100%" style="width:100%; border-collapse:collapse;">
             <tr>
-                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000;">
-                    Date<br/><span style="font-size:{strip_val}; font-weight:800;">{date_str}</span>
+                <td style="vertical-align:top;">
+                    <div style="font-size:{h_title}; font-weight:900; color:#E11D48; line-height:1.1;">{biz.get('name', "Jayraldine's Catering")}</div>
+                    <div style="font-size:10px; color:#000000; margin-top:2px;">{biz.get('address', '518 V Rama Ave, Cebu City')} &middot; Tel: {biz.get('contact', '+63 912 345 6789')}</div>
                 </td>
-                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000;">
-                    Name<br/><span style="font-size:{strip_val}; font-weight:800; text-transform:uppercase;">{cust_name}</span>
-                </td>
-                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000;">
-                    Time<br/><span style="font-size:{strip_val}; font-weight:800;">{time_str}</span>
-                </td>
-                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase;">
-                    Pax<br/><span style="font-size:{strip_val}; font-weight:800;">{pax}</span>
+                <td style="text-align:right; vertical-align:top;">
+                    <div style="font-size:10.5px; font-weight:800; color:#444444; text-transform:uppercase; letter-spacing:0.5px;">PACKAGE</div>
+                    <div style="font-size:14px; font-weight:900; color:#000000; text-transform:uppercase; margin-top:2px;">{pkg_name}</div>
                 </td>
             </tr>
         </table>
 
-        <!-- Venue / Location -->
-        <div style="margin-top:{gap_md}; font-size:{strip_lbl}; font-weight:700; color:#000000; text-transform:uppercase;">Venue / Location</div>
-        <div style="font-size:{venue_font}; font-weight:800; color:#000000; margin-top:{gap_sm};">{venue}</div>
+        <!-- Summary Strip: DATE NAME TIME PAX -->
+        <table width="100%" style="width:100%; border-collapse:collapse; margin-top:{gap_top}; border:1.5px solid #000000;">
+            <tr>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000; width:25%;">
+                    DATE<br/><span style="font-size:{strip_val}; font-weight:800;">{date_str}</span>
+                </td>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000; width:35%;">
+                    NAME<br/><span style="font-size:{strip_val}; font-weight:800; text-transform:uppercase;">{cust_name}</span>
+                </td>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000; width:22%;">
+                    TIME<br/><span style="font-size:{strip_val}; font-weight:800;">{time_str}</span>
+                </td>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; width:18%;">
+                    PAX<br/><span style="font-size:{strip_val}; font-weight:800;">{pax}</span>
+                </td>
+            </tr>
+        </table>
 
-        <!-- Occasion + Contact -->
-        <div style="margin-top:{gap_sm}; font-size:{section_font}; color:#000000;">
-            <b>Occasion:</b> {occasion}{f' &nbsp;&nbsp; <b>Contact:</b> {contact}' if contact and not compact else ''}
-        </div>
+        <!-- Main Body: Two-Column Split matching wireframe -->
+        <table width="100%" style="width:100%; border-collapse:collapse; margin-top:{gap_top};">
+            <tr>
+                <!-- Left Column: VENUE, ADDITIONAL INSTRUCTIONS, EVENT ORDER, PRINTED ON -->
+                <td style="width:44%; vertical-align:top; padding-right:14px;">
+                    <div style="font-size:{section_lbl}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.3px;">VENUE</div>
+                    <div style="font-size:{venue_val}; font-weight:800; color:#000000; margin-top:2px; line-height:1.2;">{venue}</div>
+                    <div style="font-size:{body_font}; color:#222222; margin-top:4px;"><b>Occasion:</b> {occasion}</div>
+                    {f'<div style="font-size:{body_font}; color:#222222; margin-top:2px;"><b>Contact:</b> {contact}</div>' if contact else ''}
 
-        <!-- Package name -->
-        <div style="margin-top:{gap_lg}; font-size:{section_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.4px;">Package: {pkg_name}</div>
-        {dishes_html}
+                    <div style="margin-top:{gap_section};">
+                        <div style="font-size:{section_lbl}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.3px;">ADDITIONAL INSTRUCTIONS</div>
+                        <div style="margin-top:3px;">
+                            {instructions_html}
+                        </div>
+                    </div>
 
-        {addons_section}
-        {remarks_html}
-        {bottom_sep}
+                    <div style="margin-top:{gap_footer};">
+                        <div style="font-size:{section_lbl}; font-weight:800; color:#000000; text-transform:uppercase;">EVENT ORDER: <span style="font-size:12px; font-weight:900;">{order_ref}</span></div>
+                        <div style="font-size:9.5px; font-weight:700; color:#555555; text-transform:uppercase; margin-top:2px;">PRINTED ON: {printed_on_str}</div>
+                    </div>
+                </td>
+
+                <!-- Right Column: Category | Menu (strictly 2 columns) -->
+                <td style="width:56%; vertical-align:top;">
+                    {foods_grid_html}
+                </td>
+            </tr>
+        </table>
+
+        <!-- Bottom separator rule -->
+        <hr style="border:none; border-top:1.5px solid #000000; margin-top:14px; margin-bottom:0;"/>
         """
 
     _BASE_STYLE = """

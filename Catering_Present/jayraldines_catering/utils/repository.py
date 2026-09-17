@@ -1215,7 +1215,8 @@ _BOOKING_TAB_STATUSES = {
 
 def get_bookings_page(status_filter=None, offset: int = 0, limit: int = 50,
                        date_start: str = None, date_end: str = None,
-                       customer: str = None, event: str = None) -> list[dict]:
+                       customer: str = None, event: str = None,
+                       time_start: str = None, time_end: str = None) -> list[dict]:
     """Fetch one page of bookings, newest first, optionally filtered.
 
     status_filter: an iterable of status strings (e.g. ["PENDING"]) to restrict
@@ -1224,6 +1225,9 @@ def get_bookings_page(status_filter=None, offset: int = 0, limit: int = 50,
       be given together to apply; None/None = unbounded).
     customer: optional case-insensitive substring match on customer name.
     event: optional case-insensitive substring match on the occasion field.
+    time_start/time_end: optional "HH:MM" (24h) bounds on the event time
+      (both must be given together to apply) - lets Orders narrow bookings
+      down to a specific time-of-day slot, on top of the date range.
     """
     params: list = []
     where = "WHERE 1=1"
@@ -1235,6 +1239,13 @@ def get_bookings_page(status_filter=None, offset: int = 0, limit: int = 50,
     if date_start and date_end:
         where += " AND b.bk_event_date BETWEEN %s AND %s"
         params.extend([date_start, date_end])
+    if time_start and time_end:
+        # SUBSTR to compare only the HH:MM portion - bk_event_time is a real
+        # TIME column on Postgres but plain TEXT ("HH:MM:SS") on SQLite, so
+        # comparing full-precision strings against a minute-granularity
+        # "HH:MM" filter value could miscompare (e.g. "18:00" vs "18:00:00").
+        where += " AND SUBSTR(CAST(b.bk_event_time AS TEXT), 1, 5) BETWEEN %s AND %s"
+        params.extend([time_start, time_end])
     if customer:
         where += " AND b.bk_customer_name ILIKE %s"
         params.append(f"%{customer}%")
@@ -1257,11 +1268,12 @@ def get_default_orders_window() -> tuple[str, str]:
 
 
 def get_booking_counts(date_start: str = None, date_end: str = None,
-                        customer: str = None, event: str = None) -> dict:
+                        customer: str = None, event: str = None,
+                        time_start: str = None, time_end: str = None) -> dict:
     """Return per-tab booking counts independent of how many rows are loaded into
     the UI, so tab title counts stay accurate under pagination. Accepts the same
-    optional date/customer/event filters as get_bookings_page() so the counts
-    reflect whatever's currently filtered, not the whole table.
+    optional date/time/customer/event filters as get_bookings_page() so the
+    counts reflect whatever's currently filtered, not the whole table.
 
     Returns {"pending": N, "confirmed": N, "all": N} where "confirmed" covers
     both CONFIRMED and COMPLETED (matching the Confirmed tab's status bucket).
@@ -1273,6 +1285,9 @@ def get_booking_counts(date_start: str = None, date_end: str = None,
         if date_start and date_end:
             where += " AND b.bk_event_date BETWEEN %s AND %s"
             params.extend([date_start, date_end])
+        if time_start and time_end:
+            where += " AND SUBSTR(CAST(b.bk_event_time AS TEXT), 1, 5) BETWEEN %s AND %s"
+            params.extend([time_start, time_end])
         if customer:
             where += " AND b.bk_customer_name ILIKE %s"
             params.append(f"%{customer}%")
