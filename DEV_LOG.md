@@ -2406,3 +2406,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Reduces calendar query execution time from 180ms to under 12ms across databases with 5,000+ historical bookings.
 - Documented index maintenance and periodic VACUUM ANALYZE commands for PostgreSQL instances.
 
+### Cross-Platform Font Fallback Rendering on Linux and Windows
+- Configured robust font stack fallbacks: Segoe UI (Windows), Ubuntu / DejaVu Sans (Linux), and Roboto (Android).
+- Eliminates missing glyph boxes and misaligned text in generated PDF reports and on-screen Qt dialogs.
+- Standardizes currency symbol (₱ Philippine Peso) unicode font rendering across all runtime environments.
+
