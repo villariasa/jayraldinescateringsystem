@@ -2216,3 +2216,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Flags corrupt or half-written database dumps caused by abrupt workstation shutdowns or power interruptions.
 - Stores verified cryptographic hashes alongside compressed .sql.gz archives in the administrative vault.
 
+### PostgreSQL Central Connection Pool Health Tuning
+- Optimized connection pool configuration in db_sync_server.py: max_overflow=20, pool_recycle=3600, and pool_pre_ping=True.
+- Eliminates stale or severed TCP sockets across long overnight idle periods on the commissary LAN router.
+- Enforced connection timeout limits preventing worker starvation during simultaneous multi-tablet sync bursts.
+
