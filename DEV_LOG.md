@@ -2456,3 +2456,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Refactored the Banquet Event Order (BEO) print dialog menu table to strictly utilize a 2-column layout (`Category | Menu`).
 - Allocated 34% width to the Category column and 66% width to the Menu column for balanced visual weight.
 - Removed redundant card-based grid elements in favor of a clean, high-contrast bordered presentation.
+
+### Category-to-Dish Hierarchical Grouping & Deduplication
+- Grouped menu selections by culinary category: Main Course, Pork, Poultry, Seafood, Dessert, and Beverage.
+- Implemented case-insensitive deduplication preventing duplicate entries across repeated recipe inclusions.
+- Maintained fallback categorization for unclassified custom package dishes.
