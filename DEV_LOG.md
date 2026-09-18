@@ -2531,3 +2531,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established daily HACCP logging for commercial dishwashers, mandating minimum 82°C final rinse temperatures.
 - Standardized chemical test strip checks measuring 200 PPM quaternary ammonium sanitizer levels.
 - Created maintenance reminder schedules for water softener salt replenishment and deliming cycles.
+
+### Banquet Tablecloth Laundering, Stain Removal & Pressing Workflows
+- Documented specialized washing formulas for heavy polyester damask banquet tablecloths and chair covers.
+- Implemented pre-soak stain treatment protocols for stubborn red wine, grease, and yellow curry stains.
+- Specified commercial rotary iron pressing standards to ensure crisp, crease-free event setups.
