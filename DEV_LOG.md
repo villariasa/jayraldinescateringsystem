@@ -2751,3 +2751,10 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Successfully finalized the 60-part daily engineering documentation series for September 18, 2026.
 - Encompasses 2-column BEO print formatting, Chef Jay AI morning reset mechanics, time-slot filtering, HACCP standards, catering logistics, food safety, and banquet operations.
 - Preserved all active application code integrity while advancing repository operational and architectural documentation.
+
+### September 18, 2026 — Milestone v4.1.37 Release
+- **Real-Time Cross-Workstation Synchronization**: Fixed cross-thread signal emission in `client_sync.py` and `db_sync_server.py` by removing faulty `QTimer.singleShot` in worker threads and binding signals to the main Qt GUI event loop.
+- **Dynamic Multi-Tab Reactive Invalidation**: Fixed in-memory cache desync in `booking_page.py` for single delete/decline operations, ensuring cards and counts purge instantly without requiring re-login.
+- **Visual Sync Indicators**: Added real-time sync toasts ("Syncing updates..." and "Database updated") across all workstations.
+- **Order Slip Print Refinements**: Enlarged menu course selections, stripped category headings into clean bullet lists, and compacted customer info headers.
+- **Version Bump**: Official release bump to **v4.1.37** across `version.py`, `installer.iss`, and `build.ps1`.
