@@ -2601,3 +2601,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Mandated staging Class K wet chemical extinguishers near mobile frying and grilling stations.
 - Positioned Class ABC dry chemical extinguishers at all buffet stations utilizing open ethanol chafing burners.
 - Enforced a minimum 1-meter clearance between chafing flames and synthetic decorative floral drapes.
+
+### Post-Event Waste Segregation & Venue Turnover Inspection
+- Implemented a 4-stream waste segregation system: Compostable Food Prep, Clean Recyclables, Residual, and Glass.
+- Provided clients with biodegradable takeaway boxes for approved remaining banquet food surplus.
+- Created a formal venue handover checklist signed by the banquet captain and facility coordinator.
