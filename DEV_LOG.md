@@ -2716,3 +2716,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Equipped commissary dry storage with food-grade polypropylene ingredient bins on caster wheels.
 - Applied bold color-coded date labels for flour, sugar, salt, cornstarch, and spices adhering to FIFO stock rotation.
 - Mandated 15cm ground clearance on commercial stainless shelving units to facilitate floor sanitization.
+
+### Catering Logistics Fleet Weekly Mechanical & Tire Checklists
+- Established weekly maintenance inspections for delivery vans: tire pressure, tread wear, brake pads, and oil levels.
+- Verified working order of refrigerated cargo box chillers, cargo tie-down straps, and hydraulic tail lifts.
+- Required drivers to record odometer readings and maintenance remarks in the vehicle tracking logbook.
