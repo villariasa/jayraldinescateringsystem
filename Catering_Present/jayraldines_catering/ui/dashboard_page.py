@@ -1204,6 +1204,8 @@ class DashboardPage(QWidget):
     def reload(self):
         self._dirty = False
         self.refresh_permissions()
+        from utils.data_cache import DataCache
+        DataCache.invalidate("dashboard_data", "dashboard")
         self._load_data()
 
     def _fetch_dashboard_data(self):

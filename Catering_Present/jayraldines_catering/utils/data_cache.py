@@ -27,15 +27,15 @@ class _DataCacheManager:
         try:
             from utils.signals import app_events
             ev = app_events()
-            ev.booking_saved.connect(lambda: self.invalidate("bookings", "dashboard", "calendar"))
-            ev.booking_created.connect(lambda: self.invalidate("bookings", "dashboard", "calendar"))
-            ev.booking_updated.connect(lambda: self.invalidate("bookings", "dashboard", "calendar"))
+            ev.booking_saved.connect(lambda: self.invalidate("bookings", "dashboard", "dashboard_data", "calendar"))
+            ev.booking_created.connect(lambda: self.invalidate("bookings", "dashboard", "dashboard_data", "calendar"))
+            ev.booking_updated.connect(lambda: self.invalidate("bookings", "dashboard", "dashboard_data", "calendar"))
             ev.customer_saved.connect(lambda: self.invalidate("customers", "customers_loyalty"))
-            ev.invoice_saved.connect(lambda: self.invalidate("invoices", "dashboard", "cash_flow"))
-            ev.invoice_created.connect(lambda: self.invalidate("invoices", "dashboard", "cash_flow"))
-            ev.payment_recorded.connect(lambda: self.invalidate("invoices", "dashboard", "cash_flow", "bookings"))
-            ev.expense_saved.connect(lambda: self.invalidate("expenses", "cash_flow", "dashboard"))
-            ev.cash_flow_saved.connect(lambda: self.invalidate("cash_flow", "dashboard"))
+            ev.invoice_saved.connect(lambda: self.invalidate("invoices", "dashboard", "dashboard_data", "cash_flow"))
+            ev.invoice_created.connect(lambda: self.invalidate("invoices", "dashboard", "dashboard_data", "cash_flow"))
+            ev.payment_recorded.connect(lambda: self.invalidate("invoices", "dashboard", "dashboard_data", "cash_flow", "bookings"))
+            ev.expense_saved.connect(lambda: self.invalidate("expenses", "cash_flow", "dashboard", "dashboard_data"))
+            ev.cash_flow_saved.connect(lambda: self.invalidate("cash_flow", "dashboard", "dashboard_data"))
             ev.menu_saved.connect(lambda: self.invalidate("menu_items", "packages"))
             ev.data_changed.connect(self.clear)
             self._listeners_attached = True

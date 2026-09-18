@@ -475,7 +475,9 @@ class ExpensesPage(QWidget):
                     continue
 
             # Period Filter Check
-            if period_opt != "All Time" and exp_d:
+            if period_opt != "All Time":
+                if not exp_d:
+                    continue
                 if "Today" in period_opt and exp_d != today:
                     continue
                 elif "This Week" in period_opt:
@@ -564,52 +566,43 @@ class ExpensesPage(QWidget):
         self._dirty = False
         self.refresh_permissions()
 
-        # Pagination resets on every full reload - we always re-fetch page 0.
-        self._has_more = True
+        # Full dataset is loaded at once in self._expenses; no further incremental DB fetches needed.
+        self._has_more = False
         self._loading_more = False
 
-        # Instant render from the pre-loaded memory cache if available. The
-        # login welcome sequence may have cached the FULL expense list; only
-        # slice off the first page for immediate render - the rest stays in
-        # memory (_cached_remainder) and serves subsequent scroll pages with
-        # zero DB round-trips. KPI/breakdown totals come from the full cached
-        # list so they remain accurate.
+        # Load full expense dataset (from pre-loaded memory cache if available, or DB).
+        # Keeping the complete dataset in self._expenses ensures client-side filtering
+        # (This Year, This Month, search, etc.) and the "Total (Selected Filter)" KPI
+        # are always 100% accurate and never truncated to partial paginated subsets.
         from utils.data_cache import DataCache
         cached = DataCache.get("expenses")
         if cached is not None and not getattr(self, "_has_loaded_once", False):
             self._has_loaded_once = True
-            self._cached_remainder = list(cached[self._page_size:])
             self._summary = self._compute_summary_from_rows(cached)
-            page = list(cached[:self._page_size])
-            if len(cached) <= self._page_size:
-                self._has_more = False
+            all_exp = list(cached)
             if hasattr(self, "_loader"):
                 self._loader.show_overlay("Loading expenses & analytics...")
-                QTimer.singleShot(60, lambda: self._on_expenses_loaded(page))
+                QTimer.singleShot(60, lambda: self._on_expenses_loaded(all_exp))
             else:
-                self._on_expenses_loaded(page)
+                self._on_expenses_loaded(all_exp)
             return
 
-        self._cached_remainder = None
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading expenses & analytics...")
-        run_async(self, self._fetch_first_page, self._on_first_page_loaded,
-                  None, self._page_size)
+        run_async(self, self._fetch_all_data, self._on_all_data_loaded)
 
     @staticmethod
-    def _fetch_first_page(page_size):
-        # Summary aggregate (whole dataset) + first page of rows in one worker hop.
-        return repo.get_expenses_summary(), repo.get_expenses_page(0, page_size)
+    def _fetch_all_data():
+        # Fetch whole dataset aggregate + all expense rows in one worker hop.
+        return repo.get_expenses_summary(), repo.get_all_expenses()
 
-    def _on_first_page_loaded(self, result):
-        summary, page = result if result else ({}, [])
+    def _on_all_data_loaded(self, result):
+        summary, all_exp = result if result else ({}, [])
         self._summary = summary or {
             "total_all_time": 0.0, "total_this_year": 0.0,
             "total_this_month": 0.0, "by_category": [],
         }
-        if len(page) < self._page_size:
-            self._has_more = False
-        self._on_expenses_loaded(page)
+        self._on_expenses_loaded(all_exp or [])
 
     @staticmethod
     def _compute_summary_from_rows(rows):
@@ -676,21 +669,7 @@ class ExpensesPage(QWidget):
         self._reload_summary_for_filter()
 
     def _load_more_expenses(self):
-        if self._loading_more or not self._has_more:
-            return
-        if self._rendering:
-            return
-        self._loading_more = True
-        if self._cached_remainder is not None:
-            # Serve the next slice straight from the cached full list - no DB hit.
-            more = self._cached_remainder[:self._page_size]
-            self._cached_remainder = self._cached_remainder[self._page_size:]
-            if not self._cached_remainder:
-                self._has_more = False
-            QTimer.singleShot(0, lambda: self._on_more_expenses_loaded(more))
-            return
-        run_async(self, repo.get_expenses_page, self._on_more_expenses_loaded,
-                  None, len(getattr(self, "_expenses", [])), self._page_size)
+        return
 
     def _on_more_expenses_loaded(self, data):
         from shiboken6 import isValid

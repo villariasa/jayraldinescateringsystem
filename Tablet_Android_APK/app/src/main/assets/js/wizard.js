@@ -114,6 +114,7 @@ function mergeAddress(currentInput, selectedSuggestion) {
 
 export function mountWizard(container) {
   root = container;
+  document.body.classList.add("wizard-mode");
   wizard.reset();
   render();
 }
@@ -166,6 +167,7 @@ function confirmCancelOrder() {
 
   modal.querySelector("#modal-confirm-discard").addEventListener("click", () => {
     closeModal("cancel-order-modal");
+    document.body.classList.remove("wizard-mode");
     window.dispatchEvent(new CustomEvent("kiosk:home"));
   });
 }
@@ -175,46 +177,51 @@ function render() {
   const currentTheme = getTheme();
 
   root.innerHTML = `
-    <header class="wizard-sticky-header">
-      <div class="wizard-top-nav">
-        <div class="wizard-brand-wrap">
-          <img src="icons/logo.png" alt="Jayraldine's Catering" class="wizard-brand-logo" style="width:48px; height:48px; min-width:48px; border-radius:10px; object-fit:cover; border:1.5px solid rgba(255,255,255,0.4); box-shadow:0 4px 12px rgba(0,0,0,0.25); display:block;" title="Jayraldine's Catering">
-          <div class="wizard-step-info">
-            <h2>Step ${wizard.step} — ${escapeHtml(currentStep.title)}</h2>
-            <p>${escapeHtml(currentStep.subtitle)}</p>
+    <div class="wizard-shell">
+      <header class="wizard-sticky-header">
+        <div class="wizard-top-nav">
+          <div class="wizard-brand-wrap">
+            <img src="icons/logo.png" alt="Jayraldine's Catering" class="wizard-brand-logo" style="width:48px; height:48px; min-width:48px; border-radius:10px; object-fit:cover; border:1.5px solid rgba(255,255,255,0.4); box-shadow:0 4px 12px rgba(0,0,0,0.25); display:block;" title="Jayraldine's Catering">
+            <div class="wizard-step-info">
+              <h2>Step ${wizard.step} — ${escapeHtml(currentStep.title)}</h2>
+              <p>${escapeHtml(currentStep.subtitle)}</p>
+            </div>
+          </div>
+          <div class="wizard-top-actions">
+            <button class="icon-btn theme-toggle-btn" id="wiz-theme-btn" title="${currentTheme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}">
+              ${currentTheme === "light" ? icon("moon") : icon("sun")}
+            </button>
+            <button class="icon-btn" id="wiz-fullscreen-btn" title="Toggle Fullscreen">${icon("fullscreen")}</button>
+            <button class="btn btn-danger" id="wiz-cancel-btn">Cancel Order</button>
           </div>
         </div>
-        <div class="wizard-top-actions">
-          <button class="icon-btn theme-toggle-btn" id="wiz-theme-btn" title="${currentTheme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}">
-            ${currentTheme === "light" ? icon("moon") : icon("sun")}
-          </button>
-          <button class="icon-btn" id="wiz-fullscreen-btn" title="Toggle Fullscreen">${icon("fullscreen")}</button>
-          <button class="btn btn-danger" id="wiz-cancel-btn">Cancel Order</button>
-        </div>
-      </div>
-      <div class="timeline-stepper">
-        ${STEPS.map((s, i) => {
-          const isActive = s.step === wizard.step;
-          const isDone = s.step < wizard.step;
-          const cls = isActive ? "active" : isDone ? "done" : "";
-          const circleContent = isDone ? icon("check") : s.step;
-          return `
-            <div class="timeline-step ${cls}" data-goto-step="${s.step}">
-              <div class="timeline-node">
-                <div class="timeline-circle">${circleContent}</div>
+        <div class="timeline-stepper">
+          ${STEPS.map((s, i) => {
+            const isActive = s.step === wizard.step;
+            const isDone = s.step < wizard.step;
+            const cls = isActive ? "active" : isDone ? "done" : "";
+            const circleContent = isDone ? icon("check") : s.step;
+            return `
+              <div class="timeline-step ${cls}" data-goto-step="${s.step}">
+                <div class="timeline-node">
+                  <div class="timeline-circle">${circleContent}</div>
+                </div>
+                <div class="timeline-label">${escapeHtml(s.label)}</div>
               </div>
-              <div class="timeline-label">${escapeHtml(s.label)}</div>
-            </div>
-            ${i < STEPS.length - 1 ? `<div class="timeline-connector ${isDone ? "done" : ""}"></div>` : ""}
-          `;
-        }).join("")}
-      </div>
-    </header>
+              ${i < STEPS.length - 1 ? `<div class="timeline-connector ${isDone ? "done" : ""}"></div>` : ""}
+            `;
+          }).join("")}
+        </div>
+      </header>
 
-    <div class="wizard-content-wrap">
-      <div class="wizard-grid-layout">
-        <div class="card" id="wizard-step-card" style="animation: slideUpFade 0.3s cubic-bezier(0.16,1,0.3,1);"></div>
-        <div class="card card-elevated" id="wizard-cart"></div>
+      <div class="wizard-content-wrap">
+        <div class="wizard-grid-layout">
+          <div class="card wizard-step-card" id="wizard-step-card" style="animation: slideUpFade 0.3s cubic-bezier(0.16,1,0.3,1);">
+            <div class="wizard-step-body" id="wizard-step-body"></div>
+            <div class="wizard-step-footer" id="wizard-step-footer"></div>
+          </div>
+          <div class="card card-elevated" id="wizard-cart"></div>
+        </div>
       </div>
     </div>
   `;
@@ -259,6 +266,10 @@ function render() {
   renderStep();
   renderCart();
 
+  const stepBodyEl = document.getElementById("wizard-step-body");
+  if (stepBodyEl) {
+    stepBodyEl.scrollTop = 0;
+  }
   window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
@@ -331,34 +342,59 @@ function stepCard() {
   return document.getElementById("wizard-step-card");
 }
 
+function stepBody() {
+  return document.getElementById("wizard-step-body");
+}
+
+function stepFooter() {
+  return document.getElementById("wizard-step-footer");
+}
+
 function footer(nextLabel, onNext, backEnabled = true) {
-  const card = stepCard();
-  const wrap = document.createElement("div");
-  wrap.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-top:28px; border-top:1.5px solid var(--border); padding-top:20px;";
-  wrap.innerHTML = `
-    <button class="btn btn-secondary" id="wiz-back" ${backEnabled ? "" : "disabled"}>
-      ${icon("arrowLeft")} Back
-    </button>
-    <button class="btn btn-primary" id="wiz-next">
-      ${nextLabel} ${icon("arrowRight")}
-    </button>
-  `;
-  card.appendChild(wrap);
-  wrap.querySelector("#wiz-back").addEventListener("click", () => {
-    if (wizard.step > 1) { wizard.step--; render(); }
-  });
-  wrap.querySelector("#wiz-next").addEventListener("click", onNext);
+  const footerEl = stepFooter();
+  if (footerEl) {
+    footerEl.innerHTML = `
+      <button class="btn btn-secondary" id="wiz-back" ${backEnabled ? "" : "disabled"}>
+        ${icon("arrowLeft")} Back
+      </button>
+      <button class="btn btn-primary" id="wiz-next">
+        ${nextLabel} ${icon("arrowRight")}
+      </button>
+    `;
+    footerEl.querySelector("#wiz-back").addEventListener("click", () => {
+      if (wizard.step > 1) { wizard.step--; render(); }
+    });
+    footerEl.querySelector("#wiz-next").addEventListener("click", onNext);
+  } else {
+    const card = stepCard();
+    if (!card) return;
+    const wrap = document.createElement("div");
+    wrap.className = "wizard-step-footer";
+    wrap.innerHTML = `
+      <button class="btn btn-secondary" id="wiz-back" ${backEnabled ? "" : "disabled"}>
+        ${icon("arrowLeft")} Back
+      </button>
+      <button class="btn btn-primary" id="wiz-next">
+        ${nextLabel} ${icon("arrowRight")}
+      </button>
+    `;
+    card.appendChild(wrap);
+    wrap.querySelector("#wiz-back").addEventListener("click", () => {
+      if (wizard.step > 1) { wizard.step--; render(); }
+    });
+    wrap.querySelector("#wiz-next").addEventListener("click", onNext);
+  }
 }
 
 async function renderStep() {
-  const card = stepCard();
+  const target = stepBody() || stepCard();
   switch (wizard.step) {
-    case 1: return renderStepCustomer(card);
-    case 2: return renderStepPackage(card);
-    case 3: return renderStepMenu(card);
-    case 4: return renderStepAddons(card);
-    case 5: return renderStepBilling(card);
-    case 6: return renderStepPreview(card);
+    case 1: return renderStepCustomer(target);
+    case 2: return renderStepPackage(target);
+    case 3: return renderStepMenu(target);
+    case 4: return renderStepAddons(target);
+    case 5: return renderStepBilling(target);
+    case 6: return renderStepPreview(target);
   }
 }
 
@@ -641,21 +677,12 @@ async function renderStepPackage(card) {
   }
 
   card.innerHTML = `
-    <div class="kiosk-menu-sticky-header">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
-        <div style="flex:1; min-width:200px;">
-          <h2 style="margin:0 0 4px; display:flex; align-items:center; gap:10px;">
-            ${icon("package")} Event Schedule &amp; Package
-          </h2>
-          <p style="color:var(--text-muted); margin:0; font-size:13px;">
-            Fill in your event details and choose a buffet package below.
-          </p>
-        </div>
-        <button type="button" class="btn btn-primary" id="sticky-pkg-next-top" style="padding:10px 20px; font-weight:800; display:inline-flex; align-items:center; gap:8px; box-shadow:0 4px 14px var(--accent-glow); flex-shrink:0;">
-          Next Step ${icon("arrowRight")}
-        </button>
-      </div>
-    </div>
+    <h2 style="margin:0 0 8px; display:flex; align-items:center; gap:10px;">
+      ${icon("package")} Event Schedule &amp; Package
+    </h2>
+    <p style="color:var(--text-muted); margin:0 0 20px; font-size:14px;">
+      Fill in your event details and choose a buffet package below.
+    </p>
 
     <div class="grid-2">
       <div class="form-group">
@@ -1425,8 +1452,13 @@ function renderStepPreview(card) {
     </div>
   `;
 
-  const wrap = document.createElement("div");
-  wrap.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-top:28px; border-top:1.5px solid var(--border); padding-top:20px;";
+  const footerEl = stepFooter();
+  const wrap = footerEl || document.createElement("div");
+  if (!footerEl) {
+    wrap.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-top:28px; border-top:1.5px solid var(--border); padding-top:20px;";
+    card.appendChild(wrap);
+  }
+  wrap.className = "wizard-step-footer";
   wrap.innerHTML = `
     <button class="btn btn-secondary" id="wiz-back">
       ${icon("arrowLeft")} Back
@@ -1435,7 +1467,6 @@ function renderStepPreview(card) {
       ${icon("check")} Confirm &amp; Save Booking
     </button>
   `;
-  card.appendChild(wrap);
   wrap.querySelector("#wiz-back").addEventListener("click", () => { wizard.step = 5; render(); });
 
   function openBookingConfirmationDrawer() {
@@ -1602,6 +1633,8 @@ function renderReceipt(card) {
   `;
   const cart = document.getElementById("wizard-cart");
   if (cart) cart.innerHTML = "";
+  const footerEl = stepFooter();
+  if (footerEl) footerEl.innerHTML = "";
 
   card.querySelector("#print-receipt").addEventListener("click", () => {
     api.downloadReceipt(o.booking_id);
@@ -1611,6 +1644,7 @@ function renderReceipt(card) {
     doneBtn.disabled = true;
     doneBtn.innerHTML = `${icon("refresh")} Returning…`;
     wizard.reset();
+    document.body.classList.remove("wizard-mode");
     window.dispatchEvent(new CustomEvent("kiosk:home", {
       detail: { transition: true, message: "Thank you for booking! Resetting kiosk for the next guest…" }
     }));

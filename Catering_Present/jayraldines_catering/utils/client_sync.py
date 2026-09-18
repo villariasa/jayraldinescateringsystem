@@ -38,41 +38,82 @@ log = get_logger()
 # Tables in upsert order (parents before children)
 # ─────────────────────────────────────────────────────────────
 _SNAPSHOT_TABLES = [
+    # System / Settings / Addresses
     "business_info",
+    "app_settings",
     "address_provinces",
     "address_cities",
+    "address_barangays",
+    "addresses",
     "occasions",
     "users",
     "user_permissions",
+    # Menu & Packages
+    "menu_categories",
     "menu_items",
     "packages",
     "package_items",
+    # Customers & Follow-ups
+    "customer_loyalty_tiers",
     "customers",
+    "customer_addresses",
+    "customer_follow_ups",
+    # Bookings, Items & Charges
     "bookings",
     "booking_menu_items",
+    "booking_items",
+    "booking_additional_charges",
+    "terms_acknowledgements",
+    # Invoices & Billing
     "invoices",
+    "payment_records",
+    # Kitchen Operations
+    "kitchen_orders",
+    "kitchen_tasks",
+    # Inventory & Calendar
+    "inventory",
+    "calendar_events",
+    # Expenses & Cash Flow
     "expenses",
     "cash_flow_transactions",
+    # Notifications & Audits
+    "notifications",
     "audit_logs",
 ]
 
 _TABLE_PKS = {
-    "business_info":           "bi_id",
-    "address_provinces":       "ap_id",
-    "address_cities":          "ac_id",
-    "occasions":               "occ_id",
-    "users":                   "id",
-    "user_permissions":        "id",
-    "menu_items":              "mi_id",
-    "packages":                "pkg_id",
-    "package_items":           "pi_id",
-    "customers":               "cus_id",
-    "bookings":                "bk_id",
-    "booking_menu_items":      "bmi_id",
-    "invoices":                "inv_id",
-    "expenses":                "exp_id",
-    "cash_flow_transactions":  "cft_id",
-    "audit_logs":              "al_id",
+    "business_info":               "bi_id",
+    "app_settings":                "setting_key",
+    "address_provinces":           "ap_id",
+    "address_cities":              "ac_id",
+    "address_barangays":           "ab_id",
+    "addresses":                   "ad_id",
+    "occasions":                   "occ_id",
+    "users":                       "id",
+    "user_permissions":            "id",
+    "menu_categories":             "mc_id",
+    "menu_items":                  "mi_id",
+    "packages":                    "pkg_id",
+    "package_items":               "pi_id",
+    "customer_loyalty_tiers":      "cl_id",
+    "customers":                   "cus_id",
+    "customer_addresses":          "ca_id",
+    "customer_follow_ups":         "cfu_id",
+    "bookings":                    "bk_id",
+    "booking_menu_items":          "bmi_id",
+    "booking_items":               "bi_id",
+    "booking_additional_charges":  "ac_id",
+    "terms_acknowledgements":      "ta_id",
+    "invoices":                    "inv_id",
+    "payment_records":             "pr_id",
+    "kitchen_orders":              "ko_id",
+    "kitchen_tasks":               "kt_id",
+    "inventory":                   "inv_id",
+    "calendar_events":             "ce_id",
+    "expenses":                    "exp_id",
+    "cash_flow_transactions":      "cft_id",
+    "notifications":               "notif_id",
+    "audit_logs":                  "al_id",
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -301,10 +342,22 @@ def proxy_fetchone(sql: str, params: tuple = (), server_url: Optional[str] = Non
 # ─────────────────────────────────────────────────────────────
 
 def _upsert_rows(table: str, rows: List[Dict]) -> int:
-    """INSERT OR REPLACE all rows into a local table. Returns count upserted."""
-    if not rows:
+    """INSERT OR REPLACE all rows into a local table and reconcile deletions from the server."""
+    if not db._sqlite_conn:
         return 0
+    cur = db._sqlite_conn.cursor()
     pk = _TABLE_PKS.get(table)
+
+    if not rows:
+        # Server has 0 rows for this table - remove all local rows
+        try:
+            cur.execute(f"DELETE FROM {table}")
+            db._sqlite_conn.commit()
+        except Exception as e:
+            log.debug(f"[ClientSync] Clear local table {table} failed: {e}")
+        return 0
+
+    server_ids = set()
     upserted = 0
     for row in rows:
         if not isinstance(row, dict):
@@ -314,6 +367,7 @@ def _upsert_rows(table: str, rows: List[Dict]) -> int:
                 row[pk] = int(row[pk])
             except (ValueError, TypeError):
                 pass
+            server_ids.add(row[pk])
 
         cols = list(row.keys())
         col_names = ", ".join(cols)
@@ -336,15 +390,35 @@ def _upsert_rows(table: str, rows: List[Dict]) -> int:
             values.append(v)
 
         try:
-            if db._sqlite_conn:
-                cur = db._sqlite_conn.cursor()
-                cur.execute(
-                    f"INSERT OR REPLACE INTO {table} ({col_names}) VALUES ({placeholders})",
-                    tuple(values)
-                )
-                upserted += 1
+            cur.execute(
+                f"INSERT OR REPLACE INTO {table} ({col_names}) VALUES ({placeholders})",
+                tuple(values)
+            )
+            upserted += 1
         except Exception as e:
             log.debug(f"[ClientSync] Upsert row in {table} failed: {e}")
+
+    # Reconcile deletions: remove any local rows that no longer exist on server
+    if pk and server_ids:
+        try:
+            cur.execute(f"SELECT {pk} FROM {table}")
+            local_ids = {r[0] for r in cur.fetchall()}
+            stale_ids = local_ids - server_ids
+            if stale_ids:
+                stale_list = list(stale_ids)
+                for i in range(0, len(stale_list), 500):
+                    chunk = stale_list[i:i + 500]
+                    q_marks = ", ".join(["?" for _ in chunk])
+                    cur.execute(f"DELETE FROM {table} WHERE {pk} IN ({q_marks})", tuple(chunk))
+                log.info(f"[ClientSync] Purged {len(stale_ids)} deleted row(s) from {table}")
+        except Exception as de:
+            log.debug(f"[ClientSync] Stale row deletion in {table} failed: {de}")
+
+    try:
+        db._sqlite_conn.commit()
+    except Exception:
+        pass
+
     return upserted
 
 
@@ -400,6 +474,11 @@ def pull_server_snapshot(
                 total = sum(synced_counts.values())
                 msg = f"[ClientSync] Master database replicated ({total} total records) from {server_url}"
                 log.info(msg)
+                try:
+                    from utils.data_cache import DataCache
+                    DataCache.clear()
+                except Exception:
+                    pass
                 return {"success": True, "message": msg, "synced": synced_counts}
         except Exception as fe:
             log.warning(f"[ClientSync] Direct DB download fallback failed: {fe}")
@@ -418,8 +497,18 @@ def pull_server_snapshot(
     if conn is None:
         return {"success": False, "message": "No local DB connection.", "synced": {}}
 
+    if db._sqlite_conn:
+        try:
+            db._sqlite_conn.execute("PRAGMA foreign_keys = OFF;")
+        except Exception:
+            pass
+
     for table in _SNAPSHOT_TABLES:
-        rows = snapshot.get(table, [])
+        if table not in snapshot:
+            continue
+        rows = snapshot.get(table)
+        if rows is None:
+            continue
         try:
             count = _upsert_rows(table, rows)
             synced_counts[table] = count
@@ -429,6 +518,19 @@ def pull_server_snapshot(
             log.warning(f"[ClientSync] Table {table} sync error: {te}")
             errors.append(f"{table}: {te}")
             synced_counts[table] = 0
+
+    if db._sqlite_conn:
+        try:
+            db._sqlite_conn.execute("PRAGMA foreign_keys = ON;")
+        except Exception:
+            pass
+
+    # Clear memory cache so all UI views (dashboard, bookings, etc.) update immediately
+    try:
+        from utils.data_cache import DataCache
+        DataCache.clear()
+    except Exception:
+        pass
 
     total = sum(synced_counts.values())
     msg = (
@@ -547,6 +649,13 @@ def start_realtime_version_watcher(
 
                     # Pull fresh snapshot from server
                     pull_server_snapshot(server_url=current_srv, timeout=8)
+
+                    # Invalidate DataCache so UI renders fresh data immediately
+                    try:
+                        from utils.data_cache import DataCache
+                        DataCache.clear()
+                    except Exception:
+                        pass
 
                     # Trigger real-time UI refresh on main Qt thread
                     try:

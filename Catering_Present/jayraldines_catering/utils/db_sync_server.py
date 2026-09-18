@@ -648,22 +648,38 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         try:
             snapshot = {}
             tables = [
-                ("users",                   "SELECT * FROM users ORDER BY id"),
-                ("user_permissions",        "SELECT * FROM user_permissions ORDER BY id"),
-                ("menu_items",              "SELECT * FROM menu_items ORDER BY mi_id"),
-                ("packages",                "SELECT * FROM packages ORDER BY pkg_id"),
-                ("package_items",           "SELECT * FROM package_items ORDER BY pi_id"),
-                ("customers",               "SELECT * FROM customers ORDER BY cus_id"),
-                ("bookings",                "SELECT * FROM bookings ORDER BY bk_id"),
-                ("booking_menu_items",      "SELECT * FROM booking_menu_items ORDER BY bmi_id"),
-                ("invoices",                "SELECT * FROM invoices ORDER BY inv_id"),
-                ("occasions",               "SELECT * FROM occasions ORDER BY occ_id"),
-                ("business_info",           "SELECT * FROM business_info"),
-                ("address_provinces",       "SELECT * FROM address_provinces ORDER BY ap_id"),
-                ("address_cities",          "SELECT * FROM address_cities ORDER BY ac_id"),
-                ("expenses",                "SELECT * FROM expenses ORDER BY exp_id"),
-                ("cash_flow_transactions",  "SELECT * FROM cash_flow_transactions ORDER BY cft_id"),
-                ("audit_logs",              "SELECT * FROM audit_logs ORDER BY al_id"),
+                ("business_info",              "SELECT * FROM business_info"),
+                ("app_settings",               "SELECT * FROM app_settings"),
+                ("address_provinces",          "SELECT * FROM address_provinces ORDER BY ap_id"),
+                ("address_cities",             "SELECT * FROM address_cities ORDER BY ac_id"),
+                ("address_barangays",          "SELECT * FROM address_barangays ORDER BY ab_id"),
+                ("addresses",                  "SELECT * FROM addresses ORDER BY ad_id"),
+                ("occasions",                  "SELECT * FROM occasions ORDER BY occ_id"),
+                ("users",                      "SELECT * FROM users ORDER BY id"),
+                ("user_permissions",           "SELECT * FROM user_permissions ORDER BY id"),
+                ("menu_categories",            "SELECT * FROM menu_categories ORDER BY mc_id"),
+                ("menu_items",                 "SELECT * FROM menu_items ORDER BY mi_id"),
+                ("packages",                   "SELECT * FROM packages ORDER BY pkg_id"),
+                ("package_items",              "SELECT * FROM package_items ORDER BY pi_id"),
+                ("customer_loyalty_tiers",     "SELECT * FROM customer_loyalty_tiers ORDER BY cl_id"),
+                ("customers",                  "SELECT * FROM customers ORDER BY cus_id"),
+                ("customer_addresses",         "SELECT * FROM customer_addresses ORDER BY ca_id"),
+                ("customer_follow_ups",        "SELECT * FROM customer_follow_ups ORDER BY cfu_id"),
+                ("bookings",                   "SELECT * FROM bookings ORDER BY bk_id"),
+                ("booking_menu_items",         "SELECT * FROM booking_menu_items ORDER BY bmi_id"),
+                ("booking_items",              "SELECT * FROM booking_items ORDER BY bi_id"),
+                ("booking_additional_charges", "SELECT * FROM booking_additional_charges ORDER BY ac_id"),
+                ("terms_acknowledgements",     "SELECT * FROM terms_acknowledgements ORDER BY ta_id"),
+                ("invoices",                   "SELECT * FROM invoices ORDER BY inv_id"),
+                ("payment_records",            "SELECT * FROM payment_records ORDER BY pr_id"),
+                ("kitchen_orders",             "SELECT * FROM kitchen_orders ORDER BY ko_id"),
+                ("kitchen_tasks",              "SELECT * FROM kitchen_tasks ORDER BY kt_id"),
+                ("inventory",                  "SELECT * FROM inventory ORDER BY inv_id"),
+                ("calendar_events",            "SELECT * FROM calendar_events ORDER BY ce_id"),
+                ("expenses",                   "SELECT * FROM expenses ORDER BY exp_id"),
+                ("cash_flow_transactions",     "SELECT * FROM cash_flow_transactions ORDER BY cft_id"),
+                ("notifications",              "SELECT * FROM notifications ORDER BY notif_id"),
+                ("audit_logs",                 "SELECT * FROM audit_logs ORDER BY al_id"),
             ]
             for table_name, sql in tables:
                 try:
@@ -674,7 +690,6 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                     snapshot[table_name] = clean
                 except Exception as te:
                     logger.warning(f"[SyncServer] Snapshot: skipping table {table_name}: {te}")
-                    snapshot[table_name] = []
 
             snapshot["_meta"] = {
                 "server_ip": get_local_ip(),

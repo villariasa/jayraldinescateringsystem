@@ -1843,7 +1843,11 @@ _INVOICE_ROW_SQL = """
                i.inv_event_date     AS event_date,
                i.inv_total_amount   AS total_amount,
                i.inv_amount_paid    AS amount_paid,
-               CASE WHEN i.inv_balance IS NOT NULL THEN i.inv_balance WHEN (i.inv_total_amount - i.inv_amount_paid) > 0 THEN (i.inv_total_amount - i.inv_amount_paid) ELSE 0.0 END AS balance_due,
+               CASE WHEN i.inv_balance IS NOT NULL AND (i.inv_balance > 0 OR (i.inv_total_amount - i.inv_amount_paid) <= 0)
+                    THEN i.inv_balance
+                    WHEN (i.inv_total_amount - i.inv_amount_paid) > 0
+                    THEN ROUND(i.inv_total_amount - i.inv_amount_paid, 2)
+                    ELSE 0.0 END AS balance_due,
                i.inv_status         AS status,
                COALESCE(c.cus_email, '') AS customer_email
         FROM invoices i
@@ -1984,8 +1988,9 @@ def get_invoices_summary(date_start: str = None, date_end: str = None,
             COALESCE(SUM(
                 CASE WHEN CAST(i.inv_status AS TEXT) != 'Paid'
                      THEN MAX(
-                        CASE WHEN i.inv_balance IS NOT NULL THEN i.inv_balance
-                             ELSE (i.inv_total_amount - i.inv_amount_paid) END,
+                        CASE WHEN i.inv_balance IS NOT NULL AND (i.inv_balance > 0 OR (i.inv_total_amount - i.inv_amount_paid) <= 0)
+                             THEN i.inv_balance
+                             ELSE ROUND(i.inv_total_amount - i.inv_amount_paid, 2) END,
                         0.0)
                      ELSE 0.0 END
             ), 0.0) AS total_pending,
@@ -2755,7 +2760,13 @@ def get_dashboard_kpis_filtered(target_date: str = None) -> dict:
 
     # 5. Unpaid balance for events on this date
     inv_row = db.fetchone("""
-        SELECT COALESCE(SUM(inv_balance), 0.0) AS unpaid
+        SELECT COALESCE(SUM(
+            CASE 
+                WHEN inv_balance IS NOT NULL AND inv_balance > 0 THEN inv_balance
+                WHEN (inv_total_amount - inv_amount_paid) > 0 THEN ROUND(inv_total_amount - inv_amount_paid, 2)
+                ELSE 0.0 
+            END
+        ), 0.0) AS unpaid
         FROM invoices
         WHERE inv_event_date = %s AND CAST(inv_status AS TEXT) != 'Paid' AND CAST(inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
     """, (d_str,))
