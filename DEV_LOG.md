@@ -2501,3 +2501,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured automated PDF rendering pipelines using `QT_QPA_PLATFORM=offscreen`.
 - Enabled server-side report generation without requiring an active X11 or Wayland display server.
 - Validated PySide6 QPrinter output fidelity for automated headless daily PDF archival tasks.
+
+### Chef Jay AI Morning Greeting Once-Per-Day Persistence
+- Implemented date-based tracking in QSettings (`chef_jay/last_morning_briefing_date`) for morning briefings.
+- Ensured automated greetings trigger strictly on the first launch of each calendar day without annoying repeats.
+- Added an administrative reset command (`reset morning briefing`) for testing and supervisor re-runs.
