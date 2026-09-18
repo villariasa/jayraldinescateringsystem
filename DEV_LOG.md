@@ -2591,3 +2591,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Mandated pre-event hot crew meals served 90 minutes prior to client guest arrival.
 - Allocated dedicated kitchen crew meal budgets ensuring balanced protein and hydration during 12-hour shifts.
 - Designated clean, separate crew break zones outside client visual and audio reception perimeters.
+
+### Commercial Kitchen First-Aid Kits & Burn Response Procedures
+- Standardized inventory requirements for Class A/B first-aid stations located in the main commissary kitchen.
+- Stocked sterile hydrogel burn dressings, adhesive finger cots, antiseptic spray, and eye wash solution.
+- Established mandatory workplace injury reporting forms logged in the operations incident ledger.
