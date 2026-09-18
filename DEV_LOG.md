@@ -2736,3 +2736,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Formulated seasonal cost projection models tracking wholesale price fluctuations for shrimp, crab, and squid.
 - Established dynamic price buffering formulas protecting forward-contracted wedding packages against inflation.
 - Created menu substitution contingency options for clients when seasonal market supply experiences shortages.
+
+### Commissary Grease Trap Bio-Enzymatic Dosing & Skimming Schedules
+- Mandated bi-weekly grease trap skimming and solids removal by certified commercial environmental waste haulers.
+- Installed automated peristaltic dosing pumps dispensing live bacterial enzymes into main kitchen dishwashing drains.
+- Prevented fats, oils, and grease (FOG) accumulation, sewer odors, and municipal sanitation compliance violations.
