@@ -2611,3 +2611,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Codified hourly overtime rates for banquet service staff and audio-visual crew beyond contracted durations.
 - Established transparent deduction criteria for damaged linens, broken glassware, or venue penalty fees.
 - Automated generation of security deposit refund vouchers within 48 hours following event completion.
+
+### Lechon Cebu Transport Ventilation & Carving Station Logistics
+- Designed ventilated transport crates ensuring whole roast pigs remain crispy during vehicle transit.
+- Specified on-site carving station equipment: heavy-duty maple carving boards, butcher cleavers, and heat lamps.
+- Standardized portioning techniques yielding consistent servings across belly, ribs, and loin cuts.
