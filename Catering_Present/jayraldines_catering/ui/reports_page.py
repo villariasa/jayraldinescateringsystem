@@ -1509,11 +1509,18 @@ class ReportsPage(QWidget):
             start_w2 = today - timedelta(days=today.weekday())
             unpaid_start, unpaid_end = start_w2.isoformat(), (start_w2 + timedelta(days=6)).isoformat()
         elif p == "This Month":
+            # Full calendar month, not capped at today - matches Billing's
+            # header period fix (future-dated bookings within the month/
+            # year were being silently excluded from the outstanding total).
+            if today.month == 12:
+                next_month_start = date(today.year + 1, 1, 1)
+            else:
+                next_month_start = date(today.year, today.month + 1, 1)
             unpaid_start = today.replace(day=1).isoformat()
-            unpaid_end = today.isoformat()
+            unpaid_end = (next_month_start - timedelta(days=1)).isoformat()
         elif p == "This Year":
             unpaid_start = today.replace(month=1, day=1).isoformat()
-            unpaid_end = today.isoformat()
+            unpaid_end = today.replace(month=12, day=31).isoformat()
         elif p == "Last Year":
             unpaid_start = date(today.year - 1, 1, 1).isoformat()
             unpaid_end = date(today.year - 1, 12, 31).isoformat()

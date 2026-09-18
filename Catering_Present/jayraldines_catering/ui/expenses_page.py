@@ -405,11 +405,15 @@ class ExpensesPage(QWidget):
                 start = today - timedelta(days=today.weekday())
                 end = start + timedelta(days=6)
             elif "This Month" in period_opt:
+                # Full calendar month, not capped at today - matches
+                # Billing/Reports fix (this date range feeds a DB query, so
+                # capping at today silently excluded any expense dated
+                # later in the month/year from the breakdown chart).
                 start = today.replace(day=1)
-                end = today
+                end = (date(today.year, today.month + 1, 1) - timedelta(days=1)) if today.month < 12 else date(today.year, 12, 31)
             elif "This Year" in period_opt:
                 start = today.replace(month=1, day=1)
-                end = today
+                end = today.replace(month=12, day=31)
             elif "Custom Date" in period_opt and hasattr(self, "_dt_start") and hasattr(self, "_dt_end"):
                 start = self._dt_start.date().toPython()
                 end = self._dt_end.date().toPython()
