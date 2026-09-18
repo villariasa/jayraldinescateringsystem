@@ -295,7 +295,7 @@ class OrderPrintDialog(QDialog):
         return add_ons
 
     def _build_dishes_table_2col(self, booking: dict, compact: bool = False, pad_scale: float = 1.0) -> str:
-        """Renders strictly 2 columns: Category | Menu matching user specification."""
+        """Renders MENU SELECTIONS with categories and bulleted dishes stacked cleanly without box lines."""
         dishes = booking.get("dishes") or []
         if not dishes and booking.get("menu_value"):
             raw_dishes = [d.strip() for d in str(booking["menu_value"]).split(",") if d.strip()]
@@ -314,35 +314,33 @@ class OrderPrintDialog(QDialog):
                     by_cat.setdefault(cat, []).append(d_name)
 
         ps = pad_scale if not compact else 1.0
-        item_font = "12px" if not compact else "10.5px"
+        sec_title_font = "11px" if not compact else "9.5px"
         cat_font = "11px" if not compact else "9.5px"
-        head_pad = "4px 4px"
-        cell_pad = f"{round(5 * ps)}px 4px" if not compact else "3px 4px"
+        item_font = "12px" if not compact else "10.5px"
+        gap_cat = f"{round(8 * ps)}px" if not compact else "5px"
 
-        html = '<table width="100%" style="width:100%; border-collapse:collapse; border:none;">'
-        html += '<tr style="color:#000000;">'
-        html += f'<th style="padding:{head_pad}; text-align:left; font-size:{cat_font}; font-weight:800; text-transform:uppercase; width:36%; border:none;">Category</th>'
-        html += f'<th style="padding:{head_pad}; text-align:left; font-size:{cat_font}; font-weight:800; text-transform:uppercase; width:64%; border:none;">Menu</th>'
-        html += '</tr>'
+        html_parts = [
+            f'<div style="font-size:{sec_title_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.3px; margin-bottom:6px;">MENU SELECTIONS</div>'
+        ]
 
         if by_cat:
             for cat, items in by_cat.items():
-                items_str = "<br/>".join([f"● <b>{it}</b>" for it in items])
-                html += f"""
-                <tr>
-                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#000000; border:none; width:36%;">{cat}</td>
-                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{item_font}; font-weight:700; color:#000000; border:none; width:64%; line-height:1.4;">{items_str}</td>
-                </tr>
-                """
+                items_html = "".join([
+                    f'<div style="font-size:{item_font}; font-weight:700; color:#000000; padding-left:8px; margin-top:2px; line-height:1.35;">&bull; {it}</div>'
+                    for it in items
+                ])
+                html_parts.append(f"""
+                <div style="margin-bottom:{gap_cat};">
+                    <div style="font-size:{cat_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.2px;">{cat}</div>
+                    {items_html}
+                </div>
+                """)
         else:
-            html += f"""
-            <tr>
-                <td style="padding:{cell_pad}; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#000000; border:none; width:36%;">Standard Inclusions</td>
-                <td style="padding:{cell_pad}; vertical-align:top; font-size:{item_font}; font-style:italic; color:#000000; border:none; width:64%;">Standard catering package inclusions apply.</td>
-            </tr>
-            """
-        html += '</table>'
-        return html
+            html_parts.append(f"""
+            <div style="font-size:{item_font}; font-style:italic; color:#666666;">Standard catering package inclusions apply.</div>
+            """)
+
+        return "".join(html_parts)
 
     _build_foods_grid_html = _build_dishes_table_2col
     _build_dishes_html = _build_dishes_table_2col
