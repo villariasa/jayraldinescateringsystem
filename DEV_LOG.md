@@ -2616,3 +2616,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Designed ventilated transport crates ensuring whole roast pigs remain crispy during vehicle transit.
 - Specified on-site carving station equipment: heavy-duty maple carving boards, butcher cleavers, and heat lamps.
 - Standardized portioning techniques yielding consistent servings across belly, ribs, and loin cuts.
+
+### Pasil Fish Market Seafood Procurement & Freshness Grading
+- Established morning receiving criteria for fresh squid, tiger prawns, and lapu-lapu from local Cebu markets.
+- Inspected gill pigmentation (bright red/pink), clear unclouded corneas, and firm flesh elasticity upon delivery.
+- Rejected seafood deliveries showing temperature spikes above 4°C during receiving dock inspection.
