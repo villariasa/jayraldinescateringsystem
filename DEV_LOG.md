@@ -2696,3 +2696,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented step-by-step folding guides for signature styles: Crown, Bishop's Hat, French Pleat, and Candle.
 - Scheduled pre-folding labor in clean commissary preparation rooms using sanitized stainless steel tables.
 - Stored finished folded napkins in transparent airtight plastic totes with dust covers prior to venue setup.
+
+### Portable Generator Refueling Safety & Fuel Containment
+- Codified safety rules requiring a 15-minute engine cool-down period before replenishing portable diesel generators.
+- Stored fuel jerry cans in shaded, well-ventilated secondary spill-containment trays away from food prep areas.
+- Maintained a dedicated grounding rod and 10-lb dry chemical extinguisher adjacent to all generator sites.
