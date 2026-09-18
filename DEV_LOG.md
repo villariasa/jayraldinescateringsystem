@@ -2646,3 +2646,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented double-boiler ice wells keeping mixed salad greens below 4°C throughout warm weather banquets.
 - Preserved salad crunchiness by storing salad dressings in chilled stainless steel carafes beside the greens.
 - Standardized spin-drying protocols removing excess surface water from washed romaine and lollo bionda leaves.
+
+### Waitstaff Grooming Standards & Pre-Service Sanitation Inspection
+- Codified daily appearance checks: clean black collared uniforms, polished shoes, hair restraints, and trimmed nails.
+- Established mandatory 20-second warm-water handwashing routines before entering food staging areas.
+- Required banquet captains to sign off on crew grooming logs prior to admitting staff onto the event floor.
