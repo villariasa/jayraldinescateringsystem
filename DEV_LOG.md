@@ -2486,3 +2486,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added high-visibility EVENT ORDER reference tags in the slip footer for cross-referencing kitchen tickets.
 - Implemented real-time `PRINTED ON: YYYY-MM-DD HH:MM AM/PM` timestamps to identify reprint revisions.
 - Standardized monochrome typography ensuring legibility across thermal and laser printers.
+
+### Paired Half-A4 Paper Optimization & Scissor Cut-Line Guides
+- Formatted two independent orders to fit seamlessly on a single standard A4 sheet in portrait orientation.
+- Inserted a centered dashed cut line (`✂ — — — — ✂`) providing a clear cutting boundary for prep captains.
+- Reduced kitchen paper consumption by 50% during multi-booking weekend operations.
