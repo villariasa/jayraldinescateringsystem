@@ -911,7 +911,8 @@ class CustomersPage(QWidget):
             from utils.signals import app_events
             app_events().customer_saved.connect(self._mark_dirty_and_reload)
             app_events().booking_saved.connect(self._mark_dirty_and_reload)
-            app_events().data_changed.connect(self._mark_dirty)
+            app_events().sync_completed.connect(self._mark_dirty_and_reload)
+            app_events().data_changed.connect(self._mark_dirty_and_reload)
         except Exception:
             pass
 

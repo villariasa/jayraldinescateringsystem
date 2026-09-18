@@ -90,6 +90,16 @@ class KitchenPage(QWidget):
         self._build_ui()
         self._refresh_columns()
         ThemeManager().theme_changed.connect(self._on_theme_changed)
+        try:
+            from utils.signals import app_events
+            _ev = app_events()
+            _ev.kitchen_updated.connect(self._mark_dirty_and_reload)
+            _ev.booking_saved.connect(self._mark_dirty_and_reload)
+            _ev.booking_updated.connect(self._mark_dirty_and_reload)
+            _ev.sync_completed.connect(self._mark_dirty_and_reload)
+            _ev.data_changed.connect(self._mark_dirty_and_reload)
+        except Exception:
+            pass
 
     def _mark_dirty(self):
         self._dirty = True

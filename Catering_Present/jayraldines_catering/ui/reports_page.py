@@ -1056,7 +1056,9 @@ class ReportsPage(QWidget):
             ev = app_events()
             ev.expense_saved.connect(self._mark_dirty_and_reload)
             ev.booking_saved.connect(self._mark_dirty_and_reload)
+            ev.booking_updated.connect(self._mark_dirty_and_reload)
             ev.payment_saved.connect(self._mark_dirty_and_reload)
+            ev.sync_completed.connect(self._mark_dirty_and_reload)
             ev.data_changed.connect(self._mark_dirty_and_reload)
         except Exception:
             pass

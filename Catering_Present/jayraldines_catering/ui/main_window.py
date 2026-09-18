@@ -127,11 +127,16 @@ class MainWindow(QMainWindow):
         from utils.signals import app_events
         _ev = app_events()
         _ev.booking_saved.connect(self._on_booking_saved)
+        _ev.booking_updated.connect(self._on_booking_saved)
+        _ev.booking_created.connect(self._on_booking_saved)
         _ev.payment_recorded.connect(self._on_payment_recorded)
         _ev.kitchen_updated.connect(self._on_kitchen_updated)
         _ev.expense_saved.connect(self._on_expense_saved)
         _ev.customer_saved.connect(self._on_customer_saved)
+        _ev.invoice_saved.connect(self._reload_all_pages)
         _ev.data_changed.connect(self._reload_all_pages)
+        _ev.sync_started.connect(self._on_sync_started)
+        _ev.sync_completed.connect(self._on_sync_completed)
 
         from utils.reminder_manager import reminder_manager
         reminder_manager().alarm_fired.connect(self._on_alarm_fired)
@@ -648,14 +653,14 @@ class MainWindow(QMainWindow):
         the user navigates to it (via its showEvent / _dirty check)."""
         p = self._pages[index] if index < len(self._pages) else None
         if p is None:
-            return  # page not yet created ΓÇö nothing to do
+            return  # page not yet created — nothing to do
         # Mark dirty regardless
         if hasattr(p, "_mark_dirty"):
             p._mark_dirty()
         elif hasattr(p, "_dirty"):
             p._dirty = True
         # Immediately reload only if currently shown
-        if self.stack.currentIndex() == index and hasattr(p, "reload"):
+        if self.stack.currentWidget() is p and hasattr(p, "reload"):
             try:
                 p.reload()
             except Exception as exc:
@@ -675,13 +680,12 @@ class MainWindow(QMainWindow):
             elif hasattr(p, "_dirty"):
                 p._dirty = True
         # Immediately reload only the currently visible page
-        cur = self.stack.currentIndex()
-        p = self._pages[cur] if cur < len(self._pages) else None
-        if p is not None and hasattr(p, "reload"):
+        cur_w = self.stack.currentWidget()
+        if cur_w is not None and hasattr(cur_w, "reload"):
             try:
-                p.reload()
-            except Exception:
-                pass
+                cur_w.reload()
+            except Exception as exc:
+                print(f"[MainWindow] _on_booking_saved reload error: {exc}")
         self._poll_notifications()
 
     def _on_payment_recorded(self):
@@ -709,31 +713,51 @@ class MainWindow(QMainWindow):
                 p._mark_dirty()
             elif hasattr(p, "_dirty"):
                 p._dirty = True
-        cur = self.stack.currentIndex()
-        p = self._pages[cur] if cur < len(self._pages) else None
-        if p is not None and hasattr(p, "reload"):
+        cur_w = self.stack.currentWidget()
+        if cur_w is not None and hasattr(cur_w, "reload"):
             try:
-                p.reload()
+                cur_w.reload()
             except Exception:
                 pass
         self._poll_notifications()
 
+    def _on_sync_started(self, msg: str = ""):
+        if hasattr(self, "_toast_manager") and self._toast_manager:
+            self._toast_manager.show(
+                "Live Sync",
+                msg or "Syncing database updates from server...",
+                color="#3B82F6",
+                duration_ms=4000
+            )
+
+    def _on_sync_completed(self):
+        from utils.data_cache import DataCache
+        DataCache.clear()
+        self._reload_all_pages()
+        if hasattr(self, "_toast_manager") and self._toast_manager:
+            self._toast_manager.show(
+                "Live Sync Completed",
+                "Database updated & all views refreshed.",
+                color="#10B981",
+                duration_ms=3000
+            )
+
     def _reload_all_pages(self):
         """Only reload the current visible page; mark all others dirty so they
         refresh lazily when the user navigates to them."""
-        current_idx = self.stack.currentIndex()
-        for i, p in enumerate(self._pages):
+        cur_widget = self.stack.currentWidget()
+        for p in self._pages:
             if p is None:
                 continue
             if hasattr(p, "_mark_dirty"):
                 p._mark_dirty()
             elif hasattr(p, "_dirty"):
                 p._dirty = True
-            if i == current_idx and hasattr(p, "reload"):
+            if p is cur_widget and hasattr(p, "reload"):
                 try:
                     p.reload()
                 except Exception as exc:
-                    print(f"[MainWindow] Error reloading page {i}: {exc}")
+                    print(f"[MainWindow] Error reloading active page: {exc}")
         self._poll_notifications()
 
     def _on_theme_changing(self, palette_id: str):

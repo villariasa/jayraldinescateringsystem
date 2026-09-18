@@ -775,6 +775,20 @@ class DashboardPage(QWidget):
         super().__init__(parent)
         self._dirty = True  # Load on first show
 
+        try:
+            from utils.signals import app_events
+            _ev = app_events()
+            _ev.booking_saved.connect(self._mark_dirty_and_reload)
+            _ev.booking_created.connect(self._mark_dirty_and_reload)
+            _ev.booking_updated.connect(self._mark_dirty_and_reload)
+            _ev.payment_recorded.connect(self._mark_dirty_and_reload)
+            _ev.expense_saved.connect(self._mark_dirty_and_reload)
+            _ev.customer_saved.connect(self._mark_dirty_and_reload)
+            _ev.sync_completed.connect(self._mark_dirty_and_reload)
+            _ev.data_changed.connect(self._mark_dirty_and_reload)
+        except Exception:
+            pass
+
         self.root_layout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -1083,6 +1097,11 @@ class DashboardPage(QWidget):
 
     def _mark_dirty(self):
         self._dirty = True
+
+    def _mark_dirty_and_reload(self):
+        self._dirty = True
+        if self.isVisible():
+            self.reload()
 
     def _build_export_menu(self):
         menu = QMenu(self)

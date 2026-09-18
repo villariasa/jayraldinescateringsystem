@@ -218,6 +218,12 @@ def _get_json(url: str, timeout: float = 3.0) -> Optional[dict]:
 # Write proxy — sends writes to server AND applies locally
 # ─────────────────────────────────────────────────────────────
 
+def _json_param(p: Any) -> Any:
+    if p is None or isinstance(p, (int, float, bool)):
+        return p
+    return str(p)
+
+
 def proxy_write(sql: str, params: tuple = (), server_url: Optional[str] = None) -> bool:
     """
     Send a write SQL statement to the server.
@@ -229,7 +235,7 @@ def proxy_write(sql: str, params: tuple = (), server_url: Optional[str] = None) 
     if not server_url:
         return False
 
-    params_list = [str(p) if p is not None else None for p in (params or [])]
+    params_list = [_json_param(p) for p in (params or [])]
     result = _post_json(
         f"{server_url}/api/db/write",
         {"sql": sql, "params": params_list},
@@ -265,7 +271,7 @@ def proxy_callproc(proc: str, in_params: tuple = (), out_names: Optional[list] =
     if not server_url:
         return None
 
-    params_list = [str(p) if p is not None else None for p in (in_params or [])]
+    params_list = [_json_param(p) for p in (in_params or [])]
     result = _post_json(
         f"{server_url}/api/db/callproc",
         {"proc": proc, "in_params": params_list, "out_names": out_names, "void": void},
@@ -293,7 +299,7 @@ def proxy_fetchall(sql: str, params: tuple = (), server_url: Optional[str] = Non
     if not server_url:
         return None
 
-    params_list = [str(p) if p is not None else None for p in (params or [])]
+    params_list = [_json_param(p) for p in (params or [])]
     result = _post_json(
         f"{server_url}/api/db/query",
         {"sql": sql, "params": params_list, "one": False},
@@ -320,7 +326,7 @@ def proxy_fetchone(sql: str, params: tuple = (), server_url: Optional[str] = Non
     if not server_url:
         return None
 
-    params_list = [str(p) if p is not None else None for p in (params or [])]
+    params_list = [_json_param(p) for p in (params or [])]
     result = _post_json(
         f"{server_url}/api/db/query",
         {"sql": sql, "params": params_list, "one": True},
@@ -647,6 +653,13 @@ def start_realtime_version_watcher(
                     log.info(f"[ClientSync] Server data version changed ({_known_server_version} -> {server_ver}). Syncing & updating UI...")
                     _known_server_version = server_ver
 
+                    # Notify UI that sync is starting
+                    try:
+                        from utils.signals import app_events
+                        app_events().sync_started.emit("Syncing database updates from server...")
+                    except Exception:
+                        pass
+
                     # Pull fresh snapshot from server
                     pull_server_snapshot(server_url=current_srv, timeout=8)
 
@@ -657,39 +670,23 @@ def start_realtime_version_watcher(
                     except Exception:
                         pass
 
-                    # Trigger real-time UI refresh on main Qt thread
+                    # Trigger real-time UI refresh on main Qt thread directly via signals
                     try:
-                        from PySide6.QtCore import QTimer
                         from utils.signals import app_events
-
-                        def _emit_ui_events():
-                            try:
-                                # Must mirror db_sync_server.py's bump_db_version()
-                                # emit set exactly - this only had 5 of the 12 real
-                                # signals, so e.g. a booking/expense/cash-flow
-                                # transaction created on ANOTHER machine never
-                                # actively refreshed Orders/Expenses/Cash Flow here
-                                # (booking_saved/expense_saved/cash_flow_saved were
-                                # simply never emitted), even though the DB write
-                                # itself synced correctly - it just silently waited
-                                # for the next manual page visit instead.
-                                ev = app_events()
-                                ev.data_changed.emit()
-                                ev.booking_saved.emit()
-                                ev.booking_created.emit()
-                                ev.booking_updated.emit()
-                                ev.invoice_saved.emit()
-                                ev.invoice_created.emit()
-                                ev.payment_recorded.emit()
-                                ev.kitchen_updated.emit()
-                                ev.customer_saved.emit()
-                                ev.menu_saved.emit()
-                                ev.expense_saved.emit()
-                                ev.cash_flow_saved.emit()
-                            except Exception as ue:
-                                log.debug(f"[ClientSync] UI signal emit note: {ue}")
-
-                        QTimer.singleShot(0, _emit_ui_events)
+                        ev = app_events()
+                        ev.sync_completed.emit()
+                        ev.data_changed.emit()
+                        ev.booking_saved.emit()
+                        ev.booking_created.emit()
+                        ev.booking_updated.emit()
+                        ev.invoice_saved.emit()
+                        ev.invoice_created.emit()
+                        ev.payment_recorded.emit()
+                        ev.kitchen_updated.emit()
+                        ev.customer_saved.emit()
+                        ev.menu_saved.emit()
+                        ev.expense_saved.emit()
+                        ev.cash_flow_saved.emit()
                     except Exception as sig_err:
                         log.debug(f"[ClientSync] Signal dispatch note: {sig_err}")
 

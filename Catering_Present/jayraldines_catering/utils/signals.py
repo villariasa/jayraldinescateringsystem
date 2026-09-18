@@ -1,4 +1,4 @@
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QCoreApplication
 
 
 class _AppEvents(QObject):
@@ -16,6 +16,8 @@ class _AppEvents(QObject):
     data_changed      = Signal()
     notification_push = Signal()
     alarm_fired       = Signal(dict)
+    sync_started      = Signal(str)
+    sync_completed    = Signal()
 
 
 _instance: _AppEvents | None = None
@@ -25,4 +27,10 @@ def app_events() -> _AppEvents:
     global _instance
     if _instance is None:
         _instance = _AppEvents()
+        app = QCoreApplication.instance()
+        if app is not None and hasattr(app, "thread"):
+            try:
+                _instance.moveToThread(app.thread())
+            except Exception:
+                pass
     return _instance

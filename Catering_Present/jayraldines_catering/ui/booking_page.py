@@ -1022,8 +1022,12 @@ class BookingPage(QWidget):
         self._build_ui()
         self._bookings = []
         self._dirty = True
-        app_events().booking_saved.connect(self._mark_dirty_and_reload)
-        app_events().data_changed.connect(self._mark_dirty)
+        _ev = app_events()
+        _ev.booking_saved.connect(self._mark_dirty_and_reload)
+        _ev.booking_created.connect(self._mark_dirty_and_reload)
+        _ev.booking_updated.connect(self._mark_dirty_and_reload)
+        _ev.sync_completed.connect(self._mark_dirty_and_reload)
+        _ev.data_changed.connect(self._mark_dirty_and_reload)
 
     def _mark_dirty(self):
         self._dirty = True
@@ -2251,24 +2255,34 @@ class BookingPage(QWidget):
             QMessageBox.warning(self, "Cannot Approve", str(exc))
 
     def _decline_booking(self, ref):
-        b = next((x for x in self._bookings if x["id"] == ref), None)
-        if not b or b["status"] != "PENDING":
+        b = next((x for x in self._bookings if x.get("id") == ref), None)
+        if not b:
+            for rlist in getattr(self, "_tab_rows", {}).values():
+                b = next((x for x in rlist if x.get("id") == ref), None)
+                if b:
+                    break
+        if not b or b.get("status") != "PENDING":
             return
         reason, ok = QInputDialog.getText(
             self, "Cancellation Reason",
-            f"Enter reason for declining booking for '{b['name']}' (optional):"
+            f"Enter reason for declining booking for '{b.get('name', 'this customer')}' (optional):"
         )
         if not ok:
             return
         if not confirm(self, title="Decline Booking",
-                       message=f"Decline booking for '{b['name']}'? This will mark it as Cancelled.",
+                       message=f"Decline booking for '{b.get('name', 'this customer')}'? This will mark it as Cancelled.",
                        confirm_label="Decline", danger=True):
             return
         b["status"] = "CANCELLED"
         if b.get("db_id"):
             repo.update_booking_status(b["db_id"], "CANCELLED", reason.strip() or None)
             repo.write_audit_log(get_actor(), "CANCEL", "bookings", b["db_id"], None, {"status": "CANCELLED", "reason": reason.strip(), "customer": b.get("name")})
-        self._populate_table()
+        from utils.data_cache import DataCache
+        DataCache.clear()
+        self.reload()
+        app_events().booking_updated.emit()
+        app_events().booking_saved.emit()
+        app_events().data_changed.emit()
         success(self, message="Booking declined.")
 
     def _send_confirmation_auto(self, b: dict) -> None:
@@ -2326,11 +2340,17 @@ class BookingPage(QWidget):
         if not SessionManager.has_permission("bookings", "delete"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete bookings.")
             return
-        b = next((x for x in self._bookings if x["id"] == ref), None)
+        b = next((x for x in self._bookings if x.get("id") == ref), None)
+        if not b:
+            for rlist in getattr(self, "_tab_rows", {}).values():
+                b = next((x for x in rlist if x.get("id") == ref), None)
+                if b:
+                    break
         if not b:
             return
+        c_name = b.get("name", "this booking")
         if not confirm(self, title="Delete Booking",
-                       message=f"Are you sure you want to delete booking for '{b['name']}'? This cannot be undone.",
+                       message=f"Are you sure you want to delete booking for '{c_name}'? This cannot be undone.",
                        confirm_label="Delete", danger=True):
             return
         if b.get("db_id"):
@@ -2340,8 +2360,20 @@ class BookingPage(QWidget):
                     "The booking could not be deleted. Please check your connection to the server and try again.")
                 return
             repo.write_audit_log(get_actor(), "DELETE", "bookings", b["db_id"], {"customer": b.get("name"), "amount": b.get("total")}, None)
-        self._bookings = [x for x in self._bookings if x["id"] != ref]
-        self._populate_table()
+
+        self._bookings = [x for x in self._bookings if x.get("id") != ref]
+        for tid in (0, 1, 2):
+            if hasattr(self, "_tab_rows") and tid in self._tab_rows:
+                self._tab_rows[tid] = [x for x in self._tab_rows[tid] if x.get("id") != ref]
+            if hasattr(self, "_tab_cached_full") and tid in self._tab_cached_full:
+                self._tab_cached_full[tid] = [x for x in self._tab_cached_full[tid] if x.get("id") != ref]
+
+        from utils.data_cache import DataCache
+        DataCache.clear()
+        self.reload()
+        app_events().booking_saved.emit()
+        app_events().booking_updated.emit()
+        app_events().data_changed.emit()
         success(self, message="Booking deleted successfully.")
 
     def _open_additional_charges(self, ref):

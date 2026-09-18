@@ -159,42 +159,23 @@ def bump_db_version() -> int:
     # so the signal emit is marshaled onto the main/GUI thread via
     # QTimer.singleShot(0, ...), same as client_sync.py's watcher does.
     try:
-        from PySide6.QtCore import QTimer
-
-        def _emit_ui_events():
-            try:
-                from utils.signals import app_events
-                ev = app_events()
-                # A remote client write is proxied through one generic SQL
-                # executor (see _handle_db_write), so there's no reliable way
-                # to know which table/module was actually touched here - emit
-                # every mutation signal so whichever page the server operator
-                # happens to be looking at (Orders, Billing, Customers, Menu,
-                # Expenses, Cash Flow) reacts, not just a subset. Previously
-                # this only emitted a partial set (data_changed/
-                # booking_updated/payment_recorded/customer_saved/menu_saved)
-                # which never included booking_saved/booking_created -
-                # Orders' page only wires its ACTIVE reload to booking_saved,
-                # so new bookings from a client never appeared on the
-                # server's own Orders page until it was re-navigated to.
-                ev.data_changed.emit()
-                ev.booking_saved.emit()
-                ev.booking_created.emit()
-                ev.booking_updated.emit()
-                ev.invoice_saved.emit()
-                ev.invoice_created.emit()
-                ev.payment_recorded.emit()
-                ev.kitchen_updated.emit()
-                ev.customer_saved.emit()
-                ev.menu_saved.emit()
-                ev.expense_saved.emit()
-                ev.cash_flow_saved.emit()
-            except Exception as ue:
-                logger.debug(f"[SyncServer] UI signal emit note: {ue}")
-
-        QTimer.singleShot(0, _emit_ui_events)
+        from utils.signals import app_events
+        ev = app_events()
+        ev.sync_completed.emit()
+        ev.data_changed.emit()
+        ev.booking_saved.emit()
+        ev.booking_created.emit()
+        ev.booking_updated.emit()
+        ev.invoice_saved.emit()
+        ev.invoice_created.emit()
+        ev.payment_recorded.emit()
+        ev.kitchen_updated.emit()
+        ev.customer_saved.emit()
+        ev.menu_saved.emit()
+        ev.expense_saved.emit()
+        ev.cash_flow_saved.emit()
     except Exception as exc:
-        logger.debug(f"[SyncServer] Could not schedule UI refresh signal: {exc}")
+        logger.debug(f"[SyncServer] Could not dispatch UI refresh signal: {exc}")
 
     return _db_version
 

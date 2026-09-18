@@ -627,6 +627,7 @@ class CalendarPage(QWidget):
             app_events().booking_created.connect(self._mark_dirty)
             app_events().booking_updated.connect(self._mark_dirty)
             app_events().payment_recorded.connect(self._mark_dirty)
+            app_events().sync_completed.connect(self._mark_dirty)
             app_events().data_changed.connect(self._mark_dirty)
         except Exception:
             pass

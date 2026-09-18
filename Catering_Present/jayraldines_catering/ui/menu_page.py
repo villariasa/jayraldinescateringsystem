@@ -1244,8 +1244,9 @@ class MenuPage(QWidget):
 
         try:
             from utils.signals import app_events
-            app_events().data_changed.connect(self._mark_dirty)
             app_events().menu_saved.connect(self._mark_dirty_and_reload)
+            app_events().sync_completed.connect(self._mark_dirty_and_reload)
+            app_events().data_changed.connect(self._mark_dirty_and_reload)
         except Exception:
             pass
 
