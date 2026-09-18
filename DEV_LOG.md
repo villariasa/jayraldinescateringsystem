@@ -2606,3 +2606,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented a 4-stream waste segregation system: Compostable Food Prep, Clean Recyclables, Residual, and Glass.
 - Provided clients with biodegradable takeaway boxes for approved remaining banquet food surplus.
 - Created a formal venue handover checklist signed by the banquet captain and facility coordinator.
+
+### Client Security Deposit Reconciliation & Overtime Surcharges
+- Codified hourly overtime rates for banquet service staff and audio-visual crew beyond contracted durations.
+- Established transparent deduction criteria for damaged linens, broken glassware, or venue penalty fees.
+- Automated generation of security deposit refund vouchers within 48 hours following event completion.
