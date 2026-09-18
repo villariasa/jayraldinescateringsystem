@@ -2900,67 +2900,65 @@ svg {
   display: none; /* hidden — Lottie clears innerHTML before mounting */
 }
 
-/* ── Wizard Shell: Viewport-Fitting Kiosk Architecture ──────────────────── */
+/* ── Wizard Shell: Responsive Kiosk Architecture ──────────────────── */
 .wizard-shell {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  max-height: 100vh;
-  max-height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
   width: 100%;
-  overflow: hidden;
   box-sizing: border-box;
 }
 
-body.wizard-mode,
-body:has(.wizard-shell),
-html:has(.wizard-shell) {
-  overflow: hidden !important;
-  height: 100% !important;
+body.wizard-mode {
+  overflow-y: auto !important;
+  min-height: 100% !important;
+  height: auto !important;
+}
+
+/* Red Section: Fixed / Sticky Header at Top */
+.wizard-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--header-bg, var(--card));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1.5px solid var(--border);
+  padding: 14px 24px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* Wizard Main Workspace */
 .wizard-content-wrap {
-  flex: 1 1 0;
-  min-height: 0;
   width: 100%;
   max-width: 1440px;
   margin: 0 auto;
-  padding: 16px 24px 20px;
+  padding: 20px 24px 40px;
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  flex: 1;
 }
 
 .wizard-grid-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 20px;
-  height: 100%;
-  min-height: 0;
-  flex: 1;
-  align-items: stretch;
+  gap: 24px;
+  align-items: start;
+  width: 100%;
   box-sizing: border-box;
 }
 
-/* Blue Section: Card with Independent Scroll Body & Fixed Footer */
+/* Blue Section: Form Card with Generous Flow */
 #wizard-step-card {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  max-height: 100%;
   min-width: 0;
   width: 100%;
-  padding: 0 !important;
-  overflow: hidden;
-  box-sizing: border-box;
   background: var(--card);
   border-radius: var(--radius);
   border: 1.5px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+  padding: 28px;
 }
 
 [data-theme="light"] #wizard-step-card {
@@ -2969,47 +2967,59 @@ html:has(.wizard-shell) {
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
 }
 
-/* Blue Section: Scrollable Form Body */
 .wizard-step-body {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  padding: 24px 28px 20px;
+  width: 100%;
   box-sizing: border-box;
 }
 
-/* Blue Section: Fixed Bottom Footer */
+/* Form Footer: Always below form content and search dropdowns, never overlapping */
 .wizard-step-footer {
-  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 28px 16px;
-  background: var(--card-elevated);
+  margin-top: 32px;
+  padding-top: 20px;
   border-top: 1.5px solid var(--border);
-  border-bottom-left-radius: inherit;
-  border-bottom-right-radius: inherit;
   box-sizing: border-box;
-  z-index: 10;
+  width: 100%;
 }
 
-[data-theme="light"] .wizard-step-footer {
-  background: #FFFFFF;
-  border-top: 1px solid var(--border);
-}
-
-/* Green Section: Fixed / Non-scrolling Summary & Next Step Panel */
+/* Right Section: Sticky Summary Card */
 #wizard-cart {
+  position: sticky;
+  top: 130px;
   width: 340px;
   max-width: 100%;
-  max-height: 100%;
+  max-height: calc(100vh - 150px);
   overflow-y: auto;
-  overflow-x: hidden;
-  align-self: start;
-  flex-shrink: 0;
   box-sizing: border-box;
+}
+
+/* Search Dropdown Results (Address & Venue) */
+#address-results,
+#venue-results {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  border-radius: var(--radius-sm);
+  z-index: 50;
+  position: relative;
+}
+
+#address-results .btn,
+#venue-results .btn {
+  min-height: 42px;
+  padding: 10px 14px;
+  text-align: left;
+  justify-content: flex-start;
+  font-size: 13.5px;
+  border: 1.5px solid var(--border);
+  background: var(--card-elevated, var(--card));
+  cursor: pointer;
+  touch-action: manipulation;
 }
 
 /* ── Tablet / Landscape Mode (iPad / Touchscreen Screens: 769px to 1024px) ── */
@@ -3043,7 +3053,7 @@ html:has(.wizard-shell) {
   }
 
   .wizard-content-wrap {
-    padding: 12px 16px 14px !important;
+    padding: 12px 16px 28px !important;
     max-width: 100% !important;
     box-sizing: border-box !important;
   }
@@ -3052,30 +3062,37 @@ html:has(.wizard-shell) {
     display: grid !important;
     grid-template-columns: minmax(0, 1fr) 300px !important;
     width: 100% !important;
-    gap: 14px !important;
-    height: 100% !important;
-    min-height: 0 !important;
+    gap: 16px !important;
+    height: auto !important;
+    align-items: start !important;
   }
 
   #wizard-step-card {
-    height: 100% !important;
-    min-height: 0 !important;
+    height: auto !important;
+    max-height: none !important;
     width: 100% !important;
+    padding: 22px !important;
     box-sizing: border-box !important;
+    overflow: visible !important;
   }
 
   .wizard-step-body {
-    padding: 18px 20px 14px !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
   }
 
   .wizard-step-footer {
-    padding: 12px 20px 14px !important;
+    margin-top: 24px !important;
+    padding-top: 16px !important;
+    position: static !important;
   }
 
   #wizard-cart {
     width: 300px !important;
-    position: static !important;
-    max-height: 100% !important;
+    position: sticky !important;
+    top: 120px !important;
+    max-height: calc(100vh - 140px) !important;
     box-sizing: border-box !important;
     margin-top: 0 !important;
     align-self: start !important;
