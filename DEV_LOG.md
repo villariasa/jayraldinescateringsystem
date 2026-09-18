@@ -2516,3 +2516,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented one-tap suggestion chips attached to Chef Jay AI query responses.
 - Enabled direct navigation to today's schedule, pending booking reviews, and monthly sales performance.
 - Reduced keyboard typing requirements for managers operating tablet terminals on the commissary floor.
+
+### Time-of-Day Range Filtering in Repository Bookings Queries
+- Added optional `time_start` and `time_end` parameters to `get_bookings_page()` and `get_booking_counts()`.
+- Implemented `SUBSTR(CAST(b.bk_event_time AS TEXT), 1, 5)` for dual SQLite/PostgreSQL minute matching.
+- Prevented string-length miscomparisons between minute-level filter inputs and database timestamp formats.
