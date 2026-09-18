@@ -2566,3 +2566,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented quarterly filter replacement schedules for commissary reverse osmosis ice machine units.
 - Enforced food-grade plastic ice scoop storage in sanitized wall-mounted holsters outside the ice bin.
 - Mandated weekly sanitization of acrylic juice dispensers and brass spigots with food-grade sanitizing solution.
+
+### Catering Logistics Route Planning for Cebu Traffic Corridors
+- Modeled dispatch route lead-times factoring in peak traffic across Cebu City, Mandaue, and Talisay choke points.
+- Established mandatory 45-minute travel buffers for banquet bookings located in upland Busay and coastal resorts.
+- Provided drivers with alternative arterial bypass route checklists during rainy weather or road construction.
