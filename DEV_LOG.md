@@ -2731,3 +2731,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Automated dispatch of digital customer satisfaction survey links via SMS 18 hours following event conclusion.
 - Collected customer feedback scores on food quality, presentation, staff courtesy, and overall value.
 - Calculated rolling Net Promoter Scores (NPS) to track client retention and identify service improvement areas.
+
+### Seasonal Seafood Market Price Index Modeling & Margin Protection
+- Formulated seasonal cost projection models tracking wholesale price fluctuations for shrimp, crab, and squid.
+- Established dynamic price buffering formulas protecting forward-contracted wedding packages against inflation.
+- Created menu substitution contingency options for clients when seasonal market supply experiences shortages.
