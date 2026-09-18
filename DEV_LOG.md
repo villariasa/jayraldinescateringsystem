@@ -2491,3 +2491,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Formatted two independent orders to fit seamlessly on a single standard A4 sheet in portrait orientation.
 - Inserted a centered dashed cut line (`✂ — — — — ✂`) providing a clear cutting boundary for prep captains.
 - Reduced kitchen paper consumption by 50% during multi-booking weekend operations.
+
+### Dynamic Padding Scaling & Whitespace Deficit Top-Up
+- Implemented adaptive pad scale multipliers adjusting cell padding based on total dish count.
+- Calculated exact document height deficits to dynamically pad short orders to precisely half-A4 dimensions.
+- Eliminated awkward page breaks and trailing orphan lines on short 3-course catering bookings.
