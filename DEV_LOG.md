@@ -2541,3 +2541,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Mandated pre-filling water pans with boiling water 30 minutes prior to buffet opening to protect food temperatures.
 - Standardized ethanol gel fuel burn-time estimates (2.5 hours per can) with scheduled midway replenishment.
 - Enforced wind-resistant burner guard placement during outdoor and coastal banquet setups.
+
+### Allergen Cross-Contact Prevention on Buffet Serving Lines
+- Established strict utensil separation protocols prohibiting utensil sharing between chafing pans.
+- Deployed prominent acrylic allergen tent cards identifying gluten, shellfish, peanuts, and dairy.
+- Trained banquet floor captains on emergency protocol procedures for client allergic reactions.
