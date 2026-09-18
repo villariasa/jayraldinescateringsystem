@@ -2741,3 +2741,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Mandated bi-weekly grease trap skimming and solids removal by certified commercial environmental waste haulers.
 - Installed automated peristaltic dosing pumps dispensing live bacterial enzymes into main kitchen dishwashing drains.
 - Prevented fats, oils, and grease (FOG) accumulation, sewer odors, and municipal sanitation compliance violations.
+
+### Event Staff Night Differential & Holiday Overtime Payroll Rules
+- Codified automated calculation rules for 10% night differential pay between 10:00 PM and 06:00 AM.
+- Integrated premium multiplier formulas (130% on rest days, 200% on regular holidays) for banquet event crew.
+- Exported audit-compliant shift timecards directly into payroll management systems with zero manual errors.
