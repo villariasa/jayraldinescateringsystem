@@ -2691,3 +2691,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Published an operational reference chart matching table sizes (60", 72" rounds, 6ft, 8ft banquets) to cloth dimensions.
 - Standardized formal floor-length drops (30-inch drop) for wedding receptions and presidential dining setups.
 - Specified lap-length drops (15-inch drop) for casual corporate buffet lines and seminars to avoid floor tripping.
+
+### Formal Napkin Folding Styles & Hygienic Storage Bins
+- Documented step-by-step folding guides for signature styles: Crown, Bishop's Hat, French Pleat, and Candle.
+- Scheduled pre-folding labor in clean commissary preparation rooms using sanitized stainless steel tables.
+- Stored finished folded napkins in transparent airtight plastic totes with dust covers prior to venue setup.
