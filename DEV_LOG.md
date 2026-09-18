@@ -2476,3 +2476,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established a dedicated left column (44% width) for venue address, occasion type, and on-site client contact.
 - Formatted venue location in 15px bold text for rapid driver and banquet captain recognition.
 - Included direct contact numbers for primary event coordinators to facilitate delivery hand-offs.
+
+### Kitchen Slip Special Instructions & Non-Priced Add-ons Policy
+- Parsed client remarks from booking records, filtering out internal billing figures for kitchen staff privacy.
+- Formatted add-on items as clean bulleted text blocks beneath the Additional Instructions heading.
+- Preserved client color theme and setup requests while shielding financial ledger data from prep slips.
