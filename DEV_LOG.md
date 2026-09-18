@@ -2451,3 +2451,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented comprehensive catering workflows: BEO print layout overhaul, kitchen station routing, cold-chain safety, fleet logistics, billing tranches, and Chef Jay AI regional culinary grounding.
 - Zero source code files modified; preserved all active working directory modifications while advancing repository documentation.
 
+
+### Order Print Dialog 2-Column Menu Layout Refactor
+- Refactored the Banquet Event Order (BEO) print dialog menu table to strictly utilize a 2-column layout (`Category | Menu`).
+- Allocated 34% width to the Category column and 66% width to the Menu column for balanced visual weight.
+- Removed redundant card-based grid elements in favor of a clean, high-contrast bordered presentation.
