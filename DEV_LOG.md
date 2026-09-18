@@ -2546,3 +2546,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established strict utensil separation protocols prohibiting utensil sharing between chafing pans.
 - Deployed prominent acrylic allergen tent cards identifying gluten, shellfish, peanuts, and dairy.
 - Trained banquet floor captains on emergency protocol procedures for client allergic reactions.
+
+### Insulated Food Carrier Thermal Retention & Gasket Inspections
+- Established routine inspection procedures for Cambro / Carlisle front-loading food pan carriers.
+- Verified that thermal retention curves maintain hot food above 65°C for up to 4 hours of road transit.
+- Mandated bi-monthly silicone door gasket replacements to prevent steam leakage during transit.
