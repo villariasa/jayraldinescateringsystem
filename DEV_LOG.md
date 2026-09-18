@@ -2636,3 +2636,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured electric soup kettle warmers to maintain a stable holding temperature of 75°C to 80°C.
 - Mandated 20-minute interval stirring schedules to prevent starch sedimentation in cream of mushroom and pumpkin soups.
 - Provided insulated ladle handles preventing heat transfer and accidental waitstaff burns during self-service.
+
+### Cocktail Mocktail Syrup Batching & Shelf-Life Labeling
+- Standardized batch recipes for natural calamansi cordial, lemongrass ginger syrup, and hibiscus iced tea.
+- Enforced airtight glass storage bottles labeled with prep date, expiration date, and commissary batch lot IDs.
+- Set a strict 7-day refrigeration limit for unpreserved fresh fruit purees and infused botanical syrups.
