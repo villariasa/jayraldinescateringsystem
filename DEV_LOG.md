@@ -2576,3 +2576,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented minimum 1.5-meter clearance around buffet service tables to prevent congested guest bottlenecks.
 - Established 1.2-meter aisle spacing between 60-inch round dining tables for safe waitstaff tray transit.
 - Specified fire exit and emergency egress buffer zones free of catering staging racks and trash bins.
+
+### High-Carry Banquet Tray Ergonomics & Weight Distribution Training
+- Codified waitstaff training standards for high-shoulder carrying of 27-inch oval banquet service trays.
+- Outlined tray balancing rules placing heavy liquid soup bowls and entrée dishes over the center of the palm.
+- Reduced workplace shoulder strain and accidental tableware drops during multi-course banquet service.
