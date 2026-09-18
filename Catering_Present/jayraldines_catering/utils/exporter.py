@@ -1648,12 +1648,14 @@ def _draw_calendar_page(c, LS_W, LS_H, year, month, month_events,
     total_evs = len(all_evs)
     active_d  = len([d for d, evl in (month_events or {}).items() if evl])
 
-    # ── Title bar ──────────────────────────────────────────────────────────
+    # ── Title bar (clean, unshaded, printer-friendly) ──────────────────────
     TITLE_H = 50
     title_y  = LS_H - MY - TITLE_H
 
-    c.setFillColor(_C_NAV)
-    c.roundRect(MX, title_y, draw_w, TITLE_H, 7, fill=1, stroke=0)
+    c.setFillColor(colors.white)
+    c.setStrokeColor(_C_CELL_B)
+    c.setLineWidth(0.8)
+    c.roundRect(MX, title_y, draw_w, TITLE_H, 6, fill=1, stroke=1)
 
     _lp = _logo_path()
     LOGO_S = 34
@@ -1665,7 +1667,7 @@ def _draw_calendar_page(c, LS_W, LS_H, year, month, month_events,
         except Exception:
             pass
 
-    c.setFillColor(colors.white)
+    c.setFillColor(colors.HexColor("#0F172A"))
     c.setFont("Helvetica-Bold", 24)
     c.drawCentredString(LS_W / 2, title_y + TITLE_H / 2 - 8,
                         f"{month_name.upper()}  {year}")
@@ -1674,30 +1676,38 @@ def _draw_calendar_page(c, LS_W, LS_H, year, month, month_events,
                  ("PAX",    f"{total_pax:,}"),
                  ("DAYS",   str(active_d))]
     BW, BH, BG = 64, 30, 6
-    kx = MX + draw_w - len(kpi_items) * (BW + BG) - 4
+    kx = MX + draw_w - len(kpi_items) * (BW + BG) - 8
     for lbl, val in kpi_items:
-        c.setFillColor(colors.HexColor("#1E3A5F"))
-        c.roundRect(kx, title_y + (TITLE_H - BH) / 2, BW, BH, 4, fill=1, stroke=0)
-        c.setFillColor(colors.HexColor("#93C5FD"))
+        c.setFillColor(colors.HexColor("#F8FAFC"))
+        c.setStrokeColor(colors.HexColor("#CBD5E1"))
+        c.setLineWidth(0.6)
+        c.roundRect(kx, title_y + (TITLE_H - BH) / 2, BW, BH, 4, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor("#64748B"))
         c.setFont("Helvetica-Bold", 6.5)
         c.drawCentredString(kx + BW / 2, title_y + (TITLE_H + BH) / 2 - 8, lbl)
-        c.setFillColor(colors.white)
+        c.setFillColor(colors.HexColor("#0F172A"))
         c.setFont("Helvetica-Bold", 12)
         c.drawCentredString(kx + BW / 2, title_y + (TITLE_H - BH) / 2 + 5, val)
         kx += BW + BG
 
-    # ── Weekday headers ────────────────────────────────────────────────────
+    # ── Weekday headers (clean light background, printer-friendly) ─────────
     WDAY_H   = 24
     wday_y   = title_y - WDAY_H
     col_w    = draw_w / 7
     DAYS_FULL = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY",
                  "THURSDAY", "FRIDAY", "SATURDAY"]
-    c.setFillColor(_C_DAY_H)
-    c.rect(MX, wday_y, draw_w, WDAY_H, fill=1, stroke=0)
-    c.setFillColor(colors.white)
-    c.setFont("Helvetica-Bold", 8)
+    c.setFillColor(colors.HexColor("#F8FAFC"))
+    c.setStrokeColor(_C_CELL_B)
+    c.setLineWidth(0.5)
+    c.rect(MX, wday_y, draw_w, WDAY_H, fill=1, stroke=1)
     for i, dn in enumerate(DAYS_FULL):
+        c.setFillColor(colors.HexColor("#334155"))
+        c.setFont("Helvetica-Bold", 8)
         c.drawCentredString(MX + col_w * i + col_w / 2, wday_y + WDAY_H / 2 - 3.5, dn)
+        if i > 0:
+            c.setStrokeColor(_C_CELL_B)
+            c.setLineWidth(0.5)
+            c.line(MX + col_w * i, wday_y, MX + col_w * i, wday_y + WDAY_H)
 
     # ── Day cells ──────────────────────────────────────────────────────────
     _cal.setfirstweekday(_cal.SUNDAY)
@@ -1995,9 +2005,11 @@ def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
     def start_page():
         c.setPageSize(LS)
 
-        # Dark title bar
-        c.setFillColor(C_DARK)
-        c.roundRect(MX, PH - MY - HEADER_H, CW, HEADER_H, 7, fill=1, stroke=0)
+        # Clean white title bar with border
+        c.setFillColor(colors.white)
+        c.setStrokeColor(C_BORDER)
+        c.setLineWidth(0.8)
+        c.roundRect(MX, PH - MY - HEADER_H, CW, HEADER_H, 6, fill=1, stroke=1)
 
         # Logo
         _lp = _logo_path()
@@ -2012,23 +2024,25 @@ def _draw_agenda_canvas_pages(c, year, month, month_events, biz_name, styles):
                 pass
 
         # Title
-        c.setFillColor(colors.white)
+        c.setFillColor(colors.HexColor("#0F172A"))
         c.setFont("Helvetica-Bold", 17)
         c.drawCentredString(PW / 2,
                             PH - MY - HEADER_H / 2 - 6,
                             f"Booking Agenda — {month_name.upper()}  {year}")
 
         # Biz name right-aligned in header
-        c.setFont("Helvetica", 8)
-        c.setFillColor(colors.HexColor("#93C5FD"))
-        c.drawRightString(MX + CW - 6,
-                          PH - MY - HEADER_H + 8, biz_name)
+        c.setFont("Helvetica-Bold", 8)
+        c.setFillColor(colors.HexColor("#475569"))
+        c.drawRightString(MX + CW - 10,
+                          PH - MY - HEADER_H + (HEADER_H / 2) - 4, biz_name)
 
         # Column header row
         hdr_y = PH - MY - HEADER_H - COL_HDR_H
-        c.setFillColor(colors.HexColor("#1E293B"))
-        c.rect(MX, hdr_y, CW, COL_HDR_H, fill=1, stroke=0)
-        c.setFillColor(colors.white)
+        c.setFillColor(colors.HexColor("#F8FAFC"))
+        c.setStrokeColor(C_BORDER)
+        c.setLineWidth(0.5)
+        c.rect(MX, hdr_y, CW, COL_HDR_H, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor("#334155"))
         c.setFont("Helvetica-Bold", 7.5)
         for cx, hdr in zip(COL_X, COL_HDRS):
             c.drawString(cx, hdr_y + 7, hdr)
