@@ -2686,3 +2686,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Integrated portable ambient temperature and humidity sensors for open-air beachfront and garden receptions.
 - Formulated fuel adjustment tables increasing Sterno burner allocation by 30% during breezy coastal winds.
 - Deployed collapsible aluminum wind shields around chafing dish bases to maintain consistent water pan heat.
+
+### Banquet Table Linen Drop Sizing Charts & Selection Matrix
+- Published an operational reference chart matching table sizes (60", 72" rounds, 6ft, 8ft banquets) to cloth dimensions.
+- Standardized formal floor-length drops (30-inch drop) for wedding receptions and presidential dining setups.
+- Specified lap-length drops (15-inch drop) for casual corporate buffet lines and seminars to avoid floor tripping.
