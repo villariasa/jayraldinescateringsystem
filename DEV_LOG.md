@@ -2506,3 +2506,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented date-based tracking in QSettings (`chef_jay/last_morning_briefing_date`) for morning briefings.
 - Ensured automated greetings trigger strictly on the first launch of each calendar day without annoying repeats.
 - Added an administrative reset command (`reset morning briefing`) for testing and supervisor re-runs.
+
+### Chef Jay AI Morning Briefing KPI Aggregation Logic
+- Structured daily morning summaries aggregating today's events, total expected pax, and kitchen load.
+- Integrated automated alerts for outstanding receivables, unpaid client balances, and overdue follow-ups.
+- Formatted executive responses with clear markdown headers and bold status indicators.
