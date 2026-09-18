@@ -2666,3 +2666,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Designed specialized children's buffet stations featuring sweet-style spaghetti, breaded chicken fillets, and fries.
 - Provided colorful food-grade shatterproof melamine bowls and tumblers to eliminate glass breakage risks.
 - Positioned kiddie buffet tables at a 75cm height for easy and safe self-service by young children.
+
+### Multi-Tier Wedding Cake Transport Rigging & Climate Control
+- Implemented non-slip silicone stabilizing mats and reinforced foam levelers in air-conditioned delivery vans.
+- Maintained van cabin temperatures between 18°C and 20°C to protect delicate buttercream and royal icing tiers.
+- Provided cake transport toolkits with offset spatulas, matching icing piping bags, and repair dowels.
