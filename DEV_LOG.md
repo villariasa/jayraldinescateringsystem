@@ -2471,3 +2471,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Designed a 4-column summary strip enclosed in a 1.5px solid black border across the document width.
 - Standardized vertical and horizontal alignment for DATE, NAME, TIME, and PAX metrics.
 - Applied bold uppercase 15px value styling with 9px section labels for maximum legibility in busy kitchens.
+
+### Left-Column Venue Details & Client Contact Formatting
+- Established a dedicated left column (44% width) for venue address, occasion type, and on-site client contact.
+- Formatted venue location in 15px bold text for rapid driver and banquet captain recognition.
+- Included direct contact numbers for primary event coordinators to facilitate delivery hand-offs.
