@@ -2551,3 +2551,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established routine inspection procedures for Cambro / Carlisle front-loading food pan carriers.
 - Verified that thermal retention curves maintain hot food above 65°C for up to 4 hours of road transit.
 - Mandated bi-monthly silicone door gasket replacements to prevent steam leakage during transit.
+
+### Buffet Replenishment Notification Thresholds & Pan Transfers
+- Established waitstaff visual cues triggering kitchen replenishment alerts when chafing pans reach 25% capacity.
+- Outlined half-pan swap procedures to prevent food from drying out under continuous chafing heat.
+- Mandated temperature probe verification (minimum 65°C) before releasing backup pans to the buffet line.
