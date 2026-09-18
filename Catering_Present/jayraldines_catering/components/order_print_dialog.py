@@ -316,28 +316,29 @@ class OrderPrintDialog(QDialog):
         ps = pad_scale if not compact else 1.0
         item_font = "12px" if not compact else "10.5px"
         cat_font = "11px" if not compact else "9.5px"
-        cell_pad = f"{round(7 * ps)}px 8px" if not compact else "4px 6px"
+        head_pad = "4px 4px"
+        cell_pad = f"{round(5 * ps)}px 4px" if not compact else "3px 4px"
 
-        html = '<table width="100%" style="width:100%; border-collapse:collapse; border:1.5px solid #000000;">'
-        html += '<tr style="border-bottom:1.5px solid #000000; background-color:#EEEEEE; color:#000000;">'
-        html += f'<th style="padding:{cell_pad}; text-align:left; font-size:{cat_font}; font-weight:800; text-transform:uppercase; width:34%; border-right:1.5px solid #000000;">Category</th>'
-        html += f'<th style="padding:{cell_pad}; text-align:left; font-size:{cat_font}; font-weight:800; text-transform:uppercase; width:66%;">Menu</th>'
+        html = '<table width="100%" style="width:100%; border-collapse:collapse; border:none;">'
+        html += '<tr style="color:#000000;">'
+        html += f'<th style="padding:{head_pad}; text-align:left; font-size:{cat_font}; font-weight:800; text-transform:uppercase; width:36%; border:none;">Category</th>'
+        html += f'<th style="padding:{head_pad}; text-align:left; font-size:{cat_font}; font-weight:800; text-transform:uppercase; width:64%; border:none;">Menu</th>'
         html += '</tr>'
 
         if by_cat:
             for cat, items in by_cat.items():
                 items_str = "<br/>".join([f"● <b>{it}</b>" for it in items])
                 html += f"""
-                <tr style="border-bottom:1px solid #000000;">
-                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#000000; border-right:1px solid #000000;">{cat}</td>
-                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{item_font}; font-weight:700; color:#000000; line-height:1.45;">{items_str}</td>
+                <tr>
+                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#000000; border:none; width:36%;">{cat}</td>
+                    <td style="padding:{cell_pad}; vertical-align:top; font-size:{item_font}; font-weight:700; color:#000000; border:none; width:64%; line-height:1.4;">{items_str}</td>
                 </tr>
                 """
         else:
             html += f"""
-            <tr style="border-bottom:1px solid #000000;">
-                <td style="padding:{cell_pad}; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#000000; border-right:1px solid #000000;">Standard Inclusions</td>
-                <td style="padding:{cell_pad}; vertical-align:top; font-size:{item_font}; font-style:italic; color:#000000;">Standard catering package inclusions apply.</td>
+            <tr>
+                <td style="padding:{cell_pad}; vertical-align:top; font-size:{cat_font}; font-weight:bold; color:#000000; border:none; width:36%;">Standard Inclusions</td>
+                <td style="padding:{cell_pad}; vertical-align:top; font-size:{item_font}; font-style:italic; color:#000000; border:none; width:64%;">Standard catering package inclusions apply.</td>
             </tr>
             """
         html += '</table>'
@@ -405,8 +406,7 @@ class OrderPrintDialog(QDialog):
             instr_parts.append(f'<div style="font-size:10.5px; font-style:italic; color:#666666;">No additional instructions or add-ons specified.</div>')
         instructions_html = "".join(instr_parts)
 
-        strip_pad_v = round(7 * ps) if not compact else 5
-        strip_pad = f"{strip_pad_v}px 8px" if not compact else "5px 6px"
+        strip_pad = "2px 4px 3px 4px" if not compact else "2px 3px 2px 3px"
 
         gap_top = f"{round(8 * ps)}px" if not compact else "5px"
         gap_section = f"{round(14 * ps)}px" if not compact else "8px"
@@ -430,17 +430,21 @@ class OrderPrintDialog(QDialog):
         <!-- Summary Strip: DATE NAME TIME PAX -->
         <table width="100%" style="width:100%; border-collapse:collapse; margin-top:{gap_top}; border:1.5px solid #000000;">
             <tr>
-                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000; width:25%;">
-                    DATE<br/><span style="font-size:{strip_val}; font-weight:800;">{date_str}</span>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; border-right:1px solid #000000; width:25%; vertical-align:middle;">
+                    <div style="font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; line-height:1.0; margin:0;">DATE</div>
+                    <div style="font-size:{strip_val}; font-weight:800; line-height:1.1; margin-top:1px;">{date_str}</div>
                 </td>
-                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000; width:35%;">
-                    NAME<br/><span style="font-size:{strip_val}; font-weight:800; text-transform:uppercase;">{cust_name}</span>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; border-right:1px solid #000000; width:35%; vertical-align:middle;">
+                    <div style="font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; line-height:1.0; margin:0;">NAME</div>
+                    <div style="font-size:{strip_val}; font-weight:800; text-transform:uppercase; line-height:1.1; margin-top:1px;">{cust_name}</div>
                 </td>
-                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; border-right:1px solid #000000; width:22%;">
-                    TIME<br/><span style="font-size:{strip_val}; font-weight:800;">{time_str}</span>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; border-right:1px solid #000000; width:22%; vertical-align:middle;">
+                    <div style="font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; line-height:1.0; margin:0;">TIME</div>
+                    <div style="font-size:{strip_val}; font-weight:800; line-height:1.1; margin-top:1px;">{time_str}</div>
                 </td>
-                <td style="padding:{strip_pad}; text-align:center; color:#000000; font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; width:18%;">
-                    PAX<br/><span style="font-size:{strip_val}; font-weight:800;">{pax}</span>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; width:18%; vertical-align:middle;">
+                    <div style="font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; line-height:1.0; margin:0;">PAX</div>
+                    <div style="font-size:{strip_val}; font-weight:800; line-height:1.1; margin-top:1px;">{pax}</div>
                 </td>
             </tr>
         </table>
