@@ -2521,3 +2521,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Added optional `time_start` and `time_end` parameters to `get_bookings_page()` and `get_booking_counts()`.
 - Implemented `SUBSTR(CAST(b.bk_event_time AS TEXT), 1, 5)` for dual SQLite/PostgreSQL minute matching.
 - Prevented string-length miscomparisons between minute-level filter inputs and database timestamp formats.
+
+### Banquet Order Management Meal-Slot Filtering Toolbar Dropdown
+- Integrated meal-slot filtering options: All Times, Breakfast (06:00-10:00), Lunch (11:00-14:00), and Dinner (17:00-21:00).
+- Allowed logistics coordinators to quickly isolate specific delivery windows for dispatch manifests.
+- Preserved active date and search filters when switching between meal-slot selections.
