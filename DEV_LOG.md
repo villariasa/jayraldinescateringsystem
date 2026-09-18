@@ -2641,3 +2641,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized batch recipes for natural calamansi cordial, lemongrass ginger syrup, and hibiscus iced tea.
 - Enforced airtight glass storage bottles labeled with prep date, expiration date, and commissary batch lot IDs.
 - Set a strict 7-day refrigeration limit for unpreserved fresh fruit purees and infused botanical syrups.
+
+### Salad Bar Ice-Well Staging & Vegetable Crispness Preservation
+- Implemented double-boiler ice wells keeping mixed salad greens below 4°C throughout warm weather banquets.
+- Preserved salad crunchiness by storing salad dressings in chilled stainless steel carafes beside the greens.
+- Standardized spin-drying protocols removing excess surface water from washed romaine and lollo bionda leaves.
