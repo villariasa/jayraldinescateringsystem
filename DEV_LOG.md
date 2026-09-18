@@ -2571,3 +2571,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Modeled dispatch route lead-times factoring in peak traffic across Cebu City, Mandaue, and Talisay choke points.
 - Established mandatory 45-minute travel buffers for banquet bookings located in upland Busay and coastal resorts.
 - Provided drivers with alternative arterial bypass route checklists during rainy weather or road construction.
+
+### Banquet Hall Table Clearance & Buffet Circulation Guidelines
+- Documented minimum 1.5-meter clearance around buffet service tables to prevent congested guest bottlenecks.
+- Established 1.2-meter aisle spacing between 60-inch round dining tables for safe waitstaff tray transit.
+- Specified fire exit and emergency egress buffer zones free of catering staging racks and trash bins.
