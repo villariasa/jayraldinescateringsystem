@@ -295,46 +295,49 @@ class OrderPrintDialog(QDialog):
         return add_ons
 
     def _build_dishes_table_2col(self, booking: dict, compact: bool = False, pad_scale: float = 1.0) -> str:
-        """Renders MENU SELECTIONS with categories and bulleted dishes stacked cleanly without box lines."""
+        """Renders MENU SELECTIONS with only the dish names in a clean, enlarged bullet list without category headers."""
         dishes = booking.get("dishes") or []
         if not dishes and booking.get("menu_value"):
             raw_dishes = [d.strip() for d in str(booking["menu_value"]).split(",") if d.strip()]
-            dishes = [{"name": rd, "category": "Selected Menu"} for rd in raw_dishes]
+            dishes = [{"name": rd} for rd in raw_dishes]
 
-        by_cat = {}
-        seen_per_cat = {}
+        dish_names = []
+        seen = set()
         for d in dishes:
-            cat = d.get("category") or "Menu Dishes"
             d_name = d.get("name") or d.get("item_name") or (f"Item #{d['item_id']}" if d.get("item_id") else None)
             if d_name:
-                seen = seen_per_cat.setdefault(cat, set())
                 key = d_name.strip().lower()
                 if key not in seen:
                     seen.add(key)
-                    by_cat.setdefault(cat, []).append(d_name)
+                    dish_names.append(d_name.strip())
 
         ps = pad_scale if not compact else 1.0
-        sec_title_font = "11px" if not compact else "9.5px"
-        cat_font = "11px" if not compact else "9.5px"
-        item_font = "12px" if not compact else "10.5px"
-        gap_cat = f"{round(8 * ps)}px" if not compact else "5px"
+        sec_title_font = "12px" if not compact else "10px"
+        count = len(dish_names)
+        if compact:
+            item_font = "12px" if count <= 7 else "10.5px"
+            item_gap = "5px"
+        else:
+            if count <= 6:
+                item_font = "15.5px"
+                item_gap = f"{round(10 * ps)}px"
+            elif count <= 9:
+                item_font = "13.5px"
+                item_gap = f"{round(7 * ps)}px"
+            else:
+                item_font = "12px"
+                item_gap = f"{round(5 * ps)}px"
 
         html_parts = [
-            f'<div style="font-size:{sec_title_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.3px; margin-bottom:6px;">MENU SELECTIONS</div>'
+            f'<div style="font-size:{sec_title_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.4px; margin-bottom:8px;">MENU SELECTIONS</div>'
         ]
 
-        if by_cat:
-            for cat, items in by_cat.items():
-                items_html = "".join([
-                    f'<div style="font-size:{item_font}; font-weight:700; color:#000000; padding-left:8px; margin-top:2px; line-height:1.35;">&bull; {it}</div>'
-                    for it in items
-                ])
-                html_parts.append(f"""
-                <div style="margin-bottom:{gap_cat};">
-                    <div style="font-size:{cat_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.2px;">{cat}</div>
-                    {items_html}
-                </div>
-                """)
+        if dish_names:
+            items_html = "".join([
+                f'<div style="font-size:{item_font}; font-weight:800; color:#000000; margin-bottom:{item_gap}; line-height:1.35;">&bull; {it}</div>'
+                for it in dish_names
+            ])
+            html_parts.append(items_html)
         else:
             html_parts.append(f"""
             <div style="font-size:{item_font}; font-style:italic; color:#666666;">Standard catering package inclusions apply.</div>
