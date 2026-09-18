@@ -2536,3 +2536,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Documented specialized washing formulas for heavy polyester damask banquet tablecloths and chair covers.
 - Implemented pre-soak stain treatment protocols for stubborn red wine, grease, and yellow curry stains.
 - Specified commercial rotary iron pressing standards to ensure crisp, crease-free event setups.
+
+### Chafing Dish Water Pan Pre-Heating & Burner Safety
+- Mandated pre-filling water pans with boiling water 30 minutes prior to buffet opening to protect food temperatures.
+- Standardized ethanol gel fuel burn-time estimates (2.5 hours per can) with scheduled midway replenishment.
+- Enforced wind-resistant burner guard placement during outdoor and coastal banquet setups.
