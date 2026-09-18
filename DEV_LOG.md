@@ -2596,3 +2596,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized inventory requirements for Class A/B first-aid stations located in the main commissary kitchen.
 - Stocked sterile hydrogel burn dressings, adhesive finger cots, antiseptic spray, and eye wash solution.
 - Established mandatory workplace injury reporting forms logged in the operations incident ledger.
+
+### Venue Portable Fire Extinguisher Staging & Open-Flame Safety
+- Mandated staging Class K wet chemical extinguishers near mobile frying and grilling stations.
+- Positioned Class ABC dry chemical extinguishers at all buffet stations utilizing open ethanol chafing burners.
+- Enforced a minimum 1-meter clearance between chafing flames and synthetic decorative floral drapes.
