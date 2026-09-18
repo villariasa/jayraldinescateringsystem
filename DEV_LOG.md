@@ -2556,3 +2556,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established waitstaff visual cues triggering kitchen replenishment alerts when chafing pans reach 25% capacity.
 - Outlined half-pan swap procedures to prevent food from drying out under continuous chafing heat.
 - Mandated temperature probe verification (minimum 65°C) before releasing backup pans to the buffet line.
+
+### Refrigerated Dessert Table Staging & Ambient Exposure Limits
+- Established cold-holding protocols for custard pastries, mango floats, and fresh dairy desserts.
+- Enforced a strict 2-hour maximum ambient exposure window for unchilled banquet dessert displays.
+- Integrated acrylic cold-plate ice bases for outdoor garden wedding reception setups.
