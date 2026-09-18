@@ -2651,3 +2651,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Codified daily appearance checks: clean black collared uniforms, polished shoes, hair restraints, and trimmed nails.
 - Established mandatory 20-second warm-water handwashing routines before entering food staging areas.
 - Required banquet captains to sign off on crew grooming logs prior to admitting staff onto the event floor.
+
+### Heavy-Duty Extension Cord Safety & Cable Walkway Ramp Covers
+- Mandated outdoor-rated 12 AWG grounded extension cords for commercial electric warmers and beverage coolers.
+- Required high-visibility yellow-and-black rubberized cable ramp covers over all pedestrian guest pathways.
+- Prohibited multi-plug daisy-chaining to prevent circuit overload and electrical fire hazards at remote venues.
