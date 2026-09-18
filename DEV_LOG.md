@@ -2711,3 +2711,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established daily scale calibration tests using certified 10kg and 25kg brass calibration test weights.
 - Verified tare deductions for delivery crates and packaging ice before signing wholesale meat delivery receipts.
 - Set a mandatory return-to-vendor policy for raw meat shipments showing weight variances exceeding ±1.0%.
+
+### Dry Storage Hermetic Ingredient Bin Labeling & FIFO Rotation
+- Equipped commissary dry storage with food-grade polypropylene ingredient bins on caster wheels.
+- Applied bold color-coded date labels for flour, sugar, salt, cornstarch, and spices adhering to FIFO stock rotation.
+- Mandated 15cm ground clearance on commercial stainless shelving units to facilitate floor sanitization.
