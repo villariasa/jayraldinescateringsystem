@@ -2706,3 +2706,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured automated electric defrost cycles for commissary walk-in freezers at 03:00 AM off-peak hours.
 - Installed secondary battery-backed digital temperature sensors triggering audible alarms if temperatures exceed -15°C.
 - Logged morning and evening temperature readings in the HACCP cold-storage compliance registry.
+
+### Receiving Dock Meat Scale Tare Calibration & Weight Verification
+- Established daily scale calibration tests using certified 10kg and 25kg brass calibration test weights.
+- Verified tare deductions for delivery crates and packaging ice before signing wholesale meat delivery receipts.
+- Set a mandatory return-to-vendor policy for raw meat shipments showing weight variances exceeding ±1.0%.
