@@ -2726,3 +2726,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Equipped every catering vehicle with an emergency utility box containing spare butane stoves, fuel, and utensils.
 - Included backup chef knives, can openers, measuring spoons, extension cords, gaffer tape, and cable ties.
 - Enabled on-site catering captains to resolve minor equipment shortages without delaying food service.
+
+### Post-Event SMS Customer Feedback Survey Dispatch & NPS Tracking
+- Automated dispatch of digital customer satisfaction survey links via SMS 18 hours following event conclusion.
+- Collected customer feedback scores on food quality, presentation, staff courtesy, and overall value.
+- Calculated rolling Net Promoter Scores (NPS) to track client retention and identify service improvement areas.
