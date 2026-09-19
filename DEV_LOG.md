@@ -2948,3 +2948,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented automated 3-hour HVAC pre-cooling protocol lowering ballroom structural temperatures to 20°C prior to guest entry.
 - Accounted for human thermal heat load (approx. 100W sensible + 50W latent per guest) during full banquet occupancy of 400 attendees.
 - Maintained ambient temperature balance at 22°C (71.6°F) and 55% RH to eliminate heat discomfort during active dining and dancing.
+
+### Glass Stemware Thermal Shock Prevention & Rapid Cooling Breakage Avoidance
+- Prohibited placing freshly sanitized hot glassware directly into ice wells or blast chillers, avoiding thermal shock fractures.
+- Mandated a minimum 15-minute ambient cooling rest period on ventilated plastic dish racks before beverage filling.
+- Reduced stemware replacement costs by 30% and eliminated glass particle contamination risks near bar preparation stations.
