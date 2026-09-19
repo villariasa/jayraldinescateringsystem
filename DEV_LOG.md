@@ -2868,3 +2868,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Fabricated custom food-grade acrylic drip trays featuring concealed drainage hoses leading to discrete under-table collection vessels.
 - Standardized CNC ice block sculpting templates for seafood ice towers, sushi displays, and sorbet intermezzo pedestals.
 - Incorporated battery-powered submersible waterproof LED accent lighting within ice sculptures for dramatic illuminated displays.
+
+### Dry Store Flour & Grain Grain Weevil Pheromone Trap Placement & Inspection Intervals
+- Positioned non-toxic multi-pheromone monitoring traps every 25 square meters along commissary dry pantry perimeters.
+- Established weekly trap catch count logs to detect any flour beetle (Tribolium) or grain weevil (Sitophilus) presence early.
+- Mandated airtight food-grade polypropylene bins with rubber gaskets for all bulk jasmine rice, semolina, and pastry flour stocks.
