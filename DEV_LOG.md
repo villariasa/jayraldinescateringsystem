@@ -2953,3 +2953,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Prohibited placing freshly sanitized hot glassware directly into ice wells or blast chillers, avoiding thermal shock fractures.
 - Mandated a minimum 15-minute ambient cooling rest period on ventilated plastic dish racks before beverage filling.
 - Reduced stemware replacement costs by 30% and eliminated glass particle contamination risks near bar preparation stations.
+
+### Banquet Chair Cover Spandex Tensioning & Leg Cup Reinforcement Standards
+- Upgraded inventory to 210 GSM 4-way stretch spandex chair covers featuring double-stitched 600D oxford fabric foot pocket cups.
+- Prevented metal and wooden banquet chair legs from puncturing fabric bases on rough concrete or outdoor paver surfaces.
+- Implemented color-coded size tags (Crown Top vs Square Back) for rapid sorting, laundering, and rapid setup deployment.
