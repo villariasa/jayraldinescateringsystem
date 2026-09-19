@@ -2823,3 +2823,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented color-coded multi-stream prep waste sorting bins segregating organic vegetable trimmings, coffee grounds, and food scraps.
 - Mandated 100% certified ASTM D6400 biodegradable cornstarch trash bin liners for organic waste collection.
 - Partnered with local agricultural composting centers, diverting over 1.8 metric tons of food waste monthly from landfill disposal.
+
+### VIP Guest Allergy Alert Card Distribution & Dedicated Plating Workstation Protocols
+- Automated kitchen ticketing alerts printing purple allergen alert chits flagged for severe celiac, nut, or shellfish sensitivities.
+- Designated a dedicated allergen-free preparation zone equipped with isolated cutting boards, knives, and sanitized titanium saute pans.
+- Required banquet captain verbal and physical hand-off verification directly to the guest's assigned table server.
