@@ -2853,3 +2853,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured foot-pedal mechanical water pumps dispensing 50ml per stroke to provide 100% hands-free sanitation at outdoor stations.
 - Established sealed 100-liter greywater holding tank drainage protocols utilizing dedicated sanitary sewer disposal points.
 - Stocked mobile wash stations with chlorhexidine antiseptic foaming soap, single-use touchless paper towels, and lidded waste bins.
+
+### Seafood Paella Live Cooking Station Butane Consumption & Fire Extinguisher Zoning
+- Calculated gas burn rates for 90cm diameter multi-ring propane paella burners at 1.2 kg LPG per hour under medium-high heat.
+- Mandated a minimum 2.5-meter safety perimeter separating live burner stations from banquet guest lines and combustible drapery.
+- Deployed dedicated Class K wet-chemical and Class B dry-powder fire extinguishers within 3 meters of live cooking stations.
