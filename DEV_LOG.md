@@ -2993,3 +2993,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Trained presidential banquet waitstaff in simultaneous silver cloche dome lifting upon discrete head captain hand signals.
 - Preserved delicate cold spun sugar and hot chocolate souffle aromas trapped beneath domes until the exact moment of guest reveal.
 - Implemented soft microfiber gloves for all cloche handlers to prevent fingerprint smudges on mirror-polished silver plate covers.
+
+### Mobile Bar Draft Beer Keg Line Glycol Chiller Circulation & Pour Temperature
+- Maintained recirculating food-grade propylene glycol water baths at -2°C through insulated multi-trunk draft beer lines.
+- Ensured beer pours at the faucet spout between 2.8°C and 3.3°C (37-38°F), preventing excessive foam breakout and carbonation loss.
+- Scheduled weekly caustic line cleaning flushes (2% NaOH) followed by sanitizing rinses to eliminate beer stone and wild yeast contamination.
