@@ -2908,3 +2908,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Specified aircraft-grade 3mm braided stainless steel messenger support cables tensioned with turnbuckles for overhead fairy light spans.
 - Housed all AC power splitters and low-voltage transformer connections within IP65-rated weatherproof silicone-gasketed enclosures.
 - Enforced safety ground-fault circuit interrupter (GFCI) breakers tripping at 4-6mA within 25 milliseconds on outdoor circuits.
+
+### Banquet Linen Stain Treatment Pre-Soak Formulas for Red Wine & Oily Gravies
+- Formulated targeted laundry pre-treatment formulas using enzyme-activated surfactants for protein, gravy, and dairy table spills.
+- Deployed oxygenated sodium percarbonate immersion baths at 60°C for red wine and dark berry sauce stain lifting without fabric damage.
+- Standardized commercial flatwork ironer roller speeds to ensure crisp, crease-free finish and immediate bundling for event staging.
