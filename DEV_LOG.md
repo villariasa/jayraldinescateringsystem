@@ -2768,3 +2768,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Optimized SQLite Write-Ahead Logging (WAL) autocheckpoint intervals to 1,000 pages during concurrent LAN booking transactions.
 - Implemented passive checkpoint execution PRAGMA wal_checkpoint(PASSIVE) on sync server idle cycles to prevent database lock contention.
 - Verified zero read-lock blocking between POS ordering stations, kitchen display systems, and back-office accounting terminals.
+
+### Outdoor Banquet Rain Contingency Tent Anchor Ballast & Wind Velocity Ratings
+- Established minimum anchor ballast requirements of 150 kg per structural leg for 20x20m marquee banquet tents.
+- Codified immediate perimeter wall roll-down and evacuation safety thresholds at sustained wind gusts exceeding 45 km/h.
+- Verified dual-layer water drainage guttering between adjoining canopies to prevent localized roof pooling during monsoon showers.
