@@ -2978,3 +2978,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Mandated 1.8-meter unobstructed egress aisles leading to all emergency fire exits, prohibiting table or staging equipment encroachment.
 - Conducted pre-event 90-second battery backup illumination tests for all emergency exit signs and panic hardware doors.
 - Briefed catering security marshals and floor captains on localized fire evacuation routes and designated assembly muster points.
+
+### Commissary Cooking Oil Quality Polar Compound Testing Using Optical Refractometers
+- Implemented daily Total Polar Compound (TPC) testing of deep fryer oil using digital dielectric sensor tester probes.
+- Enforced absolute oil discard and tank scrub-down thresholds whenever TPC levels surpass 24% or Free Fatty Acids (FFA) exceed 2.5%.
+- Maintained golden crispy texture and pure flavor profiles for signature fried chicken, lumpia, and tempura appetizers.
