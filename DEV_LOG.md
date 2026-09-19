@@ -2928,3 +2928,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Designed dual-sided mirror buffet lines with dedicated central island carving stations to achieve 60 guests-per-minute serving throughput.
 - Positioned cold salads and carb foundations at line inception with premium carved proteins positioned at the line terminus.
 - Positioned independent drink and bread stations away from primary food lines to prevent flow bottlenecks and queue cross-traffic.
+
+### Dessert Bar Ambient Humidity Dehumidifier Placement & Pastry Crispness Maintenance
+- Deployed compact desiccant dehumidifiers maintaining micro-climate relative humidity below 50% around open dessert display tables.
+- Preserved crispness of delicate French macarons, choux pastries, and spun sugar garnishes during tropical humid weather receptions.
+- Utilized chilled marble display slabs for chocolate bonbons and cream tarts to prevent melting during afternoon service.
