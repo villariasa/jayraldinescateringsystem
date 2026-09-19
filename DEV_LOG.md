@@ -2983,3 +2983,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Implemented daily Total Polar Compound (TPC) testing of deep fryer oil using digital dielectric sensor tester probes.
 - Enforced absolute oil discard and tank scrub-down thresholds whenever TPC levels surpass 24% or Free Fatty Acids (FFA) exceed 2.5%.
 - Maintained golden crispy texture and pure flavor profiles for signature fried chicken, lumpia, and tempura appetizers.
+
+### Event Trash Recycling Separation Ratios & Single-Use Plastic Reduction Targets
+- Deployed segregated four-stream waste hubs (Recyclables, Compostable Organics, Clean Paper, Non-Recyclable Residuals).
+- Replaced single-use plastic water bottles with stainless steel bulk hydration carafes and reusable embossed polycarbonate tumblers.
+- Achieved a 70% event waste diversion rate verified through post-event weigh-ins and municipal recycling facility certificates.
