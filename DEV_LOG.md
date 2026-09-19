@@ -2758,3 +2758,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - **Visual Sync Indicators**: Added real-time sync toasts ("Syncing updates..." and "Database updated") across all workstations.
 - **Order Slip Print Refinements**: Enlarged menu course selections, stripped category headings into clean bullet lists, and compacted customer info headers.
 - **Version Bump**: Official release bump to **v4.1.37** across `version.py`, `installer.iss`, and `build.ps1`.
+
+### Tablet PWA Viewport Meta Tags & Dynamic Virtual Keyboard Resize Behaviors
+- Configured interactive viewport meta tags interactive-widget=resizes-content to adapt tablet PWA forms when soft keyboards toggle.
+- Prevented fixed action footers and modal overlays from occluding active form inputs on Android and iOS web runtimes.
+- Implemented visual viewport resize event listeners updating CSS custom properties --vh for fluid responsive height calculations.
