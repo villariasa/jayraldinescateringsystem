@@ -2838,3 +2838,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Logged structural entry clearances for 120 partner venues, enforcing a 3.8-meter minimum height clearance for box truck bays.
 - Enforced maximum ramp incline gradients of 1:12 (8.3%) for wheeled speed-racks and heavy cambro rolling carts to prevent tipping hazards.
 - Standardized rubber wheel chock deployment and high-visibility traffic cones during all loading dock unloading operations.
+
+### Acoustic Partition Sound Dampening Ratings for Dual-Room Concurrent Banquet Events
+- Specified minimum Sound Transmission Class (STC) ratings of 52 for motorized operable acoustic partition walls between ballrooms.
+- Implemented perimeter neoprene drop seals and wall sweep acoustic gaskets to prevent low-frequency bass bleed from live event bands.
+- Ensured speech intelligibility and background ambiance comfort for adjacent corporate seminars and celebratory receptions.
