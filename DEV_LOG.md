@@ -2873,3 +2873,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Positioned non-toxic multi-pheromone monitoring traps every 25 square meters along commissary dry pantry perimeters.
 - Established weekly trap catch count logs to detect any flour beetle (Tribolium) or grain weevil (Sitophilus) presence early.
 - Mandated airtight food-grade polypropylene bins with rubber gaskets for all bulk jasmine rice, semolina, and pastry flour stocks.
+
+### Event Captain Radio Frequency Allocation & Noise-Cancelling Earpiece Protocols
+- Assigned dedicated UHF channels: Channel 1 (Kitchen & Expediting), Channel 2 (Banquet Floor & Waitstaff), Channel 3 (Logistics & AV).
+- Standardized surveillance-style acoustic tube noise-cancelling earpieces for discreet communication in high-decibel ballroom environments.
+- Enforced strict radio etiquette guidelines utilizing clear 10-codes and concise status acknowledgments during live operations.
