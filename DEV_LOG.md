@@ -2793,3 +2793,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Regulated holding cooler ambient temperatures between 2°C and 4°C with relative humidity controlled at 90-95%.
 - Implemented anti-transpirant mist sprays across cut hydrangeas, roses, and orchids prior to transit to prevent petal wilt.
 - Scheduled synchronized delivery to banquet tables within 90 minutes of guest arrival to maximize vibrant floral freshness.
+
+### Chafing Dish Stainless Steel Water Pan Scale Descaling with Citric Acid Solutions
+- Established non-toxic food-safe descaling SOP utilizing heated 10% food-grade citric acid solution baths for 18/10 stainless pans.
+- Eliminated calcium carbonate mineral scale buildup, restoring rapid thermal transfer efficiency from chafing fuel flames.
+- Replaced abrasive scouring pads with microfiber buffing cloths to preserve mirror-finish outer surfaces and extend equipment longevity.
