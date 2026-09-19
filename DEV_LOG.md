@@ -2783,3 +2783,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established bi-weekly immersion circulator thermal offset calibration against certified NIST-traceable reference thermometers.
 - Standardized double-seal vacuum pouch verification protocols to prevent water bath seepage during 24-hour slow-cooked beef roasts.
 - Logged core temperature pasteurization time-temperature curves compliant with HACCP microbiological safety thresholds.
+
+### Portable Diesel Generator Grounding Rod Installation & Voltage Drop Calculations
+- Mandated copper-clad grounding rod installation driven 2.4 meters into soil with ground resistance verified under 25 ohms.
+- Calculated voltage drop tolerances across 50-meter feeder cables to maintain less than 3% drop under 80% continuous kitchen appliance loads.
+- Specified phase balancing across three-phase distribution panels to protect chiller compressors and sound engineering gear.
