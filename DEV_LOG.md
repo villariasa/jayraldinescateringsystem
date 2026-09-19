@@ -2883,3 +2883,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized heavy-duty polycarbonate table clips spaced exactly 30 cm apart along table perimeters to prevent sagging pleats.
 - Deployed professional commercial upright garment steamers on-site for finishing polyester and satin table skirts prior to event doors.
 - Established floor-clearance tolerances of exactly 1.5 cm above floor level to prevent foot snagging and dirt contamination.
+
+### High-Temperature Dishwashing Conveyor Belt Rinse Jet De-Liming & Nozzle Alignments
+- Scheduled weekly acid-bath ultrasonic soaking for commercial dishwasher fan-spray rinse nozzles to dislodge mineral crust.
+- Calibrated spray pattern angles to guarantee 100% overlapping coverage at 20 PSI dynamic rinse pressure.
+- Verified sanitizing final rinse water temperatures maintained at or above 82.2°C (180°F) for automated NSF certification compliance.
