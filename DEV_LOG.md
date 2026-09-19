@@ -2958,3 +2958,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Upgraded inventory to 210 GSM 4-way stretch spandex chair covers featuring double-stitched 600D oxford fabric foot pocket cups.
 - Prevented metal and wooden banquet chair legs from puncturing fabric bases on rough concrete or outdoor paver surfaces.
 - Implemented color-coded size tags (Crown Top vs Square Back) for rapid sorting, laundering, and rapid setup deployment.
+
+### Catering Staff Heat Stress Hydration Schedules & Electrolyte Replenishment Stations
+- Established mandatory 20-minute shaded hydration breaks every 2 hours for outdoor catering setup and cook crews in >32°C conditions.
+- Provided chilled mineral water dispensers stocked with oral rehydration salt (ORS) packets and isotonic electrolyte tablets.
+- Trained banquet supervisors to recognize early symptoms of heat exhaustion, dizziness, and muscle cramps during summer events.
