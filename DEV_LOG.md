@@ -2893,3 +2893,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Calibrated motorized rotisserie gearboxes to maintain a constant 4.5 RPM rotation speed for uniform charcoal radiant roasting.
 - Monitored infrared surface temperatures, transitioning from 110°C slow rendering to a final 180°C charcoal flash for blistered crackling skin.
 - Established internal core temperature targets of 77°C (170°F) at the thickest part of the pork shoulder before carving.
+
+### Guest Seating Plan Digital QR Code Lookup Kiosk & Hostess Tablet Synchronization
+- Deployed 22-inch touchscreen welcome kiosks enabling guests to scan personalized invitation QR codes for immediate table and seat numbers.
+- Integrated WebSocket synchronization streaming real-time guest arrivals directly to hostess tablet check-in manifests.
+- Eliminated foyer congestion and paper alphabetical seating lists, expediting banquet seating for 500+ attendees in under 20 minutes.
