@@ -2963,3 +2963,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established mandatory 20-minute shaded hydration breaks every 2 hours for outdoor catering setup and cook crews in >32°C conditions.
 - Provided chilled mineral water dispensers stocked with oral rehydration salt (ORS) packets and isotonic electrolyte tablets.
 - Trained banquet supervisors to recognize early symptoms of heat exhaustion, dizziness, and muscle cramps during summer events.
+
+### Acoustic Mic Feedback Suppression & Wireless Lapel Transmitter Gain Staging
+- Configured 31-band graphic equalizer notch filtering to attenuate resonant ballroom frequency spikes at 2.5 kHz and 4 kHz.
+- Standardized wireless lavalier transmitter gain staging at -12 dBFS to prevent pre-amp clipping during emotional wedding speeches.
+- Established backup handheld dynamic cardioid microphones on dedicated channels with fresh lithium battery reserves.
