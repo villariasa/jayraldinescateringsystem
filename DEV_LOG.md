@@ -2773,3 +2773,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established minimum anchor ballast requirements of 150 kg per structural leg for 20x20m marquee banquet tents.
 - Codified immediate perimeter wall roll-down and evacuation safety thresholds at sustained wind gusts exceeding 45 km/h.
 - Verified dual-layer water drainage guttering between adjoining canopies to prevent localized roof pooling during monsoon showers.
+
+### Catering Ice Maker Water Filtration Cartridge Micron Ratings & Backwash Cycles
+- Installed 3-stage filtration systems featuring 5-micron sediment pre-filters, carbon block adsorption, and scale inhibition polyphosphates.
+- Scheduled monthly automated chemical descaling and sanitary water-distributor sanitization cycles for commercial cube ice machines.
+- Established routine total dissolved solids (TDS) testing ensuring ice purity, crystal clarity, and beverage flavor preservation.
