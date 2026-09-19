@@ -69,6 +69,10 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  try {
+    const url = new URL(event.request.url);
+    if (url.pathname.startsWith("/api/")) return;
+  } catch (_) {}
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
