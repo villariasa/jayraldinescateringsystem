@@ -20,6 +20,7 @@ function ready() {
 let _liveDbConnected = false;
 let _lastSyncTimestamp = 0;
 let _lastCheckAttempt = 0;
+let _knownServerDbVersion = null;
 let _liveSyncInFlight = null;
 let _connectionCheckInFlight = null;
 let _autoDiscoverInFlight = null;
@@ -55,21 +56,57 @@ function _detectDeviceType() {
   else if (/Linux/i.test(ua) && !isAndroid) osName = "Linux";
   else if (isAndroid) osName = "Android";
 
-  const isApk = ua.includes("com.jayraldines") || (typeof window !== "undefined" && !!window.AndroidNative);
+  const isApk = ua.includes("com.jayraldines") || ua.includes("jayraldinesapk") || (typeof window !== "undefined" && !!window.AndroidNative);
   const typeTag = isApk ? "APK" : "PWA";
 
   return {
     category,
     osName,
     typeTag,
-    // NOTE: must stay pure ASCII/Latin-1 - this value is sent verbatim as the
-    // raw "X-Device-Host" HTTP header (see performLanSync/checkLanStatus).
-    // An emoji or any other non-Latin1 character here makes fetch() throw
-    // "String contains non ISO-8859-1 code point" before any request is even
-    // sent, which looks like a connection/CORS failure but is actually this.
     hostname: `${osName} ${category}`,
     os_info: `${osName} ${category} (${typeTag})`
   };
+}
+
+export function isInstalledApp() {
+  if (typeof window === "undefined") return false;
+  // 1. Android Native interface injected by MainActivity.java
+  if (typeof window.AndroidNative !== "undefined" && window.AndroidNative != null) {
+    if (document.documentElement) document.documentElement.classList.add("is-installed-apk");
+    return true;
+  }
+  // 2. Explicit runtime flag
+  if (window.IS_INSTALLED_APK === true) {
+    if (document.documentElement) document.documentElement.classList.add("is-installed-apk");
+    return true;
+  }
+  // 3. User agent inspection
+  const ua = (navigator.userAgent || "").toLowerCase();
+  if (ua.includes("com.jayraldines") || ua.includes("jayraldinesapk") || ua.includes("androidnative")) {
+    if (document.documentElement) document.documentElement.classList.add("is-installed-apk");
+    return true;
+  }
+  // 4. Android WebView asset loader origin or local file
+  const loc = window.location;
+  if (loc && (loc.hostname === "appassets.androidplatform.net" || loc.protocol === "file:")) {
+    if (document.documentElement) document.documentElement.classList.add("is-installed-apk");
+    return true;
+  }
+  // 5. Standalone display mode (installed PWA / WebAPK / home-screen standalone)
+  if (typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches) {
+    if (document.documentElement) document.documentElement.classList.add("is-installed-apk");
+    return true;
+  }
+  if (window.navigator && window.navigator.standalone === true) {
+    if (document.documentElement) document.documentElement.classList.add("is-installed-apk");
+    return true;
+  }
+  return false;
+}
+
+// Immediately evaluate and tag document element if running in installed app
+if (typeof window !== "undefined") {
+  isInstalledApp();
 }
 
 function _getTabletDeviceInfo() {
@@ -174,9 +211,108 @@ async function _flushPendingPackageImageUploads(host, port = 8000) {
   return summary;
 }
 
+async function _flushPendingMenuItemImageUploads(host, port = 8000) {
+  const pending = repo.getPendingMenuItemImageUploads ? repo.getPendingMenuItemImageUploads() : [];
+  const summary = { total: pending.length, synced: 0, failed: 0, errors: [] };
+  if (!pending.length) return summary;
+
+  const urls = _getSyncBaseUrls(host || _getStoredSyncHost(), port);
+  const dev = _getTabletDeviceInfo();
+
+  for (const upload of pending) {
+    let uploaded = false;
+    let lastErr = null;
+
+    for (const base of urls) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        const res = await fetch(`${base}/api/menu/image-upload`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "ngrok-skip-browser-warning": "69420",
+            "X-Device-Id": dev.device_id,
+            "X-Device-Host": dev.hostname,
+            "X-Device-OS": dev.os_info
+          },
+          body: JSON.stringify({
+            ...dev,
+            mi_id: Number(upload.mi_id),
+            name: upload.item_name || "",
+            image: upload.image_data || "",
+            remove: Number(upload.remove_image || 0) === 1,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.error) {
+          throw new Error(data.error || data.detail || `Menu image upload failed with HTTP ${res.status}`);
+        }
+
+        repo.markMenuItemImageSynced(Number(upload.mi_id), data.mi_image || "", data.image || "");
+        _liveDbConnected = true;
+        _lastSyncTimestamp = Date.now();
+        localStorage.setItem("jayraldines_lan_host", base);
+        window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: base } }));
+        summary.synced++;
+        uploaded = true;
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    if (!uploaded) {
+      const msg = lastErr?.message || "Menu item image upload failed.";
+      repo.markMenuItemImageUploadFailed(Number(upload.mi_id), msg);
+      summary.failed++;
+      summary.errors.push({ mi_id: Number(upload.mi_id), error: msg });
+    }
+  }
+
+  return summary;
+}
+
+async function _proxyServerWrite(sql, params = []) {
+  try {
+    const host = _getStoredSyncHost();
+    if (!host) return false;
+    const baseUrls = _getSyncBaseUrls(host, 8000);
+    for (const base of baseUrls) {
+      try {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(`${base}/api/db/write`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sql, params }),
+          signal: controller.signal,
+        });
+        clearTimeout(tid);
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (data.version) {
+            _knownServerDbVersion = Math.max(_knownServerDbVersion || 0, Number(data.version) || 0);
+          }
+          return true;
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return false;
+}
+
 export const api = {
   async health() { await ready(); return { status: "ok" }; },
   async terms() { await ready(); return termsMod.getTerms(); },
+
+  isInstalledApp() {
+    return isInstalledApp();
+  },
 
   isLiveConnected() {
     return _liveDbConnected;
@@ -295,8 +431,12 @@ export const api = {
     const imageChanged = Boolean(data.image_changed || data.imageChanged || data.image);
     if (imageChanged) {
       repo.queuePackageImageUpload(id, data.image || "", !data.image);
-      api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Package image upload queued:", e));
     }
+    _proxyServerWrite(
+      "INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
+      [data.name, data.description || "", Number(data.price_per_pax) || 0, Number(data.min_pax) || 30]
+    ).catch(() => {});
+    api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Package upload queued:", e));
     return { id, image_sync: imageChanged ? "pending" : "none" };
   },
   async updatePackage(id, data) {
@@ -305,11 +445,21 @@ export const api = {
     const ok = repo.updatePackage(id, data.name, data.description, data.price_per_pax, data.min_pax, imageChanged ? data.image : undefined);
     if (imageChanged) {
       repo.queuePackageImageUpload(id, data.image || "", !data.image);
-      api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Package image upload queued:", e));
     }
+    _proxyServerWrite(
+      "UPDATE packages SET pkg_name = ?, pkg_description = ?, pkg_price_per_pax = ?, pkg_min_pax = ? WHERE pkg_id = ?",
+      [data.name, data.description || "", Number(data.price_per_pax) || 0, Number(data.min_pax) || 30, id]
+    ).catch(() => {});
+    api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Package update note:", e));
     return { ok, image_sync: imageChanged ? "pending" : "unchanged" };
   },
-  async deletePackage(id) { await ready(); repo.deletePackage(id); return { ok: true }; },
+  async deletePackage(id) {
+    await ready();
+    repo.deletePackage(id);
+    _proxyServerWrite("DELETE FROM package_items WHERE pi_package_id = ?", [id]).catch(() => {});
+    _proxyServerWrite("DELETE FROM packages WHERE pkg_id = ?", [id]).catch(() => {});
+    return { ok: true };
+  },
 
   // Menu items (Offline-first: returns local SQLite menu items)
   async getMenuItems() {
@@ -329,9 +479,40 @@ export const api = {
     return repo.getMenuCategories();
   },
 
-  async createMenuItem(data) { await ready(); return { id: repo.addMenuItem(data.name, data.category, data.price, data.status, data.description, data.image) }; },
-  async updateMenuItem(id, data) { await ready(); return { ok: repo.updateMenuItem(id, data.name, data.category, data.price, data.status, data.description, data.image) }; },
-  async deleteMenuItem(id) { await ready(); repo.deleteMenuItem(id); return { ok: true }; },
+  async createMenuItem(data) {
+    await ready();
+    const id = repo.addMenuItem(data.name, data.category, data.price, data.status, data.description, data.image);
+    const imageChanged = Boolean(data.image_changed || data.imageChanged || data.image);
+    if (imageChanged) {
+      repo.queueMenuItemImageUpload(id, data.image || "", !data.image, data.name);
+    }
+    _proxyServerWrite(
+      "INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description) VALUES (?, ?, ?, ?, ?)",
+      [data.name, data.category || "Main Dish", Number(data.price) || 0, data.status || "Available", data.description || ""]
+    ).catch(() => {});
+    api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Menu item upload queued:", e));
+    return { id, image_sync: imageChanged ? "pending" : "none" };
+  },
+  async updateMenuItem(id, data) {
+    await ready();
+    const imageChanged = Boolean(data.image_changed || data.imageChanged);
+    const ok = repo.updateMenuItem(id, data.name, data.category, data.price, data.status, data.description, imageChanged ? data.image : undefined);
+    if (imageChanged) {
+      repo.queueMenuItemImageUpload(id, data.image || "", !data.image, data.name);
+    }
+    _proxyServerWrite(
+      "UPDATE menu_items SET mi_name = ?, mi_category = ?, mi_price = ?, mi_status = ?, mi_description = ? WHERE mi_id = ?",
+      [data.name, data.category || "Main Dish", Number(data.price) || 0, data.status || "Available", data.description || "", id]
+    ).catch(() => {});
+    api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Menu item sync note:", e));
+    return { ok, image_sync: imageChanged ? "pending" : "unchanged" };
+  },
+  async deleteMenuItem(id) {
+    await ready();
+    repo.deleteMenuItem(id);
+    _proxyServerWrite("DELETE FROM menu_items WHERE mi_id = ?", [id]).catch(() => {});
+    return { ok: true };
+  },
 
   // Occasions / Event Types
   async getOccasions() {
@@ -521,6 +702,18 @@ export const api = {
           _lastSyncTimestamp = Date.now();
           localStorage.setItem("jayraldines_lan_host", base);
           window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: isLive, server: base } }));
+
+          const sVer = Number(data.db_version ?? data.version ?? 0);
+          if (sVer > 0) {
+            if (_knownServerDbVersion === null) {
+              _knownServerDbVersion = sVer;
+            } else if (sVer > _knownServerDbVersion) {
+              console.log(`[AutoSync] Server DB revision changed: ${_knownServerDbVersion} -> ${sVer}. Auto-syncing tablet...`);
+              _knownServerDbVersion = sVer;
+              api.syncWithServer({ host: base, port }).catch((e) => console.warn("[AutoSync] Background auto-sync failed:", e));
+            }
+          }
+
           return data;
         }
         lastError = `HTTP ${res.status} from ${base}`;
@@ -596,6 +789,7 @@ export const api = {
       }
 
       const imageSync = await _flushPendingPackageImageUploads(host, port);
+      const menuImageSync = await _flushPendingMenuItemImageUploads(host, port);
       const { bookings, customers } = repo.getPendingSyncRecords();
       const res = await api.performLanSync({
         ...params,
@@ -608,11 +802,19 @@ export const api = {
         customers: params.customers || customers || [],
       });
 
+      const sVer = Number(res.version ?? res.db_version ?? 0);
+      if (sVer > 0) {
+        _knownServerDbVersion = Math.max(_knownServerDbVersion || 0, sVer);
+      }
+
       if (res.packages || res.menu_items || res.customers || res.occasions) {
         repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || [], res.occasions || []);
       }
       if (res.synced_booking_refs || res.synced_customer_names) {
         repo.markRecordsSynced(res.synced_booking_refs || [], res.synced_customer_names || []);
+      }
+      if (res.deleted_booking_refs && res.deleted_booking_refs.length > 0) {
+        repo.purgeDeletedBookings(res.deleted_booking_refs);
       }
 
       const detail = {
@@ -620,6 +822,9 @@ export const api = {
         pushed_package_images: imageSync.synced,
         failed_package_images: imageSync.failed,
         package_image_errors: imageSync.errors,
+        pushed_menu_images: menuImageSync.synced,
+        failed_menu_images: menuImageSync.failed,
+        menu_image_errors: menuImageSync.errors,
       };
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("jayraldines:sync-completed", { detail }));
@@ -858,18 +1063,18 @@ export function downloadBlob(blob, filename) {
   }
 }
 
-// Background device heartbeat to maintain live presence in the Desktop App's Device Monitoring panel
+// Background device heartbeat to maintain live presence and auto-detect revision changes in real time
 if (typeof window !== "undefined") {
   setInterval(async () => {
     try {
-      if (_liveDbConnected) {
-        const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
-        if (savedHost) {
-          await api.checkLanStatus(savedHost, 8000);
-        }
+      const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
+      if (savedHost) {
+        await api.checkLanStatus(savedHost, 8000);
+      } else {
+        await api.ensureLiveConnection().catch(() => {});
       }
     } catch (_) {}
-  }, 15000);
+  }, 3500);
 
   // Send immediate offline signal when user closes the app, closes tab, or navigates away
   const markOffline = () => {

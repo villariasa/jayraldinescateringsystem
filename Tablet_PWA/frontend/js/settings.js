@@ -72,10 +72,22 @@ function readAndCompressImage(file, maxWidth = 2560, maxHeight = 1920, quality =
 if (typeof window !== "undefined") {
   window.addEventListener("jayraldines:sync-completed", () => {
     const modal = document.getElementById(MODAL_ID);
-    if (!modal || modal.dataset.activeSettingsTab !== "packages") return;
-    if (document.getElementById("pkg-form-modal")) return;
+    if (!modal) return;
+    const active = modal.dataset.activeSettingsTab;
     const content = modal.querySelector("#tab-content");
-    if (content) renderPackagesTab(content);
+    if (!content) return;
+
+    if (active === "packages" && !document.getElementById("pkg-form-modal")) {
+      renderPackagesTab(content);
+    } else if (active === "menu" && !document.getElementById("menu-form-modal")) {
+      renderMenuTab(content);
+    } else if (active === "bookings" && !document.getElementById("booking-detail-modal")) {
+      renderBookingsTab(content);
+    } else if (active === "events") {
+      renderEventsTab(content);
+    } else if (active === "customers") {
+      renderCustomersTab(content);
+    }
   });
 }
 
@@ -874,6 +886,7 @@ async function renderMenuTab(content) {
 function openMenuItemForm(content, item, categories) {
   const formId = "menu-form-modal";
   let currentImage = item?.image || null;
+  let imageChanged = false;
 
   openModal({
     id: formId,
@@ -938,6 +951,7 @@ function openMenuItemForm(content, item, categories) {
     try {
       toast("Processing photo…", "info");
       currentImage = await readAndCompressImage(file, 1920, 1440, 0.95);
+      imageChanged = true;
       previewWrap.innerHTML = `<img src="${currentImage}" alt="preview" class="image-preview">`;
       removeBtn.style.display = "inline-flex";
       toast("Photo loaded successfully!", "success");
@@ -948,6 +962,7 @@ function openMenuItemForm(content, item, categories) {
 
   removeBtn.addEventListener("click", () => {
     currentImage = null;
+    imageChanged = true;
     fileInput.value = "";
     previewWrap.innerHTML = `<div class="image-placeholder-icon">${icon("utensils")}<span>No photo chosen</span></div>`;
     removeBtn.style.display = "none";
@@ -961,6 +976,7 @@ function openMenuItemForm(content, item, categories) {
       status: modal.querySelector("#f-status").value,
       description: modal.querySelector("#f-desc").value,
       image: currentImage,
+      image_changed: imageChanged || (!item && !!currentImage),
     };
     if (!payload.name) { toast("Item Name is required.", "error"); return; }
     try {
@@ -2034,6 +2050,24 @@ function _renderLiveDbConfigModal() {
           <b>📡 Live Central Database Setup:</b> Connect this tablet directly to the central SQLite database on your laptop over Wi-Fi. All menu packages, dishes, and booking transactions synchronize in real time via Port 8000.
         </div>
       </div>
+
+      <!-- Direct APK Download for Android Tablets (Only shown on Web Browser) -->
+      ${!api.isInstalledApp() ? `
+      <div class="apk-download-banner" style="background:rgba(16,185,129,0.08); border:1.5px solid rgba(16,185,129,0.3); border-radius:var(--radius-md); padding:14px 18px; margin-bottom:18px; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="width:38px; height:38px; border-radius:10px; background:rgba(16,185,129,0.18); color:#10B981; display:flex; align-items:center; justify-content:center; font-size:20px;">
+            📱
+          </div>
+          <div>
+            <div style="font-weight:800; font-size:13.5px; color:var(--text);">Standalone Android Tablet App (.APK)</div>
+            <div style="font-size:12px; color:var(--text-muted);">Install the native full-screen kiosk app directly onto this tablet.</div>
+          </div>
+        </div>
+        <a href="/download-apk" class="btn btn-sm" style="background:#10B981; color:white; border:none; padding:8px 18px; border-radius:8px; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 8px rgba(16,185,129,0.3);">
+          ${icon("download")} Download APK
+        </a>
+      </div>
+      ` : ""}
 
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(290px, 1fr)); gap:18px; margin-bottom:20px;">
         

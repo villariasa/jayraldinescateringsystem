@@ -639,6 +639,18 @@ async function renderHome() {
             <span class="nav-dropdown-desc">Admin &amp; configuration</span>
           </div>
         </button>
+        ${!api.isInstalledApp() ? `
+        <div class="nav-dropdown-divider apk-download-only-web"></div>
+        <a class="nav-dropdown-item apk-download-only-web" href="/download-apk" id="apk-download-btn-mob" title="Download Tablet Android APK" style="text-decoration:none;">
+          <div class="nav-dropdown-item-icon" style="background: rgba(16, 185, 129, 0.15); border: 1.5px solid rgba(16, 185, 129, 0.35); color: #10B981;">
+            ${icon("download")}
+          </div>
+          <div class="nav-dropdown-item-text">
+            <span class="nav-dropdown-label" style="color: #10B981; font-weight:800;">Download Tablet APK</span>
+            <span class="nav-dropdown-desc">Direct Android App (.apk)</span>
+          </div>
+        </a>
+        ` : ""}
       </div>
     </header>
     <!-- Live DB Offline Warning Banner -->
@@ -766,6 +778,17 @@ async function renderHome() {
               <div class="quick-opt-arrow">${icon("chevronRight")}</div>
             </button>
 
+            <button class="quick-option-card" id="quick-menu-btn">
+              <div class="quick-opt-icon-circle">
+                <div class="lottie-icon-container" id="lottie-quick-menu">${icon("utensils")}</div>
+              </div>
+              <div class="quick-opt-info">
+                <span class="quick-opt-title">View Menu</span>
+                <span class="quick-opt-desc">Browse all dishes &amp; specialties</span>
+              </div>
+              <div class="quick-opt-arrow">${icon("chevronRight")}</div>
+            </button>
+
             <button class="quick-option-card" id="quick-events-btn">
               <div class="quick-opt-icon-circle">
                 <div class="lottie-icon-container" id="lottie-quick-events">${icon("calendar")}</div>
@@ -773,17 +796,6 @@ async function renderHome() {
               <div class="quick-opt-info">
                 <span class="quick-opt-title">Event Types</span>
                 <span class="quick-opt-desc">Choose your event type</span>
-              </div>
-              <div class="quick-opt-arrow">${icon("chevronRight")}</div>
-            </button>
-
-            <button class="quick-option-card" id="quick-addons-btn">
-              <div class="quick-opt-icon-circle">
-                <div class="lottie-icon-container" id="lottie-quick-addons">${icon("utensils")}</div>
-              </div>
-              <div class="quick-opt-info">
-                <span class="quick-opt-title">Add-ons</span>
-                <span class="quick-opt-desc">Customize your menu with extras</span>
               </div>
               <div class="quick-opt-arrow">${icon("chevronRight")}</div>
             </button>
@@ -799,6 +811,48 @@ async function renderHome() {
               <div class="quick-opt-arrow">${icon("chevronRight")}</div>
             </button>
 
+          </div>
+        </section>
+
+        <!-- Live Menu Showcase Section directly on the Dashboard / Landing Page -->
+        <section class="kiosk-menu-showcase-section" id="kiosk-menu-showcase">
+          <div class="menu-showcase-header">
+            <div class="menu-showcase-title-area">
+              <div class="menu-showcase-badge">${icon("utensils")} Culinary Showcase</div>
+              <h3 class="menu-showcase-heading">Explore Our Catering Menu</h3>
+              <p class="menu-showcase-sub">Browse our chef-crafted entrees, specialties, sides, and signature desserts</p>
+              <div class="quick-options-accent-bar" style="margin-top:6px;"></div>
+            </div>
+            <div class="menu-showcase-actions">
+              <div class="menu-showcase-search-box">
+                <span class="search-box-icon">${icon("search")}</span>
+                <input type="text" id="landing-menu-search-input" placeholder="Search dishes, beef, pasta..." autocomplete="off" />
+                <button type="button" id="landing-menu-search-clear" class="search-box-clear" style="display:none;" title="Clear search">${icon("close")}</button>
+              </div>
+              <button class="btn btn-secondary menu-showcase-modal-btn" id="btn-showcase-open-modal">
+                ${icon("fullscreen")} Full Menu Window
+              </button>
+            </div>
+          </div>
+
+          <!-- Category Tabs Bar -->
+          <div class="kiosk-cat-bar" id="landing-menu-categories">
+            <button class="kiosk-cat-pill active" data-cat="ALL">
+              ${icon("utensils")} All Dishes
+            </button>
+          </div>
+
+          <!-- Dish Cards Grid -->
+          <div class="menu-showcase-grid" id="landing-menu-grid">
+            <div style="padding:32px 16px; text-align:center; color:var(--text-muted); grid-column:1/-1;">
+              Loading catering menu…
+            </div>
+          </div>
+
+          <div class="menu-showcase-footer-action">
+            <button class="btn btn-primary btn-lg" id="btn-landing-menu-start-order">
+              ${icon("check")} Start Order &amp; Select Dishes
+            </button>
           </div>
         </section>
 
@@ -858,8 +912,8 @@ async function renderHome() {
   // Mount Quick Options hover Lottie on each inner .lottie-icon-container
   // (mountHoverLottie clears the static fallback icon before inserting Lottie SVG)
   mountHoverLottie(document.getElementById("lottie-quick-packages"), "icon-package", { speed: 1.2 });
+  mountHoverLottie(document.getElementById("lottie-quick-menu"), "icon-utensils", { speed: 1.2 });
   mountHoverLottie(document.getElementById("lottie-quick-events"), "icon-calendar", { speed: 1.2 });
-  mountHoverLottie(document.getElementById("lottie-quick-addons"), "icon-utensils", { speed: 1.2 });
   mountHoverLottie(document.getElementById("lottie-quick-orders"), "icon-filetext", { speed: 1.2 });
   // ── Mobile dropdown toggle wiring ──────────────────────────────────────
   const mobileToggleBtn = document.getElementById("nav-mobile-toggle-btn");
@@ -934,6 +988,7 @@ async function renderHome() {
 
   // Mount Quick Options clicks
   document.getElementById("quick-packages-btn")?.addEventListener("click", openQuickPackagesModal);
+  document.getElementById("quick-menu-btn")?.addEventListener("click", () => openQuickMenuModal());
   document.getElementById("quick-events-btn")?.addEventListener("click", openQuickEventTypesModal);
   document.getElementById("quick-addons-btn")?.addEventListener("click", openQuickAddonsModal);
   document.getElementById("quick-orders-btn")?.addEventListener("click", () => openOwnerSettings("bookings"));
@@ -943,6 +998,9 @@ async function renderHome() {
   if (sliderContainer) {
     mountLandingSlider(sliderContainer);
   }
+
+  // Mount the Live Menu Showcase on the Landing Page / Dashboard
+  mountLandingMenuShowcase();
 
   dismissSplash();
 }
@@ -1192,8 +1250,191 @@ async function openQuickEventTypesModal() {
   });
 }
 
-// ── Quick Option: Add-ons & Signature Dishes Modal ───────────────────
-async function openQuickAddonsModal() {
+// ── Landing Page Live Menu Showcase ──────────────────────────────────
+async function mountLandingMenuShowcase() {
+  const container = document.getElementById("kiosk-menu-showcase");
+  if (!container) return;
+
+  let allMenuItems = [];
+  try {
+    allMenuItems = await api.getMenuItems();
+  } catch (err) {
+    console.warn("[app] Failed to fetch menu items for landing showcase:", err);
+  }
+
+  const catBar = container.querySelector("#landing-menu-categories");
+  const grid = container.querySelector("#landing-menu-grid");
+  const searchInput = container.querySelector("#landing-menu-search-input");
+  const clearBtn = container.querySelector("#landing-menu-search-clear");
+  const openModalBtn = container.querySelector("#btn-showcase-open-modal");
+  const startOrderBtn = container.querySelector("#btn-landing-menu-start-order");
+
+  let selectedCat = "ALL";
+  let searchQuery = "";
+
+  // Collect unique categories
+  const categoriesSet = new Set();
+  allMenuItems.forEach(it => {
+    if (it.category) categoriesSet.add(it.category.trim());
+  });
+  const categories = Array.from(categoriesSet).sort();
+
+  // Render category chips
+  if (catBar) {
+    catBar.innerHTML = `
+      <button class="kiosk-cat-pill active" data-cat="ALL">
+        ${icon("utensils")} All Dishes (${allMenuItems.length})
+      </button>
+      ${categories.map(cat => {
+        const count = allMenuItems.filter(it => (it.category || "").trim().toLowerCase() === cat.toLowerCase()).length;
+        return `
+          <button class="kiosk-cat-pill" data-cat="${escapeHtml(cat)}">
+            ${escapeHtml(cat)} (${count})
+          </button>
+        `;
+      }).join("")}
+    `;
+
+    catBar.querySelectorAll(".kiosk-cat-pill").forEach(pill => {
+      pill.addEventListener("click", () => {
+        catBar.querySelectorAll(".kiosk-cat-pill").forEach(p => p.classList.remove("active"));
+        pill.classList.add("active");
+        selectedCat = pill.dataset.cat || "ALL";
+        renderDishes();
+      });
+    });
+  }
+
+  function renderDishes() {
+    if (!grid) return;
+    const q = (searchQuery || "").trim().toLowerCase();
+    const filtered = allMenuItems.filter(it => {
+      const matchCat = selectedCat === "ALL" || (it.category || "").trim().toLowerCase() === selectedCat.toLowerCase();
+      if (!matchCat) return false;
+      if (!q) return true;
+      const name = (it.name || "").toLowerCase();
+      const desc = (it.description || "").toLowerCase();
+      const cat = (it.category || "").toLowerCase();
+      return name.includes(q) || desc.includes(q) || cat.includes(q);
+    });
+
+    if (!filtered.length) {
+      grid.innerHTML = `
+        <div class="menu-showcase-empty" style="grid-column: 1 / -1; padding: 40px 20px; text-align: center;">
+          <div style="font-size: 38px; margin-bottom: 8px;">🍽️</div>
+          <h4 style="font-size: 16px; font-weight: 700; color: var(--text); margin: 0 0 6px;">No dishes found</h4>
+          <p style="font-size: 13px; color: var(--text-muted); margin: 0 0 14px;">
+            ${q ? `No menu item matched "${escapeHtml(searchQuery)}".` : "No dishes available in this category."}
+          </p>
+          ${q ? `<button class="btn btn-secondary btn-sm" id="btn-showcase-reset-search">${icon("close")} Clear Filter</button>` : ""}
+        </div>
+      `;
+      grid.querySelector("#btn-showcase-reset-search")?.addEventListener("click", () => {
+        if (searchInput) searchInput.value = "";
+        searchQuery = "";
+        if (clearBtn) clearBtn.style.display = "none";
+        renderDishes();
+      });
+      return;
+    }
+
+    grid.innerHTML = filtered.map(it => `
+      <div class="card showcase-dish-card" data-dish-id="${it.id}">
+        <div class="showcase-card-img-wrap">
+          ${it.image ? `
+            <img src="${it.image}" alt="${escapeHtml(it.name)}" class="showcase-card-img" loading="lazy">
+          ` : `
+            <div class="showcase-card-placeholder">
+              ${icon("utensils")}
+              <span class="placeholder-cat">${escapeHtml(it.category || "Specialty")}</span>
+            </div>
+          `}
+          <span class="showcase-card-badge">${escapeHtml(it.category || "Main Dish")}</span>
+          ${it.price > 0 ? `
+            <span class="showcase-card-price">${peso(it.price)}</span>
+          ` : `
+            <span class="showcase-card-price included">Buffet Included</span>
+          `}
+        </div>
+        <div class="showcase-card-body">
+          <h4 class="showcase-card-title">${escapeHtml(it.name)}</h4>
+          <p class="showcase-card-desc">${escapeHtml(it.description || "Freshly cooked catering specialty prepared to perfection.")}</p>
+          <div class="showcase-card-footer">
+            <button class="btn btn-ghost btn-sm btn-dish-detail" data-dish-id="${it.id}">
+              ${icon("info")} View Details
+            </button>
+            <button class="btn btn-primary btn-sm btn-dish-book">
+              ${icon("arrowRight")} Order
+            </button>
+          </div>
+        </div>
+      </div>
+    `).join("");
+
+    grid.querySelectorAll(".btn-dish-detail").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const dId = btn.dataset.dishId;
+        const item = allMenuItems.find(x => String(x.id) === String(dId));
+        if (item) openDishDetailModal(item);
+      });
+    });
+
+    grid.querySelectorAll(".showcase-dish-card").forEach(card => {
+      card.addEventListener("click", () => {
+        const dId = card.dataset.dishId;
+        const item = allMenuItems.find(x => String(x.id) === String(dId));
+        if (item) openDishDetailModal(item);
+      });
+    });
+
+    grid.querySelectorAll(".btn-dish-book").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openTermsModal();
+      });
+    });
+  }
+
+  renderDishes();
+
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      searchQuery = searchInput.value;
+      if (clearBtn) {
+        clearBtn.style.display = searchQuery ? "flex" : "none";
+      }
+      renderDishes();
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      if (searchInput) {
+        searchInput.value = "";
+        searchInput.focus();
+      }
+      searchQuery = "";
+      clearBtn.style.display = "none";
+      renderDishes();
+    });
+  }
+
+  if (openModalBtn) {
+    openModalBtn.addEventListener("click", () => {
+      openQuickMenuModal({ initialCategory: selectedCat !== "ALL" ? selectedCat : undefined, initialSearch: searchQuery });
+    });
+  }
+
+  if (startOrderBtn) {
+    startOrderBtn.addEventListener("click", () => {
+      openTermsModal();
+    });
+  }
+}
+
+// ── Quick Option: Menu Viewing Modal ──────────────────────────────────
+async function openQuickMenuModal({ initialCategory = "ALL", initialSearch = "" } = {}) {
   if (!api.isLiveConnected()) {
     api.ensureLiveConnection(false).catch(() => {});
   }
@@ -1204,52 +1445,240 @@ async function openQuickAddonsModal() {
     toast("❌ " + err.message, "error");
     return;
   }
-  const categories = [...new Set(items.map(i => i.category || "Specialty"))];
+
+  const categoriesSet = new Set();
+  items.forEach(i => {
+    if (i.category) categoriesSet.add(i.category.trim());
+  });
+  const categories = Array.from(categoriesSet).sort();
 
   openModal({
-    id: "quick-addons-modal",
-    title: `${icon("utensils")} Catering Add-ons &amp; Signature Dishes`,
+    id: "quick-menu-modal",
+    title: `${icon("utensils")} Catering Menu &amp; Dishes (${items.length})`,
     large: true,
-    bodyHtml: `
-      <div style="margin-bottom:16px;">
-        <p style="font-size:14px; color:var(--text-muted); margin:0;">
-          Elevate your event with signature roasted meats, dessert bars, beverage stations, and extra equipment.
-        </p>
-      </div>
-      <div style="max-height:56vh; overflow-y:auto; padding-right:6px;">
-        ${categories.map(cat => {
-          const catItems = items.filter(i => (i.category || "Specialty") === cat);
-          return `
-            <div style="margin-bottom:20px;">
-              <h4 style="font-size:15px; font-weight:800; color:var(--accent); margin:0 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px;">
-                ${escapeHtml(cat)} (${catItems.length})
-              </h4>
-              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px;">
-                ${catItems.map(item => `
-                  <div class="card" style="padding:14px; border:1px solid var(--border); border-radius:var(--radius-md);">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                      <span style="font-weight:700; font-size:14px; color:var(--text);">${escapeHtml(item.name)}</span>
-                      <span style="font-weight:800; font-size:14px; color:var(--gold);">${peso(item.price)}</span>
-                    </div>
-                    <p style="font-size:12px; color:var(--text-muted); margin:0; line-height:1.4;">${escapeHtml(item.description || "Freshly prepared to order.")}</p>
-                  </div>
-                `).join("")}
-              </div>
+    allowSwipeUpFullscreen: true,
+    bodyHtml: (bodyEl) => {
+      let activeCat = initialCategory || "ALL";
+      let filterText = initialSearch || "";
+
+      bodyEl.innerHTML = `
+        <div style="margin-bottom:16px;">
+          <p style="font-size:14px; color:var(--text-muted); margin:0 0 12px;">
+            Explore our complete catering catalog: savory entrees, roasted meats, pasta, seafood, and decadent desserts.
+          </p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <div style="flex:1; min-width:240px; position:relative;">
+              <input type="text" id="modal-menu-search" class="input" placeholder="Search menu dishes, beef, chicken..." value="${escapeHtml(filterText)}" style="padding-left:36px; width:100%; border-radius:24px;">
+              <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); display:flex;">
+                ${icon("search")}
+              </span>
+              <button id="modal-menu-clear-search" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:transparent; border:none; color:var(--text-muted); cursor:pointer; display:${filterText ? 'flex' : 'none'}; padding:4px;">
+                ${icon("close")}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="kiosk-cat-bar" id="modal-cat-bar" style="margin-bottom:16px; padding-bottom:6px;">
+          <button class="kiosk-cat-pill ${activeCat === 'ALL' ? 'active' : ''}" data-cat="ALL">
+            ${icon("utensils")} All Dishes (${items.length})
+          </button>
+          ${categories.map(cat => {
+            const count = items.filter(it => (it.category || "").trim().toLowerCase() === cat.toLowerCase()).length;
+            return `
+              <button class="kiosk-cat-pill ${activeCat.toLowerCase() === cat.toLowerCase() ? 'active' : ''}" data-cat="${escapeHtml(cat)}">
+                ${escapeHtml(cat)} (${count})
+              </button>
+            `;
+          }).join("")}
+        </div>
+
+        <div id="modal-dishes-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:16px; max-height:55vh; overflow-y:auto; padding-right:4px;">
+        </div>
+      `;
+
+      const gridEl = bodyEl.querySelector("#modal-dishes-grid");
+      const searchEl = bodyEl.querySelector("#modal-menu-search");
+      const clearSearchEl = bodyEl.querySelector("#modal-menu-clear-search");
+      const catBarEl = bodyEl.querySelector("#modal-cat-bar");
+
+      function refreshGrid() {
+        const q = filterText.trim().toLowerCase();
+        const filtered = items.filter(it => {
+          const matchCat = activeCat === "ALL" || (it.category || "").trim().toLowerCase() === activeCat.toLowerCase();
+          if (!matchCat) return false;
+          if (!q) return true;
+          return (it.name || "").toLowerCase().includes(q) ||
+                 (it.description || "").toLowerCase().includes(q) ||
+                 (it.category || "").toLowerCase().includes(q);
+        });
+
+        if (!filtered.length) {
+          gridEl.innerHTML = `
+            <div style="grid-column:1/-1; padding:48px 16px; text-align:center; color:var(--text-muted);">
+              <div style="font-size:36px; margin-bottom:8px;">🔍</div>
+              <h4 style="margin:0 0 6px; color:var(--text);">No dishes match your filter</h4>
+              <p style="font-size:13px; margin:0;">Try a different keyword or select another category above.</p>
             </div>
           `;
-        }).join("")}
+          return;
+        }
+
+        gridEl.innerHTML = filtered.map(it => `
+          <div class="card showcase-dish-card" data-dish-id="${it.id}" style="border:1.5px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; display:flex; flex-direction:column; cursor:pointer;">
+            <div class="showcase-card-img-wrap" style="height:140px; position:relative; overflow:hidden; background:var(--input-bg);">
+              ${it.image ? `
+                <img src="${it.image}" alt="${escapeHtml(it.name)}" class="showcase-card-img" style="width:100%; height:100%; object-fit:cover;">
+              ` : `
+                <div class="showcase-card-placeholder" style="width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; background:linear-gradient(135deg, rgba(225, 29, 72, 0.12) 0%, rgba(20, 30, 51, 0.5) 100%); color:var(--gold);">
+                  ${icon("utensils")}
+                  <span style="font-size:11px; font-weight:700;">${escapeHtml(it.category || "Specialty")}</span>
+                </div>
+              `}
+              <span class="showcase-card-badge" style="position:absolute; top:8px; left:8px; font-size:11px; font-weight:700; background:rgba(15,23,42,0.85); color:#FFF; padding:3px 8px; border-radius:12px; backdrop-filter:blur(4px);">${escapeHtml(it.category || "Specialty")}</span>
+              ${it.price > 0 ? `
+                <span class="showcase-card-price" style="position:absolute; top:8px; right:8px; font-size:12px; font-weight:800; background:var(--gold); color:#111; padding:3px 8px; border-radius:12px;">${peso(it.price)}</span>
+              ` : `
+                <span class="showcase-card-price" style="position:absolute; top:8px; right:8px; font-size:11px; font-weight:700; background:rgba(16,185,129,0.9); color:#FFF; padding:3px 8px; border-radius:12px;">Buffet Included</span>
+              `}
+            </div>
+            <div style="padding:12px 14px; display:flex; flex-direction:column; flex:1; gap:6px;">
+              <h4 style="font-size:15px; font-weight:800; color:var(--text); margin:0;">${escapeHtml(it.name)}</h4>
+              <p style="font-size:12.5px; color:var(--text-muted); line-height:1.45; margin:0; flex:1;">${escapeHtml(it.description || "Prepared fresh to order with authentic seasonings.")}</p>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding-top:8px; border-top:1px solid var(--border);">
+                <button class="btn btn-ghost btn-sm btn-modal-dish-detail" data-dish-id="${it.id}" style="padding:4px 8px; font-size:11px;">
+                  ${icon("info")} View Details
+                </button>
+                <button class="btn btn-primary btn-sm btn-modal-dish-select" style="padding:4px 10px; font-size:11px; font-weight:700;">
+                  ${icon("check")} Select &amp; Book
+                </button>
+              </div>
+            </div>
+          </div>
+        `).join("");
+
+        gridEl.querySelectorAll(".btn-modal-dish-detail").forEach(btn => {
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const itm = items.find(x => String(x.id) === String(btn.dataset.dishId));
+            if (itm) openDishDetailModal(itm);
+          });
+        });
+
+        gridEl.querySelectorAll(".showcase-dish-card").forEach(card => {
+          card.addEventListener("click", () => {
+            const itm = items.find(x => String(x.id) === String(card.dataset.dishId));
+            if (itm) openDishDetailModal(itm);
+          });
+        });
+
+        gridEl.querySelectorAll(".btn-modal-dish-select").forEach(btn => {
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            closeModal("quick-menu-modal");
+            openTermsModal();
+          });
+        });
+      }
+
+      catBarEl.querySelectorAll(".kiosk-cat-pill").forEach(btn => {
+        btn.addEventListener("click", () => {
+          catBarEl.querySelectorAll(".kiosk-cat-pill").forEach(p => p.classList.remove("active"));
+          btn.classList.add("active");
+          activeCat = btn.dataset.cat || "ALL";
+          refreshGrid();
+        });
+      });
+
+      searchEl.addEventListener("input", () => {
+        filterText = searchEl.value;
+        clearSearchEl.style.display = filterText ? "flex" : "none";
+        refreshGrid();
+      });
+
+      clearSearchEl.addEventListener("click", () => {
+        searchEl.value = "";
+        filterText = "";
+        clearSearchEl.style.display = "none";
+        searchEl.focus();
+        refreshGrid();
+      });
+
+      refreshGrid();
+    },
+    footerHtml: `
+      <button class="btn btn-secondary" data-close>Close</button>
+      <button class="btn btn-primary" id="btn-quick-menu-start-booking">
+        ${icon("cloche")} Start Booking Now
+      </button>
+    `,
+  });
+
+  document.querySelector("#quick-menu-modal #btn-quick-menu-start-booking")?.addEventListener("click", () => {
+    closeModal("quick-menu-modal");
+    openTermsModal();
+  });
+}
+
+// ── Quick Option: Dish Detail Modal ──────────────────────────────────
+function openDishDetailModal(item) {
+  openModal({
+    id: "dish-details-modal",
+    title: `${icon("utensils")} ${escapeHtml(item.name)}`,
+    bodyHtml: `
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div style="width:100%; height:230px; border-radius:var(--radius-md); overflow:hidden; background:var(--input-bg); border:1.5px solid var(--border); display:flex; align-items:center; justify-content:center; position:relative;">
+          ${item.image ? `
+            <img src="${item.image}" alt="${escapeHtml(item.name)}" style="width:100%; height:100%; object-fit:cover;">
+          ` : `
+            <div style="display:flex; flex-direction:column; align-items:center; gap:8px; color:var(--text-muted);">
+              ${icon("utensils")}
+              <span style="font-size:14px; font-weight:700;">${escapeHtml(item.name)}</span>
+            </div>
+          `}
+          <span style="position:absolute; top:12px; left:12px; font-size:11px; font-weight:800; background:rgba(15,23,42,0.85); color:#FFF; padding:4px 10px; border-radius:20px; backdrop-filter:blur(4px); text-transform:uppercase; letter-spacing:0.04em;">
+            ${escapeHtml(item.category || "Main Entree")}
+          </span>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; background:var(--card-elevated); padding:14px 18px; border-radius:var(--radius-md); border:1.5px solid var(--border);">
+          <div>
+            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.04em;">Course / Category</div>
+            <div style="font-size:17px; font-weight:800; color:var(--text);">${escapeHtml(item.category || "Main Entree")}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.04em;">Pricing Tier</div>
+            <div style="font-family:'Outfit',sans-serif; font-size:20px; font-weight:800; color:${item.price > 0 ? "var(--gold)" : "var(--success)"};">
+              ${item.price > 0 ? peso(item.price) : "Buffet Included"}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4 style="font-size:13px; text-transform:uppercase; color:var(--text-muted); margin:0 0 6px; letter-spacing:0.04em;">Dish Description &amp; Preparation</h4>
+          <p style="font-size:14px; line-height:1.6; color:var(--text); margin:0; background:var(--input-bg); padding:14px 16px; border-radius:var(--radius-sm); border:1px solid var(--border);">
+            ${escapeHtml(item.description || "Prepared fresh with premium ingredients seasoned to culinary perfection by Jayraldine's kitchen team.")}
+          </p>
+        </div>
       </div>
     `,
     footerHtml: `
       <button class="btn btn-secondary" data-close>Close</button>
-      <button class="btn btn-primary" id="btn-order-with-addons">${icon("cloche")} Start Booking Now</button>
+      <button class="btn btn-primary" id="btn-dish-detail-book-now">
+        ${icon("cloche")} Book With This Dish
+      </button>
     `,
   });
 
-  document.querySelector("#quick-addons-modal #btn-order-with-addons")?.addEventListener("click", () => {
-    closeModal("quick-addons-modal");
+  document.querySelector("#dish-details-modal #btn-dish-detail-book-now")?.addEventListener("click", () => {
+    closeModal("dish-details-modal");
     openTermsModal();
   });
+}
+
+// ── Quick Option: Add-ons & Signature Dishes Modal (Alias) ───────────
+async function openQuickAddonsModal() {
+  return openQuickMenuModal({ initialCategory: "Add-ons" });
 }
 
 // ── Quick Option: About Us Modal ─────────────────────────────────────
