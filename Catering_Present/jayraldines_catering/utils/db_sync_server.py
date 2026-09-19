@@ -36,6 +36,10 @@ def _desktop_package_image_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "assets" / "images" / "packages"
 
 
+def _desktop_menu_image_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "assets" / "images" / "menu"
+
+
 def _image_ext_from_mime(mime: str) -> str:
     mime = (mime or "").lower().strip()
     if mime == "image/png":
@@ -142,42 +146,35 @@ def _image_to_data_uri(img_str: str) -> str:
 
 _db_version: int = int(time.time() * 1000)
 
+_last_bump_signal_time: float = 0.0
+
 def get_db_version() -> int:
     global _db_version
     return _db_version
 
 def bump_db_version() -> int:
-    global _db_version
-    _db_version = int(time.time() * 1000)
+    global _db_version, _last_bump_signal_time
+    _db_version = max(int(time.time() * 1000), _db_version + 1)
     logger.debug(f"[SyncServer] Database revision bumped to {_db_version}")
 
     # The server machine's OWN UI otherwise has no way to know a remote
     # client just wrote to its database - client_sync.py's version watcher
-    # already refreshes CLIENT screens when the server's version changes,
-    # but nothing told the SERVER's own screen to refresh when a client's
-    # write lands here. This runs on the sync server's background thread,
-    # so the signal emit is marshaled onto the main/GUI thread via
-    # QTimer.singleShot(0, ...), same as client_sync.py's watcher does.
-    try:
-        from utils.signals import app_events
-        ev = app_events()
-        ev.sync_completed.emit()
-        ev.data_changed.emit()
-        ev.booking_saved.emit()
-        ev.booking_created.emit()
-        ev.booking_updated.emit()
-        ev.invoice_saved.emit()
-        ev.invoice_created.emit()
-        ev.payment_recorded.emit()
-        ev.kitchen_updated.emit()
-        ev.customer_saved.emit()
-        ev.menu_saved.emit()
-        ev.expense_saved.emit()
-        ev.cash_flow_saved.emit()
-    except Exception as exc:
-        logger.debug(f"[SyncServer] Could not dispatch UI refresh signal: {exc}")
+    # already refreshes CLIENT screens when the server's version changes.
+    # Debounce UI signal emission to at most once per 600ms to avoid flooding Qt event loop.
+    now = time.time()
+    if now - _last_bump_signal_time >= 0.6:
+        _last_bump_signal_time = now
+        try:
+            from utils.signals import app_events
+            ev = app_events()
+            ev.data_changed.emit()
+        except Exception as exc:
+            logger.debug(f"[SyncServer] Could not dispatch UI refresh signal: {exc}")
 
     return _db_version
+
+
+_last_session_record: dict = {}
 
 
 class SyncServerHandler(BaseHTTPRequestHandler):
@@ -209,6 +206,11 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         """Auto-registers and tracks connecting mobile/tablet/client devices into device_sessions table."""
         try:
             client_ip = self.client_address[0] if self.client_address else "127.0.0.1"
+            now = time.time()
+            # Throttle device_session updates to once per 60s per client IP to eliminate continuous DB writes on routine pings
+            if now - _last_session_record.get(client_ip, 0) < 60.0:
+                return
+
             user_agent = self.headers.get("User-Agent", "") or ""
 
             dev_id = None
@@ -266,6 +268,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 else:
                     os_info = f"{device_type} ({user_agent[:60]})" if user_agent else "Client Terminal"
 
+            _last_session_record[client_ip] = now
             db.upsert_device_session(
                 device_id=dev_id,
                 hostname=hostname,
@@ -334,6 +337,21 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self._handle_device_offline(query_params=query_params)
             return
 
+        # Direct Tablet Android APK Download Endpoint
+        if path in (
+            "/download-apk",
+            "/download/apk",
+            "/api/download/apk",
+            "/api/download-apk",
+            "/jayraldines_catering.apk",
+            "/jayraldines-tablet.apk",
+            "/jayraldines_catering_tablet.apk",
+            "/tablet.apk",
+            "/app.apk",
+        ) or (path.endswith(".apk") and not path.startswith("/api/")):
+            self._handle_apk_download()
+            return
+
         if path in ("/", "/index.html"):
             if self._serve_static_file("index.html"):
                 return
@@ -344,6 +362,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
 
         if path == "/api/info":
             self._set_cors_headers(200)
+            apk_path, apk_size, apk_name, apk_ver = self._find_tablet_apk()
             res = {
                 "status": "ok",
                 "app": "Jayraldine's Catering Central Server Hub",
@@ -351,6 +370,10 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 "port": 8000,
                 "test_url": f"http://{get_local_ip()}:8000/test",
                 "kiosk_url": f"http://{get_local_ip()}:8000/index.html",
+                "apk_download_url": f"http://{get_local_ip()}:8000/download-apk" if apk_path else None,
+                "apk_filename": apk_name or None,
+                "apk_version": apk_ver or None,
+                "apk_size_bytes": apk_size,
                 "timestamp": datetime.now().isoformat()
             }
             self.wfile.write(json.dumps(res).encode("utf-8"))
@@ -366,6 +389,137 @@ class SyncServerHandler(BaseHTTPRequestHandler):
 
         self._set_cors_headers(404)
         self.wfile.write(json.dumps({"error": "Not Found"}).encode("utf-8"))
+
+    def _get_tablet_version(self) -> str:
+        """Extracts the compiled tablet APK version (e.g. '2.1.4')."""
+        this_file = Path(__file__).resolve()
+        # 1. Check output-metadata.json in APK build output
+        meta_candidates = [
+            Path(r"C:\Testing\jayraldinescateringsystem\Tablet_Android_APK\app\build\outputs\apk\debug\output-metadata.json"),
+            Path(r"C:\Testing\jayraldinescateringsystem\Tablet_Android_APK\app\build\outputs\apk\release\output-metadata.json"),
+        ]
+        for p in this_file.parents:
+            meta_candidates.append(p / "Tablet_Android_APK" / "app" / "build" / "outputs" / "apk" / "debug" / "output-metadata.json")
+            meta_candidates.append(p / "Tablet_Android_APK" / "app" / "build" / "outputs" / "apk" / "release" / "output-metadata.json")
+
+        for mc in meta_candidates:
+            if mc.is_file():
+                try:
+                    data = json.loads(mc.read_text(encoding="utf-8"))
+                    v = data.get("elements", [{}])[0].get("versionName")
+                    if v:
+                        return str(v).lstrip("v")
+                except Exception:
+                    pass
+
+        # 2. Check Tablet_Android_APK/app/build.gradle
+        gradle_candidates = [
+            Path(r"C:\Testing\jayraldinescateringsystem\Tablet_Android_APK\app\build.gradle"),
+        ]
+        for p in this_file.parents:
+            gradle_candidates.append(p / "Tablet_Android_APK" / "app" / "build.gradle")
+
+        for gc in gradle_candidates:
+            if gc.is_file():
+                try:
+                    m = re.search(r'versionName\s+["\']([^"\']+)["\']', gc.read_text(encoding="utf-8"))
+                    if m:
+                        return m.group(1).lstrip("v")
+                except Exception:
+                    pass
+
+        # 3. Check versioned files in workspace root
+        for p in this_file.parents:
+            try:
+                for f in p.glob("jayraldines_catering_v*.apk"):
+                    m = re.search(r'jayraldines_catering_v([0-9.]+)\.apk', f.name)
+                    if m:
+                        return m.group(1)
+            except Exception:
+                pass
+
+        return "2.1.4"
+
+    def _find_tablet_apk(self):
+        """Finds the newest compiled tablet APK file, its size, versioned filename, and version."""
+        ver = self._get_tablet_version()
+        versioned_filename = f"jayraldines_catering_v{ver}.apk"
+
+        this_file = Path(__file__).resolve()
+        candidate_paths = [
+            Path(rf"C:\Testing\jayraldinescateringsystem\jayraldines_catering_v{ver}.apk"),
+            Path(r"C:\Testing\jayraldinescateringsystem\jayraldines_catering.apk"),
+            Path(r"C:\Testing\jayraldinescateringsystem\Tablet_Android_APK\app\build\outputs\apk\debug\app-debug.apk"),
+            Path(r"C:\Testing\jayraldinescateringsystem\Tablet_Android_APK\app\build\outputs\apk\release\app-release.apk"),
+            Path(r"C:\Testing\jayraldinescateringsystem\jayraldines_catering_tablet.apk"),
+        ]
+        for p in this_file.parents:
+            if p.is_dir():
+                try:
+                    for apk in p.glob("jayraldines_catering_v*.apk"):
+                        if apk.is_file():
+                            candidate_paths.append(apk)
+                    for apk in p.glob("*.apk"):
+                        if apk.is_file():
+                            candidate_paths.append(apk)
+                except Exception:
+                    pass
+
+        existing = []
+        seen = set()
+        for c in candidate_paths:
+            try:
+                c_res = c.resolve()
+                if c_res.is_file() and str(c_res) not in seen and c_res.stat().st_size > 100000:
+                    seen.add(str(c_res))
+                    is_exact_ver = c_res.name == versioned_filename
+                    existing.append((c_res, c_res.stat().st_mtime, c_res.stat().st_size, is_exact_ver))
+            except Exception:
+                pass
+
+        if not existing:
+            return None, 0, versioned_filename, ver
+
+        # Prefer exact version match, then newest timestamp
+        existing.sort(key=lambda x: (1 if x[3] else 0, x[1]), reverse=True)
+        newest_path, _, size, _ = existing[0]
+        return newest_path, size, versioned_filename, ver
+
+    def _handle_apk_download(self):
+        """Streams the latest compiled tablet APK file with versioned filename (e.g. jayraldines_catering_v2.1.4.apk)."""
+        apk_path, file_size, download_filename, ver = self._find_tablet_apk()
+        if not apk_path or not apk_path.is_file():
+            self._set_cors_headers(404, "text/html; charset=utf-8")
+            error_html = f"""<!DOCTYPE html><html><body style="font-family:sans-serif; background:#0B0F19; color:#fff; padding:40px; text-align:center;">
+                <h2>📱 Tablet APK Not Found</h2>
+                <p style="color:#9CA3AF;">The Android Tablet APK ({download_filename}) has not been compiled on the host PC yet.</p>
+                <p style="color:#F59E0B;">Run <code>build_apk.bat</code> on the host PC to compile the APK, then retry downloading.</p>
+            </body></html>"""
+            self.wfile.write(error_html.encode("utf-8"))
+            return
+
+        try:
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Type", "application/vnd.android.package-archive")
+            self.send_header("Content-Disposition", f'attachment; filename="{download_filename}"')
+            self.send_header("Content-Length", str(file_size))
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+            self.end_headers()
+
+            with open(apk_path, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+            logger.info(f"[SyncServer] Streamed versioned APK '{download_filename}' ({file_size} bytes) to {self.client_address[0]}")
+        except (ConnectionResetError, BrokenPipeError):
+            pass
+        except Exception as exc:
+            logger.warning(f"[SyncServer] Error streaming APK download: {exc}")
 
     def _handle_test_page(self):
         client_ip = self.client_address[0]
@@ -384,6 +538,15 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             pass
 
         db_status_badge = '<span style="color:#22C55E; font-weight:700;">🟢 Online &amp; Connected</span>' if db_online else '<span style="color:#EF4444; font-weight:700;">🔴 Database Offline</span>'
+
+        apk_path, apk_size, apk_filename, apk_ver = self._find_tablet_apk()
+        apk_size_mb = f"{apk_size / (1024 * 1024):.1f} MB" if apk_size > 0 else "Ready"
+        apk_btn_html = f"""
+    <a href="/download-apk" download="{apk_filename}" class="btn" style="background: linear-gradient(135deg, #10B981, #059669); color: white; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 15px; margin-top: 12px; text-decoration: none; font-weight: 700; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+      <span>📱</span> <span>Download Tablet Android APK (v{apk_ver} • {apk_size_mb})</span>
+    </a>
+    <div style="font-size: 12px; color: #9CA3AF; text-align: center; margin-top: 6px;">File: <code>{apk_filename}</code></div>
+    """ if apk_path else ""
 
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -421,6 +584,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
       <tr><td class="label">Database Status</td><td class="val">{db_status_badge}</td></tr>
     </table>
     <a href="/index.html" class="btn">🚀 Open Tablet Kiosk Web App</a>
+    {apk_btn_html}
     <a href="/api/sync/lan-status" class="btn btn-secondary">📡 View Live JSON Status</a>
   </div>
 </body>
@@ -531,6 +695,10 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self._handle_package_image_upload()
             return
 
+        if path in ("/api/menu/image-upload", "/api/menu-items/image-upload", "/api/sync/menu-image"):
+            self._handle_menu_image_upload()
+            return
+
         self._set_cors_headers(404)
         self.wfile.write(json.dumps({"error": "Not Found"}).encode("utf-8"))
 
@@ -547,6 +715,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             db_error = str(e)
 
         cfg = db.get_db_config()
+        current_version = get_db_version()
         response = {
             "online": True,
             "db_connected": db_online,
@@ -554,6 +723,8 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             "port": 8000,
             "db_engine": db.get_engine_type(),
             "db_name": cfg.get("dbname", "jayraldines_catering"),
+            "db_version": current_version,
+            "version": current_version,
             "pending_bookings": 0,
             "pending_customers": 0,
             "error": db_error,
@@ -810,17 +981,25 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         except Exception:
             pkg_id = 0
 
-        if pkg_id <= 0:
+        pkg_name = (payload.get("name") or payload.get("pkg_name") or "").strip()
+        if pkg_id <= 0 and not pkg_name:
             self._set_cors_headers(400)
-            self.wfile.write(json.dumps({"error": "A valid pkg_id is required."}).encode("utf-8"))
+            self.wfile.write(json.dumps({"error": "A valid pkg_id or package name is required."}).encode("utf-8"))
             return
 
         try:
-            id_sql = "SELECT pkg_id FROM packages WHERE pkg_id = %s LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT pkg_id FROM packages WHERE pkg_id = ? LIMIT 1"
-            existing = db.fetchone(id_sql, (pkg_id,))
+            existing = None
+            if pkg_id > 0:
+                id_sql = "SELECT pkg_id FROM packages WHERE pkg_id = %s LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT pkg_id FROM packages WHERE pkg_id = ? LIMIT 1"
+                existing = db.fetchone(id_sql, (pkg_id,))
+            if not existing and pkg_name:
+                name_sql = "SELECT pkg_id FROM packages WHERE LOWER(pkg_name) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT pkg_id FROM packages WHERE LOWER(pkg_name) = LOWER(?) LIMIT 1"
+                existing = db.fetchone(name_sql, (pkg_name,))
+                if existing:
+                    pkg_id = existing["pkg_id"]
             if not existing:
                 self._set_cors_headers(404)
-                self.wfile.write(json.dumps({"error": f"Package {pkg_id} was not found on the central DB."}).encode("utf-8"))
+                self.wfile.write(json.dumps({"error": f"Package {pkg_id or pkg_name} was not found on the central DB."}).encode("utf-8"))
                 return
 
             remove_image = bool(payload.get("remove")) or payload.get("image") in (None, "")
@@ -851,6 +1030,76 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             }).encode("utf-8"))
         except Exception as exc:
             logger.error(f"[SyncServer] Package image upload error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_menu_image_upload(self):
+        """
+        POST /api/menu/image-upload
+        Body: {"mi_id": 1, "image": "data:image/jpeg;base64,...", "remove": false}
+        Saves a tablet menu item image into the desktop assets/images/menu folder and updates menu_items.mi_image.
+        """
+        try:
+            payload = self._read_json_body()
+        except Exception as e:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": f"Bad JSON: {e}"}).encode("utf-8"))
+            return
+
+        try:
+            mi_id = int(payload.get("mi_id") or payload.get("id") or 0)
+        except Exception:
+            mi_id = 0
+
+        item_name = (payload.get("name") or payload.get("mi_name") or "").strip()
+        if mi_id <= 0 and not item_name:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": "A valid mi_id or item name is required."}).encode("utf-8"))
+            return
+
+        try:
+            existing = None
+            if mi_id > 0:
+                id_sql = "SELECT mi_id FROM menu_items WHERE mi_id = %s LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT mi_id FROM menu_items WHERE mi_id = ? LIMIT 1"
+                existing = db.fetchone(id_sql, (mi_id,))
+            if not existing and item_name:
+                name_sql = "SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(?) LIMIT 1"
+                existing = db.fetchone(name_sql, (item_name,))
+                if existing:
+                    mi_id = existing["mi_id"]
+            if not existing:
+                self._set_cors_headers(404)
+                self.wfile.write(json.dumps({"error": f"Menu item {mi_id or item_name} was not found on the central DB."}).encode("utf-8"))
+                return
+
+            remove_image = bool(payload.get("remove")) or payload.get("image") in (None, "")
+            rel_path = ""
+
+            if not remove_image:
+                data, _mime, ext = _decode_image_data_uri(payload.get("image", ""))
+                target_dir = _desktop_menu_image_dir()
+                target_dir.mkdir(parents=True, exist_ok=True)
+                filename = f"menu_tablet_{mi_id}_{int(time.time() * 1000)}{ext}"
+                target_path = (target_dir / filename).resolve()
+                if not str(target_path).startswith(str(target_dir.resolve())):
+                    raise ValueError("Invalid image destination.")
+                target_path.write_bytes(data)
+                rel_path = f"assets/images/menu/{filename}"
+
+            update_sql = "UPDATE menu_items SET mi_image = %s WHERE mi_id = %s" if db.get_engine_type() == "postgres" else "UPDATE menu_items SET mi_image = ? WHERE mi_id = ?"
+            db.execute(update_sql, (rel_path, mi_id))
+            bump_db_version()
+
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({
+                "ok": True,
+                "mi_id": mi_id,
+                "mi_image": rel_path,
+                "image": _image_to_data_uri(rel_path) if rel_path else "",
+                "version": get_db_version(),
+            }).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] Menu item image upload error: {exc}", exc_info=True)
             self._set_cors_headers(500)
             self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
 
@@ -969,6 +1218,9 @@ def perform_server_sync(payload: dict) -> dict:
                 pass
         synced_customer_names.append(c_name)
 
+    deleted_b_rows = db.fetchall("SELECT dr_ref FROM deleted_records WHERE dr_table = 'bookings'") or []
+    deleted_booking_refs = {r["dr_ref"] for r in deleted_b_rows if r.get("dr_ref")}
+
     pushed_bookings = 0
     synced_booking_refs = []
     seen_b = set()
@@ -978,6 +1230,11 @@ def perform_server_sync(payload: dict) -> dict:
         if not ref or ref in seen_b:
             continue
         seen_b.add(ref)
+
+        # Permanent tombstone check: Never let tablet sync resurrect a deleted booking
+        if ref in deleted_booking_refs:
+            logger.info(f"[SyncServer] Rejecting resurrect of deleted booking {ref}")
+            continue
 
         chk_b_sql = "SELECT bk_id FROM bookings WHERE bk_booking_ref = %s LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT bk_id FROM bookings WHERE bk_booking_ref = ? LIMIT 1"
         existing_b = db.fetchone(chk_b_sql, (ref,))
@@ -1373,6 +1630,7 @@ def perform_server_sync(payload: dict) -> dict:
         "occasions": occasions,
         "synced_booking_refs": synced_booking_refs,
         "synced_customer_names": synced_customer_names,
+        "deleted_booking_refs": list(deleted_booking_refs),
     }
 
 
