@@ -75,6 +75,8 @@ public class MainActivity extends AppCompatActivity {
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
+        String defaultUa = settings.getUserAgentString();
+        settings.setUserAgentString((defaultUa != null ? defaultUa : "") + " com.jayraldines.cateringsystem JayraldinesAPK");
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(true);
@@ -135,8 +137,13 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Native file saving interface for PDF receipts, Excel archives, and .db exports
+        // Native file saving and app detection interface
         webView.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public boolean isInstalledApp() {
+                return true;
+            }
+
             @JavascriptInterface
             public void saveBase64File(String base64Data, String filename, String mimeType) {
                 try {
