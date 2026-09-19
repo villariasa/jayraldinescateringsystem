@@ -28,4 +28,4 @@ echo "  Open http://localhost:$PORT in any web browser to use it."
 echo "  Press Ctrl+C to stop."
 echo "============================================================================"
 
-exec "$PY" -m http.server "$PORT" --bind "$HOST" --directory "$SCRIPT_DIR/frontend"
+exec "$PY" "$SCRIPT_DIR/serve.py" --bind "$HOST" --port "$PORT"

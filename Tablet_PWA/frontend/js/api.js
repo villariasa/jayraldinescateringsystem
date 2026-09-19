@@ -19,7 +19,10 @@ function ready() {
 
 let _liveDbConnected = false;
 let _lastSyncTimestamp = 0;
+let _lastCheckAttempt = 0;
 let _liveSyncInFlight = null;
+let _connectionCheckInFlight = null;
+let _autoDiscoverInFlight = null;
 
 function _detectDeviceType() {
   const ua = (typeof navigator !== "undefined" ? navigator.userAgent : "") || "";
@@ -98,7 +101,12 @@ function _getTabletDeviceInfo() {
 }
 
 function _getStoredSyncHost() {
-  return (localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.origin : "") || "").trim();
+  const saved = (localStorage.getItem("jayraldines_lan_host") || "").trim();
+  if (saved) return saved;
+  if (typeof window !== "undefined" && window.location && window.location.hostname && !window.location.origin.startsWith("file:")) {
+    return window.location.hostname;
+  }
+  return "";
 }
 
 async function _flushPendingPackageImageUploads(host, port = 8000) {
@@ -177,66 +185,77 @@ export const api = {
   async ensureLiveConnection(force = false) {
     await ready();
     const now = Date.now();
-    if (!force && _liveDbConnected && (now - _lastSyncTimestamp < 15000)) {
-      return true;
-    }
-
-    try {
-      // 1. Check user-configured host first (highest priority, e.g. 192.168.1.32)
-      const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
-      if (savedHost) {
-        const stat = await api.checkLanStatus(savedHost, 8000);
-        if (stat && stat.online && (stat.db_connected !== false)) {
-          _liveDbConnected = true;
-          _lastSyncTimestamp = Date.now();
-          api.syncWithServer({ host: savedHost, port: 8000 })
-            .catch((e) => console.warn("[LiveDB] Background sync note:", e));
-          window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: savedHost } }));
-          return true;
-        }
-      }
-
-      // 2. Fallback to browser URL origin only if no savedHost is configured or if savedHost is unreachable
-      let currentOrigin = "";
-      if (typeof window !== "undefined" && window.location && window.location.origin) {
-        const orig = window.location.origin;
-        if (orig.startsWith("http://") || orig.startsWith("https://")) {
-          currentOrigin = orig;
-        }
-      }
-
-      if (currentOrigin && currentOrigin !== savedHost) {
-        const stat = await api.checkLanStatus(currentOrigin, 8000);
-        if (stat && stat.online && (stat.db_connected !== false)) {
-          _liveDbConnected = true;
-          _lastSyncTimestamp = Date.now();
-          if (!savedHost) {
-            localStorage.setItem("jayraldines_lan_host", currentOrigin);
-          }
-          api.syncWithServer({ host: currentOrigin, port: 8000 })
-            .catch((e) => console.warn("[LiveDB] Background sync note:", e));
-          window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: currentOrigin } }));
-          return true;
-        }
-      }
-
-      // 3. Discover server on LAN
-      const host = await api.autoDiscoverServer();
-      if (host) {
-        _liveDbConnected = true;
-        _lastSyncTimestamp = Date.now();
-        api.syncWithServer({ host, port: 8000 })
-          .catch((e) => console.warn("[LiveDB] Background sync note:", e));
-        window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: host } }));
+    if (!force) {
+      if (_liveDbConnected && (now - _lastSyncTimestamp < 15000)) {
         return true;
       }
-    } catch (err) {
-      console.warn("[LiveDB] Connection check note:", err.message);
+      if (!_liveDbConnected && (now - _lastCheckAttempt < 12000)) {
+        return false;
+      }
     }
+    if (_connectionCheckInFlight) return _connectionCheckInFlight;
 
-    _liveDbConnected = false;
-    window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: false } }));
-    return false;
+    _lastCheckAttempt = now;
+    _connectionCheckInFlight = (async () => {
+      try {
+        const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
+        const configuredPort = parseInt(localStorage.getItem("jayraldines_lan_port") || 8000, 10) || 8000;
+
+        // 1. Check user-configured host first (highest priority)
+        if (savedHost) {
+          const stat = await api.checkLanStatus(savedHost, configuredPort);
+          if (stat && stat.online && (stat.db_connected !== false)) {
+            _liveDbConnected = true;
+            _lastSyncTimestamp = Date.now();
+            api.syncWithServer({ host: savedHost, port: configuredPort })
+              .catch((e) => console.warn("[LiveDB] Background sync note:", e));
+            window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: savedHost } }));
+            return true;
+          }
+        }
+
+        // 2. Check local/same-host backend on configuredPort (8000)
+        let currentHost = "";
+        if (typeof window !== "undefined" && window.location && window.location.hostname) {
+          currentHost = window.location.hostname;
+        }
+        if (currentHost && currentHost !== savedHost) {
+          const stat = await api.checkLanStatus(currentHost, configuredPort);
+          if (stat && stat.online && (stat.db_connected !== false)) {
+            _liveDbConnected = true;
+            _lastSyncTimestamp = Date.now();
+            if (!savedHost) {
+              localStorage.setItem("jayraldines_lan_host", currentHost);
+            }
+            api.syncWithServer({ host: currentHost, port: configuredPort })
+              .catch((e) => console.warn("[LiveDB] Background sync note:", e));
+            window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: currentHost } }));
+            return true;
+          }
+        }
+
+        // 3. Discover server on LAN (if forced or not connected)
+        const host = await api.autoDiscoverServer();
+        if (host) {
+          _liveDbConnected = true;
+          _lastSyncTimestamp = Date.now();
+          api.syncWithServer({ host, port: configuredPort })
+            .catch((e) => console.warn("[LiveDB] Background sync note:", e));
+          window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: true, server: host } }));
+          return true;
+        }
+      } catch (err) {
+        console.warn("[LiveDB] Connection check note:", err.message);
+      } finally {
+        _connectionCheckInFlight = null;
+      }
+
+      _liveDbConnected = false;
+      window.dispatchEvent(new CustomEvent("jayraldines:live-status", { detail: { connected: false } }));
+      return false;
+    })();
+
+    return _connectionCheckInFlight;
   },
 
   // Customers (Offline-first with background sync)
@@ -616,78 +635,93 @@ export const api = {
   },
 
   async autoDiscoverServer() {
-    const candidates = [];
-    const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
-    if (savedHost) candidates.push(savedHost);
+    if (_autoDiscoverInFlight) return _autoDiscoverInFlight;
 
-    // If opened via browser URL, add origin after savedHost
-    if (typeof window !== "undefined" && window.location && window.location.origin) {
-      const orig = window.location.origin;
-      if (!orig.startsWith("file:") && !orig.includes("androidplatform")) {
-        if (!candidates.includes(orig)) candidates.push(orig);
+    _autoDiscoverInFlight = (async () => {
+      const port = parseInt(localStorage.getItem("jayraldines_lan_port") || 8000, 10) || 8000;
+      const candidates = [];
+      const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
+      if (savedHost) candidates.push(savedHost);
+
+      // Local candidates on port 8000 (NEVER port 8080)
+      if (typeof window !== "undefined" && window.location && window.location.hostname) {
+        const h = window.location.hostname;
+        if (!candidates.includes(h)) candidates.push(h);
       }
-    }
+      if (!candidates.includes("127.0.0.1")) candidates.push("127.0.0.1");
+      if (!candidates.includes("localhost")) candidates.push("localhost");
 
-    // Common mobile hotspot and LAN gateway IPs (including 32, 34, 10, etc.)
-    const commonGateways = ["192.168.1.", "192.168.0.", "192.168.4.", "192.168.43.", "192.168.137.", "10.105.101."];
-    const octets = [32, 34, 1, 2, 5, 10, 15, 20, 30, 31, 33, 35, 40, 50, 100, 120, 128];
-    for (const prefix of commonGateways) {
-      for (const lastOctet of octets) {
-        const ip = `${prefix}${lastOctet}`;
-        if (!candidates.includes(ip)) candidates.push(ip);
-      }
-    }
-
-    // Localhost fallback
-    candidates.push("http://127.0.0.1:8000");
-    candidates.push("127.0.0.1");
-
-    const probe = async (target) => {
-      try {
-        const baseUrls = _getSyncBaseUrls(target, 8000);
-        for (const base of baseUrls) {
-          try {
-            const controller = new AbortController();
-            const tid = setTimeout(() => controller.abort(), 2000);
-            const res = await fetch(`${base}/api/sync/lan-status`, {
-              signal: controller.signal,
-              headers: {
-                "Accept": "application/json",
-                "ngrok-skip-browser-warning": "69420"
+      const probe = async (target) => {
+        try {
+          const baseUrls = _getSyncBaseUrls(target, port);
+          for (const base of baseUrls) {
+            try {
+              const controller = new AbortController();
+              const tid = setTimeout(() => controller.abort(), 1200);
+              const res = await fetch(`${base}/api/sync/lan-status`, {
+                signal: controller.signal,
+                headers: {
+                  "Accept": "application/json",
+                  "ngrok-skip-browser-warning": "69420"
+                }
+              });
+              clearTimeout(tid);
+              if (res.ok) {
+                const data = await res.json();
+                if (data.online && (data.db_connected !== false)) {
+                  return base;
+                }
               }
-            });
-            clearTimeout(tid);
-            if (res.ok) {
-              const data = await res.json();
-              if (data.online && (data.db_connected !== false)) {
-                return base;
-              }
-            }
-          } catch (_) {}
+            } catch (_) {}
+          }
+        } catch (_) {}
+        return null;
+      };
+
+      // 1. Fast check of direct/local candidates (savedHost, current hostname, localhost)
+      for (const c of candidates) {
+        const found = await probe(c);
+        if (found) {
+          localStorage.setItem("jayraldines_lan_host", found);
+          console.log(`[AutoDiscover] Connected to server at ${found}`);
+          return found;
         }
-      } catch (_) {}
-      return null;
-    };
-
-    // First check high-priority candidates quickly
-    for (const c of candidates.slice(0, 4)) {
-      const found = await probe(c);
-      if (found) {
-        localStorage.setItem("jayraldines_lan_host", found);
-        console.log(`[AutoDiscover] Connected to server at ${found}`);
-        return found;
       }
-    }
 
-    const results = await Promise.allSettled(candidates.map(probe));
-    for (const r of results) {
-      if (r.status === "fulfilled" && r.value) {
-        localStorage.setItem("jayraldines_lan_host", r.value);
-        console.log(`[AutoDiscover] Successfully detected server at ${r.value}`);
-        return r.value;
+      // 2. Check local subnet only (do not scan random unrouted subnets simultaneously)
+      let subnetPrefix = "192.168.1.";
+      if (typeof window !== "undefined" && window.location && window.location.hostname) {
+        const parts = window.location.hostname.split(".");
+        if (parts.length === 4 && window.location.hostname.startsWith("192.168.")) {
+          subnetPrefix = `${parts[0]}.${parts[1]}.${parts[2]}.`;
+        }
       }
+
+      const octets = [32, 34, 1, 10, 15, 20, 30, 40, 50, 100, 120, 128];
+      const lanTargets = octets.map(o => `${subnetPrefix}${o}`).filter(ip => !candidates.includes(ip));
+
+      // Batch scan in chunks of 4 with short timeout to prevent network saturation
+      const chunkSize = 4;
+      for (let i = 0; i < lanTargets.length; i += chunkSize) {
+        const chunk = lanTargets.slice(i, i + chunkSize);
+        const results = await Promise.allSettled(chunk.map(probe));
+        for (const r of results) {
+          if (r.status === "fulfilled" && r.value) {
+            localStorage.setItem("jayraldines_lan_host", r.value);
+            console.log(`[AutoDiscover] Successfully detected server at ${r.value}`);
+            return r.value;
+          }
+        }
+      }
+
+      return savedHost || null;
+    })();
+
+    try {
+      return await _autoDiscoverInFlight;
+    } finally {
+      _autoDiscoverInFlight = null;
     }
-    return savedHost || null;
   },
 
   async autoSyncPendingRecords() {
@@ -723,49 +757,60 @@ export const api = {
 
 function _getSyncBaseUrls(host, port = 8000) {
   const urls = [];
+  const targetPort = parseInt(port, 10) || 8000;
+  const webPort = (typeof window !== "undefined" && window.location && window.location.port) ? window.location.port : "8080";
   const trimmed = (host || "").trim();
 
   if (trimmed) {
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-      const cleanUrl = trimmed.replace(/\/+$/, "");
-      urls.push(cleanUrl);
-      // If already a complete HTTPS URL without custom port, prioritize it directly
-      const colonCount = (cleanUrl.match(/:/g) || []).length;
-      if (cleanUrl.startsWith("https://") && colonCount === 1) {
+      try {
+        const parsed = new URL(trimmed);
+        const isTunnel = parsed.hostname.includes(".ngrok") || parsed.hostname.includes(".trycloudflare.com") || parsed.hostname.includes(".loca.lt");
+        if (isTunnel) {
+          urls.push(`https://${parsed.host}`);
+          return urls;
+        }
+
+        // If the URL port matches the web frontend port (e.g. 8080), rewrite to target sync port (8000)
+        let effectivePort = parsed.port;
+        if (!effectivePort || (effectivePort === webPort && webPort !== String(targetPort))) {
+          effectivePort = targetPort;
+        }
+        const cleanUrl = `${parsed.protocol}//${parsed.hostname}:${effectivePort}`;
+        if (!urls.includes(cleanUrl)) urls.push(cleanUrl);
+
+        const directTarget = `${parsed.protocol}//${parsed.hostname}:${targetPort}`;
+        if (!urls.includes(directTarget)) urls.push(directTarget);
+        return urls;
+      } catch (_) {
+        const clean = trimmed.replace(/\/+$/, "");
+        if (!urls.includes(clean)) urls.push(clean);
+      }
+    } else {
+      const rawHost = trimmed.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+      if (rawHost.includes(".ngrok") || rawHost.includes(".trycloudflare.com") || rawHost.includes(".loca.lt")) {
+        urls.push(`https://${rawHost}`);
         return urls;
       }
-    }
 
-    const rawHost = trimmed.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
-    if (rawHost) {
-      if (rawHost.includes(".ngrok") || rawHost.includes(".trycloudflare.com") || rawHost.includes(".loca.lt")) {
-        if (!urls.includes(`https://${rawHost}`)) urls.unshift(`https://${rawHost}`);
-      } else if (rawHost.includes(":")) {
-        const p = `http://${rawHost}`;
-        if (!urls.includes(p)) urls.push(p);
-      } else {
-        const p = parseInt(port, 10);
-        if (p && p !== 8000) {
-          const u = `http://${rawHost}:${p}`;
-          if (!urls.includes(u)) urls.push(u);
-        }
-        const defU = `http://${rawHost}:8000`;
-        if (!urls.includes(defU)) urls.push(defU);
+      if (rawHost.includes(":")) {
+        const [h, p] = rawHost.split(":");
+        const effPort = (p === webPort && webPort !== String(targetPort)) ? targetPort : (parseInt(p, 10) || targetPort);
+        urls.push(`http://${h}:${effPort}`);
+        return urls;
       }
+
+      urls.push(`http://${rawHost}:${targetPort}`);
+      return urls;
     }
   }
 
-  // Fallback to current browser origin if not file: or androidplatform
-  if (typeof window !== "undefined" && window.location && window.location.origin) {
-    const orig = window.location.origin;
-    if (!orig.startsWith("file:") && !orig.includes("androidplatform.net")) {
-      if (!urls.includes(orig)) urls.push(orig);
-    }
-  }
+  // Fallback when host is empty: use current hostname on target sync port (8000)
+  const defaultHost = (typeof window !== "undefined" && window.location && window.location.hostname && !window.location.origin.startsWith("file:"))
+    ? window.location.hostname
+    : "127.0.0.1";
+  urls.push(`http://${defaultHost}:${targetPort}`);
 
-  if (urls.length === 0) {
-    urls.push("http://127.0.0.1:8000");
-  }
   return urls;
 }
 
@@ -817,9 +862,11 @@ export function downloadBlob(blob, filename) {
 if (typeof window !== "undefined") {
   setInterval(async () => {
     try {
-      const savedHost = (localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.origin : "")).trim();
-      if (savedHost) {
-        await api.checkLanStatus(savedHost, 8000);
+      if (_liveDbConnected) {
+        const savedHost = (localStorage.getItem("jayraldines_lan_host") || "").trim();
+        if (savedHost) {
+          await api.checkLanStatus(savedHost, 8000);
+        }
       }
     } catch (_) {}
   }, 15000);
@@ -827,8 +874,9 @@ if (typeof window !== "undefined") {
   // Send immediate offline signal when user closes the app, closes tab, or navigates away
   const markOffline = () => {
     try {
+      if (!_liveDbConnected) return;
       const dev = _getTabletDeviceInfo();
-      const host = (localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.origin : "")).trim();
+      const host = (localStorage.getItem("jayraldines_lan_host") || "").trim();
       if (dev.device_id && host) {
         const urls = _getSyncBaseUrls(host, 8000);
         for (const base of urls) {
@@ -849,8 +897,10 @@ if (typeof window !== "undefined") {
     if (document.visibilityState === "hidden") {
       markOffline();
     } else if (document.visibilityState === "visible") {
-      const host = (localStorage.getItem("jayraldines_lan_host") || (typeof window !== "undefined" && window.location ? window.location.origin : "")).trim();
-      if (host) api.checkLanStatus(host, 8000).catch(() => {});
+      if (_liveDbConnected) {
+        const host = (localStorage.getItem("jayraldines_lan_host") || "").trim();
+        if (host) api.checkLanStatus(host, 8000).catch(() => {});
+      }
     }
   });
 }

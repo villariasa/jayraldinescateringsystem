@@ -236,9 +236,9 @@ function mountLanding() {
   }
 
   // Setup micro-animations on quick buttons
-  mountHoverLottie(document.getElementById("quick-packages"), document.getElementById("quick-lottie-package"), "box-open");
-  mountHoverLottie(document.getElementById("quick-menu"), document.getElementById("quick-lottie-menu"), "utensils-cross");
-  mountHoverLottie(document.getElementById("quick-terms"), document.getElementById("quick-lottie-terms"), "signature-draw");
+  mountHoverLottie(document.getElementById("quick-packages"), document.getElementById("quick-lottie-package"), "icon-package");
+  mountHoverLottie(document.getElementById("quick-menu"), document.getElementById("quick-lottie-menu"), "icon-utensils");
+  mountHoverLottie(document.getElementById("quick-terms"), document.getElementById("quick-lottie-terms"), "icon-filetext");
 
   // Wire Live DB Reconnect button
   document.getElementById("btn-reconnect-live-db")?.addEventListener("click", async () => {

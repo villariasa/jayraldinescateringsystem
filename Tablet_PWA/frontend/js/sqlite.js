@@ -364,42 +364,6 @@ export async function initDb() {
   SQL = await window.initSqlJs({ locateFile: (f) => `vendor/${f}` });
   let existing = await idbLoad();
 
-  // If no database in IndexedDB or it's a blank cache, attempt to download master catering.db from server
-  if (!existing || existing.byteLength < 10000) {
-    try {
-      const origin = (typeof window !== "undefined" && window.location && window.location.origin) ? window.location.origin : "";
-      const savedHost = (typeof localStorage !== "undefined" && localStorage.getItem("jayraldines_lan_host")) || "";
-      const candidateBases = [];
-      if (origin && !origin.startsWith("file:") && !origin.includes("androidplatform")) {
-        candidateBases.push(origin);
-      }
-      if (savedHost && !candidateBases.includes(savedHost)) {
-        candidateBases.push(savedHost);
-      }
-      ["http://192.168.1.32:8000", "http://192.168.1.10:8000", "http://localhost:8000"].forEach(ip => {
-        if (!candidateBases.includes(ip)) candidateBases.push(ip);
-      });
-
-      for (const base of candidateBases) {
-        try {
-          const ctrl = new AbortController();
-          const tid = setTimeout(() => ctrl.abort(), 3500);
-          const resp = await fetch(`${base}/catering.db`, { signal: ctrl.signal });
-          clearTimeout(tid);
-          if (resp.ok) {
-            const buf = await resp.arrayBuffer();
-            if (buf && buf.byteLength > 10000) {
-              existing = buf;
-              console.log(`[SQLite] Loaded master database from ${base}/catering.db (${buf.byteLength} bytes)`);
-              break;
-            }
-          }
-        } catch (_) {}
-      }
-    } catch (netErr) {
-      console.warn("[SQLite] Live database fetch note:", netErr);
-    }
-  }
 
   db = existing ? new SQL.Database(new Uint8Array(existing)) : new SQL.Database();
   db.run(SCHEMA_SQL);
