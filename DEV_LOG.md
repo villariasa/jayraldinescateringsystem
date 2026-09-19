@@ -3033,3 +3033,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Configured intelligent demand defrost cycles triggering hot-gas evaporator coil bypass only upon sensor ice detection.
 - Maintained high-velocity 6.5 m/s blast chilling airflow pulling 50 kg batches of cooked sauces from 70°C to 3°C in under 85 minutes.
 - Prevented bacterial proliferation in the critical 60°C to 21°C zone, fully meeting FDA Food Code rapid chilling mandates.
+
+### Waitstaff Wine Opening Corkscrew Leverage Technique & Sediment Decanting Rules
+- Standardized double-hinged sommelier waiter's corkscrew handling drills to extract aged corks smoothly without breakage or crumble.
+- Codified candlelit decanting protocols for vintage red wines to separate natural tannins and sediment while aerating wine bouquet.
+- Implemented wipe-and-taste presentation etiquette ensuring pristine bottle neck rims and customer approval prior to table pours.
