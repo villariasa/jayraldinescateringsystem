@@ -261,6 +261,9 @@ function render() {
     updateHeaderH();
     requestAnimationFrame(updateHeaderH);
     window.addEventListener("resize", updateHeaderH, { passive: true });
+    if (window.ResizeObserver) {
+      new ResizeObserver(updateHeaderH).observe(headerEl);
+    }
   }
 
   renderStep();
