@@ -2918,3 +2918,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Established tracking registry for all 20 lb and 50 lb aluminum CO2 cylinders, verifying valid 5-year hydrostatic test stamps.
 - Mandated dual-stage CO2 gas regulators equipped with integral safety relief valves and tank wall mounting brackets on draft trailers.
 - Implemented pre-service soapy water bubble leak testing across all gas hoses, Cornelius ball-lock disconnects, and draft manifolds.
+
+### Commissary Raw Poultry Thawing Walk-In Airflow Velocities & Drip Pan Containment
+- Configured dedicated low-temperature meat thawing rooms maintaining 1.5°C to 3.0°C with 1.8 m/s gentle laminar airflow across speed-racks.
+- Enforced bottom-shelf placement protocols utilizing perforated stainless pans nested inside deep solid drip pans to catch runoff.
+- Prohibited ambient water immersion thawing, maintaining full compliance with strict cold-chain food pathogen control guidelines.
