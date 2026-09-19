@@ -982,27 +982,28 @@ async function renderStepMenu(card) {
 
   const selectedIds = new Set(d.menuSelections.map((m) => m.menu_item_id));
   const categories = Object.keys(menuGroupedCache);
+  const totalAll = Object.values(menuGroupedCache).reduce((sum, arr) => sum + (arr ? arr.length : 0), 0);
 
   card.innerHTML = `
-    <div class="kiosk-menu-sticky-header">
-      <div class="kiosk-menu-header-row" style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap;">
-        <div class="kiosk-menu-header-info" style="flex:1; min-width:220px;">
-          <h2 style="margin:0 0 4px; display:flex; align-items:center; gap:10px;">
-            ${icon("utensils")} Mix &amp; Match Menu Dishes
-          </h2>
-          <p style="color:var(--text-muted); margin:0; font-size:13px;">
-            Select the dishes for your catering buffet. Tap dish photo or card to add or remove.
-          </p>
-        </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <button type="button" class="btn btn-primary" id="sticky-next-btn-top" style="padding:10px 20px; font-weight:800; display:inline-flex; align-items:center; gap:8px; box-shadow:0 4px 14px var(--accent-glow);">
-            Next Step ${icon("arrowRight")}
-          </button>
-        </div>
+    <div class="kiosk-menu-header-row" style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;">
+      <div class="kiosk-menu-header-info" style="flex:1; min-width:220px;">
+        <h2 style="margin:0 0 4px; display:flex; align-items:center; gap:10px;">
+          ${icon("utensils")} Mix &amp; Match Menu Dishes
+        </h2>
+        <p style="color:var(--text-muted); margin:0; font-size:13px;">
+          Select the dishes for your catering buffet. Tap dish photo or card to add or remove.
+        </p>
       </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button type="button" class="btn btn-primary" id="sticky-next-btn-top" style="padding:10px 20px; font-weight:800; display:inline-flex; align-items:center; gap:8px; box-shadow:0 4px 14px var(--accent-glow);">
+          Next Step ${icon("arrowRight")}
+        </button>
+      </div>
+    </div>
 
-      <!-- Live Search Bar & Category Navigation -->
-      <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap;">
+    <!-- Live Search Bar & Category Navigation (STICKY ON SCROLL) -->
+    <div class="kiosk-menu-sticky-filter-bar" id="kiosk-menu-sticky-filter-bar">
+      <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
         <div style="position:relative; flex:1; min-width:220px;">
           <input type="text" class="form-control" id="menu-dish-search" placeholder="Search dish name, ingredients or category…" style="padding-left:36px; padding-right:32px; height:40px; font-size:13.5px; border-radius:20px;">
           <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none;">${icon("search")}</span>
@@ -1011,18 +1012,21 @@ async function renderStepMenu(card) {
         <div id="search-match-count" style="display:none; font-size:12.5px; color:var(--gold); font-weight:700;"></div>
       </div>
 
-      <!-- Quick Category Filter Bar -->
+      <!-- Quick Category Filter Bar with Dynamic Dish Counts -->
       <div class="kiosk-cat-bar" id="kiosk-cat-bar">
         <button type="button" class="kiosk-cat-pill active" data-cat="all">
-          All Dishes
-          <span class="pill pill-partial" style="padding:2px 7px; font-size:11px;" id="all-selected-count">0</span>
+          All Dishes (${totalAll})
+          <span class="pill pill-partial" style="padding:2px 7px; font-size:11px;" id="all-selected-count">${totalAll}</span>
         </button>
-        ${categories.map((cat) => `
-          <button type="button" class="kiosk-cat-pill" data-cat="${escapeHtml(cat)}">
-            ${escapeHtml(cat)}
-            <span class="pill pill-partial" style="padding:2px 7px; font-size:11px;" data-pill-count="${escapeHtml(cat)}">0</span>
-          </button>
-        `).join("")}
+        ${categories.map((cat) => {
+          const catTotal = (menuGroupedCache[cat] || []).length;
+          return `
+            <button type="button" class="kiosk-cat-pill" data-cat="${escapeHtml(cat)}">
+              ${escapeHtml(cat)} (${catTotal})
+              <span class="pill pill-partial" style="padding:2px 7px; font-size:11px;" data-pill-count="${escapeHtml(cat)}" data-cat-total="${catTotal}">${catTotal}</span>
+            </button>
+          `;
+        }).join("")}
       </div>
     </div>
 
@@ -1157,20 +1161,33 @@ async function renderStepMenu(card) {
     for (const m of d.menuSelections) counts[m.category] = (counts[m.category] || 0) + 1;
     card.querySelectorAll("[data-count-for]").forEach((el) => {
       const cat = el.dataset.countFor;
+      const catTotal = (menuGroupedCache[cat] || []).length;
       const cnt = counts[cat] || 0;
-      el.textContent = `${cnt} Selected`;
+      el.textContent = cnt > 0 ? `${cnt} / ${catTotal} Selected` : `0 / ${catTotal} Selected`;
       el.className = `pill ${cnt > 0 ? "pill-paid" : "pill-partial"}`;
     });
     card.querySelectorAll("[data-pill-count]").forEach((el) => {
       const cat = el.dataset.pillCount;
+      const catTotal = Number(el.dataset.catTotal) || (menuGroupedCache[cat] || []).length;
       const cnt = counts[cat] || 0;
-      el.textContent = cnt;
-      el.className = `pill ${cnt > 0 ? "pill-paid" : "pill-partial"}`;
+      if (cnt > 0) {
+        el.textContent = `${cnt} / ${catTotal}`;
+        el.className = "pill pill-paid";
+      } else {
+        el.textContent = catTotal;
+        el.className = "pill pill-partial";
+      }
     });
     const allPill = card.querySelector("#all-selected-count");
     if (allPill) {
-      allPill.textContent = d.menuSelections.length;
-      allPill.className = `pill ${d.menuSelections.length > 0 ? "pill-paid" : "pill-partial"}`;
+      const selTotal = d.menuSelections.length;
+      if (selTotal > 0) {
+        allPill.textContent = `${selTotal} / ${totalAll}`;
+        allPill.className = "pill pill-paid";
+      } else {
+        allPill.textContent = totalAll;
+        allPill.className = "pill pill-partial";
+      }
     }
   }
 

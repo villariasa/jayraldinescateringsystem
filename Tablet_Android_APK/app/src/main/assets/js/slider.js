@@ -48,7 +48,8 @@ export function setSliderInterval(ms) {
 /**
  * Mounts the hero showcase or multi-image interactive auto-swipe slider into a target container.
  */
-export function mountLandingSlider(container) {
+export function mountLandingSlider(target) {
+  const container = typeof target === "string" ? document.getElementById(target) : target;
   if (!container) return;
 
   const images = getLandingImages();

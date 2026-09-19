@@ -219,6 +219,16 @@ CREATE TABLE IF NOT EXISTS pending_package_images (
     last_error TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS pending_menu_images (
+    mi_id INTEGER PRIMARY KEY,
+    item_name TEXT DEFAULT '',
+    image_data TEXT,
+    remove_image INTEGER DEFAULT 0,
+    sync_status TEXT DEFAULT 'pending',
+    last_error TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
 const CEBU_CITIES = [
@@ -378,6 +388,19 @@ export async function initDb() {
     db.run(`
       CREATE TABLE IF NOT EXISTS pending_package_images (
         pkg_id INTEGER PRIMARY KEY,
+        image_data TEXT,
+        remove_image INTEGER DEFAULT 0,
+        sync_status TEXT DEFAULT 'pending',
+        last_error TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  } catch (_) {}
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS pending_menu_images (
+        mi_id INTEGER PRIMARY KEY,
+        item_name TEXT DEFAULT '',
         image_data TEXT,
         remove_image INTEGER DEFAULT 0,
         sync_status TEXT DEFAULT 'pending',

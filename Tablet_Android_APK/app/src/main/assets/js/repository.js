@@ -185,6 +185,65 @@ export function markPackageImageUploadFailed(pkgId, error = "") {
   return true;
 }
 
+export function queueMenuItemImageUpload(miId, imageData = "", removeImage = false, itemName = "") {
+  if (!miId) return false;
+  const img = removeImage ? "" : (imageData || "");
+  run(`
+    INSERT INTO pending_menu_images (mi_id, item_name, image_data, remove_image, sync_status, last_error, updated_at)
+    VALUES (?, ?, ?, ?, 'pending', '', CURRENT_TIMESTAMP)
+    ON CONFLICT(mi_id) DO UPDATE SET
+      item_name = excluded.item_name,
+      image_data = excluded.image_data,
+      remove_image = excluded.remove_image,
+      sync_status = 'pending',
+      last_error = '',
+      updated_at = CURRENT_TIMESTAMP
+  `, [miId, itemName || "", img, removeImage ? 1 : 0]);
+  run("UPDATE menu_items SET mi_image = ?, image = ? WHERE mi_id = ?", [img, img, miId]);
+  saveEntityImage("menu_item", miId, img);
+  return true;
+}
+
+export function getPendingMenuItemImageUploads() {
+  try {
+    return fetchAll(`
+      SELECT mi_id, item_name, image_data, remove_image, sync_status, last_error, updated_at
+      FROM pending_menu_images
+      WHERE sync_status = 'pending' OR sync_status = 'failed' OR sync_status IS NULL
+      ORDER BY updated_at ASC
+    `);
+  } catch (_) {
+    return [];
+  }
+}
+
+function getPendingMenuItemImageMap() {
+  const map = new Map();
+  for (const row of getPendingMenuItemImageUploads()) {
+    map.set(Number(row.mi_id), row);
+  }
+  return map;
+}
+
+export function markMenuItemImageSynced(miId, serverPath = "", serverImage = "") {
+  if (!miId) return false;
+  run("DELETE FROM pending_menu_images WHERE mi_id = ?", [miId]);
+  const img = serverImage || serverPath || "";
+  run("UPDATE menu_items SET mi_image = ?, image = ? WHERE mi_id = ?", [serverPath || img, img, miId]);
+  saveEntityImage("menu_item", miId, img);
+  return true;
+}
+
+export function markMenuItemImageUploadFailed(miId, error = "") {
+  if (!miId) return false;
+  run(`
+    UPDATE pending_menu_images
+    SET sync_status = 'failed', last_error = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE mi_id = ?
+  `, [String(error || "Upload failed.").slice(0, 500), miId]);
+  return true;
+}
+
 // ── Master data: packages / menu ────────────────────────────────────
 
 export function getPackages() {
@@ -648,6 +707,7 @@ export function markRecordsSynced(bookingRefs = [], customerNames = []) {
 
 export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = [], occasions = []) {
   const pendingPackageImages = getPendingPackageImageMap();
+  const pendingMenuItemImages = getPendingMenuItemImageMap();
 
   if ((packages && packages.length > 0) || (menuItems && menuItems.length > 0) || (customers && customers.length > 0)) {
     replaceMasterTablesWithDbIds({
@@ -666,6 +726,18 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
         const img = Number(pending.remove_image || 0) ? "" : (pending.image_data || "");
         run("UPDATE packages SET pkg_image = ?, image = ? WHERE pkg_id = ?", [img, img, pkgId]);
         saveEntityImage("package", pkgId, img);
+      } catch (_) {}
+    }
+  }
+
+  if (pendingMenuItemImages.size > 0) {
+    for (const [miId, pending] of pendingMenuItemImages.entries()) {
+      try {
+        const exists = fetchOne("SELECT mi_id FROM menu_items WHERE mi_id = ?", [miId]);
+        if (!exists) continue;
+        const img = Number(pending.remove_image || 0) ? "" : (pending.image_data || "");
+        run("UPDATE menu_items SET mi_image = ?, image = ? WHERE mi_id = ?", [img, img, miId]);
+        saveEntityImage("menu_item", miId, img);
       } catch (_) {}
     }
   }
@@ -738,5 +810,19 @@ export function updateOccasion(id, newName) {
 export function deleteOccasion(id) {
   run("DELETE FROM occasions WHERE occ_id = ?", [id]);
   return getAllOccasions();
+}
+
+export function purgeDeletedBookings(refs = []) {
+  if (!refs || refs.length === 0) return;
+  for (const ref of refs) {
+    try {
+      const b = fetchOne("SELECT bk_id FROM bookings WHERE bk_booking_ref = ?", [ref]);
+      if (b && b.bk_id) {
+        run("DELETE FROM booking_menu_items WHERE bmi_booking_id = ?", [b.bk_id]);
+        run("DELETE FROM invoices WHERE inv_booking_id = ?", [b.bk_id]);
+        run("DELETE FROM bookings WHERE bk_id = ?", [b.bk_id]);
+      }
+    } catch (_) {}
+  }
 }
 
