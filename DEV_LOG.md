@@ -2888,3 +2888,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Scheduled weekly acid-bath ultrasonic soaking for commercial dishwasher fan-spray rinse nozzles to dislodge mineral crust.
 - Calibrated spray pattern angles to guarantee 100% overlapping coverage at 20 PSI dynamic rinse pressure.
 - Verified sanitizing final rinse water temperatures maintained at or above 82.2°C (180°F) for automated NSF certification compliance.
+
+### Roasted Lechon Spit Rotation Speed Telemetry & Crispy Skin Crackling Heat Profiles
+- Calibrated motorized rotisserie gearboxes to maintain a constant 4.5 RPM rotation speed for uniform charcoal radiant roasting.
+- Monitored infrared surface temperatures, transitioning from 110°C slow rendering to a final 180°C charcoal flash for blistered crackling skin.
+- Established internal core temperature targets of 77°C (170°F) at the thickest part of the pork shoulder before carving.
