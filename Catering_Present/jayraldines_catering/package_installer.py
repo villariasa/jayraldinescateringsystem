@@ -52,6 +52,24 @@ def create_installer():
                 except Exception:
                     pass
 
+    # Ensure Tablet_PWA/frontend is bundled with the distribution
+    repo_root = root.parent.parent
+    tablet_pwa_src = repo_root / "Tablet_PWA" / "frontend"
+    if tablet_pwa_src.exists():
+        tablet_pwa_dst = dist_app / "Tablet_PWA" / "frontend"
+        print(f"  -> Bundling Tablet_PWA/frontend into distribution...")
+        if tablet_pwa_dst.exists():
+            shutil.rmtree(tablet_pwa_dst, ignore_errors=True)
+        shutil.copytree(tablet_pwa_src, tablet_pwa_dst, dirs_exist_ok=True)
+
+    # Ensure latest Android APK is bundled with the distribution
+    apk_candidates = list(repo_root.glob("jayraldines_catering*.apk")) + list(output_dir.glob("jayraldines_catering*.apk"))
+    if apk_candidates:
+        newest_apk = max(apk_candidates, key=lambda p: p.stat().st_mtime)
+        target_apk = dist_app / newest_apk.name
+        print(f"  -> Bundling APK into distribution: {newest_apk.name}")
+        shutil.copy2(newest_apk, target_apk)
+
     zip_target = root / "app_package.zip"
     print(f"[1/3] Compressing application files into {zip_target.name}...")
     
