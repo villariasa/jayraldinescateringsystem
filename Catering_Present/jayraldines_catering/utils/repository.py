@@ -222,14 +222,21 @@ def delete_multiple_bookings(booking_ids: list[int | str]) -> int:
     count = 0
     for bid in booking_ids:
         try:
-            if isinstance(bid, str) and (bid.startswith("BK-") or bid.startswith("ORD-")):
-                row = db.fetchone("SELECT bk_id FROM bookings WHERE bk_booking_ref = %s", (bid,))
+            bid_str = str(bid).strip()
+            if not bid_str.isdigit():
+                row = db.fetchone("SELECT bk_id FROM bookings WHERE bk_booking_ref = %s", (bid_str,))
                 if row and row.get("bk_id"):
-                    delete_booking(int(row["bk_id"]))
-                    count += 1
+                    if delete_booking(int(row["bk_id"])):
+                        count += 1
+                else:
+                    # Still record in deleted_records to prevent tablet resurrect
+                    try:
+                        db.execute("INSERT OR REPLACE INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', ?)", (bid_str,))
+                    except Exception:
+                        pass
             else:
-                delete_booking(int(bid))
-                count += 1
+                if delete_booking(int(bid)):
+                    count += 1
         except Exception as exc:
             print(f"[repository] delete_multiple_bookings failed for ID {bid}: {exc}")
     return count
@@ -1790,9 +1797,11 @@ def check_date_capacity(event_date, exclude_id: int = 0) -> dict:
 def delete_booking(db_id: int) -> bool:
     c_name = ""
     amt = None
+    bk_ref = ""
     try:
-        row = db.fetchone("SELECT bk_customer_name, bk_total_amount FROM bookings WHERE bk_id = %s", (db_id,))
+        row = db.fetchone("SELECT bk_booking_ref, bk_customer_name, bk_total_amount FROM bookings WHERE bk_id = %s", (db_id,))
         if row:
+            bk_ref = row.get("bk_booking_ref", "")
             c_name = row.get("bk_customer_name", "")
             amt = row.get("bk_total_amount")
     except Exception:
@@ -1800,6 +1809,11 @@ def delete_booking(db_id: int) -> bool:
     ok = db.callproc_void("sp_delete_booking", in_params=(db_id,))
     if not ok:
         return False
+    if bk_ref:
+        try:
+            db.execute("INSERT OR REPLACE INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('bookings', ?, ?)", (bk_ref, db_id))
+        except Exception:
+            pass
     write_audit_log(
         action="DELETE",
         table_name="bookings",

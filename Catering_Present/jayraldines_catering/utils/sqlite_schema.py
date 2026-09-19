@@ -266,6 +266,15 @@ CREATE TABLE IF NOT EXISTS terms_acknowledgements (
     ta_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Deleted records / tombstones (prevents tablet sync from resurrecting deleted orders)
+CREATE TABLE IF NOT EXISTS deleted_records (
+    dr_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dr_table TEXT NOT NULL,
+    dr_ref TEXT NOT NULL UNIQUE,
+    dr_record_id INTEGER,
+    dr_deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Cash Flow Transactions (for Cash Flow module)
 CREATE TABLE IF NOT EXISTS cash_flow_transactions (
     cft_id INTEGER PRIMARY KEY AUTOINCREMENT,

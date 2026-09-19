@@ -2361,12 +2361,12 @@ class BookingPage(QWidget):
                 return
             repo.write_audit_log(get_actor(), "DELETE", "bookings", b["db_id"], {"customer": b.get("name"), "amount": b.get("total")}, None)
 
-        self._bookings = [x for x in self._bookings if x.get("id") != ref]
+        self._bookings = [x for x in (self._bookings or []) if isinstance(x, dict) and x.get("id") != ref]
         for tid in (0, 1, 2):
-            if hasattr(self, "_tab_rows") and tid in self._tab_rows:
-                self._tab_rows[tid] = [x for x in self._tab_rows[tid] if x.get("id") != ref]
-            if hasattr(self, "_tab_cached_full") and tid in self._tab_cached_full:
-                self._tab_cached_full[tid] = [x for x in self._tab_cached_full[tid] if x.get("id") != ref]
+            if hasattr(self, "_tab_rows") and self._tab_rows and self._tab_rows.get(tid) is not None:
+                self._tab_rows[tid] = [x for x in self._tab_rows[tid] if isinstance(x, dict) and x.get("id") != ref]
+            if hasattr(self, "_tab_cached_full") and self._tab_cached_full and self._tab_cached_full.get(tid) is not None:
+                self._tab_cached_full[tid] = [x for x in self._tab_cached_full[tid] if isinstance(x, dict) and x.get("id") != ref]
 
         from utils.data_cache import DataCache
         DataCache.clear()

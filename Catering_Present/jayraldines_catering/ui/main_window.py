@@ -133,8 +133,8 @@ class MainWindow(QMainWindow):
         _ev.kitchen_updated.connect(self._on_kitchen_updated)
         _ev.expense_saved.connect(self._on_expense_saved)
         _ev.customer_saved.connect(self._on_customer_saved)
-        _ev.invoice_saved.connect(self._reload_all_pages)
-        _ev.data_changed.connect(self._reload_all_pages)
+        _ev.invoice_saved.connect(self._on_sync_completed)
+        _ev.data_changed.connect(self._on_sync_completed)
         _ev.sync_started.connect(self._on_sync_started)
         _ev.sync_completed.connect(self._on_sync_completed)
 
@@ -722,25 +722,19 @@ class MainWindow(QMainWindow):
         self._poll_notifications()
 
     def _on_sync_started(self, msg: str = ""):
-        if hasattr(self, "_toast_manager") and self._toast_manager:
-            self._toast_manager.show(
-                "Live Sync",
-                msg or "Syncing database updates from server...",
-                color="#3B82F6",
-                duration_ms=4000
-            )
+        # Silent background sync - no intrusive toast spam
+        pass
 
     def _on_sync_completed(self):
         from utils.data_cache import DataCache
         DataCache.clear()
-        self._reload_all_pages()
-        if hasattr(self, "_toast_manager") and self._toast_manager:
-            self._toast_manager.show(
-                "Live Sync Completed",
-                "Database updated & all views refreshed.",
-                color="#10B981",
-                duration_ms=3000
-            )
+        # Debounce reloading to prevent screen stutter during rapid syncs
+        if not hasattr(self, "_sync_reload_timer"):
+            self._sync_reload_timer = QTimer(self)
+            self._sync_reload_timer.setSingleShot(True)
+            self._sync_reload_timer.setInterval(400)
+            self._sync_reload_timer.timeout.connect(self._reload_all_pages)
+        self._sync_reload_timer.start(400)
 
     def _reload_all_pages(self):
         """Only reload the current visible page; mark all others dirty so they

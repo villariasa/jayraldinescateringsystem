@@ -604,7 +604,7 @@ _watcher_stop_event = threading.Event()
 
 
 def start_realtime_version_watcher(
-    poll_interval: float = 1.5,
+    poll_interval: float = 3.5,
     server_url: Optional[str] = None
 ) -> Optional[threading.Thread]:
     """
@@ -650,15 +650,8 @@ def start_realtime_version_watcher(
                     continue
 
                 if server_ver > _known_server_version:
-                    log.info(f"[ClientSync] Server data version changed ({_known_server_version} -> {server_ver}). Syncing & updating UI...")
+                    log.info(f"[ClientSync] Server data version changed ({_known_server_version} -> {server_ver}). Syncing & updating UI silently...")
                     _known_server_version = server_ver
-
-                    # Notify UI that sync is starting
-                    try:
-                        from utils.signals import app_events
-                        app_events().sync_started.emit("Syncing database updates from server...")
-                    except Exception:
-                        pass
 
                     # Pull fresh snapshot from server
                     pull_server_snapshot(server_url=current_srv, timeout=8)
@@ -670,23 +663,11 @@ def start_realtime_version_watcher(
                     except Exception:
                         pass
 
-                    # Trigger real-time UI refresh on main Qt thread directly via signals
+                    # Trigger silent data refresh on main Qt thread
                     try:
                         from utils.signals import app_events
                         ev = app_events()
-                        ev.sync_completed.emit()
                         ev.data_changed.emit()
-                        ev.booking_saved.emit()
-                        ev.booking_created.emit()
-                        ev.booking_updated.emit()
-                        ev.invoice_saved.emit()
-                        ev.invoice_created.emit()
-                        ev.payment_recorded.emit()
-                        ev.kitchen_updated.emit()
-                        ev.customer_saved.emit()
-                        ev.menu_saved.emit()
-                        ev.expense_saved.emit()
-                        ev.cash_flow_saved.emit()
                     except Exception as sig_err:
                         log.debug(f"[ClientSync] Signal dispatch note: {sig_err}")
 

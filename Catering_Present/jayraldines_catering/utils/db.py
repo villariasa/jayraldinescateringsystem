@@ -247,6 +247,19 @@ def connect_sqlite() -> bool:
 
             # Initialize schema and seed data
             init_sqlite_db(_sqlite_conn)
+            try:
+                _sqlite_conn.execute("""
+                    CREATE TABLE IF NOT EXISTS deleted_records (
+                        dr_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        dr_table TEXT NOT NULL,
+                        dr_ref TEXT NOT NULL UNIQUE,
+                        dr_record_id INTEGER,
+                        dr_deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                _sqlite_conn.commit()
+            except Exception:
+                pass
             _engine_type = "sqlite"
             log.info("SQLite Database initialized and ready.")
             return True
@@ -976,20 +989,17 @@ def _prepare_pg_sql(sql: str, params: Any = ()) -> str:
     return re.sub(r"%(?!s|d|f|\([a-zA-Z0-9_]+\)s|%)", "%%", sql)
 
 
-def _bump_server_version_if_applicable() -> None:
+def _bump_server_version_if_applicable(sql: str = "") -> None:
     """After a successful LOCAL write, tell the LAN sync hub's version
     counter to advance - but only on the machine actually running the
-    server (or a standalone install). Client machines' writes are proxied
-    to the server first (see execute()/callproc_void()/callproc_out()),
-    which already bumps the version there via the HTTP handlers in
-    db_sync_server.py - those handlers are only ever reached from an
-    INBOUND request from another machine, so a write made directly through
-    the SERVER machine's own desktop UI (an in-process call, no HTTP
-    request involved) never bumped the version at all. That left every
-    connected client's realtime watcher polling a permanently-stale
-    version number, silently unaware anything had changed - even across a
-    logout/login, since relogin just re-checks the same stale counter.
+    server (or a standalone install).
+    Filters out background heartbeat/session/log tables so routine status
+    checks never trigger artificial version bumps or UI reload loops.
     """
+    if sql:
+        s = sql.lower()
+        if any(ignored in s for ignored in ("device_sessions", "audit_logs", "login_attempts", "user_sessions", "app_logs", "deleted_records")):
+            return
     try:
         from utils.client_sync import is_client_mode
         if is_client_mode():
@@ -1052,7 +1062,7 @@ def execute(sql: str, params: tuple = ()) -> None:
             _pg_putconn(conn)
 
     if sql.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "REPLACE")):
-        _bump_server_version_if_applicable()
+        _bump_server_version_if_applicable(sql)
 
 
 def fetchall(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
@@ -1937,6 +1947,13 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
             )
 
     elif proc == "sp_delete_booking":
+        try:
+            cur.execute("SELECT bk_booking_ref FROM bookings WHERE bk_id = ?", (p[0],))
+            b_row = cur.fetchone()
+            if b_row and b_row[0]:
+                cur.execute("INSERT OR REPLACE INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('bookings', ?, ?)", (str(b_row[0]), p[0]))
+        except Exception:
+            pass
         cur.execute("DELETE FROM bookings WHERE bk_id = ?", (p[0],))
         cur.execute("DELETE FROM invoices WHERE inv_booking_id = ?", (p[0],))
         cur.execute("DELETE FROM kitchen_orders WHERE ko_booking_id = ?", (p[0],))
