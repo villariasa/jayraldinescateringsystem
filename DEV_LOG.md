@@ -2858,3 +2858,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Calculated gas burn rates for 90cm diameter multi-ring propane paella burners at 1.2 kg LPG per hour under medium-high heat.
 - Mandated a minimum 2.5-meter safety perimeter separating live burner stations from banquet guest lines and combustible drapery.
 - Deployed dedicated Class K wet-chemical and Class B dry-powder fire extinguishers within 3 meters of live cooking stations.
+
+### Banquet Champagne Glass Rack Stacking Limits & Shock-Absorbent Transport Crates
+- Enforced maximum vertical stacking limits of 5 compartmentalized 36-slot glassware wash racks on heavy-duty four-wheel dollies.
+- Installed high-density EVA foam base liners in transport crates to absorb road vibrations during transit to remote destination venues.
+- Reduced stemware transit breakage rates by 85%, ensuring perfect inventory counts for celebratory champagne toasts.
