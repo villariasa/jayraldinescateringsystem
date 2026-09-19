@@ -3043,3 +3043,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Specified commercial laser projectors with minimum output ratings of 8,500 ANSI lumens for daylight ballroom presentations.
 - Installed ambient light rejecting (ALR) motorized projection screens to retain 3000:1 contrast ratios under floor-to-ceiling glass windows.
 - Ensured crystal clear readability of wedding video montages, corporate keynote slides, and live ceremony feeds from any guest seat.
+
+### Catering Supply Warehouse Pallet Rack Weight Capacity Labels & Seismic Strapping
+- Affixed high-visibility ANSI load capacity rating plates (maximum 2,500 kg per beam level) across all warehouse teardrop pallet racking.
+- Anchored rack baseplates to concrete flooring using 3/4-inch grade-5 expansion anchor bolts and rear diagonal seismic cross-bracing.
+- Installed heavy-duty nylon safety netting along rear rack faces to prevent stored banquet chafers and porcelain crates from falling.
