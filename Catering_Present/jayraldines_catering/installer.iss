@@ -26,6 +26,7 @@ Source: "device_monitoring_migration.sql"; DestDir: "{app}"; Flags: ignoreversio
 Source: "catering.db"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "tools\ngrok.exe"; DestDir: "{app}\tools"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\Tablet_PWA\frontend\*"; DestDir: "{app}\Tablet_PWA\frontend"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "..\jayraldines_catering*.apk"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\Jayraldines Catering"; Filename: "{app}\JayraldinesCatering.exe"

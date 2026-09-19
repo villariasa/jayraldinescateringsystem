@@ -453,6 +453,18 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             Path(r"C:\Testing\jayraldinescateringsystem\Tablet_Android_APK\app\build\outputs\apk\release\app-release.apk"),
             Path(r"C:\Testing\jayraldinescateringsystem\jayraldines_catering_tablet.apk"),
         ]
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).resolve().parent
+            candidate_paths.extend([
+                exe_dir / versioned_filename,
+                exe_dir / "jayraldines_catering.apk",
+            ])
+            try:
+                for apk in exe_dir.glob("*.apk"):
+                    candidate_paths.append(apk)
+            except Exception:
+                pass
+
         for p in this_file.parents:
             if p.is_dir():
                 try:
