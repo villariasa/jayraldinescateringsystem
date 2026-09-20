@@ -428,6 +428,10 @@ def _upsert_rows(table: str, rows: List[Dict]) -> int:
     return upserted
 
 
+_snapshot_lock = threading.Lock()
+_last_snapshot_time: float = 0.0
+
+
 def pull_server_snapshot(
     server_url: Optional[str] = None,
     timeout: int = 20,
@@ -438,11 +442,35 @@ def pull_server_snapshot(
     Covers ALL data: users, menu, packages, customers, bookings, invoices,
     expenses, cashflow, occasions, address data, and business info.
     """
+    global _last_snapshot_time
     if server_url is None:
         server_url = get_server_url()
     if not server_url:
         return {"success": False, "message": "Not in client mode or no server URL.", "synced": {}}
 
+    # Non-blocking lock to prevent overlapping concurrent snapshot pulls
+    if not _snapshot_lock.acquire(blocking=False):
+        log.debug("[ClientSync] Snapshot pull already in progress, skipping duplicate.")
+        return {"success": True, "message": "Snapshot pull already in progress", "synced": {}}
+
+    try:
+        now = time.time()
+        # Cooldown between snapshots to avoid storming the server
+        if (now - _last_snapshot_time) < 2.0:
+            log.debug("[ClientSync] Snapshot recently pulled, skipping rapid re-pull.")
+            return {"success": True, "message": "Snapshot recently pulled", "synced": {}}
+        _last_snapshot_time = now
+
+        return _do_pull_server_snapshot(server_url, timeout, on_progress)
+    finally:
+        _snapshot_lock.release()
+
+
+def _do_pull_server_snapshot(
+    server_url: str,
+    timeout: int = 20,
+    on_progress: Optional[Callable[[str], None]] = None
+) -> dict:
     def _prog(msg: str):
         log.info(msg)
         if on_progress:
@@ -667,7 +695,7 @@ def start_realtime_version_watcher(
                     try:
                         from utils.signals import app_events
                         ev = app_events()
-                        ev.data_changed.emit()
+                        ev.sync_completed.emit()
                     except Exception as sig_err:
                         log.debug(f"[ClientSync] Signal dispatch note: {sig_err}")
 

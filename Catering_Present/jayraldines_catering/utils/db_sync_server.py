@@ -148,28 +148,38 @@ _db_version: int = int(time.time() * 1000)
 
 _last_bump_signal_time: float = 0.0
 
+_IGNORED_REVISION_TABLES = (
+    "device_sessions", "audit_logs", "login_attempts",
+    "user_sessions", "app_logs", "deleted_records"
+)
+
+def is_business_write_sql(sql: str) -> bool:
+    """Return False if the write targets telemetry, heartbeats, or audit logs."""
+    if not sql:
+        return False
+    s = sql.lower()
+    return not any(tbl in s for tbl in _IGNORED_REVISION_TABLES)
+
 def get_db_version() -> int:
     global _db_version
     return _db_version
 
-def bump_db_version() -> int:
+def bump_db_version(emit_signal: bool = True) -> int:
     global _db_version, _last_bump_signal_time
     _db_version = max(int(time.time() * 1000), _db_version + 1)
     logger.debug(f"[SyncServer] Database revision bumped to {_db_version}")
 
-    # The server machine's OWN UI otherwise has no way to know a remote
-    # client just wrote to its database - client_sync.py's version watcher
-    # already refreshes CLIENT screens when the server's version changes.
-    # Debounce UI signal emission to at most once per 600ms to avoid flooding Qt event loop.
-    now = time.time()
-    if now - _last_bump_signal_time >= 0.6:
-        _last_bump_signal_time = now
-        try:
-            from utils.signals import app_events
-            ev = app_events()
-            ev.data_changed.emit()
-        except Exception as exc:
-            logger.debug(f"[SyncServer] Could not dispatch UI refresh signal: {exc}")
+    # Debounce UI signal emission to at most once per 1.0s to avoid flooding Qt event loop
+    if emit_signal:
+        now = time.time()
+        if now - _last_bump_signal_time >= 1.0:
+            _last_bump_signal_time = now
+            try:
+                from utils.signals import app_events
+                ev = app_events()
+                ev.data_changed.emit()
+            except Exception as exc:
+                logger.debug(f"[SyncServer] Could not dispatch UI refresh signal: {exc}")
 
     return _db_version
 
@@ -843,7 +853,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 ("expenses",                   "SELECT * FROM expenses ORDER BY exp_id"),
                 ("cash_flow_transactions",     "SELECT * FROM cash_flow_transactions ORDER BY cft_id"),
                 ("notifications",              "SELECT * FROM notifications ORDER BY notif_id"),
-                ("audit_logs",                 "SELECT * FROM audit_logs ORDER BY al_id"),
+                ("audit_logs",                 "SELECT * FROM (SELECT * FROM audit_logs ORDER BY al_id DESC LIMIT 50) ORDER BY al_id ASC"),
             ]
             for table_name, sql in tables:
                 try:
@@ -903,7 +913,8 @@ class SyncServerHandler(BaseHTTPRequestHandler):
 
         try:
             db.execute(sql, params)
-            bump_db_version()
+            if is_business_write_sql(sql):
+                bump_db_version()
             self._set_cors_headers(200)
             self.wfile.write(json.dumps({"ok": True, "version": get_db_version()}).encode("utf-8"))
         except Exception as exc:
