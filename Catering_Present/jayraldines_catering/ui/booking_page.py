@@ -1035,19 +1035,19 @@ class BookingPage(QWidget):
     def _mark_dirty_and_reload(self):
         self._dirty = True
         if self.isVisible():
-            self._refresh_bookings()
+            self._refresh_bookings(silent=True)
 
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh_permissions()
         if getattr(self, "_dirty", True):
-            self._refresh_bookings()
+            self._refresh_bookings(silent=getattr(self, "_has_loaded_once", False))
 
-    def reload(self):
+    def reload(self, silent: bool = False):
         self._mark_dirty()
         self.refresh_permissions()
         if self.isVisible():
-            self._refresh_bookings()
+            self._refresh_bookings(silent=silent)
 
     def refresh_permissions(self):
         from utils.auth import SessionManager
@@ -1103,7 +1103,7 @@ class BookingPage(QWidget):
             self._tab_cached_full[i] = None
         self._populated_tabs = set()
 
-    def _refresh_bookings(self):
+    def _refresh_bookings(self, silent: bool = False):
         # Coalesce overlapping reloads: if a reload (fetch + batch-render of the
         # active tab) is already running, don't start a second one in parallel -
         # just remember to run exactly one more pass once this one fully finishes.
@@ -1130,7 +1130,7 @@ class BookingPage(QWidget):
         cached = DataCache.get("bookings")
         if cached is not None and not getattr(self, "_has_loaded_once", False):
             self._has_loaded_once = True
-            if hasattr(self, "_loader"):
+            if hasattr(self, "_loader") and not silent:
                 self._loader.show_overlay("Loading bookings & reservations...")
                 QTimer.singleShot(60, lambda: self._load_from_cache(cached))
             else:
@@ -1138,7 +1138,7 @@ class BookingPage(QWidget):
             return
 
         self._refreshing = True
-        if hasattr(self, "_loader"):
+        if hasattr(self, "_loader") and not silent and not getattr(self, "_has_loaded_once", False):
             self._loader.show_overlay("Loading bookings & reservations...")
         active_idx = self._tabs.currentIndex() if hasattr(self, "_tabs") else 0
         status = self._tab_status.get(active_idx)

@@ -673,15 +673,15 @@ class BillingPage(QWidget):
     def _mark_dirty_and_reload(self):
         self._dirty = True
         if self.isVisible():
-            self.reload()
+            self.reload(silent=True)
 
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh_permissions()
         if getattr(self, "_dirty", True):
-            self.reload()
+            self.reload(silent=getattr(self, "_has_loaded_once", False))
 
-    def reload(self):
+    def reload(self, silent: bool = False):
         # Coalesce overlapping reloads: if a reload (fetch + batch-render) is
         # already running, don't start a second one in parallel - just remember
         # to run exactly one more pass once the current one fully finishes.
@@ -737,7 +737,7 @@ class BillingPage(QWidget):
             page = list(cached[:self._page_size])
             if len(cached) <= self._page_size:
                 self._has_more = False
-            if hasattr(self, "_loader"):
+            if hasattr(self, "_loader") and not silent:
                 self._loader.show_overlay("Loading billing records & invoices...")
                 QTimer.singleShot(60, lambda: self._on_invoices_loaded(page, gen))
             else:
@@ -745,7 +745,7 @@ class BillingPage(QWidget):
             return
 
         self._cached_remainder = None
-        if hasattr(self, "_loader"):
+        if hasattr(self, "_loader") and not silent and not getattr(self, "_has_loaded_once", False):
             self._loader.show_overlay("Loading billing records & invoices...")
         run_async(self, self._fetch_first_page, lambda result, g=gen: self._on_first_page_loaded(result, g), None,
                   self._page_size, self._filter_date_start, self._filter_date_end,
