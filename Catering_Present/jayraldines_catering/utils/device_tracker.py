@@ -89,6 +89,13 @@ class DeviceTracker(QObject):
         self._timer.setInterval(30_000)
         self._timer.timeout.connect(self._on_heartbeat_tick)
 
+        # Debounce timer for active module changes so tab clicks don't spam network writes
+        self._module_timer = QTimer(self)
+        self._module_timer.setSingleShot(True)
+        self._module_timer.setInterval(15_000)
+        self._module_timer.timeout.connect(self._on_module_timer_tick)
+        self._last_reg_time: float = 0.0
+
         self._initialized = True
 
     @property
@@ -111,6 +118,8 @@ class DeviceTracker(QObject):
 
     def register_device(self):
         """Asynchronously upsert device session record to avoid blocking UI."""
+        import time
+        self._last_reg_time = time.time()
         def _async_reg():
             try:
                 from utils.auth import SessionManager
@@ -137,8 +146,18 @@ class DeviceTracker(QObject):
         threading.Thread(target=_async_reg, daemon=True).start()
 
     def set_active_module(self, module_name: str):
-        """Broadcast user navigation change to server."""
+        """Broadcast user navigation change to server with debouncing."""
+        if self._active_module == module_name:
+            return
         self._active_module = module_name
+        import time
+        # If never registered or > 60s since last registration, register immediately; otherwise debounce
+        if self._last_reg_time == 0 or (time.time() - self._last_reg_time) > 60.0:
+            self.register_device()
+        else:
+            self._module_timer.start(15_000)
+
+    def _on_module_timer_tick(self):
         self.register_device()
 
     def _on_heartbeat_tick(self):
