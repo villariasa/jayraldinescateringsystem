@@ -269,6 +269,55 @@ def connect_sqlite() -> bool:
             return False
 
 
+_tls = threading.local()
+
+
+def _init_sqlite_read_conn(conn: sqlite3.Connection) -> None:
+    """Configure PostgreSQL compatibility functions on thread-local read connection."""
+    conn.row_factory = sqlite3.Row
+    conn.create_function("SPLIT_PART", 3, _sqlite_split_part)
+    conn.create_function("split_part", 3, _sqlite_split_part)
+    conn.create_function("NOW", 0, lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    conn.create_function("CURRENT_DATE", 0, lambda: date.today().strftime("%Y-%m-%d"))
+    conn.create_function("TO_CHAR", 2, lambda val, fmt: str(val))
+    try:
+        cur = conn.cursor()
+        cur.execute("PRAGMA query_only = ON;")
+        cur.execute("PRAGMA synchronous = NORMAL;")
+        cur.close()
+    except Exception:
+        pass
+
+
+def _get_sqlite_read_conn() -> Optional[sqlite3.Connection]:
+    """Return a thread-local SQLite connection for concurrent non-blocking reads in WAL mode."""
+    global _sqlite_conn
+    if _sqlite_conn is None:
+        return None
+    # Main thread can use the primary connection
+    if threading.current_thread() is threading.main_thread():
+        return _sqlite_conn
+
+    conn = getattr(_tls, "read_conn", None)
+    if conn is not None:
+        return conn
+
+    db_path = get_sqlite_db_path()
+    try:
+        conn = sqlite3.connect(
+            str(db_path),
+            timeout=15.0,
+            check_same_thread=False,
+            isolation_level=None
+        )
+        _init_sqlite_read_conn(conn)
+        _tls.read_conn = conn
+        return conn
+    except Exception as e:
+        log.debug(f"[db] Thread-local SQLite read conn fallback: {e}")
+        return _sqlite_conn
+
+
 try:
     from utils.db_config import load_db_config, test_postgres_connection, save_db_config, get_db_config
 except ImportError:
@@ -1066,31 +1115,33 @@ def execute(sql: str, params: tuple = ()) -> None:
 
 
 def fetchall(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
-    # ── Client Workstation Read-Through Proxy ──
-    # Fetch from server first; fall back to local cache if unreachable.
+    # ── Client Workstation Read Handling ──
+    # For device telemetry (live server state), proxy to server.
+    # For business tables, query local SQLite cache for instantaneous response (<1ms)
+    # without hammering the PC server with HTTP round-trips.
     try:
         from utils.client_sync import is_client_mode, proxy_fetchall, get_server_url
         if is_client_mode():
             sql_upper = sql.strip().upper()
-            # Only proxy true SELECT queries, not schema queries
             if sql_upper.startswith("SELECT") or sql_upper.startswith("WITH"):
-                server_rows = proxy_fetchall(sql, params, server_url=get_server_url())
-                if server_rows is not None:
-                    return server_rows
-                # Fall through to local cache
-                log.debug("[db.fetchall] Server unreachable — using local cache")
+                if "DEVICE_SESSIONS" in sql_upper or not _ensure_connected():
+                    server_rows = proxy_fetchall(sql, params, server_url=get_server_url())
+                    if server_rows is not None:
+                        return server_rows
     except Exception as _pe:
-        log.debug(f"[db.fetchall] Proxy error (non-fatal): {_pe}")
+        log.debug(f"[db.fetchall] Client check note: {_pe}")
 
     if not _ensure_connected():
         return []
     if _engine_type == "sqlite":
-        with _db_lock:
+        conn = _get_sqlite_read_conn() or _sqlite_conn
+        lock_ctx = _db_lock if conn is _sqlite_conn else contextlib.nullcontext()
+        with lock_ctx:
             try:
                 clean_sql = _translate_pg_to_sqlite(sql)
                 actual_placeholders = clean_sql.count("?")
                 sanitized_params = _sanitize_params(params[:actual_placeholders]) if params else ()
-                cur = _sqlite_conn.cursor()
+                cur = conn.cursor()
                 cur.execute(clean_sql, sanitized_params)
                 rows = cur.fetchall()
                 result = [dict(r) for r in rows]
@@ -1098,6 +1149,14 @@ def fetchall(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
                 return result
             except Exception as exc:
                 log.error(f"[SQLite] fetchall failed on SQL: {sql[:100]} | Error: {exc}")
+                try:
+                    from utils.client_sync import is_client_mode, proxy_fetchall, get_server_url
+                    if is_client_mode():
+                        fallback_rows = proxy_fetchall(sql, params, server_url=get_server_url())
+                        if fallback_rows is not None:
+                            return fallback_rows
+                except Exception:
+                    pass
                 return []
     else:
         conn = _pg_getconn()
@@ -1125,28 +1184,30 @@ def fetchall(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
 
 
 def fetchone(sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
-    # ── Client Workstation Read-Through Proxy ──
+    # ── Client Workstation Read Handling ──
     try:
         from utils.client_sync import is_client_mode, proxy_fetchone, get_server_url
         if is_client_mode():
             sql_upper = sql.strip().upper()
             if sql_upper.startswith("SELECT") or sql_upper.startswith("WITH"):
-                server_row = proxy_fetchone(sql, params, server_url=get_server_url())
-                if server_row is not None:
-                    return server_row
-                log.debug("[db.fetchone] Server unreachable — using local cache")
+                if "DEVICE_SESSIONS" in sql_upper or not _ensure_connected():
+                    server_row = proxy_fetchone(sql, params, server_url=get_server_url())
+                    if server_row is not None:
+                        return server_row
     except Exception as _pe:
-        log.debug(f"[db.fetchone] Proxy error (non-fatal): {_pe}")
+        log.debug(f"[db.fetchone] Client check note: {_pe}")
 
     if not _ensure_connected():
         return None
     if _engine_type == "sqlite":
-        with _db_lock:
+        conn = _get_sqlite_read_conn() or _sqlite_conn
+        lock_ctx = _db_lock if conn is _sqlite_conn else contextlib.nullcontext()
+        with lock_ctx:
             try:
                 clean_sql = _translate_pg_to_sqlite(sql)
                 actual_placeholders = clean_sql.count("?")
                 sanitized_params = _sanitize_params(params[:actual_placeholders]) if params else ()
-                cur = _sqlite_conn.cursor()
+                cur = conn.cursor()
                 cur.execute(clean_sql, sanitized_params)
                 row = cur.fetchone()
                 result = dict(row) if row else None
@@ -1154,6 +1215,14 @@ def fetchone(sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
                 return result
             except Exception as exc:
                 log.error(f"[SQLite] fetchone failed on SQL: {sql[:100]} | Error: {exc}")
+                try:
+                    from utils.client_sync import is_client_mode, proxy_fetchone, get_server_url
+                    if is_client_mode():
+                        fallback_row = proxy_fetchone(sql, params, server_url=get_server_url())
+                        if fallback_row is not None:
+                            return fallback_row
+                except Exception:
+                    pass
                 return None
     else:
         conn = _pg_getconn()
@@ -2049,6 +2118,12 @@ def close() -> None:
             except Exception:
                 pass
             _sqlite_conn = None
+        if hasattr(_tls, "read_conn") and _tls.read_conn is not None:
+            try:
+                _tls.read_conn.close()
+            except Exception:
+                pass
+            _tls.read_conn = None
         if _pg_pool is not None:
             try:
                 _pg_pool.closeall()
