@@ -584,7 +584,7 @@ class PackageDialog(QDialog):
         price_min_row = QHBoxLayout()
         self.price_field = QDoubleSpinBox()
         self.price_field.setPrefix("₱ ")
-        self.price_field.setRange(0.01, 9999999)
+        self.price_field.setRange(0.00, 9999999)
         self.price_field.setDecimals(2)
         self.price_field.setSingleStep(100)
         if self._edit_mode:
