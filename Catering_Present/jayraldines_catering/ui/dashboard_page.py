@@ -344,9 +344,9 @@ class KPICard(AnimatedCard):
         layout.setSpacing(6)
 
         top_row = QHBoxLayout()
-        lbl_title = QLabel(title.upper())
-        lbl_title.setObjectName("kpiLabel")
-        top_row.addWidget(lbl_title)
+        self._title_lbl = QLabel(title.upper())
+        self._title_lbl.setObjectName("kpiLabel")
+        top_row.addWidget(self._title_lbl)
         top_row.addStretch()
         if icon_name:
             ico = QLabel()
@@ -369,6 +369,9 @@ class KPICard(AnimatedCard):
         self._trend_lbl.setObjectName(badge_map.get(trend_type, "badgeInfo"))
         layout.addWidget(self._trend_lbl)
         layout.addStretch()
+
+    def update_title(self, title: str):
+        self._title_lbl.setText(title.upper())
 
     def update_value(self, value: str):
         self._val_lbl.setText(value)
@@ -836,12 +839,15 @@ class DashboardPage(QWidget):
         self.lay.addLayout(header_row)
 
         # Date Filtering Toolbar
+        self._filter_mode = "all"
+        self._filter_start = None
+        self._filter_end = None
         self._filter_date = None
         filter_bar = QFrame()
         filter_bar.setObjectName("card")
         f_lay = QHBoxLayout(filter_bar)
         f_lay.setContentsMargins(16, 10, 16, 10)
-        f_lay.setSpacing(12)
+        f_lay.setSpacing(10)
 
         f_icon = QLabel()
         f_icon.setPixmap(get_icon("calendar", color="#E11D48", size=QSize(16, 16)).pixmap(QSize(16, 16)))
@@ -853,22 +859,31 @@ class DashboardPage(QWidget):
         self._btn_all_time = QPushButton("All Time")
         self._btn_all_time.setObjectName("primaryButton")
         self._btn_all_time.setFixedHeight(32)
-        self._btn_all_time.clicked.connect(lambda: self._set_date_filter(None))
+        self._btn_all_time.setCursor(Qt.PointingHandCursor)
+        self._btn_all_time.clicked.connect(lambda: self._set_date_filter_mode("all"))
 
         self._btn_today = QPushButton("Today")
         self._btn_today.setObjectName("secondaryButton")
         self._btn_today.setFixedHeight(32)
-        self._btn_today.clicked.connect(lambda: self._set_date_filter(datetime.now().strftime("%Y-%m-%d")))
+        self._btn_today.setCursor(Qt.PointingHandCursor)
+        self._btn_today.clicked.connect(lambda: self._set_date_filter_mode("today"))
 
-        self._btn_yesterday = QPushButton("Yesterday")
-        self._btn_yesterday.setObjectName("secondaryButton")
-        self._btn_yesterday.setFixedHeight(32)
-        from datetime import timedelta
-        self._btn_yesterday.clicked.connect(lambda: self._set_date_filter((datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")))
+        self._btn_this_week = QPushButton("This Week")
+        self._btn_this_week.setObjectName("secondaryButton")
+        self._btn_this_week.setFixedHeight(32)
+        self._btn_this_week.setCursor(Qt.PointingHandCursor)
+        self._btn_this_week.clicked.connect(lambda: self._set_date_filter_mode("week"))
+
+        self._btn_this_month = QPushButton("This Month")
+        self._btn_this_month.setObjectName("secondaryButton")
+        self._btn_this_month.setFixedHeight(32)
+        self._btn_this_month.setCursor(Qt.PointingHandCursor)
+        self._btn_this_month.clicked.connect(lambda: self._set_date_filter_mode("month"))
 
         f_lay.addWidget(self._btn_all_time)
         f_lay.addWidget(self._btn_today)
-        f_lay.addWidget(self._btn_yesterday)
+        f_lay.addWidget(self._btn_this_week)
+        f_lay.addWidget(self._btn_this_month)
 
         f_lay.addSpacing(8)
         spec_lbl = QLabel("Specific Date:")
@@ -1101,7 +1116,7 @@ class DashboardPage(QWidget):
     def _mark_dirty_and_reload(self):
         self._dirty = True
         if self.isVisible():
-            self.reload()
+            self.reload(silent=True)
 
     def _build_export_menu(self):
         menu = QMenu(self)
@@ -1195,40 +1210,82 @@ class DashboardPage(QWidget):
             QMessageBox.warning(self, "Export Failed",
                 "Excel export failed. Make sure openpyxl is installed:\npip install openpyxl")
 
-    def _set_date_filter(self, date_str: str = None):
-        self._filter_date = date_str
-        if not date_str:
-            self._filter_status_lbl.setText("Showing: All Time Overview")
-            self._btn_all_time.setObjectName("primaryButton")
-            self._btn_today.setObjectName("secondaryButton")
-            self._btn_yesterday.setObjectName("secondaryButton")
-        elif date_str == datetime.now().strftime("%Y-%m-%d"):
-            self._filter_status_lbl.setText("Showing: Today's Metrics")
-            self._btn_all_time.setObjectName("secondaryButton")
-            self._btn_today.setObjectName("primaryButton")
-            self._btn_yesterday.setObjectName("secondaryButton")
+    def _set_date_filter_mode(self, mode: str, custom_date: str = None):
+        import calendar
+        from datetime import timedelta
+        self._filter_mode = mode
+        today = datetime.now().date()
+
+        if mode == "today":
+            today_str = today.strftime("%Y-%m-%d")
+            self._filter_start = today_str
+            self._filter_end = today_str
+            self._filter_date = today_str
+            self._filter_status_lbl.setText(f"Showing: Today's Metrics ({today.strftime('%b %d, %Y')})")
+        elif mode == "week":
+            start_d = today - timedelta(days=today.weekday())
+            end_d = start_d + timedelta(days=6)
+            self._filter_start = start_d.strftime("%Y-%m-%d")
+            self._filter_end = end_d.strftime("%Y-%m-%d")
+            self._filter_date = self._filter_start
+            self._filter_status_lbl.setText(f"Showing: This Week ({start_d.strftime('%b %d')} – {end_d.strftime('%b %d, %Y')})")
+        elif mode == "month":
+            start_d = today.replace(day=1)
+            last_day = calendar.monthrange(today.year, today.month)[1]
+            end_d = today.replace(day=last_day)
+            self._filter_start = start_d.strftime("%Y-%m-%d")
+            self._filter_end = end_d.strftime("%Y-%m-%d")
+            self._filter_date = self._filter_start
+            self._filter_status_lbl.setText(f"Showing: This Month ({today.strftime('%B %Y')})")
+        elif mode == "custom" and custom_date:
+            self._filter_start = custom_date
+            self._filter_end = custom_date
+            self._filter_date = custom_date
+            self._filter_status_lbl.setText(f"Showing: Date ({custom_date})")
         else:
-            self._filter_status_lbl.setText(f"Showing: Date ({date_str})")
-            self._btn_all_time.setObjectName("secondaryButton")
-            self._btn_today.setObjectName("secondaryButton")
-            self._btn_yesterday.setObjectName("secondaryButton")
+            self._filter_mode = "all"
+            self._filter_start = None
+            self._filter_end = None
+            self._filter_date = None
+            self._filter_status_lbl.setText("Showing: All Time Overview")
 
-        # Re-apply styles
-        for btn in [self._btn_all_time, self._btn_today, self._btn_yesterday]:
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
+        # Visual button states
+        btn_modes = {
+            "all": getattr(self, "_btn_all_time", None),
+            "today": getattr(self, "_btn_today", None),
+            "week": getattr(self, "_btn_this_week", None),
+            "month": getattr(self, "_btn_this_month", None),
+        }
+        for b_mode, btn in btn_modes.items():
+            if btn:
+                btn.setObjectName("primaryButton" if b_mode == self._filter_mode else "secondaryButton")
+                btn.style().unpolish(btn)
+                btn.style().polish(btn)
 
-        self._load_data()
+        self._load_data(silent=True)
 
-    def reload(self):
+    def _set_date_filter(self, date_str: str = None):
+        """Handle custom date picker selection."""
+        if not date_str:
+            self._set_date_filter_mode("all")
+        elif date_str == datetime.now().strftime("%Y-%m-%d"):
+            self._set_date_filter_mode("today")
+        else:
+            self._set_date_filter_mode("custom", custom_date=date_str)
+
+    def reload(self, silent: bool = False):
         self._dirty = False
         self.refresh_permissions()
         from utils.data_cache import DataCache
         DataCache.invalidate("dashboard_data", "dashboard")
-        self._load_data()
+        self._load_data(silent=silent)
 
     def _fetch_dashboard_data(self):
         """Runs in background thread — fetches all dashboard data in one shot."""
+        mode = getattr(self, "_filter_mode", "all")
+        d_start = getattr(self, "_filter_start", None)
+        d_end = getattr(self, "_filter_end", None)
+
         try:
             now = datetime.now()
             rows = repo.get_monthly_revenue_chart_data(now.year)
@@ -1236,26 +1293,31 @@ class DashboardPage(QWidget):
         except Exception:
             chart_data = []
 
-        target_d = getattr(self, "_filter_date", None)
-        kpis = repo.get_dashboard_kpis_filtered(target_d) if target_d else repo.get_dashboard_kpis()
+        if d_start and d_end:
+            kpis = repo.get_dashboard_kpis_filtered(d_start, d_end)
+            events = repo.get_upcoming_events(limit=20, date_start=d_start, date_end=d_end)
+        else:
+            kpis = repo.get_dashboard_kpis()
+            events = repo.get_upcoming_events(limit=20)
 
         return {
-            "kpis":       kpis,
-            "profit":     repo.get_profit_summary(),
-            "events":     repo.get_upcoming_events(limit=20),
-            "activity":   repo.get_recent_activity(limit=10),
-            "chart_data": chart_data,
-            "followups":  repo.get_todays_follow_ups(),
+            "kpis":        kpis,
+            "profit":      repo.get_profit_summary(),
+            "events":      events,
+            "activity":    repo.get_recent_activity(limit=10),
+            "chart_data":  chart_data,
+            "followups":   repo.get_todays_follow_ups(),
+            "filter_mode": mode,
         }
 
-    def _load_data(self):
-        target_d = getattr(self, "_filter_date", None)
-        if not target_d:
+    def _load_data(self, silent: bool = False):
+        mode = getattr(self, "_filter_mode", "all")
+        if mode == "all":
             from utils.data_cache import DataCache
             cached = DataCache.get("dashboard_data")
             if cached is not None and not getattr(self, "_has_loaded_once", False):
                 self._has_loaded_once = True
-                if hasattr(self, "_loader"):
+                if hasattr(self, "_loader") and not silent:
                     self._loader.show_overlay("Loading dashboard metrics & analytics...")
                     QTimer.singleShot(60, lambda: self._on_dash_data_ready(cached))
                 else:
@@ -1266,7 +1328,7 @@ class DashboardPage(QWidget):
         if prev is not None and prev.isRunning():
             return  # already loading
 
-        if hasattr(self, "_loader"):
+        if hasattr(self, "_loader") and not silent and not getattr(self, "_has_loaded_once", False):
             self._loader.show_overlay("Loading dashboard metrics & analytics...")
 
         loader = DataLoader(self._fetch_dashboard_data)
@@ -1280,8 +1342,8 @@ class DashboardPage(QWidget):
         loader.start()
 
     def _on_dash_data_ready_and_cache(self, data):
-        target_d = getattr(self, "_filter_date", None)
-        if not target_d and data:
+        mode = getattr(self, "_filter_mode", "all")
+        if mode == "all" and data:
             from utils.data_cache import DataCache
             DataCache.set("dashboard_data", data)
         self._on_dash_data_ready(data)
@@ -1292,6 +1354,7 @@ class DashboardPage(QWidget):
             if not isValid(self):
                 return
             self.refresh_permissions()
+            mode        = data.get("filter_mode", "all")
             kpis        = data.get("kpis", {})
             profit_data = data.get("profit", [])
             events      = data.get("events", [])
@@ -1301,28 +1364,103 @@ class DashboardPage(QWidget):
 
             todays  = kpis.get("todays_events", 0)
             dp_rec  = float(kpis.get("downpayment_received") or 0.0)
-            revenue = kpis.get("weekly_revenue", 0.0)
-            unpaid  = kpis.get("unpaid_invoices", 0.0)
-            pax     = kpis.get("todays_pax", 0)
+            revenue = float(kpis.get("weekly_revenue") or kpis.get("daily_sales") or 0.0)
+            unpaid  = float(kpis.get("unpaid_invoices") or 0.0)
+            pax     = int(kpis.get("todays_pax") or 0)
+            net_income = float(kpis.get("net_income") or 0.0)
+            expenses = float(kpis.get("daily_expenses") or 0.0)
 
-            self._kpi_today.update_value(str(todays))
-            self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} today")
-            self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
-            self._kpi_downpayment.update_trend("From upcoming events")
-            self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-            self._kpi_revenue.update_trend("This week's revenue")
-            self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
-            self._kpi_unpaid.update_trend("Outstanding balance")
+            if mode == "today":
+                self._kpi_today.update_title("Today's Events")
+                self._kpi_today.update_value(str(todays))
+                self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} today")
 
-            try:
-                total_rev = sum(r["revenue"] for r in profit_data)
-                total_exp = sum(r["expense"] for r in profit_data)
-                net = total_rev - total_exp
-                self._kpi_profit.update_value(f"₱ {net:,.0f}")
-                self._kpi_profit.update_trend(f"Rev ₱{total_rev:,.0f} − Exp ₱{total_exp:,.0f}")
-            except Exception:
-                self._kpi_profit.update_value("—")
-                self._kpi_profit.update_trend("No expense data")
+                self._kpi_downpayment.update_title("Downpayments")
+                self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
+                self._kpi_downpayment.update_trend("Collected today")
+
+                self._kpi_revenue.update_title("Today's Revenue")
+                self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
+                self._kpi_revenue.update_trend("Sales & collections today")
+
+                self._kpi_unpaid.update_title("Unpaid (Today)")
+                self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
+                self._kpi_unpaid.update_trend("Balance on today's events")
+
+                self._kpi_profit.update_title("Net Profit (Today)")
+                self._kpi_profit.update_value(f"₱ {net_income:,.0f}")
+                self._kpi_profit.update_trend(f"Rev ₱{revenue:,.0f} − Exp ₱{expenses:,.0f}")
+
+            elif mode == "week":
+                self._kpi_today.update_title("This Week's Events")
+                self._kpi_today.update_value(str(todays))
+                self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} this week")
+
+                self._kpi_downpayment.update_title("Downpayments")
+                self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
+                self._kpi_downpayment.update_trend("Collected this week")
+
+                self._kpi_revenue.update_title("Weekly Revenue")
+                self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
+                self._kpi_revenue.update_trend("Sales & collections this week")
+
+                self._kpi_unpaid.update_title("Unpaid (This Week)")
+                self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
+                self._kpi_unpaid.update_trend("Balance on this week's events")
+
+                self._kpi_profit.update_title("Net Profit (This Week)")
+                self._kpi_profit.update_value(f"₱ {net_income:,.0f}")
+                self._kpi_profit.update_trend(f"Rev ₱{revenue:,.0f} − Exp ₱{expenses:,.0f}")
+
+            elif mode == "month":
+                self._kpi_today.update_title("This Month's Events")
+                self._kpi_today.update_value(str(todays))
+                self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} this month")
+
+                self._kpi_downpayment.update_title("Downpayments")
+                self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
+                self._kpi_downpayment.update_trend("Collected this month")
+
+                self._kpi_revenue.update_title("Monthly Revenue")
+                self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
+                self._kpi_revenue.update_trend("Sales & collections this month")
+
+                self._kpi_unpaid.update_title("Unpaid (This Month)")
+                self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
+                self._kpi_unpaid.update_trend("Balance on this month's events")
+
+                self._kpi_profit.update_title("Net Profit (This Month)")
+                self._kpi_profit.update_value(f"₱ {net_income:,.0f}")
+                self._kpi_profit.update_trend(f"Rev ₱{revenue:,.0f} − Exp ₱{expenses:,.0f}")
+
+            else:
+                self._kpi_today.update_title("Today's Events")
+                self._kpi_today.update_value(str(todays))
+                self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} today")
+
+                self._kpi_downpayment.update_title("Downpayment Received")
+                self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
+                self._kpi_downpayment.update_trend("From upcoming events")
+
+                self._kpi_revenue.update_title("Weekly Revenue")
+                self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
+                self._kpi_revenue.update_trend("This week's revenue")
+
+                self._kpi_unpaid.update_title("Unpaid Invoices")
+                self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
+                self._kpi_unpaid.update_trend("Outstanding balance")
+
+                try:
+                    total_rev = sum(r["revenue"] for r in profit_data)
+                    total_exp = sum(r["expense"] for r in profit_data)
+                    net = total_rev - total_exp
+                    self._kpi_profit.update_title("Net Profit (YTD)")
+                    self._kpi_profit.update_value(f"₱ {net:,.0f}")
+                    self._kpi_profit.update_trend(f"Rev ₱{total_rev:,.0f} − Exp ₱{total_exp:,.0f}")
+                except Exception:
+                    self._kpi_profit.update_title("Net Profit (YTD)")
+                    self._kpi_profit.update_value("—")
+                    self._kpi_profit.update_trend("No expense data")
 
             _pax_color = "#F9FAFB" if ThemeManager().is_dark() else "#101828"
             self._pax_lbl.setText(
