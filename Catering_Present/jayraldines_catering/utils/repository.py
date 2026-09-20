@@ -2729,50 +2729,70 @@ def get_dashboard_kpis() -> dict:
     }
 
 
-def get_dashboard_kpis_filtered(target_date: str = None) -> dict:
-    """Return dashboard metrics for a specific date (e.g. today or custom date), or default view."""
-    if not target_date:
+def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -> dict:
+    """Return dashboard metrics filtered by a date window (Today, This Week, This Month, or custom date range)."""
+    if not target_date and not date_end:
         return get_dashboard_kpis()
-    
-    d_str = _parse_date(target_date)
-    dp_rec = get_downpayment_received()
-    
-    # 1. Events on this date
+
+    d_start_obj = _parse_date(target_date) if target_date else date.today()
+    d_end_obj = _parse_date(date_end) if date_end else d_start_obj
+    d_start_str = d_start_obj.strftime("%Y-%m-%d")
+    d_end_str = d_end_obj.strftime("%Y-%m-%d")
+
+    # 1. Events on this period
     e_row = db.fetchone("""
-        SELECT COUNT(*) AS todays_events, COALESCE(SUM(bk_pax), 0) AS todays_pax,
-               COALESCE(SUM(bk_total_amount), 0.0) AS daily_sales
+        SELECT COUNT(*) AS events_count, COALESCE(SUM(bk_pax), 0) AS total_pax,
+               COALESCE(SUM(bk_total_amount), 0.0) AS period_sales
         FROM bookings
-        WHERE bk_event_date = %s AND bk_status != 'CANCELLED'
-    """, (d_str,))
-    todays_events = int(e_row["todays_events"] if e_row and e_row.get("todays_events") is not None else 0)
-    todays_pax = int(e_row["todays_pax"] if e_row and e_row.get("todays_pax") is not None else 0)
-    daily_sales = float(e_row["daily_sales"] if e_row and e_row.get("daily_sales") is not None else 0.0)
-    
-    # 2. Pending bookings for this date
+        WHERE bk_event_date >= %s AND bk_event_date <= %s
+          AND bk_status != 'CANCELLED'
+    """, (d_start_str, d_end_str))
+    events_count = int(e_row["events_count"] if e_row and e_row.get("events_count") is not None else 0)
+    total_pax = int(e_row["total_pax"] if e_row and e_row.get("total_pax") is not None else 0)
+    period_sales = float(e_row["period_sales"] if e_row and e_row.get("period_sales") is not None else 0.0)
+
+    # 2. Pending bookings for this period
     p_row = db.fetchone("""
         SELECT COUNT(*) AS pending_bookings
         FROM bookings
-        WHERE bk_status = 'PENDING' AND bk_event_date = %s
-    """, (d_str,))
+        WHERE bk_status = 'PENDING'
+          AND bk_event_date >= %s AND bk_event_date <= %s
+    """, (d_start_str, d_end_str))
     pending = int(p_row["pending_bookings"] if p_row and p_row.get("pending_bookings") is not None else 0)
-    
-    # 3. Payments collected on this specific date
+
+    # 3. Payments collected in this period
     pay_row = db.fetchone("""
         SELECT COALESCE(SUM(pr_amount), 0.0) AS total_paid
         FROM payment_records
-        WHERE pr_payment_date = %s
-    """, (d_str,))
+        WHERE pr_payment_date >= %s AND pr_payment_date <= %s
+    """, (d_start_str, d_end_str))
     paid_amt = float(pay_row["total_paid"] if pay_row and pay_row.get("total_paid") is not None else 0.0)
 
-    # 4. Expenses on this date
+    # 4. Downpayments for bookings in this period
+    dp_row = db.fetchone("""
+        SELECT COALESCE(SUM(
+            CASE 
+                WHEN bk_amount_paid > 0 THEN bk_amount_paid
+                WHEN bk_down_payment > 0 THEN bk_down_payment
+                ELSE 0.0
+            END
+        ), 0.0) AS total_dp
+        FROM bookings
+        WHERE bk_event_date >= %s AND bk_event_date <= %s
+          AND bk_status != 'CANCELLED'
+    """, (d_start_str, d_end_str))
+    dp_amt = float(dp_row["total_dp"] if dp_row and dp_row.get("total_dp") is not None else 0.0)
+
+    # 5. Expenses in this period
     exp_row = db.fetchone("""
         SELECT COALESCE(SUM(exp_amount), 0.0) AS total_exp
         FROM expenses
-        WHERE (exp_expense_date = %s OR exp_date = %s)
-    """, (d_str, d_str))
+        WHERE (exp_expense_date >= %s AND exp_expense_date <= %s)
+           OR (exp_date >= %s AND exp_date <= %s)
+    """, (d_start_str, d_end_str, d_start_str, d_end_str))
     exp_amt = float(exp_row["total_exp"] if exp_row and exp_row.get("total_exp") is not None else 0.0)
 
-    # 5. Unpaid balance for events on this date
+    # 6. Unpaid balance for events in this period
     inv_row = db.fetchone("""
         SELECT COALESCE(SUM(
             CASE 
@@ -2782,26 +2802,52 @@ def get_dashboard_kpis_filtered(target_date: str = None) -> dict:
             END
         ), 0.0) AS unpaid
         FROM invoices
-        WHERE inv_event_date = %s AND CAST(inv_status AS TEXT) != 'Paid' AND CAST(inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
-    """, (d_str,))
+        WHERE inv_event_date >= %s AND inv_event_date <= %s
+          AND CAST(inv_status AS TEXT) != 'Paid'
+          AND CAST(inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
+    """, (d_start_str, d_end_str))
     unpaid = float(inv_row["unpaid"] if inv_row and inv_row.get("unpaid") is not None else 0.0)
 
+    effective_revenue = paid_amt if paid_amt > 0 else period_sales
     return {
-        "todays_events":        todays_events,
+        "todays_events":        events_count,
         "pending_bookings":     pending,
-        "weekly_revenue":       paid_amt if paid_amt > 0 else daily_sales,
-        "daily_sales":          daily_sales,
+        "weekly_revenue":       effective_revenue,
+        "daily_sales":          period_sales,
         "daily_payments":       paid_amt,
         "daily_expenses":       exp_amt,
         "unpaid_invoices":      unpaid,
-        "todays_pax":           todays_pax,
-        "downpayment_received": dp_rec,
-        "net_income":           (paid_amt if paid_amt > 0 else daily_sales) - exp_amt,
+        "todays_pax":           total_pax,
+        "downpayment_received": dp_amt if dp_amt > 0 else paid_amt,
+        "net_income":           effective_revenue - exp_amt,
     }
 
 
-def get_upcoming_events(limit: int = 10) -> list[dict]:
-    rows = db.fetchall("SELECT * FROM v_upcoming_events LIMIT %s", (limit,))
+def get_upcoming_events(limit: int = 10, date_start: str = None, date_end: str = None) -> list[dict]:
+    if date_start and date_end:
+        rows = db.fetchall("""
+            SELECT
+                b.bk_id, b.bk_booking_ref, b.bk_customer_name, b.bk_occasion,
+                b.bk_venue, b.bk_event_date, b.bk_event_time, b.bk_pax, b.bk_status
+            FROM bookings b
+            WHERE b.bk_event_date >= %s AND b.bk_event_date <= %s
+              AND b.bk_status != 'CANCELLED'
+            ORDER BY b.bk_event_date ASC, b.bk_event_time ASC
+            LIMIT %s
+        """, (date_start, date_end, limit))
+    elif date_start:
+        rows = db.fetchall("""
+            SELECT
+                b.bk_id, b.bk_booking_ref, b.bk_customer_name, b.bk_occasion,
+                b.bk_venue, b.bk_event_date, b.bk_event_time, b.bk_pax, b.bk_status
+            FROM bookings b
+            WHERE b.bk_event_date = %s
+              AND b.bk_status != 'CANCELLED'
+            ORDER BY b.bk_event_date ASC, b.bk_event_time ASC
+            LIMIT %s
+        """, (date_start, limit))
+    else:
+        rows = db.fetchall("SELECT * FROM v_upcoming_events LIMIT %s", (limit,))
     if not rows:
         return []
     return [
@@ -5301,41 +5347,74 @@ def set_yearly_default_target(year: int, default_amount: float):
 
 def get_monthly_sales_evaluation_report(year: int) -> dict:
     """
-    Generate the 12-month Sales Evaluation Report based on real system sales (Ref Image 1).
+    Generate the 12-month Sales Evaluation Report based on real system actual sales (Ref Image 1).
     Formula: Target Sales - Actual Sales = Remaining Amount
+    Uses actual payments and sales collected, not projected booking contract revenue.
     """
     targets = get_monthly_sales_targets(year)
     actual_sales_by_month = {m: 0.0 for m in range(1, 13)}
     
-    # Fetch all non-cancelled bookings
-    all_bks = db.fetchall("""
-        SELECT bk_event_date, bk_total_amount, bk_status
-        FROM bookings
-        WHERE bk_status != 'CANCELLED'
+    # 1. Fetch actual payments collected via payment_records
+    payments = db.fetchall("""
+        SELECT pr.pr_amount, pr.pr_payment_date
+        FROM payment_records pr
+        LEFT JOIN invoices i ON pr.pr_invoice_id = i.inv_id
+        LEFT JOIN bookings b ON i.inv_booking_id = b.bk_id
+        WHERE b.bk_status IS NULL OR b.bk_status != 'CANCELLED'
     """) or []
 
-    for b in all_bks:
-        d_val = b.get("bk_event_date")
+    for p in payments:
+        d_val = p.get("pr_payment_date")
         if not d_val:
             continue
         try:
             if isinstance(d_val, (datetime, date)):
-                b_year = d_val.year
-                b_month = d_val.month
+                p_year = d_val.year
+                p_month = d_val.month
             else:
                 qd = _parse_date(str(d_val))
                 if qd:
-                    b_year = qd.year
-                    b_month = qd.month
+                    p_year = qd.year
+                    p_month = qd.month
                 else:
                     parts = str(d_val).split("-")
-                    b_year = int(parts[0])
-                    b_month = int(parts[1])
+                    p_year = int(parts[0])
+                    p_month = int(parts[1])
 
-            if b_year == int(year) and 1 <= b_month <= 12:
-                actual_sales_by_month[b_month] += float(b.get("bk_total_amount") or 0.0)
+            if p_year == int(year) and 1 <= p_month <= 12:
+                actual_sales_by_month[p_month] += float(p.get("pr_amount") or 0.0)
         except Exception as err:
-            print(f"[reports] Error parsing booking event date '{d_val}': {err}")
+            print(f"[reports] Error parsing payment date '{d_val}': {err}")
+
+    # 2. Also add any actual sales explicitly logged in cash_flow_transactions
+    cf_sales = db.fetchall("""
+        SELECT cft_actual_sales, cft_date
+        FROM cash_flow_transactions
+        WHERE cft_actual_sales > 0
+    """) or []
+
+    for cf in cf_sales:
+        d_val = cf.get("cft_date")
+        if not d_val:
+            continue
+        try:
+            if isinstance(d_val, (datetime, date)):
+                cf_year = d_val.year
+                cf_month = d_val.month
+            else:
+                qd = _parse_date(str(d_val))
+                if qd:
+                    cf_year = qd.year
+                    cf_month = qd.month
+                else:
+                    parts = str(d_val).split("-")
+                    cf_year = int(parts[0])
+                    cf_month = int(parts[1])
+
+            if cf_year == int(year) and 1 <= cf_month <= 12:
+                actual_sales_by_month[cf_month] += float(cf.get("cft_actual_sales") or 0.0)
+        except Exception as err:
+            print(f"[reports] Error parsing cash flow date '{d_val}': {err}")
 
     month_names = [
         "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",

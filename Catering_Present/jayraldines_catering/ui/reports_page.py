@@ -1246,7 +1246,7 @@ class ReportsPage(QWidget):
         v_title.setSpacing(3)
         t_lbl = QLabel("Sales Evaluation Report (Monthly Target vs Actual)")
         t_lbl.setObjectName("h2")
-        sub = QLabel("Compare real system revenue performance against configured monthly targets (Formula: Target - Actual = Remaining).")
+        sub = QLabel("Compare real system actual sales against configured monthly targets (Formula: Target - Actual = Remaining).")
         sub.setObjectName("subtitle")
         v_title.addWidget(t_lbl)
         v_title.addWidget(sub)
