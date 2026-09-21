@@ -837,7 +837,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ]))
         story.append(upper_table)
-        story.append(Spacer(1, 0.22 * cm))
+        story.append(Spacer(1, 0.45 * cm))
 
         # Signatures
         sig_col1_w = content_w * 0.65
@@ -851,13 +851,15 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         sig_tbl = Table(sig_data, colWidths=[sig_col1_w, sig_col2_w])
         sig_tbl.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
-            ("TOPPADDING", (0, 0), (-1, -1), 2),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, 0), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+            ("TOPPADDING", (0, 1), (-1, 1), 6),
+            ("BOTTOMPADDING", (0, 1), (-1, 1), 2),
             ("LEFTPADDING", (0, 0), (-1, -1), 0),
             ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ]))
         story.append(sig_tbl)
-        story.append(Spacer(1, 0.18 * cm))
+        story.append(Spacer(1, 0.35 * cm))
 
         # ── 3. LOWER SECTION: TERMS AND CONDITIONS CARD ───────────────────
         tc_head = _card_header("doc", "TERMS AND CONDITIONS")

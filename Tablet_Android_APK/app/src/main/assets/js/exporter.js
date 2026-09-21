@@ -402,7 +402,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   // ──────────────────────────────────────────────────────────────────────────
   // 3. SIGNATURES (CONFORME & NOTED BY)
   // ──────────────────────────────────────────────────────────────────────────
-  const sigY = startY + card4H + 16; // ~420pt
+  const sigY = startY + card4H + 28; // Increased margin from top (was 16)
   const sigCol1End = marginX + 310;
   const dateLabelX = marginX + 335;
   const dateLineEnd = rightX - 10;
@@ -418,7 +418,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   doc.text("Date:", dateLabelX, sigY);
   doc.line(dateLabelX + 26, sigY, dateLineEnd, sigY);
 
-  const sig2Y = sigY + 18;
+  const sig2Y = sigY + 28; // Increased margin between CONFORME and NOTED BY (was 18)
   doc.text("NOTED BY:", marginX, sig2Y);
   doc.line(marginX + 62, sig2Y, sigCol1End, sig2Y);
   doc.text("Date:", dateLabelX, sig2Y);
@@ -427,7 +427,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   // ──────────────────────────────────────────────────────────────────────────
   // 4. TERMS AND CONDITIONS CARD
   // ──────────────────────────────────────────────────────────────────────────
-  const termsY = sig2Y + 14; // ~452pt
+  const termsY = sig2Y + 18;
   const termsH = 148;
   drawCard(doc, marginX, termsY, contentW, termsH, drawDocIcon, "TERMS AND CONDITIONS");
 
