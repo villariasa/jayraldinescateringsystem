@@ -3343,3 +3343,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized 100% phenol-free (BPA and BPS-free) thermal paper rolls for all cashier stations and mobile waiter tablet terminals.
 - Established a segregated recycling collection for plastic receipt roll inner cores, diverting 500 plastic cores monthly from landfills.
 - Protected catering cashiers and customers from endocrine disruptors while providing crisp, legible permanent receipt archives.
+
+### Banquet Chafing Dish Wick Fuel Burn Rate Testing & Wind-Shield Baffle Efficacy
+- Conducted burn duration audits on DEG (diethylene glycol) closed-wick chafer fuels, verifying continuous 6-hour steady heat output.
+- Installed magnetic stainless steel perimeter wind baffles around outdoor buffet warmers to prevent breeze heat dissipation.
+- Maintained consistent water bath temperature at 85°C, ensuring buffet entrees stay piping hot through outdoor evening breezes.
