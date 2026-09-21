@@ -3113,3 +3113,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Conducted physical ergonomics workshops training floor waitstaff to carry 12-glass beverage trays centered over the shoulder.
 - Instituted wrist neutral alignment drills and balanced tray-stacking patterns to prevent repetitive strain injuries (RSI).
 - Significantly decreased glassware slippage incidents and enhanced server mobility through crowded reception cocktail lounges.
+
+### Mobile Coffee Espresso Machine Boiler Pressure Relief Valve Testing & Descaling
+- Inspected commercial dual-boiler mobile espresso carts for accurate 1.2 bar steam boiler pressure and 9 bar brew extraction.
+- Conducted certified hydrostatic pressure release valve blow-off tests ensuring mechanical safety under heavy event service loads.
+- Executed citric acid scale flushes to maintain high thermoblock thermal conductivity and pristine specialty latte flavors.
