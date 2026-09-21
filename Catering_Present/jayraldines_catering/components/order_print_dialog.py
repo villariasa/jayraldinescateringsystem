@@ -13,6 +13,7 @@ page) - pass either a single booking id/ref/dict or a list of them.
 
 import os
 import re
+import html
 from datetime import datetime
 from typing import Optional
 
@@ -52,8 +53,10 @@ _SLIP_HALF_HEIGHT = round(_SLIP_LAYOUT_WIDTH * (297 / 210) / 2)
 
 class OrderPrintDialog(QDialog):
     """
-    Banquet Event Order (BEO) / Kitchen Order Slip Print & Export Dialog.
+    Banquet Booking Agreement & Order Slip / Kitchen Dispatch Dialog.
     Accepts one booking (id/ref/dict) or a list of them.
+    Defaults to the official client Booking Agreement & Order Slip (Up & Down format:
+    Upper Order details, Package & Menu, Financials, Signatures; Lower Terms & Conditions).
     """
 
     def __init__(self, booking_ids_or_refs, parent=None):
@@ -65,19 +68,20 @@ class OrderPrintDialog(QDialog):
         self._bookings = [self._load_booking_data(b) for b in raw_list]
         self._business = repo.get_business_info() or {
             "name": "Jayraldine's Catering Services",
-            "address": "Cebu City, Philippines",
-            "contact": "0912-345-6789",
+            "address": "121 Katipunan St. Brgy Calamba Cebu City",
+            "contact": "(032) 255-3113, (032) 238-9417 · Globe 0917-6519555, 0917-1051528",
             "email": "info@jayraldinescatering.com"
         }
+        self._current_mode = "agreement"  # "agreement" (default) or "kitchen"
 
         n = len(self._bookings)
         if n == 1:
             order_ref = self._bookings[0].get("id") or self._bookings[0].get("booking_ref") or "Order"
-            self.setWindowTitle(f"Banquet Order Slip — {order_ref}")
+            self.setWindowTitle(f"Booking Agreement & Order Slip — {order_ref}")
         else:
-            self.setWindowTitle(f"Banquet Order Slips — {n} Orders")
-        self.resize(760, 780)
-        self.setMinimumSize(600, 600)
+            self.setWindowTitle(f"Booking Agreements & Order Slips — {n} Orders")
+        self.resize(780, 800)
+        self.setMinimumSize(640, 600)
         self.setStyleSheet("""
             QDialog {
                 background-color: #0B1220;
@@ -114,7 +118,7 @@ class OrderPrintDialog(QDialog):
     def _build_ui(self):
         root_lay = QVBoxLayout(self)
         root_lay.setContentsMargins(20, 20, 20, 20)
-        root_lay.setSpacing(14)
+        root_lay.setSpacing(12)
 
         # Header Bar
         header = QHBoxLayout()
@@ -127,14 +131,14 @@ class OrderPrintDialog(QDialog):
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
         n = len(self._bookings)
-        title_lbl = QLabel("Banquet Event Order & Kitchen Slip" if n == 1 else f"Banquet Event Orders ({n})")
-        title_lbl.setStyleSheet("font-size: 17px; font-weight: 800; color: #FFFFFF;")
-        sub_txt = ("Official order dispatch sheet with menu dishes & additional items (prices hidden)" if n == 1
-                   else "A4, two orders per page (half page each) - official dispatch sheets, prices hidden")
-        sub_lbl = QLabel(sub_txt)
-        sub_lbl.setStyleSheet("font-size: 12px; color: #94A3B8;")
-        title_col.addWidget(title_lbl)
-        title_col.addWidget(sub_lbl)
+        self._title_lbl = QLabel("Booking Agreement & Order Slip" if n == 1 else f"Booking Agreements & Order Slips ({n})")
+        self._title_lbl.setStyleSheet("font-size: 17px; font-weight: 800; color: #FFFFFF;")
+        sub_txt = ("Official Client Booking Agreement with prices, dishes, terms & conditions (Manual Paper Format)" if n == 1
+                   else "A4 Booking Agreements - official client agreements with menu, financials & terms")
+        self._sub_lbl = QLabel(sub_txt)
+        self._sub_lbl.setStyleSheet("font-size: 12px; color: #94A3B8;")
+        title_col.addWidget(self._title_lbl)
+        title_col.addWidget(self._sub_lbl)
         header.addLayout(title_col)
         header.addStretch()
 
@@ -158,6 +162,27 @@ class OrderPrintDialog(QDialog):
         close_btn.clicked.connect(self.reject)
         header.addWidget(close_btn)
         root_lay.addLayout(header)
+
+        # Mode Switcher Bar
+        mode_bar = QHBoxLayout()
+        mode_bar.setSpacing(8)
+
+        self._btn_mode_agreement = QPushButton("  📄 Booking Agreement & Order Slip")
+        self._btn_mode_agreement.setCursor(Qt.PointingHandCursor)
+        self._btn_mode_agreement.setFixedHeight(34)
+        self._btn_mode_agreement.clicked.connect(lambda: self._set_mode("agreement"))
+
+        self._btn_mode_kitchen = QPushButton("  🍳 Kitchen Dispatch Slip")
+        self._btn_mode_kitchen.setCursor(Qt.PointingHandCursor)
+        self._btn_mode_kitchen.setFixedHeight(34)
+        self._btn_mode_kitchen.clicked.connect(lambda: self._set_mode("kitchen"))
+
+        mode_bar.addWidget(self._btn_mode_agreement)
+        mode_bar.addWidget(self._btn_mode_kitchen)
+        mode_bar.addStretch()
+        root_lay.addLayout(mode_bar)
+
+        self._update_mode_buttons()
 
         # Document Preview Container
         preview_card = QFrame()
@@ -191,7 +216,7 @@ class OrderPrintDialog(QDialog):
         bottom_bar = QHBoxLayout()
         bottom_bar.setSpacing(10)
 
-        copy_btn = QPushButton("  Copy Slip Text")
+        copy_btn = QPushButton("  Copy Details")
         copy_btn.setIcon(get_icon("orders", color="#CBD5E1", size=QSize(16, 16)))
         copy_btn.setCursor(Qt.PointingHandCursor)
         copy_btn.setFixedHeight(38)
@@ -235,11 +260,11 @@ class OrderPrintDialog(QDialog):
         pdf_btn.clicked.connect(self._export_pdf)
         bottom_bar.addWidget(pdf_btn)
 
-        print_btn = QPushButton("  Print Order Slip" if len(self._bookings) == 1 else "  Print Order Slips")
-        print_btn.setIcon(get_icon("printer", color="#FFFFFF", size=QSize(16, 16)))
-        print_btn.setCursor(Qt.PointingHandCursor)
-        print_btn.setFixedHeight(38)
-        print_btn.setStyleSheet("""
+        self._print_btn = QPushButton("  Print Order Slip" if len(self._bookings) == 1 else "  Print Order Slips")
+        self._print_btn.setIcon(get_icon("printer", color="#FFFFFF", size=QSize(16, 16)))
+        self._print_btn.setCursor(Qt.PointingHandCursor)
+        self._print_btn.setFixedHeight(38)
+        self._print_btn.setStyleSheet("""
             QPushButton {
                 background: #E11D48;
                 color: #FFFFFF;
@@ -253,10 +278,83 @@ class OrderPrintDialog(QDialog):
                 background: #BE123C;
             }
         """)
-        print_btn.clicked.connect(self._print_order)
-        bottom_bar.addWidget(print_btn)
+        self._print_btn.clicked.connect(self._print_order)
+        bottom_bar.addWidget(self._print_btn)
 
         root_lay.addLayout(bottom_bar)
+
+    def _set_mode(self, mode: str):
+        if self._current_mode == mode:
+            return
+        self._current_mode = mode
+        self._update_mode_buttons()
+        n = len(self._bookings)
+        if mode == "agreement":
+            self._title_lbl.setText("Booking Agreement & Order Slip" if n == 1 else f"Booking Agreements & Order Slips ({n})")
+            self._sub_lbl.setText("Official Client Booking Agreement with prices, dishes, terms & conditions (Manual Paper Format)")
+            self._print_btn.setText("  Print Agreement" if n == 1 else f"  Print Agreements ({n})")
+        else:
+            self._title_lbl.setText("Kitchen Dispatch Slip" if n == 1 else f"Kitchen Dispatch Slips ({n})")
+            self._sub_lbl.setText("Official order dispatch sheet with menu dishes & additional items (prices hidden)")
+            self._print_btn.setText("  Print Kitchen Slip" if n == 1 else f"  Print Kitchen Slips ({n})")
+        self._html_content = self._generate_slip_html()
+        self._doc_browser.setHtml(self._html_content)
+
+    def _update_mode_buttons(self):
+        if self._current_mode == "agreement":
+            self._btn_mode_agreement.setStyleSheet("""
+                QPushButton {
+                    background-color: #BE123C;
+                    color: #FFFFFF;
+                    border: 1px solid #E11D48;
+                    border-radius: 6px;
+                    padding: 0 16px;
+                    font-weight: 700;
+                    font-size: 12px;
+                }
+            """)
+            self._btn_mode_kitchen.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.06);
+                    color: #94A3B8;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 6px;
+                    padding: 0 16px;
+                    font-weight: 600;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.12);
+                    color: #FFFFFF;
+                }
+            """)
+        else:
+            self._btn_mode_agreement.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.06);
+                    color: #94A3B8;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 6px;
+                    padding: 0 16px;
+                    font-weight: 600;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.12);
+                    color: #FFFFFF;
+                }
+            """)
+            self._btn_mode_kitchen.setStyleSheet("""
+                QPushButton {
+                    background-color: #0284C7;
+                    color: #FFFFFF;
+                    border: 1px solid #0369A1;
+                    border-radius: 6px;
+                    padding: 0 16px;
+                    font-weight: 700;
+                    font-size: 12px;
+                }
+            """)
 
     @staticmethod
     def _configure_a4(printer):
@@ -568,15 +666,254 @@ class OrderPrintDialog(QDialog):
         spacer = f'<table height="{deficit}" style="height:{deficit}px;"><tr><td height="{deficit}" style="padding:0;"></td></tr></table>' if deficit > 0 else ""
         return body + spacer
 
+    def _build_booking_agreement_page(self, booking: dict) -> str:
+        biz = self._business or {}
+        biz_name = html.escape(str(biz.get("name") or "Jayraldine's Catering Services")).upper()
+        order_ref = html.escape(str(booking.get("id") or booking.get("booking_ref") or "ORD-SLIP"))
+        cust_name = html.escape(str(booking.get("name") or booking.get("customer_name") or "Valued Client"))
+        address = html.escape(str(booking.get("address") or booking.get("venue") or "—"))
+        contact = html.escape(str(booking.get("contact") or booking.get("phone") or "—"))
+        event_date = html.escape(str(booking.get("event_date") or booking.get("date") or "—"))
+        event_time = html.escape(str(booking.get("event_time") or booking.get("time") or "—"))
+        venue = html.escape(str(booking.get("venue") or "—"))
+        occasion = html.escape(str(booking.get("occasion") or "—"))
+        motif = html.escape(str(booking.get("motif") or booking.get("color_theme") or "Standard Motif"))
+        pax = str(booking.get("pax") or 0)
+        pkg_name = html.escape(str(booking.get("package_name") or booking.get("menu_type") or "Catering Package"))
+        notes = html.escape(str(booking.get("notes") or booking.get("special_instructions") or ""))
+        issue_date = html.escape(str(booking.get("created_at") or datetime.now().strftime("%Y-%m-%d")))
+
+        def _peso(v):
+            try:
+                val = float(str(v).replace("₱", "").replace(",", "").strip())
+                return f"PHP {val:,.2f}"
+            except Exception:
+                return "PHP 0.00"
+
+        total_str = _peso(booking.get("total_amount") or booking.get("total") or 0)
+        paid_val = booking.get("amount_paid") or booking.get("down_payment") or booking.get("paid") or 0
+        down_str = _peso(paid_val)
+        try:
+            tot_f = float(str(booking.get("total_amount") or booking.get("total") or 0).replace("₱", "").replace(",", "").strip())
+            paid_f = float(str(paid_val).replace("₱", "").replace(",", "").strip())
+            bal_f = max(0.0, tot_f - paid_f)
+            bal_str = f"PHP {bal_f:,.2f}"
+        except Exception:
+            bal_f = 0.0
+            bal_str = "PHP 0.00"
+
+        status_str = html.escape(str(booking.get("status") or ("PAID" if bal_f == 0 else "PARTIAL" if paid_f > 0 else "PENDING")).upper())
+        pay_mode = html.escape(str(booking.get("payment_mode") or "Cash"))
+
+        # Dishes
+        dishes = booking.get("dishes") or []
+        if not dishes and booking.get("menu_value"):
+            raw_dishes = [d.strip() for d in str(booking["menu_value"]).split(",") if d.strip()]
+            dishes = [{"name": rd} for rd in raw_dishes]
+
+        dish_items_html = []
+        for idx, d in enumerate(dishes[:10], 1):
+            d_name = html.escape(d.get("name") or d.get("item_name") or str(d))
+            dish_items_html.append(f"""
+                <tr>
+                    <td style="width:20px; font-weight:800; color:#E11D48; font-size:11.5px; padding:2px 0; vertical-align:top;">{idx}.</td>
+                    <td style="font-size:11.5px; color:#0F172A; padding:2px 0; vertical-align:top;">{d_name}</td>
+                </tr>
+            """)
+        if not dish_items_html:
+            dish_items_html.append('<tr><td colspan="2" style="font-size:11.5px; color:#64748B; font-style:italic; padding:4px 0;">Standard Package Inclusions</td></tr>')
+
+        # Add-ons
+        addons_html = []
+        raw_charges = booking.get("additional_charges") or []
+        for c in raw_charges[:5]:
+            desc = html.escape(str(c.get("description") or "Add-on"))
+            amt_str = _peso(c.get("amount") or 0)
+            addons_html.append(f"""
+                <tr>
+                    <td style="font-size:11px; color:#1E293B; padding:2px 0; vertical-align:top;">• {desc}</td>
+                    <td style="font-size:11px; font-weight:700; color:#BE123C; text-align:right; padding:2px 0; vertical-align:top;">{amt_str}</td>
+                </tr>
+            """)
+
+        addons_section = ""
+        if addons_html:
+            addons_section = f"""
+                <div style="margin-top:10px;">
+                    <div style="font-size:11.5px; font-weight:800; color:#0F172A; text-transform:uppercase; border-bottom:1px solid #CBD5E1; padding-bottom:2px; margin-bottom:4px;">ADD-ONS &amp; EXTRAS:</div>
+                    <table width="100%" style="width:100%; border-collapse:collapse;">
+                        {''.join(addons_html)}
+                    </table>
+                </div>
+            """
+
+        instructions_block = ""
+        if notes:
+            instructions_block = f"""
+                <tr>
+                    <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Special Instr:</td>
+                    <td style="font-size:11px; color:#0F172A; padding:2.5px 0; vertical-align:top;">{notes}</td>
+                </tr>
+            """
+
+        return f"""
+        <div style="box-sizing:border-box; width:{_SLIP_LAYOUT_WIDTH}px; padding:16px 20px; background:#FFFFFF; color:#0F172A; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <!-- HEADER (Top) -->
+            <div style="text-align:center; margin-bottom:10px;">
+                <div style="font-size:20px; font-weight:900; color:#E11D48; letter-spacing:0.5px;">{biz_name}</div>
+                <div style="font-size:13px; font-weight:900; color:#0F172A; text-decoration:underline; margin-top:2px; letter-spacing:0.5px;">BOOKING AGREEMENT</div>
+                <div style="font-size:9.5px; color:#64748B; margin-top:3px;">Booking Ref: <b>{order_ref}</b> &nbsp;|&nbsp; Date Issued: {issue_date}</div>
+            </div>
+            <hr style="border:none; border-top:1px solid #CBD5E1; margin:0 0 12px 0;" />
+
+            <!-- UPPER SECTION (THE ORDER - 2 COLUMNS) -->
+            <table width="100%" style="width:100%; border-collapse:collapse;">
+                <tr>
+                    <!-- Left Sub-Column: Customer Details, Financials, Signatures -->
+                    <td style="width:48%; vertical-align:top; padding-right:14px;">
+                        <table width="100%" style="width:100%; border-collapse:collapse;">
+                            <tr>
+                                <td style="width:100px; font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Name:</td>
+                                <td style="font-size:11.5px; font-weight:800; color:#0F172A; padding:2.5px 0; vertical-align:top;">{cust_name}</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Address:</td>
+                                <td style="font-size:11px; color:#0F172A; padding:2.5px 0; vertical-align:top;">{address}</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Contact #:</td>
+                                <td style="font-size:11px; color:#0F172A; padding:2.5px 0; vertical-align:top;">{contact}</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Function Date:</td>
+                                <td style="font-size:11px; font-weight:800; color:#0F172A; padding:2.5px 0; vertical-align:top;">{event_date} ({event_time})</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Venue:</td>
+                                <td style="font-size:11px; color:#0F172A; padding:2.5px 0; vertical-align:top;">{venue}</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Occasion / Motif:</td>
+                                <td style="font-size:11px; color:#0F172A; padding:2.5px 0; vertical-align:top;">{occasion} &middot; {motif}</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">No. of Pax:</td>
+                                <td style="font-size:11px; font-weight:800; color:#0F172A; padding:2.5px 0; vertical-align:top;">{pax} Guests @ {pkg_name}</td>
+                            </tr>
+                            {instructions_block}
+                        </table>
+
+                        <!-- Financial Box -->
+                        <div style="margin-top:10px; padding:8px 12px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:6px;">
+                            <table width="100%" style="width:100%; border-collapse:collapse;">
+                                <tr>
+                                    <td style="font-weight:700; color:#475569; font-size:11px; padding:2px 0;">Total Amount:</td>
+                                    <td style="font-size:11.5px; font-weight:900; color:#0F172A; text-align:right; padding:2px 0;">{total_str}</td>
+                                </tr>
+                                <tr>
+                                    <td style="font-weight:700; color:#475569; font-size:11px; padding:2px 0;">Downpayment:</td>
+                                    <td style="font-size:11.5px; font-weight:900; color:#16A34A; text-align:right; padding:2px 0;">{down_str}</td>
+                                </tr>
+                                <tr>
+                                    <td style="font-weight:700; color:#475569; font-size:11px; padding:2px 0;">Balance Due:</td>
+                                    <td style="font-size:12px; font-weight:900; color:{'#E11D48' if bal_f > 0 else '#16A34A'}; text-align:right; padding:2px 0;">{bal_str}</td>
+                                </tr>
+                                <tr>
+                                    <td colspan="2" style="font-size:9px; color:#64748B; padding-top:3px; border-top:1px dashed #CBD5E1;">Status: <b>{status_str}</b> &nbsp;|&nbsp; Mode: <b>{pay_mode}</b></td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <!-- Signatures -->
+                        <div style="margin-top:12px;">
+                            <table width="100%" style="width:100%; border-collapse:collapse;">
+                                <tr>
+                                    <td style="font-weight:800; font-size:10px; color:#0F172A; width:75px;">CONFORME:</td>
+                                    <td style="border-bottom:1px solid #64748B; width:130px;">&nbsp;</td>
+                                    <td style="font-weight:800; font-size:10px; color:#0F172A; width:40px; text-align:right; padding-right:4px;">Date:</td>
+                                    <td style="border-bottom:1px solid #64748B; width:65px;">&nbsp;</td>
+                                </tr>
+                                <tr>
+                                    <td></td>
+                                    <td style="font-size:8px; color:#64748B; text-align:center; padding-top:2px;">Client Signature</td>
+                                    <td></td>
+                                    <td></td>
+                                </tr>
+                                <tr>
+                                    <td style="font-weight:800; font-size:10px; color:#0F172A; padding-top:6px;">NOTED BY:</td>
+                                    <td style="border-bottom:1px solid #64748B; padding-top:6px;">&nbsp;</td>
+                                    <td style="font-weight:800; font-size:10px; color:#0F172A; text-align:right; padding-right:4px; padding-top:6px;">Date:</td>
+                                    <td style="border-bottom:1px solid #64748B; padding-top:6px;">&nbsp;</td>
+                                </tr>
+                                <tr>
+                                    <td></td>
+                                    <td style="font-size:8px; color:#64748B; text-align:center; padding-top:2px;">Catering Representative</td>
+                                    <td></td>
+                                    <td></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </td>
+
+                    <!-- Right Sub-Column: Package Inclusions, Numbered Menu, Add-ons -->
+                    <td style="width:52%; vertical-align:top; border-left:1px solid #E2E8F0; padding-left:14px;">
+                        <!-- Package Banner -->
+                        <div style="background:#FFF1F2; border:1px solid #FECDD3; border-radius:6px; padding:6px 10px; margin-bottom:8px;">
+                            <div style="font-size:12px; font-weight:900; color:#BE123C; text-transform:uppercase;">{pkg_name}</div>
+                            <div style="font-size:9.5px; color:#475569; margin-top:1px;">Good for <b>{pax}</b> Guests</div>
+                        </div>
+
+                        <!-- Menu Header & Dishes -->
+                        <div style="font-size:11.5px; font-weight:900; color:#0F172A; text-transform:uppercase; border-bottom:1.5px solid #0F172A; padding-bottom:2px; margin-bottom:4px;">MENU:</div>
+                        <table width="100%" style="width:100%; border-collapse:collapse;">
+                            {''.join(dish_items_html)}
+                        </table>
+
+                        {addons_section}
+                    </td>
+                </tr>
+            </table>
+
+            <!-- LOWER SECTION (TERMS AND CONDITIONS) -->
+            <hr style="border:none; border-top:2px solid #E11D48; margin:14px 0 8px 0;" />
+            <div style="font-size:12px; font-weight:900; color:#0F172A; margin-bottom:5px;">Terms and Conditions</div>
+            <table width="100%" style="width:100%; border-collapse:collapse; font-size:10px; color:#334155; line-height:1.3;">
+                <tr>
+                    <td style="width:14px; vertical-align:top; font-weight:800; color:#E11D48; padding:1.5px 0;">&bull;</td>
+                    <td style="vertical-align:top; padding:1.5px 0 3px 4px;">The client shall pay 50% downpayment upon reservation of booking and shall pay the full amount 3 days before the date of the event.</td>
+                </tr>
+                <tr>
+                    <td style="width:14px; vertical-align:top; font-weight:800; color:#E11D48; padding:1.5px 0;">&bull;</td>
+                    <td style="vertical-align:top; padding:1.5px 0 3px 4px;"><b>Mode of payment.</b> The client shall personally pay in Cash for the downpayment and full payment. If cash is not available, the client shall also pay through Bank Transfer or Gcash.</td>
+                </tr>
+                <tr>
+                    <td style="width:14px; vertical-align:top; font-weight:800; color:#E11D48; padding:1.5px 0;">&bull;</td>
+                    <td style="vertical-align:top; padding:1.5px 0 3px 4px;"><b>Failure to pay.</b> A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply: (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%.</td>
+                </tr>
+                <tr>
+                    <td style="width:14px; vertical-align:top; font-weight:800; color:#E11D48; padding:1.5px 0;">&bull;</td>
+                    <td style="vertical-align:top; padding:1.5px 0 3px 4px;">Any Food and Drinks or any consumables that is NOT prepared by JAY-RALDINE SERVICES brought by the client will <b>FREE US ON ANY LIABILITIES</b> due to food poisoning and spoilage. We charged Corkage Fee for bringing outside Food and Drinks. Precise time should be place in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage.</td>
+                </tr>
+            </table>
+
+            <!-- FOOTER INVITATION BOX -->
+            <div style="margin-top:10px; padding:8px 14px; background:#F8FAFC; border:1px solid #CBD5E1; border-radius:6px; text-align:center;">
+                <div style="font-size:10px; font-weight:900; color:#BE123C; letter-spacing:0.3px;">WE INVITE YOU TO SEE HOW WE CAN HELP YOUR EVENT THE BEST IT CAN POSSIBLY BE!!!</div>
+                <div style="font-size:9.5px; color:#1E293B; margin-top:2px;">Located at 121 Katipunan St. Brgy Calamba Cebu City</div>
+                <div style="font-size:9.5px; color:#1E293B; margin-top:1px;">Please feel free to call us at (032) 255-3113, (032) 238-9417 &middot; Globe 0917-6519555, 0917-1051528</div>
+                <div style="font-size:9.5px; font-weight:800; color:#0284C7; margin-top:1px;">Find us on Facebook: Jayraldine's Catering Services</div>
+            </div>
+        </div>
+        """
+
     def _build_page_bodies(self) -> list[str]:
-        """One entry per PHYSICAL A4 sheet - a single order's box (half-page
-        if short, unconstrained/growing toward a full page if long), or two
-        short orders' half-page boxes plus a cut line. Kept separate
-        (rather than one giant concatenated HTML blob) so printing can
-        measure/scale/draw each physical page independently and precisely,
-        instead of guessing page boundaries from cumulative content height
-        (which doesn't understand CSS page-break-after at all and would let
-        one page's content drift into the next as more pages are added)."""
+        """One entry per PHYSICAL A4 sheet.
+        When _current_mode == "agreement", builds 1 full A4 page per booking with
+        the up-and-down Booking Agreement matching the client's manual form.
+        When _current_mode == "kitchen", pairs orders two per sheet for dispatch."""
+        if self._current_mode == "agreement":
+            return [self._build_booking_agreement_page(b) for b in self._bookings]
+
         n = len(self._bookings)
         if n <= 1:
             booking = self._bookings[0] if self._bookings else {}
@@ -607,6 +944,64 @@ class OrderPrintDialog(QDialog):
 
     def _copy_slip_text(self):
         blocks = []
+        if self._current_mode == "agreement":
+            for booking in self._bookings:
+                order_ref = str(booking.get("id") or booking.get("booking_ref") or "ORD-SLIP")
+                cust_name = str(booking.get("name") or booking.get("customer_name") or "Valued Client")
+                venue = str(booking.get("venue") or booking.get("address") or "TBA")
+                date_str = str(booking.get("event_date") or booking.get("date") or "TBA")
+                time_str = str(booking.get("event_time") or booking.get("time") or "TBA")
+                pax = str(booking.get("pax", 0))
+                pkg_name = str(booking.get("package_name") or booking.get("menu_type") or "Catering Package")
+                tot = float(str(booking.get("total_amount") or booking.get("total") or 0).replace("₱", "").replace(",", "").strip() or 0)
+                paid = float(str(booking.get("amount_paid") or booking.get("down_payment") or 0).replace("₱", "").replace(",", "").strip() or 0)
+                bal = max(0.0, tot - paid)
+
+                dishes = booking.get("dishes") or []
+                dish_lines = []
+                for d in dishes:
+                    d_name = d.get("name") or d.get("item_name") or str(d)
+                    if d_name:
+                        dish_lines.append(f"  • {d_name}")
+                dishes_text = "\n".join(dish_lines) if dish_lines else "  • Standard Package Inclusions"
+
+                charges = booking.get("additional_charges") or []
+                charge_lines = [f"  • {c.get('description', 'Add-on')}: PHP {float(c.get('amount', 0)):,.2f}" for c in charges]
+                charges_text = "\n".join(charge_lines) if charge_lines else "  None"
+
+                blocks.append(f"""==================================================
+JAYRALDINE'S CATERING SERVICES - BOOKING AGREEMENT
+Order Ref: {order_ref}
+==================================================
+DATE:        {date_str}
+NAME:        {cust_name}
+TIME:        {time_str}
+PAX:         {pax} Guests
+VENUE:       {venue}
+PACKAGE:     {pkg_name}
+
+TOTAL:       PHP {tot:,.2f}
+DOWNPAYMENT: PHP {paid:,.2f}
+BALANCE:     PHP {bal:,.2f}
+
+MENU DISHES:
+{dishes_text}
+
+ADD-ONS & EXTRAS:
+{charges_text}
+
+TERMS AND CONDITIONS:
+1. 50% downpayment upon reservation, full payment 3 days before event.
+2. Mode of payment: Cash, Bank Transfer, or GCash.
+3. Cancellation: 15 days (20%), 7 days (30%), 3 days (50%).
+4. Outside food/drinks: freedom of liability, corkage applies.
+==================================================""")
+            text = "\n\n".join(blocks)
+            clipboard = QApplication.clipboard()
+            clipboard.setText(text)
+            success(self, message="Booking agreement details copied to clipboard!" if len(self._bookings) == 1 else "Booking agreements copied to clipboard!")
+            return
+
         for booking in self._bookings:
             order_ref = str(booking.get("id") or booking.get("booking_ref") or "ORD-SLIP")
             cust_name = str(booking.get("name") or booking.get("customer_name") or "Valued Client")
@@ -653,34 +1048,45 @@ ADDITIONAL ITEMS (NO CHARGES):
         success(self, message="Order slip copied to clipboard!" if len(self._bookings) == 1 else "Order slips copied to clipboard!")
 
     def _export_pdf(self):
-        if len(self._bookings) == 1:
-            order_ref = str(self._bookings[0].get("id") or self._bookings[0].get("booking_ref") or "order").replace("/", "-")
-            default_name = f"Order_Slip_{order_ref}.pdf"
+        if self._current_mode == "agreement":
+            if len(self._bookings) == 1:
+                order_ref = str(self._bookings[0].get("id") or self._bookings[0].get("booking_ref") or "order").replace("/", "-")
+                default_name = f"Booking_Agreement_{order_ref}.pdf"
+            else:
+                default_name = f"Booking_Agreements_{len(self._bookings)}_orders.pdf"
+            title = "Save Booking Agreement PDF"
         else:
-            default_name = f"Order_Slips_{len(self._bookings)}_orders.pdf"
+            if len(self._bookings) == 1:
+                order_ref = str(self._bookings[0].get("id") or self._bookings[0].get("booking_ref") or "order").replace("/", "-")
+                default_name = f"Kitchen_Slip_{order_ref}.pdf"
+            else:
+                default_name = f"Kitchen_Slips_{len(self._bookings)}_orders.pdf"
+            title = "Save Kitchen Slip PDF"
 
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Banquet Order Slip PDF",
+            title,
             default_name,
             "PDF Files (*.pdf)"
         )
         if not file_path:
             return
 
-        # Always render the exported PDF from the exact same HTML document
-        # shown in the on-screen preview (and used for Print) - a separate
-        # ReportLab-based PDF path used to exist here for single orders, which
-        # silently produced a DIFFERENT layout (no Date|Name|Time|Pax strip,
-        # red instead of amber dish header, no half-page pairing) than what
-        # the user saw in the preview. Using one shared rendering pipeline
-        # guarantees the exported PDF always matches the preview exactly.
+        if self._current_mode == "agreement" and len(self._bookings) == 1 and exporter.REPORTLAB_OK:
+            b = self._bookings[0]
+            try:
+                if exporter.export_receipt_pdf(file_path, b, business=self._business, additional_charges=b.get("additional_charges", [])):
+                    success(self, message=f"Booking Agreement PDF exported successfully:\n{os.path.basename(file_path)}")
+                    return
+            except Exception as e:
+                print(f"[OrderPrintDialog] exporter fallback: {e}")
+
         printer = QPrinter(QPrinter.HighResolution)
         self._configure_a4(printer)
         printer.setOutputFormat(QPrinter.PdfFormat)
         printer.setOutputFileName(file_path)
         self._print_document(printer)
-        success(self, message=f"Order slip PDF exported successfully:\n{os.path.basename(file_path)}")
+        success(self, message=f"PDF exported successfully:\n{os.path.basename(file_path)}")
 
     def _print_order(self):
         if not PRINTER_SUPPORT:

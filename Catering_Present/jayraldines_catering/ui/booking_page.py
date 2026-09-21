@@ -1478,11 +1478,12 @@ class BookingPage(QWidget):
         btn_delete_selected.clicked.connect(self._delete_selected_bookings)
         tb_lay.addWidget(btn_delete_selected)
 
-        btn_print_selected = QPushButton("  Print Selected")
+        btn_print_selected = QPushButton("  Print Order Slips")
         btn_print_selected.setIcon(get_icon("export", color="#38BDF8", size=QSize(13, 13)))
         btn_print_selected.setIconSize(QSize(13, 13))
         btn_print_selected.setCursor(Qt.PointingHandCursor)
         btn_print_selected.setEnabled(False)
+        btn_print_selected.setToolTip("View & Print Official Booking Agreement / Order Slips for Selected Bookings")
         btn_print_selected.setStyleSheet(
             "QPushButton { background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.3); color: #38BDF8; border-radius: 8px; padding: 6px 14px; font-weight: 600; font-size: 12px; }"
             "QPushButton:hover { background: rgba(56,189,248,0.25); border-color: #38BDF8; }"
@@ -2082,16 +2083,29 @@ class BookingPage(QWidget):
             confirm_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
         confirm_btn.clicked.connect(lambda _, r=bref: self._send_confirmation(r))
 
-        print_btn = QPushButton(parent=actions_w)
-        print_btn.setIcon(get_icon("printer", color="#9CA3AF", size=QSize(13, 13)))
-        print_btn.setIconSize(QSize(13, 13))
-        print_btn.setFixedSize(30, 30)
-        print_btn.setStyleSheet("background:transparent;border:none;")
-        print_btn.setCursor(Qt.PointingHandCursor)
-        print_btn.setToolTip("Export / Print Order Slip (Kitchen & Event BEO)")
-        print_btn.clicked.connect(lambda _, r=bref: self._print_order_slip(r))
+        receipt_btn = QPushButton(" Slip / Receipt", parent=actions_w)
+        receipt_btn.setIcon(get_icon("printer", color="#FFFFFF", size=QSize(13, 13)))
+        receipt_btn.setIconSize(QSize(13, 13))
+        receipt_btn.setFixedHeight(30)
+        receipt_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #BE123C;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 6px;
+                font-weight: 700;
+                font-size: 11px;
+                padding: 0 10px;
+            }
+            QPushButton:hover {
+                background-color: #E11D48;
+            }
+        """)
+        receipt_btn.setCursor(Qt.PointingHandCursor)
+        receipt_btn.setToolTip("View & Print Official Booking Agreement / Order Slip")
+        receipt_btn.clicked.connect(lambda _, r=bref: self._print_order_slip(r))
 
-        actions_l.addWidget(print_btn)
+        actions_l.addWidget(receipt_btn)
         actions_l.addWidget(edit_btn)
         actions_l.addWidget(charges_btn)
         actions_l.addWidget(color_btn)
