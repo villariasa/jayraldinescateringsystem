@@ -278,17 +278,271 @@ function render() {
   document.body.scrollTop = 0;
 }
 
+function wireCartSwipeToRemove(cart) {
+  const d = wizard.draft;
+
+  const attachSwipeRow = (wrapper, onRemove) => {
+    const content = wrapper.querySelector(".cart-dish-row-content");
+    const removeBtn = wrapper.querySelector(".cart-dish-reveal-action");
+    if (!content) return;
+
+    const executeRemovalWithAnimation = () => {
+      if (wrapper.classList.contains("is-removing")) return;
+      wrapper.classList.add("is-removing");
+      content.style.transform = "translateX(-100%)";
+      setTimeout(() => {
+        onRemove();
+      }, 200);
+    };
+
+    if (removeBtn) {
+      removeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        executeRemovalWithAnimation();
+      });
+    }
+
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let isTracking = false;
+    let isHorizontal = false;
+    let isOpen = false;
+
+    const snapTo = (x) => {
+      content.style.transition = "transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)";
+      content.style.transform = `translateX(${x}px)`;
+      isOpen = (x === -80);
+    };
+
+    content.addEventListener("click", (e) => {
+      if (isOpen) {
+        e.stopPropagation();
+        snapTo(0);
+      }
+    });
+
+    content.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      currentX = startX;
+      isTracking = true;
+      isHorizontal = false;
+      content.style.transition = "none";
+    }, { passive: true });
+
+    content.addEventListener("touchmove", (e) => {
+      if (!isTracking || e.touches.length !== 1) return;
+      currentX = e.touches[0].clientX;
+      const currentY = e.touches[0].clientY;
+      const dx = currentX - startX;
+      const dy = currentY - startY;
+
+      if (!isHorizontal) {
+        if (Math.abs(dx) > 7 && Math.abs(dx) > Math.abs(dy)) {
+          isHorizontal = true;
+        } else if (Math.abs(dy) > 7) {
+          isTracking = false;
+          return;
+        }
+      }
+
+      if (isHorizontal) {
+        if (e.cancelable) e.preventDefault();
+        const baseOffset = isOpen ? -80 : 0;
+        let targetX = baseOffset + dx;
+        if (targetX > 0) targetX = 0;
+        if (targetX < -130) targetX = -130 - (targetX + 130) * 0.2;
+        content.style.transform = `translateX(${targetX}px)`;
+      }
+    }, { passive: false });
+
+    const handleTouchEnd = () => {
+      if (!isTracking) return;
+      isTracking = false;
+      if (!isHorizontal) return;
+
+      const dx = currentX - startX;
+      const baseOffset = isOpen ? -80 : 0;
+      const effectiveOffset = baseOffset + dx;
+
+      if (effectiveOffset < -85) {
+        executeRemovalWithAnimation();
+      } else if (effectiveOffset < -35) {
+        snapTo(-80);
+      } else {
+        snapTo(0);
+      }
+    };
+
+    content.addEventListener("touchend", handleTouchEnd, { passive: true });
+    content.addEventListener("touchcancel", handleTouchEnd, { passive: true });
+
+    // Desktop mouse dragging support
+    content.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      let mouseStartX = e.clientX;
+      let mouseCurrentX = mouseStartX;
+      let isDraggingMouse = true;
+      content.style.transition = "none";
+
+      const onMouseMove = (moveEvt) => {
+        if (!isDraggingMouse) return;
+        mouseCurrentX = moveEvt.clientX;
+        const dx = mouseCurrentX - mouseStartX;
+        const baseOffset = isOpen ? -80 : 0;
+        let targetX = baseOffset + dx;
+        if (targetX > 0) targetX = 0;
+        if (targetX < -130) targetX = -130;
+        content.style.transform = `translateX(${targetX}px)`;
+      };
+
+      const onMouseUp = () => {
+        if (!isDraggingMouse) return;
+        isDraggingMouse = false;
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+
+        const dx = mouseCurrentX - mouseStartX;
+        const baseOffset = isOpen ? -80 : 0;
+        const effectiveOffset = baseOffset + dx;
+
+        if (effectiveOffset < -85) {
+          executeRemovalWithAnimation();
+        } else if (effectiveOffset < -35) {
+          snapTo(-80);
+        } else {
+          snapTo(0);
+        }
+      };
+
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+    });
+  };
+
+  // Wire menu dish rows
+  const dishesContainer = cart.querySelector("#cart-selected-dishes-list");
+  if (dishesContainer) {
+    dishesContainer.querySelectorAll(".cart-dish-row-wrapper:not(.cart-addon-row-wrapper)").forEach((wrapper) => {
+      const itemId = wrapper.dataset.menuId;
+      attachSwipeRow(wrapper, () => {
+        const idx = d.menuSelections.findIndex((m) => String(m.menu_item_id) === String(itemId));
+        if (idx !== -1) {
+          d.menuSelections.splice(idx, 1);
+        }
+        const dishCard = document.querySelector(`.select-card[data-item-id="${itemId}"]`);
+        if (dishCard) {
+          dishCard.classList.remove("selected");
+          const badge = dishCard.querySelector(".item-check-badge");
+          if (badge) badge.innerHTML = icon("plus");
+        }
+        if (typeof window._updateStep3Counts === "function") {
+          window._updateStep3Counts();
+        }
+        const wizNext = document.getElementById("wiz-next");
+        if (wizNext && wizard.step === 3) {
+          wizNext.textContent = window.innerWidth < 640
+            ? `Next: Add-ons (${d.menuSelections.length})`
+            : `Next Step: Event Add-ons (${d.menuSelections.length} Chosen)`;
+        }
+        renderCart();
+      });
+    });
+  }
+
+  // Wire add-on rows
+  const addonsContainer = cart.querySelector("#cart-selected-addons-list");
+  if (addonsContainer) {
+    addonsContainer.querySelectorAll(".cart-addon-row-wrapper").forEach((wrapper) => {
+      const addonIdx = Number(wrapper.dataset.addonIdx);
+      attachSwipeRow(wrapper, () => {
+        if (addonIdx >= 0 && addonIdx < d.additionalCharges.length) {
+          d.additionalCharges.splice(addonIdx, 1);
+        }
+        if (typeof window._updateStep4Addons === "function") {
+          window._updateStep4Addons();
+        }
+        renderCart();
+      });
+    });
+  }
+}
+
 function renderCart() {
   const d = wizard.draft;
   const cart = document.getElementById("wizard-cart");
   if (!cart) return;
 
-  const menuLines = d.menuSelections.map(
-    (m) => `<div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;"><span style="color:var(--text-muted);">${escapeHtml(m.item_name)}</span><span style="font-weight:600;">${m.price ? peso(m.price) : "Included"}</span></div>`
-  ).join("");
-  const chargeLines = d.additionalCharges.map(
-    (c) => `<div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;"><span style="color:var(--text-muted);">${escapeHtml(c.description)}</span><span style="font-weight:600; color:var(--gold);">${peso(c.amount)}</span></div>`
-  ).join("");
+  const selectedCount = d.menuSelections.length;
+
+  let selectedDishesHtml = "";
+  if (selectedCount > 0) {
+    selectedDishesHtml = `
+      <div class="cart-section-header" style="display:flex; justify-content:space-between; align-items:center; margin:10px 0 8px;">
+        <span class="cart-section-title" style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted);">Selected Menu</span>
+        <span class="cart-section-badge">${selectedCount} SELECTED</span>
+      </div>
+      <div class="cart-selected-dishes-container" id="cart-selected-dishes-list">
+        ${d.menuSelections.map((m, idx) => `
+          <div class="cart-dish-row-wrapper" data-menu-id="${m.menu_item_id}" data-index="${idx}">
+            <div class="cart-dish-reveal-action" data-remove-id="${m.menu_item_id}" role="button" aria-label="Remove ${escapeHtml(m.item_name)}">
+              <span>REMOVE</span>
+            </div>
+            <div class="cart-dish-row-content">
+              <div class="cart-dish-text-col">
+                <div class="cart-dish-name">${escapeHtml(m.item_name)}</div>
+                <div class="cart-dish-category">${escapeHtml(m.category || "Menu Item")}</div>
+              </div>
+              <div class="cart-dish-price-col">
+                ${m.price ? `<span class="cart-dish-price">+ ${peso(m.price)}</span>` : `<span class="cart-dish-included">Included</span>`}
+              </div>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  } else {
+    selectedDishesHtml = `
+      <div class="cart-section-header" style="display:flex; justify-content:space-between; align-items:center; margin:10px 0 8px;">
+        <span class="cart-section-title" style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted);">Selected Menu</span>
+        <span class="cart-section-badge" style="background:var(--border) !important; color:var(--text-muted) !important;">0 SELECTED</span>
+      </div>
+      <div class="cart-empty-dishes">
+        No dishes selected yet. Tap a dish to select. Swipe left to remove.
+      </div>
+    `;
+  }
+
+  let addonsHtml = "";
+  if (d.additionalCharges && d.additionalCharges.length > 0) {
+    addonsHtml = `
+      <div class="cart-section-header" style="display:flex; justify-content:space-between; align-items:center; margin:14px 0 8px;">
+        <span class="cart-section-title" style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted);">Add-ons &amp; Extras</span>
+        <span class="cart-section-badge" style="font-size:11px !important; font-weight:800 !important; padding:2px 8px !important; border-radius:9999px !important; background:var(--gold) !important; color:#000 !important;">${d.additionalCharges.length} ADDED</span>
+      </div>
+      <div class="cart-selected-dishes-container" id="cart-selected-addons-list">
+        ${d.additionalCharges.map((c, idx) => `
+          <div class="cart-dish-row-wrapper cart-addon-row-wrapper" data-addon-idx="${idx}">
+            <div class="cart-dish-reveal-action" data-remove-addon-idx="${idx}" role="button" aria-label="Remove ${escapeHtml(c.description)}">
+              <span>REMOVE</span>
+            </div>
+            <div class="cart-dish-row-content">
+              <div class="cart-dish-text-col">
+                <div class="cart-dish-name">${escapeHtml(c.description)}</div>
+                <div class="cart-dish-category">EVENT ADD-ON</div>
+              </div>
+              <div class="cart-dish-price-col">
+                <span class="cart-dish-price" style="color:var(--gold); font-weight:700;">${peso(c.amount)}</span>
+              </div>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
   const total = grandTotal(d);
   const downPct = total > 0 ? Math.round(((d.downPayment || 0) / total) * 100) : 0;
 
@@ -307,8 +561,10 @@ function renderCart() {
       </div>
     </div>
     
-    ${menuLines ? `<div style="border-bottom:1.5px solid var(--border); padding-bottom:10px; margin-bottom:10px;">${menuLines}</div>` : ""}
-    ${chargeLines ? `<div style="border-bottom:1.5px solid var(--border); padding-bottom:10px; margin-bottom:10px;">${chargeLines}</div>` : ""}
+    <div style="border-bottom:1.5px solid var(--border); padding-bottom:10px; margin-bottom:10px;">
+      ${selectedDishesHtml}
+      ${addonsHtml}
+    </div>
 
     <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:12px;">
       <span style="font-size:15px; font-weight:700;">Grand Total</span>
@@ -326,6 +582,9 @@ function renderCart() {
       ${icon("trash")} Discard Order
     </button>
   `;
+
+  wireCartSwipeToRemove(cart);
+
   cart.querySelector("#cart-quick-next")?.addEventListener("click", () => {
     // Forward to the current step's primary next button so all form inputs are properly harvested into state and validated!
     const stepNextBtn = document.getElementById("wiz-next") || document.getElementById("sticky-next-btn-top");
@@ -733,6 +992,12 @@ async function renderStepPackage(card) {
         <input type="text" class="form-control" id="e-venue-street" placeholder="e.g. Grand Ballroom, 4th Floor, Skyline Hotel (or To be followed)" value="${escapeHtml(d.event.venueStreet || "")}">
       </div>
     </div>
+    <div class="form-group">
+      <label>🎨 Theme &amp; Motif</label>
+      <input type="text" class="form-control" id="e-motif" placeholder="e.g. Rose Gold &amp; Ivory, Black &amp; White Elegance, Garden Green…" value="${escapeHtml(d.event.motif || "")}">
+      <span style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">Type the event's color theme or motif. This will appear on the official receipt.</span>
+    </div>
+
 
     <h3 style="margin:24px 0 12px; font-size:16px;">Select a Buffet Package</h3>
     <div class="kiosk-grid" id="pkg-grid">
@@ -999,6 +1264,7 @@ async function renderStepPackage(card) {
     d.event.venueCity = (venueCityInput.value || "").trim();
     const venueCombined = [d.event.venueStreet, d.event.venueCity].filter(Boolean).join(", ");
     d.event.venue = venueCombined || "To be followed";
+    d.event.motif = (card.querySelector("#e-motif")?.value || "").trim() || "Standard";
     d.package.pricePerPax = Number(priceInput.value || 0);
     d.package.baseTotal = Number(baseInput.value || 0);
 
@@ -1088,19 +1354,6 @@ async function renderStepMenu(card) {
           `;
         }).join("")}
       </div>
-    </div>
-
-    <!-- Selected Dishes Tray with Drag & Drop Reordering -->
-    <div id="kiosk-selected-tray" style="background:var(--card); border:1.5px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:20px; box-shadow:0 2px 10px rgba(0,0,0,0.03);">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:18px;">📋</span>
-          <h4 style="margin:0; font-size:14.5px; font-weight:800;">Selected Menu Dishes &amp; Buffet Order</h4>
-          <span style="font-size:11.5px; color:var(--text-muted); font-weight:600;">(Drag items or use arrows to reorder buffet sequence)</span>
-        </div>
-        <span class="pill pill-paid" id="selected-tray-count">${d.menuSelections.length} Selected</span>
-      </div>
-      <div id="drag-drop-dish-list" style="display:flex; flex-wrap:wrap; gap:8px; min-height:44px; padding:8px; border:1.5px dashed var(--border); border-radius:8px; background:rgba(0,0,0,0.02); align-items:center;"></div>
     </div>
 
     <div id="menu-categories-container">
@@ -1229,102 +1482,6 @@ async function renderStepMenu(card) {
     });
   });
 
-  function renderDragDropList() {
-    const listEl = card.querySelector("#drag-drop-dish-list");
-    const countEl = card.querySelector("#selected-tray-count");
-    if (!listEl) return;
-
-    if (countEl) countEl.textContent = `${d.menuSelections.length} Selected`;
-
-    if (d.menuSelections.length === 0) {
-      listEl.innerHTML = `<span style="color:var(--text-muted); font-size:13px; font-style:italic;">No dishes chosen yet. Tap dishes below to add them to your buffet.</span>`;
-      return;
-    }
-
-    listEl.innerHTML = d.menuSelections.map((m, idx) => `
-      <div class="drag-dish-chip" draggable="true" data-index="${idx}" style="display:inline-flex; align-items:center; gap:8px; padding:6px 12px; background:var(--card); border:1.5px solid var(--border); border-radius:20px; font-size:12.5px; font-weight:700; cursor:grab; box-shadow:0 1px 4px rgba(0,0,0,0.06); transition:transform 0.15s, border-color 0.15s; user-select:none;">
-        <span class="drag-handle" style="color:var(--text-muted); cursor:grab; font-size:14px; font-family:monospace;" title="Drag to reorder">⠿</span>
-        <span style="color:var(--text);">${escapeHtml(m.item_name)}</span>
-        <span style="font-size:10px; color:var(--text-muted); font-weight:600; text-transform:uppercase; background:rgba(0,0,0,0.05); padding:1px 5px; border-radius:4px;">${escapeHtml(m.category || '')}</span>
-        ${idx > 0 ? `<button type="button" class="btn-move-drag-dish" data-index="${idx}" data-dir="-1" style="border:none; background:transparent; color:var(--text-muted); cursor:pointer; font-size:11px; padding:0 2px;" title="Move Up">◀</button>` : ''}
-        ${idx < d.menuSelections.length - 1 ? `<button type="button" class="btn-move-drag-dish" data-index="${idx}" data-dir="1" style="border:none; background:transparent; color:var(--text-muted); cursor:pointer; font-size:11px; padding:0 2px;" title="Move Down">▶</button>` : ''}
-        <button type="button" class="btn-remove-drag-dish" data-index="${idx}" style="border:none; background:transparent; color:#EF4444; cursor:pointer; font-size:13px; padding:0 2px; font-weight:800;" title="Remove Dish">✕</button>
-      </div>
-    `).join("");
-
-    let draggedIdx = null;
-
-    listEl.querySelectorAll(".drag-dish-chip").forEach((chip) => {
-      chip.addEventListener("dragstart", (e) => {
-        draggedIdx = Number(chip.dataset.index);
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", draggedIdx);
-        chip.style.opacity = "0.4";
-      });
-
-      chip.addEventListener("dragend", () => {
-        chip.style.opacity = "1";
-        listEl.querySelectorAll(".drag-dish-chip").forEach((c) => c.style.borderColor = "var(--border)");
-      });
-
-      chip.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        chip.style.borderColor = "var(--accent)";
-      });
-
-      chip.addEventListener("dragleave", () => {
-        chip.style.borderColor = "var(--border)";
-      });
-
-      chip.addEventListener("drop", (e) => {
-        e.preventDefault();
-        chip.style.borderColor = "var(--border)";
-        const targetIdx = Number(chip.dataset.index);
-        if (draggedIdx !== null && draggedIdx !== targetIdx) {
-          const item = d.menuSelections.splice(draggedIdx, 1)[0];
-          d.menuSelections.splice(targetIdx, 0, item);
-          renderDragDropList();
-          renderCart();
-          toast("Menu dish order updated.", "info");
-        }
-      });
-    });
-
-    listEl.querySelectorAll(".btn-move-drag-dish").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const curIdx = Number(btn.dataset.index);
-        const dir = Number(btn.dataset.dir);
-        const newIdx = curIdx + dir;
-        if (newIdx >= 0 && newIdx < d.menuSelections.length) {
-          const item = d.menuSelections.splice(curIdx, 1)[0];
-          d.menuSelections.splice(newIdx, 0, item);
-          renderDragDropList();
-          renderCart();
-        }
-      });
-    });
-
-    listEl.querySelectorAll(".btn-remove-drag-dish").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const remIdx = Number(btn.dataset.index);
-        const removed = d.menuSelections.splice(remIdx, 1)[0];
-        if (removed) {
-          const cardEl = card.querySelector(`.select-card[data-item-id="${removed.menu_item_id}"]`);
-          if (cardEl) {
-            cardEl.classList.remove("selected");
-            cardEl.querySelector(".item-check-badge").innerHTML = icon("plus");
-          }
-        }
-        updateCounts();
-        renderDragDropList();
-        renderCart();
-      });
-    });
-  }
-
   function updateCounts() {
     const counts = {};
     for (const m of d.menuSelections) counts[m.category] = (counts[m.category] || 0) + 1;
@@ -1359,6 +1516,7 @@ async function renderStepMenu(card) {
       }
     }
   }
+  window._updateStep3Counts = updateCounts;
 
   const goNextStep = () => { wizard.step = 4; render(); };
   const topNextBtn = card.querySelector("#sticky-next-btn-top");
@@ -1379,7 +1537,6 @@ async function renderStepMenu(card) {
         el.querySelector(".item-check-badge").innerHTML = icon("plus");
       }
       updateCounts();
-      renderDragDropList();
       renderCart();
     });
   });
@@ -1409,13 +1566,11 @@ async function renderStepMenu(card) {
           }
         }
         updateCounts();
-        renderDragDropList();
         renderCart();
       });
     });
   });
   updateCounts();
-  renderDragDropList();
 
   footer(
     window.innerWidth < 640
@@ -1471,34 +1626,73 @@ function renderStepAddons(card) {
     <div id="charge-list"></div>
   `;
 
+  function updateUpsellButtons() {
+    card.querySelectorAll("[data-upsell]").forEach((btn) => {
+      const idx = Number(btn.dataset.upsell);
+      const u = UPSELLS[idx];
+      if (!u) return;
+      const isSelected = d.additionalCharges.some((c) => c.description === u.name);
+      if (isSelected) {
+        btn.className = "btn btn-danger-outline";
+        btn.style.padding = "8px 16px";
+        btn.style.fontWeight = "700";
+        btn.innerHTML = `${icon("trash")} Remove`;
+      } else {
+        btn.className = "btn btn-secondary";
+        btn.style.padding = "8px 16px";
+        btn.style.fontWeight = "";
+        btn.innerHTML = `${icon("plus")} Add`;
+      }
+    });
+  }
+
   function renderChargeList() {
     const list = card.querySelector("#charge-list");
     list.innerHTML = d.additionalCharges.map((c, i) => `
       <div class="card card-elevated" style="display:flex; justify-content:space-between; align-items:center; padding:12px 18px; margin-bottom:8px;">
-        <span style="font-weight:600;">${escapeHtml(c.description)}</span>
+        <div>
+          <span style="font-weight:700; font-size:14px; color:var(--text);">${escapeHtml(c.description)}</span>
+          <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-top:2px;">Event Add-on / Charge</div>
+        </div>
         <div style="display:flex; align-items:center; gap:12px;">
-          <span style="font-weight:700; color:var(--gold);">${peso(c.amount)}</span>
-          <button class="icon-btn icon-btn-danger" data-remove="${i}" style="width:32px; height:32px;">${icon("trash")}</button>
+          <span style="font-weight:800; color:var(--gold); font-size:14.5px;">${peso(c.amount)}</span>
+          <button class="btn btn-ghost" data-remove="${i}" style="color:var(--danger); border-color:var(--danger); font-size:12px; padding:4px 10px; display:inline-flex; align-items:center; gap:4px;" title="Remove this add-on">
+            ${icon("trash")} Remove
+          </button>
         </div>
       </div>
-    `).join("") || `<p style="color:var(--text-muted); padding:10px;">No additional charges applied.</p>`;
+    `).join("") || `<p style="color:var(--text-muted); padding:10px;">No additional charges applied. Tap "Add" above or enter a custom charge.</p>`;
     
     list.querySelectorAll("[data-remove]").forEach((el) => {
       el.addEventListener("click", () => {
         d.additionalCharges.splice(Number(el.dataset.remove), 1);
         renderChargeList();
+        updateUpsellButtons();
         renderCart();
       });
     });
   }
   renderChargeList();
+  updateUpsellButtons();
+
+  window._updateStep4Addons = () => {
+    renderChargeList();
+    updateUpsellButtons();
+  };
 
   card.querySelectorAll("[data-upsell]").forEach((el) => {
     el.addEventListener("click", () => {
       const u = UPSELLS[Number(el.dataset.upsell)];
-      d.additionalCharges.push({ description: u.name, amount: u.price });
-      toast(`Added ${u.name}`, "success");
+      const existIdx = d.additionalCharges.findIndex((c) => c.description === u.name);
+      if (existIdx !== -1) {
+        d.additionalCharges.splice(existIdx, 1);
+        toast(`Removed ${u.name}`, "info");
+      } else {
+        d.additionalCharges.push({ description: u.name, amount: u.price });
+        toast(`Added ${u.name}`, "success");
+      }
       renderChargeList();
+      updateUpsellButtons();
       renderCart();
     });
   });
@@ -1511,6 +1705,7 @@ function renderStepAddons(card) {
     card.querySelector("#charge-desc").value = "";
     card.querySelector("#charge-amount").value = "";
     renderChargeList();
+    updateUpsellButtons();
     renderCart();
   });
 
@@ -1753,6 +1948,7 @@ function renderStepPreview(card) {
           venue: d.event.venue,
           occasion: d.event.occasion,
           pax: d.event.pax,
+          motif: d.event.motif || "Standard",
           package_id: d.package.id,
           base_total: d.package.baseTotal,
           menu_selections: d.menuSelections,

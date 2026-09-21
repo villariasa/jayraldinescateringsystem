@@ -992,6 +992,12 @@ async function renderStepPackage(card) {
         <input type="text" class="form-control" id="e-venue-street" placeholder="e.g. Grand Ballroom, 4th Floor, Skyline Hotel (or To be followed)" value="${escapeHtml(d.event.venueStreet || "")}">
       </div>
     </div>
+    <div class="form-group">
+      <label>🎨 Theme &amp; Motif</label>
+      <input type="text" class="form-control" id="e-motif" placeholder="e.g. Rose Gold &amp; Ivory, Black &amp; White Elegance, Garden Green…" value="${escapeHtml(d.event.motif || "")}">
+      <span style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">Type the event's color theme or motif. This will appear on the official receipt.</span>
+    </div>
+
 
     <h3 style="margin:24px 0 12px; font-size:16px;">Select a Buffet Package</h3>
     <div class="kiosk-grid" id="pkg-grid">
@@ -1258,6 +1264,7 @@ async function renderStepPackage(card) {
     d.event.venueCity = (venueCityInput.value || "").trim();
     const venueCombined = [d.event.venueStreet, d.event.venueCity].filter(Boolean).join(", ");
     d.event.venue = venueCombined || "To be followed";
+    d.event.motif = (card.querySelector("#e-motif")?.value || "").trim() || "Standard";
     d.package.pricePerPax = Number(priceInput.value || 0);
     d.package.baseTotal = Number(baseInput.value || 0);
 
@@ -1941,6 +1948,7 @@ function renderStepPreview(card) {
           venue: d.event.venue,
           occasion: d.event.occasion,
           pax: d.event.pax,
+          motif: d.event.motif || "Standard",
           package_id: d.package.id,
           base_total: d.package.baseTotal,
           menu_selections: d.menuSelections,

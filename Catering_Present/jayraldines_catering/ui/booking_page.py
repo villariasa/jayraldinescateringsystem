@@ -2153,22 +2153,33 @@ class BookingPage(QWidget):
             return
         db_id = b.get("db_id")
 
-        from components.color_picker_widget import ColorThemeSelector
+        cur_motif = str(b.get("color_theme") or b.get("motif") or "")
+
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
         dlg = QDialog(self)
-        dlg.setWindowTitle("Select Color Motif")
-        dlg.setMinimumWidth(480)
+        dlg.setWindowTitle("Set Theme & Motif")
+        dlg.setMinimumWidth(440)
         dlg.setModal(True)
         dlg_lay = QVBoxLayout(dlg)
         dlg_lay.setContentsMargins(24, 22, 24, 22)
         dlg_lay.setSpacing(14)
 
-        head = QLabel(f"🎨  Select Color Motif for <b>{b.get('name', ref)}</b>")
+        head = QLabel(f"🎨  Theme &amp; Motif for <b>{b.get('name', ref)}</b>")
         head.setStyleSheet("font-size: 13.5px; font-weight: 600;")
+        head.setTextFormat(Qt.RichText)
         dlg_lay.addWidget(head)
 
-        cur_c = str(b.get("color_theme") or b.get("color") or "#2563EB")
-        picker = ColorThemeSelector(initial_color=cur_c)
-        dlg_lay.addWidget(picker)
+        hint = QLabel("Type the event's color theme or motif (e.g. Rose Gold &amp; Ivory, Black &amp; White Elegance).")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("font-size: 11.5px; color: #64748B;")
+        hint.setTextFormat(Qt.RichText)
+        dlg_lay.addWidget(hint)
+
+        motif_input = QLineEdit()
+        motif_input.setPlaceholderText("e.g. Rose Gold & Ivory, Garden Green, Black & White Elegance…")
+        motif_input.setText(cur_motif)
+        motif_input.setMinimumHeight(36)
+        dlg_lay.addWidget(motif_input)
 
         btn_box = QHBoxLayout()
         btn_box.addStretch()
@@ -2183,15 +2194,15 @@ class BookingPage(QWidget):
         dlg_lay.addLayout(btn_box)
 
         if dlg.exec() == QDialog.Accepted:
-            new_col = picker.get_color()
+            new_motif = motif_input.text().strip() or "Standard"
             if db_id:
-                repo.update_booking_color_theme(db_id, new_col)
-            b["color_theme"] = new_col
-            b["color"] = new_col
+                repo.update_booking_color_theme(db_id, new_motif)
+            b["color_theme"] = new_motif
+            b["motif"] = new_motif
             self._populate_table()
             app_events().booking_updated.emit()
             app_events().data_changed.emit()
-            success(self, message=f"Color motif updated for {b.get('name', ref)}!")
+            success(self, message=f"Motif updated for {b.get('name', ref)}!")
 
     def _approve_booking(self, ref):
         b = next((x for x in self._bookings if x["id"] == ref), None)
