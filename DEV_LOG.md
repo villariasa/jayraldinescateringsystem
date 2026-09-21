@@ -3328,3 +3328,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Calculated acoustic time-of-flight sound propagation delays (approx. 2.9 ms per meter) for remote outdoor lawn speaker towers.
 - Programmed digital signal processor (DSP) delay lines to 87 ms for satellite speakers located 30 meters from the main altar stage.
 - Eliminated disorienting acoustic echo comb-filtering, providing synchronized, natural vocal intelligibility for all 400 attendees.
+
+### Commissary Raw Seafood Receiving Inspection Protocols (Gills, Odor, Eye Clarity, Temp)
+- Enforced strict intake inspection criteria for fresh tuna, red snapper, and tiger prawns delivered directly from coastal fish markets.
+- Verified bright red gills, ocean-fresh sea aroma, clear convex eyes, and flesh resilience under instant infrared temp checks (<2°C).
+- Rejected supplier batches failing temperature or organoleptic criteria, guaranteeing premium seafood quality for banquet sashimi bars.
