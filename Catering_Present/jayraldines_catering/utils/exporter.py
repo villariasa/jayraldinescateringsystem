@@ -883,18 +883,18 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             "<b>Failure to pay.</b> A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply. (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%.",
             "<b>Consider Food and Liabilities.</b> Any Food and Drinks or any consumables that is NOT prepared by JAYRALDINE SERVICES brought by the client will FREE US ON ANY LIABILITIES due to food poisoning and spoilage. We charge Corkage Fee for bringing outside Food and Drinks. Precise time should be placed in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage."
         ]
-        tc_items = [tc_head, HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=0.15 * cm)]
+        tc_items = [tc_head, HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=0.22 * cm)]
         for term in tc_terms:
             tc_items.append(Paragraph(f"• {term}", ParagraphStyle(
-                "tc_item", fontName="Helvetica", fontSize=7.2, textColor=_C_GRAY, leading=9.2, spaceAfter=2)))
+                "tc_item", fontName="Helvetica", fontSize=9.2, textColor=colors.HexColor("#0F172A"), leading=13.0, spaceAfter=9)))
 
         tc_tbl = Table([[tc_items]], colWidths=[content_w])
         tc_tbl.setStyle(TableStyle([
             ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
         ]))
         story.append(tc_tbl)
 

@@ -422,45 +422,55 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   // ──────────────────────────────────────────────────────────────────────────
   // 4. TERMS AND CONDITIONS CARD
   // ──────────────────────────────────────────────────────────────────────────
-  const termsY = sig2Y + 18;
-  const termsH = 148;
-  drawCard(doc, marginX, termsY, contentW, termsH, drawDocIcon, "TERMS AND CONDITIONS");
+  const pageHeight = 841.89;
+  const footerBottomY = pageHeight - 32; // ~810 pt
+  const idealFooterDividerY = footerBottomY - 66; // ~744 pt
 
-  let tY = termsY + 28;
+  const termsY = sig2Y + 16;
   const termsList = [
-    {
-      bullet: "The client shall pay 50% downpayment upon reservation of booking and shall pay the full amount 3 days before the date of the event."
-    },
-    {
-      bullet: "Mode of payment. The client shall personally pay in Cash for the downpayment and full payment. If cash is not available, the client can also pay through Bank Transfer or Gcash."
-    },
-    {
-      bullet: "Failure to pay. A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply. (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%."
-    },
-    {
-      bullet: "Consider Food and Liabilities. Any Food and Drinks or any consumables that is NOT prepared by JAYRALDINE SERVICES brought by the client will FREE US ON ANY LIABILITIES due to food poisoning and spoilage. We charge Corkage Fee for bringing outside Food and Drinks. Precise time should be placed in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage."
-    }
+    "The client shall pay 50% downpayment upon reservation of booking and shall pay the full amount 3 days before the date of the event.",
+    "Mode of payment. The client shall personally pay in Cash for the downpayment and full payment. If cash is not available, the client can also pay through Bank Transfer or Gcash.",
+    "Failure to pay. A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply. (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%.",
+    "Consider Food and Liabilities. Any Food and Drinks or any consumables that is NOT prepared by JAYRALDINE SERVICES brought by the client will FREE US ON ANY LIABILITIES due to food poisoning and spoilage. We charge Corkage Fee for bringing outside Food and Drinks. Precise time should be placed in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage."
   ];
 
-  doc.setFontSize(7.5);
-  for (const item of termsList) {
+  const termFontSize = 9.8;
+  const termLineH = 13.8;
+  doc.setFontSize(termFontSize);
+
+  let totalLinesCount = 0;
+  const splitTerms = termsList.map(t => {
+    const lines = doc.splitTextToSize(t, contentW - 28);
+    totalLinesCount += lines.length;
+    return lines;
+  });
+
+  const availableTermsH = idealFooterDividerY - termsY - 14;
+  const textOnlyH = totalLinesCount * termLineH;
+  // Dynamically distribute paragraph spacing so the 4 terms cater the available space evenly
+  const termParaGap = Math.min(18, Math.max(8, (availableTermsH - 32 - textOnlyH) / 3));
+  const termsH = Math.max(160, 32 + textOnlyH + 3 * termParaGap);
+
+  drawCard(doc, marginX, termsY, contentW, termsH, drawDocIcon, "TERMS AND CONDITIONS");
+
+  let tY = termsY + 26;
+  for (let i = 0; i < splitTerms.length; i++) {
+    const lines = splitTerms[i];
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(15, 23, 42); // Black (was red)
+    doc.setFontSize(termFontSize);
+    doc.setTextColor(15, 23, 42); // Black
     doc.text("•", marginX + 8, tY);
 
     doc.setFont("helvetica", "normal");
     doc.setTextColor(15, 23, 42); // Black
-    const lines = doc.splitTextToSize(item.bullet, contentW - 24);
     doc.text(lines, marginX + 18, tY);
-    tY += lines.length * 9.5 + 4;
+    tY += lines.length * termLineH + (i < splitTerms.length - 1 ? termParaGap : 0);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
   // 5. FOOTER BANNER (Pinned to bottom of A4 page)
   // ──────────────────────────────────────────────────────────────────────────
-  const pageHeight = 841.89;
-  const footerBottomY = pageHeight - 32; // ~810 pt
-  const footerDividerY = Math.max(termsY + termsH + 14, footerBottomY - 66); // ~744 pt
+  const footerDividerY = Math.max(termsY + termsH + 14, idealFooterDividerY);
   doc.setDrawColor(220, 38, 38);
   doc.setLineWidth(1.2);
   doc.line(marginX, footerDividerY, rightX, footerDividerY);
