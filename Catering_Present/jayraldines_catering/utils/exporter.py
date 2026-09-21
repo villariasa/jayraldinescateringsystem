@@ -636,8 +636,8 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         def _card_header(icon_name: str, title: str):
             icon_file = os.path.join(icons_dir, f"icon_{icon_name}.png")
             img_tag = f"<img src='{icon_file}' width='10' height='10' valign='bottom'/>  " if os.path.exists(icon_file) else ""
-            return Paragraph(f"<b>{img_tag}<font color='#DC2626'>{title}</font></b>", ParagraphStyle(
-                f"h_{icon_name}", fontName="Helvetica-Bold", fontSize=8.5, leading=11, textColor=colors.HexColor("#DC2626")))
+            return Paragraph(f"<b>{img_tag}<font color='#0F172A'>{title}</font></b>", ParagraphStyle(
+                f"h_{icon_name}", fontName="Helvetica-Bold", fontSize=8.5, leading=11, textColor=_C_DARK))
 
         # ── 1. HEADER (UPPER SECTION) ─────────────────────────────────────
         logo_cell = ""
@@ -659,10 +659,10 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         rcpt_no = inv.get("invoice") or inv.get("invoice_ref") or booking_detail.get("ref") or booking_detail.get("booking_ref") or "TB-00001-69215"
         today_str = _dt_datetime.now().strftime("%B %d, %Y")
         hdr_meta_p = [
-            Paragraph(f"<font color='#64748B'>ORDER REF:</font>  <b><font color='#0F172A'>{rcpt_no}</font></b>", ParagraphStyle(
-                "h_meta1", fontName="Helvetica", fontSize=8.5, alignment=TA_RIGHT, leading=12)),
-            Paragraph(f"<font color='#64748B'>DATE ISSUED:</font>  <font color='#0F172A'>{today_str}</font>", ParagraphStyle(
-                "h_meta2", fontName="Helvetica", fontSize=8, alignment=TA_RIGHT, leading=12)),
+            Paragraph(f"ORDER REF:  <b>{rcpt_no}</b>", ParagraphStyle(
+                "h_meta1", fontName="Helvetica", fontSize=8.5, textColor=_C_DARK, alignment=TA_RIGHT, leading=12)),
+            Paragraph(f"DATE ISSUED:  {today_str}", ParagraphStyle(
+                "h_meta2", fontName="Helvetica", fontSize=8, textColor=_C_DARK, alignment=TA_RIGHT, leading=12)),
         ]
 
         if logo_cell:
@@ -757,8 +757,8 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         c3_rows = [
             [c3_head, ""],
             [Paragraph("<b>Total Amount:</b>", styles["DetailLabel"]), Paragraph(f"<b>PHP {total:,.2f}</b>", ParagraphStyle("ft", fontName="Helvetica-Bold", fontSize=9, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
-            [Paragraph("<b>Downpayment:</b>", styles["DetailLabel"]), Paragraph(f"PHP {down_payment:,.2f} <font color='#64748B'>({pay_mode} - {status})</font>", ParagraphStyle("fd", fontName="Helvetica", fontSize=8.5, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
-            [Paragraph("<b><font color='#DC2626'>Balance Due:</font></b>", styles["DetailLabel"]), Paragraph(f"<b><font color='#DC2626'>PHP {balance:,.2f}</font></b>", ParagraphStyle("fb", fontName="Helvetica-Bold", fontSize=9.5, textColor=colors.HexColor("#DC2626"), alignment=TA_RIGHT, leading=11))],
+            [Paragraph("<b>Downpayment:</b>", styles["DetailLabel"]), Paragraph(f"PHP {down_payment:,.2f} ({pay_mode} - {status})", ParagraphStyle("fd", fontName="Helvetica", fontSize=8.5, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
+            [Paragraph("<b>Balance Due:</b>", styles["DetailLabel"]), Paragraph(f"<b>PHP {balance:,.2f}</b>", ParagraphStyle("fb", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
         ]
         c3_tbl = Table(c3_rows, colWidths=[2.6 * cm, half_w - 2.6 * cm])
         c3_tbl.setStyle(TableStyle([
@@ -781,10 +781,10 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         c4_content = [
             c4_head,
             HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=0.15 * cm),
-            Paragraph(f"<b><font color='#BE123C'>PACKAGE: {str(pkg_name).upper()}</font></b>", ParagraphStyle(
-                "r_pkg", fontName="Helvetica-Bold", fontSize=10, textColor=colors.HexColor("#BE123C"), leading=12)),
+            Paragraph(f"<b>PACKAGE: {str(pkg_name).upper()}</b>", ParagraphStyle(
+                "r_pkg", fontName="Helvetica-Bold", fontSize=10, textColor=_C_DARK, leading=12)),
             Paragraph(f"Good for {pax} person(s)  ·  Base: PHP {base_tot:,.2f}", ParagraphStyle(
-                "r_pkg_sub", fontName="Helvetica", fontSize=8.5, textColor=colors.HexColor("#64748B"), leading=11, spaceAfter=4)),
+                "r_pkg_sub", fontName="Helvetica", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=4)),
             Paragraph("<b>MENU:</b>", ParagraphStyle(
                 "r_menu_h", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK, leading=12, spaceAfter=2)),
         ]

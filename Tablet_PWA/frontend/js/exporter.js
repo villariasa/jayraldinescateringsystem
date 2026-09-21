@@ -120,7 +120,7 @@ function drawCard(doc, x, y, w, h, iconDrawer, titleText) {
   // Header Title
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.5);
-  doc.setTextColor(220, 38, 38); // Red 600
+  doc.setTextColor(15, 23, 42); // Black
   doc.text(titleText, x + (iconDrawer ? 22 : 8), y + 13.5);
 
   // Divider line under header
@@ -178,14 +178,14 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
-  doc.setTextColor(100, 116, 139); // Slate 500
+  doc.setTextColor(15, 23, 42); // Black
   doc.text("ORDER REF:", rightX - 90, headerTopY + 18, { align: "right" });
   doc.setFont("helvetica", "bold");
   doc.setTextColor(15, 23, 42);
   doc.text(String(bookingRef), rightX, headerTopY + 18, { align: "right" });
 
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(100, 116, 139);
+  doc.setTextColor(15, 23, 42); // Black
   doc.text("DATE ISSUED:", rightX - 90, headerTopY + 32, { align: "right" });
   doc.setFont("helvetica", "normal");
   doc.setTextColor(15, 23, 42);
@@ -304,7 +304,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   c3y += 15;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.5);
-  doc.setTextColor(220, 38, 38);
+  doc.setTextColor(15, 23, 42); // Black
   doc.text("Balance Due:", marginX + 8, c3y);
   doc.setFontSize(9);
   doc.text(peso(balance), marginX + leftColW - 8, c3y, { align: "right" });
@@ -319,13 +319,13 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.setTextColor(190, 18, 60); // Red / Rose 700
+  doc.setTextColor(15, 23, 42); // Black
   doc.text(`PACKAGE: ${String(pkgName).toUpperCase()}`, rightColX + 8, rY);
 
   rY += 13;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
-  doc.setTextColor(71, 85, 105);
+  doc.setTextColor(15, 23, 42); // Black
   doc.text(`Good for ${pax} person(s)   ·   Base: ${peso(baseTotal)}`, rightColX + 8, rY);
 
   rY += 16;
@@ -445,11 +445,11 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   doc.setFontSize(7.5);
   for (const item of termsList) {
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(220, 38, 38);
+    doc.setTextColor(15, 23, 42); // Black (was red)
     doc.text("•", marginX + 8, tY);
 
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(30, 41, 59); // Slate 800
+    doc.setTextColor(15, 23, 42); // Black
     const lines = doc.splitTextToSize(item.bullet, contentW - 24);
     doc.text(lines, marginX + 18, tY);
     tY += lines.length * 9.5 + 4;
