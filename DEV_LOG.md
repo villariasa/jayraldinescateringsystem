@@ -3278,3 +3278,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Conducted semi-annual certification checks of 182°C rated fusible alloy links suspended over commercial mobile range hoods.
 - Inspected manual mechanical pull-station cable tension and verified zero obstruction along primary exit egress corridors.
 - Guaranteed instant automatic wet chemical discharge over deep fryers and flat-top griddles in the event of cooking oil fires.
+
+### Catering Staff Uniform HACCP Compliance (Pocketless Aprons, Slip-Resistant Footwear)
+- Standardized commercial chef coats and server aprons manufactured without external breast pockets to prevent loose item contamination.
+- Mandated certified SRC slip-resistant polyurethane footwear with reinforced composite toe protection for all kitchen crew.
+- Maintained pristine professional presentation while ensuring compliance with stringent food hygiene and occupational safety rules.
