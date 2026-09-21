@@ -323,26 +323,26 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   const baseTotal = Number(order.base_total || order.bk_base_total || total);
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
+  doc.setFontSize(10);
   doc.setTextColor(190, 18, 60); // Red / Rose 700
   doc.text(`PACKAGE: ${String(pkgName).toUpperCase()}`, rightColX + 8, rY);
 
-  rY += 12;
+  rY += 13;
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
+  doc.setFontSize(8.5);
   doc.setTextColor(71, 85, 105);
   doc.text(`Good for ${pax} person(s)   ·   Base: ${peso(baseTotal)}`, rightColX + 8, rY);
 
   rY += 16;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
+  doc.setFontSize(9.5);
   doc.setTextColor(15, 23, 42);
   doc.text("MENU:", rightColX + 8, rY);
 
-  rY += 13;
+  rY += 14;
   const menuSelections = order.menu_selections || order.menu_items || [];
   if (menuSelections && menuSelections.length > 0) {
-    doc.setFontSize(7.8);
+    doc.setFontSize(9);
     const maxItems = Math.min(menuSelections.length, 9);
     for (let i = 0; i < maxItems; i++) {
       const itm = menuSelections[i];
@@ -356,12 +356,12 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
 
       const fullText = `${itmName}${catText}`;
       const lines = doc.splitTextToSize(fullText, rightColW - 24);
-      doc.text(lines[0] || "", rightColX + 20, rY);
-      rY += 12;
+      doc.text(lines[0] || "", rightColX + 22, rY);
+      rY += 13;
     }
   } else {
     doc.setFont("helvetica", "italic");
-    doc.setFontSize(7.5);
+    doc.setFontSize(8.5);
     doc.setTextColor(100, 116, 139);
     doc.text("Standard package inclusions.", rightColX + 20, rY);
     rY += 13;
@@ -371,13 +371,13 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   const charges = order.additional_charges || [];
   rY = Math.max(rY + 4, startY + 265);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
+  doc.setFontSize(9.5);
   doc.setTextColor(15, 23, 42);
   doc.text("ADD-ONS & EXTRAS:", rightColX + 8, rY);
 
   rY += 13;
   if (charges && charges.length > 0) {
-    doc.setFontSize(8);
+    doc.setFontSize(8.8);
     const maxCharges = Math.min(charges.length, 3);
     for (let i = 0; i < maxCharges; i++) {
       const c = charges[i];
@@ -394,7 +394,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
     }
   } else {
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
+    doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
     doc.text("• None specified.", rightColX + 8, rY);
   }

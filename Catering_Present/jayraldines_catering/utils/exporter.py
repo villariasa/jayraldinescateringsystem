@@ -783,11 +783,11 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             c4_head,
             HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=0.15 * cm),
             Paragraph(f"<b><font color='#BE123C'>PACKAGE: {str(pkg_name).upper()}</font></b>", ParagraphStyle(
-                "r_pkg", fontName="Helvetica-Bold", fontSize=9, textColor=colors.HexColor("#BE123C"), leading=11)),
+                "r_pkg", fontName="Helvetica-Bold", fontSize=10, textColor=colors.HexColor("#BE123C"), leading=12)),
             Paragraph(f"Good for {pax} person(s)  ·  Base: PHP {base_tot:,.2f}", ParagraphStyle(
-                "r_pkg_sub", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#64748B"), leading=10, spaceAfter=4)),
+                "r_pkg_sub", fontName="Helvetica", fontSize=8.5, textColor=colors.HexColor("#64748B"), leading=11, spaceAfter=4)),
             Paragraph("<b>MENU:</b>", ParagraphStyle(
-                "r_menu_h", fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=2)),
+                "r_menu_h", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK, leading=12, spaceAfter=2)),
         ]
 
         dishes = booking_detail.get("selected_dishes") or booking_detail.get("dishes") or []
@@ -798,26 +798,26 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
                 d_cat = f" <font color='#64748B'>({d.get('category', '')})</font>" if isinstance(d, dict) and d.get("category") else ""
                 d_lines.append(f"<b>{i}.</b> {d_nm}{d_cat}")
             c4_content.append(Paragraph("<br/>".join(d_lines), ParagraphStyle(
-                "r_menu_l", fontName="Helvetica", fontSize=8, textColor=_C_DARK, leading=11)))
+                "r_menu_l", fontName="Helvetica", fontSize=9, textColor=_C_DARK, leading=12.5)))
         else:
             c4_content.append(Paragraph("<i>Standard package inclusions.</i>", ParagraphStyle(
-                "r_menu_none", fontName="Helvetica-Oblique", fontSize=8, textColor=_C_MUTED, leading=10)))
+                "r_menu_none", fontName="Helvetica-Oblique", fontSize=8.5, textColor=_C_MUTED, leading=11)))
 
         # Add-ons & Inclusions
         num_dishes = len(dishes) if dishes else 0
         if charges:
-            addon_spacer = max(0.2 * cm, 3.2 * cm - (num_dishes * 0.28 * cm))
+            addon_spacer = max(0.15 * cm, 2.5 * cm - (num_dishes * 0.22 * cm))
             c4_content.append(Spacer(1, addon_spacer))
             c4_content.append(Paragraph("<b>ADD-ONS &amp; EXTRAS:</b>", ParagraphStyle(
-                "r_chg_h", fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=2)))
+                "r_chg_h", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK, leading=12, spaceAfter=2)))
             addon_rows = []
             for c in charges:
                 desc = c.get('description', 'Extra')
                 amt = float(c.get('amount', 0))
                 amt_str = f"+PHP {amt:,.2f}" if amt >= 0 else f"-PHP {abs(amt):,.2f}"
                 addon_rows.append([
-                    Paragraph(f"• {desc}:", ParagraphStyle("ad_lbl", fontName="Helvetica", fontSize=8, textColor=_C_DARK, leading=10)),
-                    Paragraph(f"<b>{amt_str}</b>", ParagraphStyle("ad_val", fontName="Helvetica-Bold", fontSize=8, textColor=_C_DARK, alignment=TA_RIGHT, leading=10))
+                    Paragraph(f"• {desc}:", ParagraphStyle("ad_lbl", fontName="Helvetica", fontSize=8.8, textColor=_C_DARK, leading=11)),
+                    Paragraph(f"<b>{amt_str}</b>", ParagraphStyle("ad_val", fontName="Helvetica-Bold", fontSize=8.8, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))
                 ])
             addon_tbl = Table(addon_rows, colWidths=[half_w - 3.2 * cm, 2.8 * cm])
             addon_tbl.setStyle(TableStyle([
@@ -829,7 +829,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             ]))
             c4_content.append(addon_tbl)
         else:
-            addon_spacer = max(0.4 * cm, 3.8 * cm - (num_dishes * 0.28 * cm))
+            addon_spacer = max(0.3 * cm, 3.0 * cm - (num_dishes * 0.22 * cm))
             c4_content.append(Spacer(1, addon_spacer))
 
         c4_tbl = Table([[c4_content]], colWidths=[half_w])
