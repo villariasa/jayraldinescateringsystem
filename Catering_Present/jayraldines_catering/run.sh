@@ -1,23 +1,33 @@
 #!/usr/bin/env bash
 cd "$(dirname "$(readlink -f "$0")")"
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-PYSTAND="$HOME/.local/pystand/bin/python3"
-PYTHON="$PYSTAND"
+if [ -x "$HOME/.local/pystand/bin/python3" ]; then
+    PYTHON="$HOME/.local/pystand/bin/python3"
+elif [ -x "$HOME/miniconda3/envs/catering_env/bin/python" ]; then
+    PYTHON="$HOME/miniconda3/envs/catering_env/bin/python"
+elif [ -n "${CONDA_PREFIX:-}" ] && [ -x "$CONDA_PREFIX/bin/python" ]; then
+    PYTHON="$CONDA_PREFIX/bin/python"
+else
+    PYTHON="$(command -v python3)"
+fi
 
-export DB_ENGINE=postgres
-export DB_HOST=localhost
-export DB_PORT=5432
-export DB_NAME=jayraldines_catering
-export DB_USER=villarias
-export DB_PASSWORD=12345678
+# Default to SQLite using the shared ~/.jayraldines_catering/data/catering.db database
+export DB_ENGINE="${DB_ENGINE:-sqlite}"
+export DB_HOST="${DB_HOST:-localhost}"
+export DB_PORT="${DB_PORT:-5432}"
+export DB_NAME="${DB_NAME:-jayraldines_catering}"
+export DB_USER="${DB_USER:-villarias}"
+export DB_PASSWORD="${DB_PASSWORD:-12345678}"
 
-# Start PostgreSQL if not running
-PG_CTL_BIN="pg_ctl"
-PG_DATA_DIR="/home/villarias/.local/pgsql_data"
-if [ -f "$PG_CTL_BIN" ] && ! "$PG_CTL_BIN" status -D "$PG_DATA_DIR" &>/dev/null; then
-    echo "Starting PostgreSQL..."
-    "$PG_CTL_BIN" start -D "$PG_DATA_DIR" -l "$PG_DATA_DIR/logfile.log" -w &>/dev/null
-    sleep 1
+# Start PostgreSQL only if explicitly requested
+if [ "$DB_ENGINE" = "postgres" ]; then
+    PG_CTL_BIN="/home/villarias/pgsql/bin/pg_ctl"
+    PG_DATA_DIR="/home/villarias/.local/pgsql_data"
+    if [ -x "$PG_CTL_BIN" ] && ! "$PG_CTL_BIN" status -D "$PG_DATA_DIR" &>/dev/null; then
+        echo "Starting PostgreSQL..."
+        "$PG_CTL_BIN" start -D "$PG_DATA_DIR" -l "$PG_DATA_DIR/logfile.log" -w &>/dev/null
+        sleep 1
+    fi
 fi
 
 # Set up xcb lib path

@@ -1021,7 +1021,22 @@ function _getSyncBaseUrls(host, port = 8000) {
   const defaultHost = (typeof window !== "undefined" && window.location && window.location.hostname && !window.location.origin.startsWith("file:"))
     ? window.location.hostname
     : "127.0.0.1";
-  urls.push(`http://${defaultHost}:${targetPort}`);
+  const defaultTarget = `http://${defaultHost}:${targetPort}`;
+  if (!urls.includes(defaultTarget)) urls.push(defaultTarget);
+
+  // When running in a browser over HTTP/HTTPS, also allow the origin itself (port 8080) as a direct candidate
+  if (typeof window !== "undefined" && window.location && window.location.origin && !window.location.origin.startsWith("file:")) {
+    const originUrl = window.location.origin.replace(/\/+$/, "");
+    if (!urls.includes(originUrl)) {
+      urls.push(originUrl);
+    }
+  }
+
+  // Always include direct localhost and 127.0.0.1 on target sync port (8000) for seamless local testing
+  for (const lh of ["127.0.0.1", "localhost"]) {
+    const localTarget = `http://${lh}:${targetPort}`;
+    if (!urls.includes(localTarget)) urls.push(localTarget);
+  }
 
   return urls;
 }
