@@ -3263,3 +3263,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Standardized a minimum 100 mm bed depth of flaked crushed ice in drop-in cold buffet tables for seafood and salad pans.
 - Ensured stainless steel insert pan food zones sit recessed below the ambient air boundary layer for optimal thermal conduction.
 - Maintained raw shellfish, shrimp cocktail, and gourmet pasta salads below 4°C throughout a 3-hour self-service luncheon.
+
+### Commissary Spice Dry Storage Climate-Controlled Relative Humidity (<60% RH) Tracking
+- Installed continuous IoT hygrometer sensors monitoring relative humidity in bulk seasoning and dry spice warehousing rooms.
+- Regulated industrial refrigeration dehumidifiers to maintain dry ambient storage (<60% RH and 20°C) to prevent caking and mold.
+- Preserved pungent volatile aroma compounds in high-value saffron, smoked paprika, black pepper, and whole vanilla beans.
