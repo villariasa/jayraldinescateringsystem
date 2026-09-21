@@ -3323,3 +3323,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Executed real-time UHF spectrum scans (470-608 MHz) with software analyzers to detect localized digital TV and Wi-Fi interference.
 - Calculated intermodulation-free wireless frequency distribution groups across 8 handheld mics and 4 beltpack transmitters.
 - Ensured drop-out free, interference-free audio coverage during critical wedding vows and corporate CEO keynote speeches.
+
+### Wedding Ceremony Audio Feed Latency Delay Compensation for Outdoor Secondary Speakers
+- Calculated acoustic time-of-flight sound propagation delays (approx. 2.9 ms per meter) for remote outdoor lawn speaker towers.
+- Programmed digital signal processor (DSP) delay lines to 87 ms for satellite speakers located 30 meters from the main altar stage.
+- Eliminated disorienting acoustic echo comb-filtering, providing synchronized, natural vocal intelligibility for all 400 attendees.
