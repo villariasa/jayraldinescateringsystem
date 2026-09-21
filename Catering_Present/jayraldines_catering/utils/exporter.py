@@ -28,11 +28,26 @@ try:
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        HRFlowable, Image, KeepTogether
+        HRFlowable, Image, KeepTogether, Flowable
     )
     REPORTLAB_OK = True
+
+    class FillBottomSpacer(Flowable):
+        """Pushes subsequent flowables (footer banner) down to the bottom margin of the page."""
+        def __init__(self, footer_height):
+            super().__init__()
+            self.footer_height = footer_height
+
+        def wrap(self, availWidth, availHeight):
+            space = max(0.15 * cm, availHeight - self.footer_height)
+            self.height = space
+            return availWidth, space
+
+        def draw(self):
+            pass
 except ImportError:
     REPORTLAB_OK = False
+    FillBottomSpacer = None
 
 try:
     import openpyxl
@@ -884,8 +899,8 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         ]))
         story.append(tc_tbl)
 
-        # ── 4. FOOTER BANNER ──────────────────────────────────────────────
-        story.append(Spacer(1, 0.12 * cm))
+        # ── 4. FOOTER BANNER (Pinned to bottom of A4 page) ────────────────
+        story.append(FillBottomSpacer(footer_height=2.8 * cm) if FillBottomSpacer else Spacer(1, 0.12 * cm))
         story.append(HRFlowable(width="100%", thickness=1.2, color=colors.HexColor("#DC2626"), spaceAfter=0.12 * cm))
 
         # Megaphone line (Centered)

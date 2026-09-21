@@ -461,14 +461,16 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // 5. FOOTER BANNER
+  // 5. FOOTER BANNER (Pinned to bottom of A4 page)
   // ──────────────────────────────────────────────────────────────────────────
-  const footerDividerY = termsY + termsH + 12;
+  const pageHeight = 841.89;
+  const footerBottomY = pageHeight - 32; // ~810 pt
+  const footerDividerY = Math.max(termsY + termsH + 14, footerBottomY - 66); // ~744 pt
   doc.setDrawColor(220, 38, 38);
   doc.setLineWidth(1.2);
   doc.line(marginX, footerDividerY, rightX, footerDividerY);
 
-  let fY = footerDividerY + 12;
+  let fY = footerDividerY + 13;
   drawMegaphoneIcon(doc, centerX - 188, fY - 7);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
@@ -481,14 +483,14 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   doc.setTextColor(30, 41, 59);
   doc.text("Located at 518 Y Rama Ave., Cebu City", centerX, fY, { align: "center" });
 
-  fY += 10;
+  fY += 11;
   doc.text("Please feel free to call us at +63 912 345 6789", centerX, fY, { align: "center" });
 
-  fY += 10;
+  fY += 11;
   doc.text("Find us on Facebook: Jayraldine's Catering Services", centerX, fY, { align: "center" });
 
-  // Bottom 3-item bar with red separator lines
-  fY += 14;
+  // Bottom 3-item bar with red separator lines (pinned at the very bottom)
+  fY += 15;
   const col1W = 165;
   const col2W = 175;
   const col3W = contentW - col1W - col2W; // 195
