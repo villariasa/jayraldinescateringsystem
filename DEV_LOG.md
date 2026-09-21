@@ -3088,3 +3088,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Codified strict fire prevention protocols requiring floating glass votives or hurricane lamp enclosures for all table candles.
 - Treated dried botanical elements and artificial decorative greenery with certified non-toxic flame retardant sprays.
 - Verified adherence to venue municipal fire codes and maintained designated emergency fire watch logs for indoor events.
+
+### Outdoor Wedding Marquee Tent Perimeter Drainage Trenching & Storm Tie-Down Stakes
+- Engineered perimeter stormwater diversion channels on turf gradients to safeguard marquee dining flooring from water ingress.
+- Anchored tent base uprights with 1-meter forged steel spiral earth stakes rated for 85 km/h sustained wind gusts.
+- Installed continuous vulcanized rubber ground skirts ensuring sealed environmental protection during unexpected downpours.
