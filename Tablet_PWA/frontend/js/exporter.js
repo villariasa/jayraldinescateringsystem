@@ -102,6 +102,7 @@ function drawFacebookIcon(doc, x, y) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7);
   doc.text("f", x + 4, y + 7);
+  doc.setTextColor(30, 41, 59); // Restore text color immediately so subsequent text is dark!
 }
 
 function drawCard(doc, x, y, w, h, iconDrawer, titleText) {
@@ -268,8 +269,8 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
     doc.text(lbl, marginX + 8, c2y);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(15, 23, 42);
-    const lines = doc.splitTextToSize(String(val || "—"), leftColW - 90);
-    doc.text(lines[0] || "", marginX + 85, c2y);
+    const lines = doc.splitTextToSize(String(val || "—"), leftColW - 104);
+    doc.text(lines[0] || "", marginX + 96, c2y);
     c2y += 14;
   }
 
@@ -488,15 +489,15 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
 
   // Bottom 3-item bar with red separator lines
   fY += 14;
-  const col1W = 180;
-  const col2W = 185;
-  const col3W = contentW - col1W - col2W; // 170
+  const col1W = 165;
+  const col2W = 175;
+  const col3W = contentW - col1W - col2W; // 195
 
   // Item 1: Address
   drawPinIcon(doc, marginX + 2, fY - 7);
   doc.setFontSize(6.8);
   doc.setTextColor(30, 41, 59);
-  doc.text("Located at 518 Y Rama Ave., Cebu City", marginX + 14, fY);
+  doc.text("Located at 518 Y Rama Ave., Cebu City", marginX + 13, fY);
 
   // Divider 1
   doc.setDrawColor(220, 38, 38);
@@ -504,15 +505,17 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   doc.line(marginX + col1W, fY - 7, marginX + col1W, fY + 2);
 
   // Item 2: Phone
-  drawPhoneIcon(doc, marginX + col1W + 8, fY - 7);
-  doc.text("Please feel free to call us at +63 912 345 6789", marginX + col1W + 20, fY);
+  drawPhoneIcon(doc, marginX + col1W + 6, fY - 7);
+  doc.setTextColor(30, 41, 59);
+  doc.text("Please feel free to call us at +63 912 345 6789", marginX + col1W + 18, fY);
 
   // Divider 2
   doc.line(marginX + col1W + col2W, fY - 7, marginX + col1W + col2W, fY + 2);
 
   // Item 3: Facebook
-  drawFacebookIcon(doc, marginX + col1W + col2W + 8, fY - 7);
-  doc.text("Find us on Facebook: Jayraldine's Catering Services", marginX + col1W + col2W + 20, fY);
+  drawFacebookIcon(doc, marginX + col1W + col2W + 6, fY - 7);
+  doc.setTextColor(30, 41, 59); // Explicitly ensure dark text color!
+  doc.text("Find us on Facebook: Jayraldine's Catering Services", marginX + col1W + col2W + 18, fY);
 
   const filename = `receipt_${order.booking_ref || order.id || "order"}.pdf`;
   if (autoSave) {
