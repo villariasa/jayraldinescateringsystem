@@ -3298,3 +3298,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Equipped outdoor glass dessert display cabinets with dual-stage Peltier thermoelectric cooling modules holding steady at 5°C.
 - Treated display glass panels with UV-reflective solar tinting reducing interior radiant solar heat gain by 78%.
 - Prevented delicate French macarons, chocolate truffles, and butter-cream tarts from melting during daytime garden receptions.
+
+### Mobile Catering Generator Exhaust Pipe Extension & Carbon Monoxide Safety Buffer
+- Fitted 65 kVA silent diesel event generators with vertical 3-meter exhaust stack extensions directing engine fumes above marquee roofs.
+- Enforced a 15-meter minimum separation buffer downwind from all food preparation marquees, HVAC intakes, and guest dining areas.
+- Positioned continuous digital carbon monoxide alarms with audible 85 dBA sirens inside mobile kitchen trailers.
