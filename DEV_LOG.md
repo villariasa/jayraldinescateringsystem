@@ -3083,3 +3083,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Deployed heavy-duty polyurethane multi-channel cable crossovers protecting high-amperage feeder cables along service corridors.
 - Installed gradual 1:12 slope beveled ramp side wings to ensure smooth rolling of catering carts and ADA wheelchair access.
 - Applied high-visibility safety yellow and black contrast striping with textured slip-resistant surfaces for ballroom safety.
+
+### Banquet Table Centerpiece Flame Retardancy Compliance & Open Candle Permits
+- Codified strict fire prevention protocols requiring floating glass votives or hurricane lamp enclosures for all table candles.
+- Treated dried botanical elements and artificial decorative greenery with certified non-toxic flame retardant sprays.
+- Verified adherence to venue municipal fire codes and maintained designated emergency fire watch logs for indoor events.
