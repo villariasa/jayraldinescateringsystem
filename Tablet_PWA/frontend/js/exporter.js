@@ -297,22 +297,17 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   c3y += 14;
   doc.text("Downpayment:", marginX + 8, c3y);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(22, 163, 74); // Green
+  doc.setTextColor(15, 23, 42); // Black (was green)
   doc.text(`${peso(paid)} (${payMode} - ${downpaymentStatus})`, marginX + leftColW - 8, c3y, { align: "right" });
 
-  // Balance Due pink highlight row
-  c3y += 10;
-  doc.setFillColor(255, 241, 242); // Rose 50
-  doc.setDrawColor(254, 205, 211); // Rose 200
-  doc.setLineWidth(0.6);
-  doc.roundedRect(marginX + 2, c3y, leftColW - 4, 24, 3, 3, "FD");
-
+  // Balance Due row - clean without background shade
+  c3y += 15;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.5);
   doc.setTextColor(220, 38, 38);
-  doc.text("Balance Due:", marginX + 8, c3y + 15);
+  doc.text("Balance Due:", marginX + 8, c3y);
   doc.setFontSize(9);
-  doc.text(peso(balance), marginX + leftColW - 8, c3y + 15, { align: "right" });
+  doc.text(peso(balance), marginX + leftColW - 8, c3y, { align: "right" });
 
   // ── RIGHT COLUMN: Card 4 (PACKAGE & MENU)
   const card4H = 310; // Exactly matches 74 + 8 + 142 + 8 + 86 = 318

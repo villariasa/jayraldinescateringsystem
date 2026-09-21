@@ -757,7 +757,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         c3_rows = [
             [c3_head, ""],
             [Paragraph("<b>Total Amount:</b>", styles["DetailLabel"]), Paragraph(f"<b>PHP {total:,.2f}</b>", ParagraphStyle("ft", fontName="Helvetica-Bold", fontSize=9, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
-            [Paragraph("<b>Downpayment:</b>", styles["DetailLabel"]), Paragraph(f"PHP {down_payment:,.2f} <font color='#16A34A'>({pay_mode} - {status})</font>", ParagraphStyle("fd", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#16A34A"), alignment=TA_RIGHT, leading=10))],
+            [Paragraph("<b>Downpayment:</b>", styles["DetailLabel"]), Paragraph(f"PHP {down_payment:,.2f} <font color='#64748B'>({pay_mode} - {status})</font>", ParagraphStyle("fd", fontName="Helvetica", fontSize=8.5, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
             [Paragraph("<b><font color='#DC2626'>Balance Due:</font></b>", styles["DetailLabel"]), Paragraph(f"<b><font color='#DC2626'>PHP {balance:,.2f}</font></b>", ParagraphStyle("fb", fontName="Helvetica-Bold", fontSize=9.5, textColor=colors.HexColor("#DC2626"), alignment=TA_RIGHT, leading=11))],
         ]
         c3_tbl = Table(c3_rows, colWidths=[2.6 * cm, half_w - 2.6 * cm])
@@ -765,7 +765,6 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
             ("SPAN", (0, 0), (1, 0)),
             ("LINEBELOW", (0, 0), (1, 0), 0.5, colors.HexColor("#E2E8F0")),
-            ("BACKGROUND", (0, 3), (-1, 3), colors.HexColor("#FFF1F2")),
             ("TOPPADDING", (0, 0), (-1, -1), 2.5),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
             ("LEFTPADDING", (0, 0), (-1, -1), 4),
