@@ -1264,9 +1264,10 @@ def perform_server_sync(payload: dict) -> dict:
         if not existing_b:
             cust_name = b.get("bk_customer_name") or b.get("customer_name") or "Walk-in Guest"
             addr = b.get("bk_address") or b.get("address") or ""
-            venue = b.get("bk_venue") or b.get("venue") or addr or "TBD / On-Site Venue"
+            venue = b.get("bk_venue") or b.get("venue") or "To be followed"
             ev_date = b.get("bk_event_date") or b.get("event_date") or datetime.now().strftime("%Y-%m-%d")
-            ev_time = b.get("bk_event_time") or b.get("event_time") or "6:00 PM"
+            ev_time = b.get("bk_event_time") or b.get("event_time") or "To be followed"
+            ev_end_time = b.get("bk_event_end_time") or b.get("event_end_time") or None
             occ = b.get("bk_occasion") or b.get("occasion") or "General Event"
             pax = int(b.get("bk_pax") or b.get("pax") or 1)
             total = float(b.get("bk_total_amount") or b.get("total_amount") or 0.0)
@@ -1304,12 +1305,12 @@ def perform_server_sync(payload: dict) -> dict:
                     row = db.fetchone("""
                         INSERT INTO bookings (
                             bk_booking_ref, bk_customer_id, bk_customer_name, bk_contact, bk_email, bk_address,
-                            bk_event_date, bk_event_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
+                            bk_event_date, bk_event_time, bk_event_end_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
                             bk_base_total, bk_payment_mode, bk_amount_paid, bk_down_payment,
                             bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id
                         ) VALUES (
                             %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s,
                             %s, %s::payment_method, %s, %s,
                             %s, %s::booking_status, %s, %s, %s
                         )
@@ -1318,13 +1319,14 @@ def perform_server_sync(payload: dict) -> dict:
                             bk_notes = EXCLUDED.bk_notes,
                             bk_contact = COALESCE(NULLIF(EXCLUDED.bk_contact, ''), bookings.bk_contact),
                             bk_email = COALESCE(NULLIF(EXCLUDED.bk_email, ''), bookings.bk_email),
+                            bk_event_end_time = COALESCE(EXCLUDED.bk_event_end_time, bookings.bk_event_end_time),
                             bk_amount_paid = EXCLUDED.bk_amount_paid,
                             bk_down_payment = EXCLUDED.bk_down_payment,
                             bk_down_payment_status = EXCLUDED.bk_down_payment_status
                         RETURNING bk_id;
                     """, (
                         ref, cust_id, cust_name, cust_contact, cust_email, addr,
-                        ev_date, ev_time, venue, occ, pax, total,
+                        ev_date, ev_time, ev_end_time, venue, occ, pax, total,
                         base_tot, pay_mode, paid, down_pay,
                         dp_status, "PENDING", notes, notes, pkg_id
                     ))
@@ -1334,13 +1336,13 @@ def perform_server_sync(payload: dict) -> dict:
                     db.execute("""
                         INSERT OR REPLACE INTO bookings (
                             bk_booking_ref, bk_customer_id, bk_customer_name, bk_contact, bk_email, bk_address,
-                            bk_event_date, bk_event_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
+                            bk_event_date, bk_event_time, bk_event_end_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
                             bk_base_total, bk_payment_mode, bk_amount_paid, bk_down_payment,
                             bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         ref, cust_id, cust_name, cust_contact, cust_email, addr,
-                        ev_date, ev_time, venue, occ, pax, total,
+                        ev_date, ev_time, ev_end_time, venue, occ, pax, total,
                         base_tot, pay_mode, paid, down_pay,
                         dp_status, "PENDING", notes, notes, pkg_id
                     ))

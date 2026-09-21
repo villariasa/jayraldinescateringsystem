@@ -59,7 +59,7 @@ class PackageMenuSelectionDialog(QDialog):
         title_col.setSpacing(2)
         t_lbl = QLabel(f"🍽️ Menu Selection: {self._pkg_name}")
         t_lbl.setStyleSheet("font-size: 17px; font-weight: 800; color: #E11D48;")
-        p_sub = QLabel(f"Rate: ₱{self._price:,.2f} / pax · Select or customize the dishes to prepare for this order")
+        p_sub = QLabel(f"Rate: ₱{self._price:,.2f} / set · Min set: 1 Set (4 dishes good for 22 person)")
         p_sub.setStyleSheet("font-size: 12px; color: #94A3B8;")
         title_col.addWidget(t_lbl)
         title_col.addWidget(p_sub)

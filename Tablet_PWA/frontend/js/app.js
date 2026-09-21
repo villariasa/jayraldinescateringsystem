@@ -367,12 +367,12 @@ async function openPackagesQuickModal() {
                 <img src="${p.image}" alt="${escapeHtml(p.name)}" style="width:100%; height:100%; object-fit:cover;">
               </div>
             ` : ""}
-            <div class="pkg-badge">Per Guest</div>
+            <div class="pkg-badge">Per Set</div>
             <h3 class="pkg-name">${escapeHtml(p.name)}</h3>
-            <div class="pkg-rate">${peso(p.price_per_pax)}<span class="pkg-unit"> / pax</span></div>
+            <div class="pkg-rate">${peso(p.price_per_pax)}<span class="pkg-unit"> / set</span></div>
             <p class="pkg-desc">${escapeHtml(p.description || "Complete buffet service with setup, tableware and crew.")}</p>
             <div class="pkg-meta">
-              <span>${icon("user")} Minimum ${p.min_pax || 30} pax</span>
+              <span>${icon("user")} Min 1 Set (4 dishes good for 22 person)</span>
             </div>
             <button class="btn btn-primary btn-block select-pkg-start-btn" data-pkg-id="${p.id}" style="margin-top:14px;">
               Select &amp; Start Booking ${icon("arrowRight")}
@@ -1125,7 +1125,7 @@ async function openQuickPackagesModal() {
                   <span style="font-size:12px; font-weight:700; color:var(--text-muted); margin-top:4px;">Buffet Tier</span>
                 </div>
               `}
-              <span class="pill pill-partial" style="position:absolute; top:10px; right:10px; font-size:11px; font-weight:700; box-shadow:var(--shadow-sm);">Min ${p.min_pax || 30} Pax</span>
+              <span class="pill pill-partial" style="position:absolute; top:10px; right:10px; font-size:11px; font-weight:700; box-shadow:var(--shadow-sm);">Min 1 Set (4 dishes good for 22 person)</span>
             </div>
 
             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -1134,7 +1134,7 @@ async function openQuickPackagesModal() {
               </div>
               <div style="text-align:right;">
                 <span style="font-size:20px; font-weight:800; color:var(--gold);">${peso(p.price_per_pax)}</span>
-                <span style="font-size:11px; color:var(--text-muted); display:block;">/ guest</span>
+                <span style="font-size:11px; color:var(--text-muted); display:block;">/ set</span>
               </div>
             </div>
             

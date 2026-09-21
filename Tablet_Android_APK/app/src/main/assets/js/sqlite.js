@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     bk_address TEXT,
     bk_event_date DATE NOT NULL,
     bk_event_time TIME DEFAULT '18:00',
+    bk_event_end_time TIME,
     bk_venue TEXT,
     bk_occasion TEXT,
     bk_pax INTEGER NOT NULL,
@@ -378,6 +379,7 @@ export async function initDb() {
   db = existing ? new SQL.Database(new Uint8Array(existing)) : new SQL.Database();
   db.run(SCHEMA_SQL);
   try { db.run("ALTER TABLE bookings ADD COLUMN sync_status TEXT DEFAULT 'pending';"); } catch (_) {}
+  try { db.run("ALTER TABLE bookings ADD COLUMN bk_event_end_time TIME;"); } catch (_) {}
   try { db.run("ALTER TABLE customers ADD COLUMN sync_status TEXT DEFAULT 'pending';"); } catch (_) {}
   try { db.run("ALTER TABLE packages ADD COLUMN pkg_image TEXT DEFAULT '';"); } catch (_) {}
   try { db.run("ALTER TABLE packages ADD COLUMN image TEXT DEFAULT '';"); } catch (_) {}

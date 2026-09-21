@@ -689,36 +689,48 @@ async function renderStepPackage(card) {
 
     <div class="grid-2">
       <div class="form-group">
-        <label>Event Date *</label>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <label style="margin:0;">Event Date *</label>
+          <button type="button" class="btn btn-ghost" id="btn-open-calendar" style="padding:2px 8px; font-size:12px; height:24px; color:var(--accent); font-weight:700;">
+            📅 View Calendar
+          </button>
+        </div>
         <input type="date" class="form-control" id="e-date" value="${d.event.date}">
+        <div id="date-conflict-warning" style="display:none; margin-top:6px; padding:6px 10px; border-radius:6px; font-size:12px; font-weight:600; background:rgba(245,158,11,0.15); color:#D97706; border:1px solid rgba(245,158,11,0.3);"></div>
       </div>
       <div class="form-group">
-        <label>Event Time</label>
-        <input type="time" class="form-control" id="e-time" value="${d.event.time}">
+        <label>Event Start &amp; End Time (Optional)</label>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="time" class="form-control" id="e-time" value="${d.event.time || ''}" placeholder="Start Time" title="Event Start Time" style="flex:1;">
+          <span style="color:var(--text-muted); font-size:12px; font-weight:700;">to</span>
+          <input type="time" class="form-control" id="e-end-time" value="${d.event.endTime || ''}" placeholder="End Time (Optional)" title="Event End Time (Optional)" style="flex:1;">
+        </div>
+        <span style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">Leave blank if To Be Followed (TBF).</span>
       </div>
     </div>
     <div class="grid-2">
       <div class="form-group">
-        <label>Guest Count (Pax) *</label>
-        <input type="number" class="form-control" id="e-pax" min="10" max="2000" value="${d.event.pax}">
+        <label>Order Quantity / Sets (Min: 1 Set)</label>
+        <input type="number" class="form-control" id="e-pax" min="1" max="2000" value="${d.event.pax || 1}">
+        <span style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">1 Set is good for 22 persons (4 dishes). Minimum order: 1 set.</span>
       </div>
       <div class="form-group">
         <label>Occasion / Event Type *</label>
         <select class="form-control" id="e-occasion">
           <option value="">Select Event Occasion…</option>
-          ${((occasionsCache && occasionsCache.length > 0) ? occasionsCache : OCCASIONS).map((occ) => `<option value="${escapeHtml(occ)}" ${d.event.occasion === occ ? "selected" : ""}>${escapeHtml(occ)}</option>`).join("")}
+          ${((occasionsCache && occasionsCache.length > 0) ? occasionsCache : OCCASIONS).map((occ) => `<option value="${escapeHtml(occ)}" ${(d.event.occasion || '').toLowerCase() === occ.toLowerCase() ? "selected" : ""}>${escapeHtml(occ)}</option>`).join("")}
         </select>
       </div>
     </div>
     <div class="grid-2">
       <div class="form-group">
-        <label>Venue Barangay / City (Search) *</label>
-        <input type="text" class="form-control" id="e-venue-city" placeholder="Search barangay or city…" value="${escapeHtml(d.event.venueCity || "")}" autocomplete="off">
+        <label>Venue Barangay / City (Search)</label>
+        <input type="text" class="form-control" id="e-venue-city" placeholder="Search barangay or city (or leave blank if TBF)…" value="${escapeHtml(d.event.venueCity || "")}" autocomplete="off">
         <div id="venue-results" style="margin-top:8px;"></div>
       </div>
       <div class="form-group">
         <label>Venue Street / Landmark / Floor / Bldg</label>
-        <input type="text" class="form-control" id="e-venue-street" placeholder="e.g. Grand Ballroom, 4th Floor, Skyline Hotel" value="${escapeHtml(d.event.venueStreet || "")}">
+        <input type="text" class="form-control" id="e-venue-street" placeholder="e.g. Grand Ballroom, 4th Floor, Skyline Hotel (or To be followed)" value="${escapeHtml(d.event.venueStreet || "")}">
       </div>
     </div>
 
@@ -748,8 +760,8 @@ async function renderStepPackage(card) {
             </div>
             <p class="kiosk-card-desc">${escapeHtml(p.description || "Standard buffet catering setup.")}</p>
             <div class="kiosk-card-footer">
-              <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / pax</span></span>
-              <span class="kiosk-status-pill">Min ${p.min_pax} pax</span>
+              <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / set</span></span>
+              <span class="kiosk-status-pill">Min 1 Set (4 dishes good for 22 person)</span>
             </div>
           </div>
         </div>
@@ -759,7 +771,7 @@ async function renderStepPackage(card) {
 
     <div class="grid-2" style="margin-top:20px;">
       <div class="form-group">
-        <label>Price Per Pax (₱)</label>
+        <label>Price Per Set (₱)</label>
         <input type="number" class="form-control" id="e-price-per-pax" step="0.01" value="${d.package.pricePerPax || 0}">
       </div>
       <div class="form-group">
@@ -771,11 +783,42 @@ async function renderStepPackage(card) {
 
   const dateInput = card.querySelector("#e-date");
   const timeInput = card.querySelector("#e-time");
+  const endTimeInput = card.querySelector("#e-end-time");
   const paxInput = card.querySelector("#e-pax");
   const occasionSelect = card.querySelector("#e-occasion");
   const venueCityInput = card.querySelector("#e-venue-city");
   const venueStreetInput = card.querySelector("#e-venue-street");
   const venueResults = card.querySelector("#venue-results");
+
+  // Date conflict checker
+  const dateWarning = card.querySelector("#date-conflict-warning");
+  const checkDateConflict = async (dateVal) => {
+    if (!dateVal || !dateWarning) return;
+    try {
+      const bks = await api.getBookingsByDate(dateVal);
+      if (bks && bks.length > 0) {
+        dateWarning.style.display = "block";
+        dateWarning.innerHTML = `⚠️ <b>Notice:</b> ${bks.length} catering booking(s) already scheduled on this date. You may still proceed with reservation.`;
+      } else {
+        dateWarning.style.display = "none";
+      }
+    } catch (_) {
+      dateWarning.style.display = "none";
+    }
+  };
+  dateInput?.addEventListener("change", () => checkDateConflict(dateInput.value));
+  if (dateInput?.value) checkDateConflict(dateInput.value);
+
+  // Calendar button opens light calendar modal
+  card.querySelector("#btn-open-calendar")?.addEventListener("click", () => {
+    openLightCalendarModal((pickedDate) => {
+      if (dateInput) {
+        dateInput.value = pickedDate;
+        d.event.date = pickedDate;
+        checkDateConflict(pickedDate);
+      }
+    });
+  });
 
   // Auto-focus date immediately when entering Step 2
   requestAnimationFrame(() => {
@@ -863,7 +906,7 @@ async function renderStepPackage(card) {
     const price = Number(priceInput.value || 0);
     d.event.pax = pax;
     d.package.pricePerPax = price;
-    baseInput.value = (price * pax).toFixed(2);
+    baseInput.value = (price * (pax || 1)).toFixed(2);
     d.package.baseTotal = Number(baseInput.value);
     syncing = false;
     renderCart();
@@ -888,7 +931,7 @@ async function renderStepPackage(card) {
   priceInput.addEventListener("input", syncFromPricePerPax);
   baseInput.addEventListener("input", syncFromBaseTotal);
 
-  function selectPackage(pkg) {
+  async function selectPackage(pkg) {
     card.querySelectorAll(".select-card").forEach((c) => {
       c.classList.remove("selected");
       c.querySelector(".kiosk-card-badge").innerHTML = icon("plus");
@@ -902,13 +945,29 @@ async function renderStepPackage(card) {
     d.package.id = pkg.id;
     d.package.name = pkg.name;
     d.package.pricePerPax = pkg.price_per_pax;
-    d.package.minPax = pkg.min_pax;
+    d.package.minPax = 1;
     d.package.description = pkg.description;
 
+    // Pre-populate menu selections with default package items so Step 3 is auto-checked
+    try {
+      const items = await api.getPackageItems(pkg.id);
+      if (items && items.length > 0) {
+        d.menuSelections = items.map((it) => ({
+          menu_item_id: it.item_id,
+          item_name: it.item_name,
+          category: it.category || "Main Course",
+          price: 0,
+          quantity: 1,
+        }));
+      }
+    } catch (e) {
+      console.warn("Could not load default package items:", e);
+    }
+
     const currentPax = Number(paxInput.value || 0);
-    if (currentPax < pkg.min_pax) {
-      d.event.pax = pkg.min_pax;
-      paxInput.value = pkg.min_pax;
+    if (currentPax < 1) {
+      d.event.pax = 1;
+      paxInput.value = 1;
     }
     priceInput.value = pkg.price_per_pax;
     syncFromPricePerPax();
@@ -918,7 +977,7 @@ async function renderStepPackage(card) {
     el.addEventListener("click", (e) => {
       if (e.target.closest(".btn-view-pkg-details")) return;
       const pkg = packagesCache.find((p) => String(p.id) === el.dataset.id);
-      selectPackage(pkg);
+      if (pkg) selectPackage(pkg);
     });
   });
 
@@ -932,16 +991,17 @@ async function renderStepPackage(card) {
 
   footer("Next Step", () => {
     d.event.date = card.querySelector("#e-date").value;
-    d.event.time = card.querySelector("#e-time").value || "18:00";
-    d.event.pax = Number(paxInput.value || 0);
-    d.event.occasion = card.querySelector("#e-occasion").value;
+    d.event.time = card.querySelector("#e-time").value || "To be followed";
+    d.event.endTime = card.querySelector("#e-end-time")?.value || "";
+    d.event.pax = Number(paxInput.value || 1);
+    d.event.occasion = card.querySelector("#e-occasion").value || "General Event";
     d.event.venueStreet = (venueStreetInput.value || "").trim();
     d.event.venueCity = (venueCityInput.value || "").trim();
-    d.event.venue = [d.event.venueStreet, d.event.venueCity].filter(Boolean).join(", ");
+    const venueCombined = [d.event.venueStreet, d.event.venueCity].filter(Boolean).join(", ");
+    d.event.venue = venueCombined || "To be followed";
     d.package.pricePerPax = Number(priceInput.value || 0);
     d.package.baseTotal = Number(baseInput.value || 0);
 
-    if (!d.event.venue.trim()) { toast("Venue address is required.", "error"); return; }
     if (!d.package.id && !d.package.baseTotal) { toast("Please choose a package or set base total.", "error"); return; }
     if (!d.event.date) { toast("Event date is required.", "error"); return; }
     wizard.step = 3;
@@ -1028,6 +1088,19 @@ async function renderStepMenu(card) {
           `;
         }).join("")}
       </div>
+    </div>
+
+    <!-- Selected Dishes Tray with Drag & Drop Reordering -->
+    <div id="kiosk-selected-tray" style="background:var(--card); border:1.5px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:20px; box-shadow:0 2px 10px rgba(0,0,0,0.03);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">📋</span>
+          <h4 style="margin:0; font-size:14.5px; font-weight:800;">Selected Menu Dishes &amp; Buffet Order</h4>
+          <span style="font-size:11.5px; color:var(--text-muted); font-weight:600;">(Drag items or use arrows to reorder buffet sequence)</span>
+        </div>
+        <span class="pill pill-paid" id="selected-tray-count">${d.menuSelections.length} Selected</span>
+      </div>
+      <div id="drag-drop-dish-list" style="display:flex; flex-wrap:wrap; gap:8px; min-height:44px; padding:8px; border:1.5px dashed var(--border); border-radius:8px; background:rgba(0,0,0,0.02); align-items:center;"></div>
     </div>
 
     <div id="menu-categories-container">
@@ -1156,6 +1229,102 @@ async function renderStepMenu(card) {
     });
   });
 
+  function renderDragDropList() {
+    const listEl = card.querySelector("#drag-drop-dish-list");
+    const countEl = card.querySelector("#selected-tray-count");
+    if (!listEl) return;
+
+    if (countEl) countEl.textContent = `${d.menuSelections.length} Selected`;
+
+    if (d.menuSelections.length === 0) {
+      listEl.innerHTML = `<span style="color:var(--text-muted); font-size:13px; font-style:italic;">No dishes chosen yet. Tap dishes below to add them to your buffet.</span>`;
+      return;
+    }
+
+    listEl.innerHTML = d.menuSelections.map((m, idx) => `
+      <div class="drag-dish-chip" draggable="true" data-index="${idx}" style="display:inline-flex; align-items:center; gap:8px; padding:6px 12px; background:var(--card); border:1.5px solid var(--border); border-radius:20px; font-size:12.5px; font-weight:700; cursor:grab; box-shadow:0 1px 4px rgba(0,0,0,0.06); transition:transform 0.15s, border-color 0.15s; user-select:none;">
+        <span class="drag-handle" style="color:var(--text-muted); cursor:grab; font-size:14px; font-family:monospace;" title="Drag to reorder">⠿</span>
+        <span style="color:var(--text);">${escapeHtml(m.item_name)}</span>
+        <span style="font-size:10px; color:var(--text-muted); font-weight:600; text-transform:uppercase; background:rgba(0,0,0,0.05); padding:1px 5px; border-radius:4px;">${escapeHtml(m.category || '')}</span>
+        ${idx > 0 ? `<button type="button" class="btn-move-drag-dish" data-index="${idx}" data-dir="-1" style="border:none; background:transparent; color:var(--text-muted); cursor:pointer; font-size:11px; padding:0 2px;" title="Move Up">◀</button>` : ''}
+        ${idx < d.menuSelections.length - 1 ? `<button type="button" class="btn-move-drag-dish" data-index="${idx}" data-dir="1" style="border:none; background:transparent; color:var(--text-muted); cursor:pointer; font-size:11px; padding:0 2px;" title="Move Down">▶</button>` : ''}
+        <button type="button" class="btn-remove-drag-dish" data-index="${idx}" style="border:none; background:transparent; color:#EF4444; cursor:pointer; font-size:13px; padding:0 2px; font-weight:800;" title="Remove Dish">✕</button>
+      </div>
+    `).join("");
+
+    let draggedIdx = null;
+
+    listEl.querySelectorAll(".drag-dish-chip").forEach((chip) => {
+      chip.addEventListener("dragstart", (e) => {
+        draggedIdx = Number(chip.dataset.index);
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", draggedIdx);
+        chip.style.opacity = "0.4";
+      });
+
+      chip.addEventListener("dragend", () => {
+        chip.style.opacity = "1";
+        listEl.querySelectorAll(".drag-dish-chip").forEach((c) => c.style.borderColor = "var(--border)");
+      });
+
+      chip.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        chip.style.borderColor = "var(--accent)";
+      });
+
+      chip.addEventListener("dragleave", () => {
+        chip.style.borderColor = "var(--border)";
+      });
+
+      chip.addEventListener("drop", (e) => {
+        e.preventDefault();
+        chip.style.borderColor = "var(--border)";
+        const targetIdx = Number(chip.dataset.index);
+        if (draggedIdx !== null && draggedIdx !== targetIdx) {
+          const item = d.menuSelections.splice(draggedIdx, 1)[0];
+          d.menuSelections.splice(targetIdx, 0, item);
+          renderDragDropList();
+          renderCart();
+          toast("Menu dish order updated.", "info");
+        }
+      });
+    });
+
+    listEl.querySelectorAll(".btn-move-drag-dish").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const curIdx = Number(btn.dataset.index);
+        const dir = Number(btn.dataset.dir);
+        const newIdx = curIdx + dir;
+        if (newIdx >= 0 && newIdx < d.menuSelections.length) {
+          const item = d.menuSelections.splice(curIdx, 1)[0];
+          d.menuSelections.splice(newIdx, 0, item);
+          renderDragDropList();
+          renderCart();
+        }
+      });
+    });
+
+    listEl.querySelectorAll(".btn-remove-drag-dish").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const remIdx = Number(btn.dataset.index);
+        const removed = d.menuSelections.splice(remIdx, 1)[0];
+        if (removed) {
+          const cardEl = card.querySelector(`.select-card[data-item-id="${removed.menu_item_id}"]`);
+          if (cardEl) {
+            cardEl.classList.remove("selected");
+            cardEl.querySelector(".item-check-badge").innerHTML = icon("plus");
+          }
+        }
+        updateCounts();
+        renderDragDropList();
+        renderCart();
+      });
+    });
+  }
+
   function updateCounts() {
     const counts = {};
     for (const m of d.menuSelections) counts[m.category] = (counts[m.category] || 0) + 1;
@@ -1210,6 +1379,7 @@ async function renderStepMenu(card) {
         el.querySelector(".item-check-badge").innerHTML = icon("plus");
       }
       updateCounts();
+      renderDragDropList();
       renderCart();
     });
   });
@@ -1239,11 +1409,13 @@ async function renderStepMenu(card) {
           }
         }
         updateCounts();
+        renderDragDropList();
         renderCart();
       });
     });
   });
   updateCounts();
+  renderDragDropList();
 
   footer(
     window.innerWidth < 640
@@ -1577,6 +1749,7 @@ function renderStepPreview(card) {
           address: d.customer.address,
           event_date: d.event.date,
           event_time: d.event.time,
+          event_end_time: d.event.endTime || null,
           venue: d.event.venue,
           occasion: d.event.occasion,
           pax: d.event.pax,
@@ -1805,4 +1978,95 @@ function openDishDetailsModal(it, isSelected, toggleCallback) {
     toggleBtn.innerHTML = currentlySelected ? `${icon("trash")} Remove Dish` : `${icon("plus")} Select This Dish`;
     toast(currentlySelected ? "Dish added to order!" : "Dish removed from order.", "info");
   });
+}
+
+export function openLightCalendarModal(onSelectDate) {
+  const modalId = "light-calendar-modal";
+  const now = new Date();
+  let viewYear = now.getFullYear();
+  let viewMonth = now.getMonth(); // 0-indexed
+
+  openModal({
+    id: modalId,
+    title: `📅 Event Scheduling Calendar`,
+    bodyHtml: `<div id="calendar-modal-content"></div>`,
+    footerHtml: `<button class="btn btn-secondary" data-close>Close</button>`,
+  });
+
+  const modal = document.getElementById(modalId);
+  const container = modal.querySelector("#calendar-modal-content");
+
+  async function renderMonth() {
+    container.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted);">Loading schedule…</div>`;
+    const bookings = await api.getMonthBookings(viewYear, viewMonth + 1).catch(() => []);
+    const dateCounts = {};
+    for (const b of (bookings || [])) {
+      if (b.bk_event_date) {
+        dateCounts[b.bk_event_date] = (dateCounts[b.bk_event_date] || 0) + 1;
+      }
+    }
+
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+    let daysHtml = "";
+    for (let i = 0; i < firstDay; i++) {
+      daysHtml += `<div style="padding:8px;"></div>`;
+    }
+    for (let day = 1; day <= daysInMonth; day++) {
+      const pad = (n) => String(n).padStart(2, "0");
+      const dStr = `${viewYear}-${pad(viewMonth + 1)}-${pad(day)}`;
+      const cnt = dateCounts[dStr] || 0;
+      daysHtml += `
+        <div class="cal-day-cell" data-date="${dStr}" style="padding:8px 4px; border:1.5px solid ${cnt > 0 ? "rgba(245,158,11,0.5)" : "var(--border)"}; border-radius:8px; text-align:center; cursor:pointer; background:${cnt > 0 ? "rgba(245,158,11,0.1)" : "transparent"}; transition:all 0.15s; user-select:none;">
+          <div style="font-weight:800; font-size:14px; color:${cnt > 0 ? "#D97706" : "var(--text)"};">${day}</div>
+          ${cnt > 0 ? `<span style="font-size:9.5px; font-weight:800; padding:1px 4px; border-radius:8px; background:#D97706; color:#fff; display:inline-block; margin-top:2px;">${cnt} event${cnt > 1 ? "s" : ""}</span>` : `<span style="font-size:9.5px; color:var(--text-muted); opacity:0.6;">Available</span>`}
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <button type="button" class="btn btn-ghost" id="cal-prev-month" style="font-size:14px; padding:6px 12px; font-weight:700;">◀ Prev</button>
+        <h3 style="margin:0; font-size:16px; font-weight:800;">${monthNames[viewMonth]} ${viewYear}</h3>
+        <button type="button" class="btn btn-ghost" id="cal-next-month" style="font-size:14px; padding:6px 12px; font-weight:700;">Next ▶</button>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:6px; font-weight:700; font-size:11px; text-align:center; color:var(--text-muted); margin-bottom:6px;">
+        <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:6px;" id="cal-grid-days">
+        ${daysHtml}
+      </div>
+      <p style="margin:12px 0 0; font-size:12px; color:var(--text-muted); text-align:center;">
+        Tap any date to select it for your catering reservation.
+      </p>
+    `;
+
+    container.querySelector("#cal-prev-month")?.addEventListener("click", () => {
+      if (viewMonth === 0) { viewMonth = 11; viewYear--; } else { viewMonth--; }
+      renderMonth();
+    });
+    container.querySelector("#cal-next-month")?.addEventListener("click", () => {
+      if (viewMonth === 11) { viewMonth = 0; viewYear++; } else { viewMonth++; }
+      renderMonth();
+    });
+
+    container.querySelectorAll(".cal-day-cell[data-date]").forEach((cell) => {
+      cell.addEventListener("click", () => {
+        const picked = cell.dataset.date;
+        if (onSelectDate) onSelectDate(picked);
+        closeModal(modalId);
+        toast(`Selected date: ${picked}`, "success");
+      });
+      cell.addEventListener("mouseenter", () => { cell.style.borderColor = "var(--accent)"; });
+      cell.addEventListener("mouseleave", () => {
+        const dStr = cell.dataset.date;
+        const cnt = dateCounts[dStr] || 0;
+        cell.style.borderColor = cnt > 0 ? "rgba(245,158,11,0.5)" : "var(--border)";
+      });
+    });
+  }
+
+  renderMonth();
 }

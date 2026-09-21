@@ -120,7 +120,8 @@ class ConfirmBookingDialog(QDialog):
         lbl_tot = QLabel(f"Total: <b>₱ {self._tot_val:,.2f}</b>")
         lbl_tot.setStyleSheet("font-size: 12px; color: #64748B;")
 
-        lbl_paid = QLabel(f"Already Paid: <b>₱ {self._paid_val:,.2f}</b>")
+        lbl_paid_text = f"Already Paid: <b>₱ {self._paid_val:,.2f}</b>" if self._paid_val > 0 else "Already Paid: <b>₱ 0.00</b>"
+        lbl_paid = QLabel(lbl_paid_text)
         lbl_paid.setStyleSheet("font-size: 12px; color: #16A34A;")
 
         lbl_rem = QLabel(f"Balance Due: <b>₱ {self._rem_val:,.2f}</b>")
@@ -130,6 +131,16 @@ class ConfirmBookingDialog(QDialog):
         r_amounts.addWidget(lbl_paid)
         r_amounts.addWidget(lbl_rem)
         s_lay.addLayout(r_amounts)
+
+        if self._paid_val > 0:
+            dp_mode = self._booking.get("payment_mode") or "Cash"
+            if self._paid_val >= self._tot_val and self._tot_val > 0:
+                lbl_dp_info = QLabel(f"✅ <b>Fully Paid:</b> ₱ {self._paid_val:,.2f} verified via {dp_mode}.")
+                lbl_dp_info.setStyleSheet("font-size: 12px; color: #15803D; background: #DCFCE7; border: 1px solid #86EFAC; border-radius: 6px; padding: 6px 10px; margin-top: 4px;")
+            else:
+                lbl_dp_info = QLabel(f"💳 <b>Down Payment Recorded:</b> ₱ {self._paid_val:,.2f} via {dp_mode}. Remaining balance: ₱ {self._rem_val:,.2f}.")
+                lbl_dp_info.setStyleSheet("font-size: 12px; color: #1E40AF; background: #DBEAFE; border: 1px solid #93C5FD; border-radius: 6px; padding: 6px 10px; margin-top: 4px;")
+            s_lay.addWidget(lbl_dp_info)
 
         # Show add-on breakdown if present in notes
         notes_txt = str(self._booking.get("notes") or "")
@@ -152,14 +163,23 @@ class ConfirmBookingDialog(QDialog):
 
         self.btn_group = QButtonGroup(self)
 
-        self.rb_none = QRadioButton(" No payment received today (keep balance as ₱%s)" % f"{self._rem_val:,.2f}")
+        if self._paid_val >= self._tot_val and self._tot_val > 0:
+            self.rb_none = QRadioButton(" Booking is ALREADY FULLY PAID (₱%s) — Confirm without extra payment" % f"{self._paid_val:,.2f}")
+        elif self._paid_val > 0:
+            self.rb_none = QRadioButton(" Keep existing Down Payment of ₱%s (remaining balance: ₱%s)" % (f"{self._paid_val:,.2f}", f"{self._rem_val:,.2f}"))
+        else:
+            self.rb_none = QRadioButton(" No payment received today (keep balance as ₱%s)" % f"{self._rem_val:,.2f}")
         self.rb_none.setChecked(True)
         self.rb_none.setStyleSheet("font-weight: 600; font-size: 12.5px;")
 
-        self.rb_custom = QRadioButton(" Record Down Payment / Custom Amount")
+        self.rb_custom = QRadioButton(" Record Additional Payment / Custom Amount")
         self.rb_custom.setStyleSheet("font-weight: 600; font-size: 12.5px; color: #2563EB;")
 
-        self.rb_full = QRadioButton(" Mark as FULLY PAID (receive full balance ₱%s)" % f"{self._rem_val:,.2f}")
+        if self._paid_val >= self._tot_val and self._tot_val > 0:
+            self.rb_full = QRadioButton(" Order is already fully paid (₱0 balance)")
+            self.rb_full.setEnabled(False)
+        else:
+            self.rb_full = QRadioButton(" Mark as FULLY PAID (receive full balance ₱%s)" % f"{self._rem_val:,.2f}")
         self.rb_full.setStyleSheet("font-weight: 700; font-size: 12.5px; color: #16A34A;")
 
         self.btn_group.addButton(self.rb_none, 0)

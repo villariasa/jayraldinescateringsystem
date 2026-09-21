@@ -480,48 +480,73 @@ class BookingModal(QDialog):
         self.f_occasion.addItems(self._occasions)
         v1.addWidget(self.f_occasion)
         v2 = QVBoxLayout()
-        v2.addWidget(_field_label("Venue *"))
-        self.f_venue = _input("Event Location")
+        v2.addWidget(_field_label("Venue (Leave blank or 'To be followed')"))
+        self.f_venue = _input("Event Location / Venue")
         v2.addWidget(self.f_venue)
         row1.addLayout(v1)
         row1.addLayout(v2)
         lay.addLayout(row1)
 
         row2 = QHBoxLayout()
-        row2.setSpacing(16)
+        row2.setSpacing(12)
 
         v3 = QVBoxLayout()
-        v3.setSpacing(6)
+        v3.setSpacing(4)
         v3.addWidget(_field_label("Event Date *"))
         self.f_date = QDateEdit(QDate.currentDate())
         self.f_date.setCalendarPopup(True)
         self.f_date.setFixedHeight(38)
-        self.f_date.setMinimumWidth(120)
+        self.f_date.setMinimumWidth(115)
         v3.addWidget(self.f_date)
 
         v4 = QVBoxLayout()
-        v4.setSpacing(6)
-        v4.addWidget(_field_label("Time"))
+        v4.setSpacing(4)
+        v4.addWidget(_field_label("Start Time"))
         self.f_time = QTimeEdit(QTime(18, 0))
         self.f_time.setDisplayFormat("hh:mm AP")
         self.f_time.setFixedHeight(38)
-        self.f_time.setMinimumWidth(110)
+        self.f_time.setMinimumWidth(105)
         v4.addWidget(self.f_time)
 
+        v4b = QVBoxLayout()
+        v4b.setSpacing(4)
+        end_top = QHBoxLayout()
+        end_top.setContentsMargins(0, 0, 0, 0)
+        end_top.setSpacing(4)
+        self.chk_end_time = QCheckBox("Set End Time")
+        self.chk_end_time.setStyleSheet("font-size: 11px; font-weight: 600; color: #94A3B8;")
+        end_top.addWidget(self.chk_end_time)
+        v4b.addLayout(end_top)
+        self.f_end_time = QTimeEdit(QTime(22, 0))
+        self.f_end_time.setDisplayFormat("hh:mm AP")
+        self.f_end_time.setFixedHeight(38)
+        self.f_end_time.setMinimumWidth(105)
+        self.f_end_time.setEnabled(False)
+        self.chk_end_time.toggled.connect(self.f_end_time.setEnabled)
+        v4b.addWidget(self.f_end_time)
+
         v5 = QVBoxLayout()
-        v5.setSpacing(6)
+        v5.setSpacing(4)
         v5.addWidget(_field_label("No. of Pax *"))
         self.f_pax = QSpinBox()
         self.f_pax.setRange(10, 2000)
         self.f_pax.setValue(100)
         self.f_pax.setFixedHeight(38)
-        self.f_pax.setMinimumWidth(100)
+        self.f_pax.setMinimumWidth(90)
         v5.addWidget(self.f_pax)
 
-        row2.addLayout(v3, 1)
-        row2.addLayout(v4, 1)
-        row2.addLayout(v5, 1)
+        row2.addLayout(v3, 3)
+        row2.addLayout(v4, 2)
+        row2.addLayout(v4b, 2)
+        row2.addLayout(v5, 2)
         lay.addLayout(row2)
+
+        # Date Conflict / Availability Notification Banner
+        self.lbl_date_warning = QLabel()
+        self.lbl_date_warning.setWordWrap(True)
+        self.lbl_date_warning.hide()
+        lay.addWidget(self.lbl_date_warning)
+        self.f_date.dateChanged.connect(self._check_date_availability)
 
         lay.addWidget(_field_label("Event Theme / Motif & Special Notes"))
         self.f_notes = QTextEdit()
@@ -549,6 +574,14 @@ class BookingModal(QDialog):
                 if t.isValid():
                     self.f_time.setTime(t)
                     break
+            raw_end = str(self._booking_data.get("event_end_time") or self._booking_data.get("end_time") or "")
+            if raw_end:
+                for fmt in ("h:mm AP", "hh:mm AP", "h:mm A", "hh:mm A", "HH:mm:ss", "HH:mm"):
+                    t_end = QTime.fromString(raw_end, fmt)
+                    if t_end.isValid():
+                        self.f_end_time.setTime(t_end)
+                        self.chk_end_time.setChecked(True)
+                        break
             try:
                 self.f_pax.setValue(int(self._booking_data.get("pax", 100)))
             except (ValueError, TypeError):
@@ -557,18 +590,52 @@ class BookingModal(QDialog):
             import re
             clean_notes = re.sub(r"\n?\[Add-ons:\s*.*?\]", "", notes_raw).strip()
             self.f_notes.setPlainText(clean_notes)
-            occasion_val = self._booking_data.get("occasion", "")
-            idx = self.f_occasion.findText(occasion_val)
-            if idx >= 0:
-                self.f_occasion.setCurrentIndex(idx)
+
+            # Robust case-insensitive occasion selection
+            occasion_val = str(self._booking_data.get("occasion", "") or "").strip()
+            found_idx = -1
+            for i in range(self.f_occasion.count()):
+                if self.f_occasion.itemText(i).strip().lower() == occasion_val.lower():
+                    found_idx = i
+                    break
+            if found_idx >= 0:
+                self.f_occasion.setCurrentIndex(found_idx)
             elif occasion_val:
                 self.f_occasion.insertItem(0, occasion_val)
                 self.f_occasion.setCurrentIndex(0)
+
             self.f_venue.setText(self._booking_data.get("venue", ""))
             if self._booking_data.get("color_theme") or self._booking_data.get("color"):
                 self.f_color_picker.set_color(self._booking_data.get("color_theme") or self._booking_data.get("color") or "#2563EB")
 
+        # Initial date conflict check
+        self._check_date_availability()
         return w
+
+    def _check_date_availability(self):
+        if not hasattr(self, "lbl_date_warning") or not hasattr(self, "f_date"):
+            return
+        try:
+            d_val = self.f_date.date().toPython()
+            summary = repo.get_date_bookings_summary(d_val)
+            if summary.get("count", 0) > 0:
+                bk_list = summary.get("bookings", [])
+                events_str = "; ".join([f"{b['occasion']} ({b['time']}, {b['pax']}p)" for b in bk_list[:3]])
+                if len(bk_list) > 3:
+                    events_str += f" and {len(bk_list)-3} more"
+                self.lbl_date_warning.setText(
+                    f"⚠️ <b>Schedule Warning:</b> {summary['count']} event(s) already booked on this date ({summary['total_pax']} total pax).<br/>"
+                    f"<span style='opacity:0.9;'>Existing: {events_str}</span>"
+                )
+                self.lbl_date_warning.setStyleSheet(
+                    "background: rgba(245, 158, 11, 0.16); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.4); "
+                    "border-radius: 8px; padding: 7px 12px; font-size: 11.5px; margin-top: 4px;"
+                )
+                self.lbl_date_warning.show()
+            else:
+                self.lbl_date_warning.hide()
+        except Exception:
+            self.lbl_date_warning.hide()
 
     def _build_step2(self):
         w = QWidget()
@@ -633,9 +700,9 @@ class BookingModal(QDialog):
                 n_lbl = QLabel(name)
                 n_lbl.setStyleSheet(_package_name_style())
 
-                display_desc = desc
-                if len(desc) > 85:
-                    display_desc = desc[:82].rstrip() + "..."
+                display_desc = desc if desc else "Min set: 1 Set (4 dishes good for 22 person)"
+                if len(display_desc) > 85:
+                    display_desc = display_desc[:82].rstrip() + "..."
 
                 d_lbl = QLabel(display_desc)
                 d_lbl.setStyleSheet(_package_desc_style())
@@ -653,7 +720,7 @@ class BookingModal(QDialog):
                 card_lay.addLayout(info, 1)
 
                 price_val = float(pkg.get("price_per_pax", 0))
-                p_lbl = QLabel(f"₱{price_val:,.2f}/pax")
+                p_lbl = QLabel(f"₱{price_val:,.2f}/set")
                 p_lbl.setStyleSheet("font-size: 13.5px; font-weight: 700; color: #E11D48; margin-right: 6px;")
                 card_lay.addWidget(p_lbl)
 
@@ -1433,19 +1500,18 @@ class BookingModal(QDialog):
                 sel["email"] = self.f_email.text().strip()
             if hasattr(self, "f_address") and self.f_address.text().strip():
                 sel["address"] = self.f_address.text().strip()
-                if hasattr(self, "f_venue") and not self.f_venue.text().strip():
-                    self.f_venue.setText(self.f_address.text().strip())
+                # Do NOT auto-copy customer home address into venue — venue is event location!
         if self._step == 1:
             if not self.f_occasion.currentText().strip():
                 self.f_occasion.setFocus()
                 self.f_occasion.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px;")
                 return False
             self.f_occasion.setStyleSheet(_combo_style())
-            if not self.f_venue.text().strip():
-                self.f_venue.setFocus()
-                self.f_venue.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px; padding: 8px 14px;")
-                return False
-            self.f_venue.setStyleSheet("")
+            # Venue is optional / TBA: if left blank, automatically set to 'To be followed'
+            if hasattr(self, "f_venue") and not self.f_venue.text().strip():
+                self.f_venue.setText("To be followed")
+            if hasattr(self, "f_venue"):
+                self.f_venue.setStyleSheet("")
         return True
 
     def _go_next(self):
@@ -1476,17 +1542,8 @@ class BookingModal(QDialog):
 
     def _save(self):
         venue_val = self.f_venue.text().strip() if hasattr(self, "f_venue") else ""
-        if not venue_val:
-            self._overlay.hide_overlay()
-            self._btn_next.setText("Save Booking")
-            self._btn_next.setEnabled(True)
-            self._btn_back.setEnabled(True)
-            self._step = 1
-            self._refresh_step()
-            if hasattr(self, "f_venue"):
-                self.f_venue.setFocus()
-                self.f_venue.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px; padding: 8px 14px;")
-            return
+        if not venue_val or venue_val.lower() in ("tbd", "tba", "client venue"):
+            venue_val = "To be followed"
 
         self._overlay.show_overlay("Saving reservation & updating schedule...")
         self._btn_next.setText("  Saving...")
@@ -1542,18 +1599,15 @@ class BookingModal(QDialog):
         # Collect custom add-ons and calculate total add-on amount
         addon_summary_list = []
         addons_total = 0.0
-        for _, n_edit, a_edit in getattr(self, "_addon_items", []):
-            name_txt = n_edit.text().strip()
-            amt_txt = a_edit.text().strip().replace(",", "")
-            try:
-                amt_val = float(amt_txt) if amt_txt else 0.0
-            except ValueError:
-                amt_val = 0.0
-            if name_txt or amt_val != 0.0:
-                addons_total += amt_val
-                sign = "+" if amt_val >= 0 else "-"
-                addon_summary_list.append(f"{name_txt or 'Custom Add-on'} ({sign}₱{abs(amt_val):,.2f})")
+        for chk, spin, cat, name, price in getattr(self, "_extra_addon_rows", []):
+            if chk.isChecked():
+                qty = spin.value()
+                amt = price * qty
+                addons_total += amt
+                qty_str = f" x{qty}" if qty > 1 else ""
+                addon_summary_list.append(f"{name}{qty_str} (₱{amt:,.0f})")
 
+        # Package base total
         if hasattr(self, "f_pay_package_total") and self.f_pay_package_total.value() > 0:
             base_total = self.f_pay_package_total.value()
         else:
@@ -1572,6 +1626,8 @@ class BookingModal(QDialog):
         orig_paid = float(self._booking_data.get("amount_paid") or 0.0) if self._booking_data else 0.0
         recorded_down = orig_paid if orig_paid > 0 else (getattr(self, "_last_deposit", 0.0) if hasattr(self, "_last_deposit") else 0.0)
 
+        end_time_val = self.f_end_time.time().toString("hh:mm AP") if (hasattr(self, "chk_end_time") and self.chk_end_time.isChecked()) else ""
+
         data = {
             "db_id":           self._booking_data.get("db_id") if self._booking_data else None,
             "name":            selected_customer.get("name", ""),
@@ -1579,10 +1635,12 @@ class BookingModal(QDialog):
             "email":           self.f_email.text().strip(),
             "address":         self.f_address.text().strip(),
             "occasion":        self.f_occasion.currentText().strip(),
-            "venue":           self.f_venue.text().strip(),
+            "venue":           venue_val,
             "date":            self.f_date.date().toString("MMM dd, yyyy"),
             "time":            self.f_time.time().toString("hh:mm AP"),
             "event_time":      self.f_time.time().toString("hh:mm AP"),
+            "end_time":        end_time_val,
+            "event_end_time":  end_time_val,
             "pax":             pax,
             "notes":           notes_text,
             "menu_type":       menu_type,

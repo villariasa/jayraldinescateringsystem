@@ -541,294 +541,345 @@ def export_daily_activity_report_pdf(path: str, entries: list, business: dict,
         return False
 
 
-def export_receipt_pdf(path: str, inv: dict, business: dict,
+def export_receipt_pdf(path: str, inv: dict, business: dict = None,
                        additional_charges: list = None,
                        payment_records: list = None,
                        down_payment: float = None) -> bool:
-    """Generate a professional PDF receipt for a single invoice.
-
-    additional_charges: list of {"description", "amount", "date_added"} - positive
-        amounts are extra charges, negative amounts are discounts.
-    payment_records: full payment history (down payment + subsequent payments),
-        each {"amount", "payment_date", "method", "note"} - each payment keeps its
-        own recorded date so the receipt shows exactly when each amount was paid.
-    down_payment: the original down payment amount, shown as its own line.
+    """Generate a formal and elegant A4 PDF receipt with split layout:
+    - TOP: Business name, address, contact numbers, and Official Receipt number.
+    - LEFT SIDE: Order receipt summary, client info, package/menu details, and payment breakdown.
+    - RIGHT SIDE: Catering Service Agreement and Terms & Conditions.
+    - BOTTOM: Signature section with client signature on left and owner signature on right.
     """
     if not REPORTLAB_OK:
         return False
     try:
+        import utils.repository as _repo
         additional_charges = additional_charges or []
         payment_records = payment_records or []
         charges = [c for c in additional_charges if float(c.get("amount", 0)) > 0]
         discounts = [c for c in additional_charges if float(c.get("amount", 0)) < 0]
+
+        if business is None:
+            try:
+                business = _repo.get_business_profile() or {}
+            except Exception:
+                business = {}
+
+        # Fetch linked booking details if available
+        booking_id = inv.get("booking_id") or inv.get("inv_booking_id") or inv.get("db_id")
+        booking_detail = {}
+        if booking_id:
+            try:
+                booking_detail = _repo.get_booking_detail(booking_id) or {}
+            except Exception:
+                booking_detail = {}
+        elif "dishes" in inv or "package_name" in inv:
+            booking_detail = dict(inv)
+
         doc = SimpleDocTemplate(
             path, pagesize=A4,
-            leftMargin=_MARGIN, rightMargin=_MARGIN,
-            topMargin=_MARGIN, bottomMargin=_MARGIN,
-            title=f"Receipt — {inv.get('invoice', '')}",
+            leftMargin=1.2 * cm, rightMargin=1.2 * cm,
+            topMargin=1.0 * cm, bottomMargin=1.0 * cm,
+            title=f"Official Receipt — {inv.get('invoice', inv.get('id', ''))}",
         )
+        content_w = A4[0] - 2.4 * cm  # ~18.6 cm
+        half_w = (content_w - 0.6 * cm) / 2  # ~9.0 cm per column
+
         styles = _styles()
         story = []
 
-        biz_name    = business.get("name", "Jayraldine's Catering")
-        biz_address = business.get("address", "")
-        biz_contact = business.get("contact", "")
+        biz_name    = business.get("name", "JAYRALDINE'S CATERING SERVICES")
+        biz_address = business.get("address", "121 Katipunan Street, Barangay Calamba, Cebu City")
+        biz_contact = business.get("contact", "Tel: (032) 255-3113 · Globe: 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017")
         biz_email   = business.get("email", "")
 
-        total   = float(inv.get("amount", 0))
-        paid    = float(inv.get("paid", 0))
-        balance = total - paid
-        status  = inv.get("status", "Unpaid")
+        def _val(x):
+            if x is None: return 0.0
+            if isinstance(x, (int, float)): return float(x)
+            try: return float(str(x).replace("₱", "").replace(",", "").strip())
+            except Exception: return 0.0
 
-        status_color = {"Paid": _C_GREEN, "Partial": _C_AMBER, "Unpaid": _C_RED}.get(status, _C_MUTED)
+        total   = _val(inv.get("total_amount") or inv.get("amount") or inv.get("total"))
+        paid    = _val(inv.get("amount_paid") or inv.get("paid"))
+        if down_payment is None:
+            down_payment = _val(inv.get("down_payment") or booking_detail.get("down_payment") or paid)
+        balance = max(0.0, total - max(paid, down_payment))
+        status  = inv.get("status", "Confirmed" if paid >= total and total > 0 else ("Partial" if paid > 0 else "Unpaid"))
+        status_color = {"Paid": _C_GREEN, "Confirmed": _C_GREEN, "Partial": _C_AMBER, "Unpaid": _C_RED}.get(status, _C_MUTED)
 
-        header_w = _CONTENT_W
-
+        # ── 1. FORMAL TOP HEADER ──────────────────────────────────────────
         logo_cell = ""
         _lp = _logo_path()
         if os.path.exists(_lp):
             try:
-                logo_cell = Image(_lp, width=2.0*cm, height=2.0*cm)
+                logo_cell = Image(_lp, width=1.8 * cm, height=1.8 * cm)
             except Exception:
                 logo_cell = ""
 
-        biz_cell = [
-            Paragraph(biz_name, styles["Brand"]),
-            Paragraph("Professional Catering Services", styles["BrandSub"]),
+        hdr_biz_p = [
+            Paragraph(f"<b>{biz_name.upper()}</b>", ParagraphStyle(
+                "h_biz", fontName="Helvetica-Bold", fontSize=15,
+                textColor=_C_RED, alignment=TA_CENTER, leading=18)),
             Spacer(1, 2),
-            Paragraph(biz_address, styles["BrandSub"]),
-            Paragraph(f"Tel: {biz_contact}  ·  {biz_email}", styles["BrandSub"]),
+            Paragraph(biz_address, ParagraphStyle(
+                "h_addr", fontName="Helvetica", fontSize=8.5,
+                textColor=_C_GRAY, alignment=TA_CENTER, leading=11)),
+            Paragraph(biz_contact, ParagraphStyle(
+                "h_contact", fontName="Helvetica", fontSize=8,
+                textColor=_C_MUTED, alignment=TA_CENTER, leading=11)),
         ]
 
-        receipt_cell = [
-            Paragraph("OFFICIAL RECEIPT", ParagraphStyle(
-                "rcpt_lbl", fontName="Helvetica-Bold", fontSize=8.5,
-                textColor=_C_MUTED, alignment=TA_RIGHT, leading=11,
-                spaceAfter=4)),
-            Paragraph(inv.get("invoice", "—"), ParagraphStyle(
-                "rcpt_no", fontName="Helvetica-Bold", fontSize=18,
-                textColor=_C_RED, alignment=TA_RIGHT, leading=22)),
+        if logo_cell:
+            hdr_table = Table([[logo_cell, hdr_biz_p, ""]], colWidths=[2.0 * cm, content_w - 4.0 * cm, 2.0 * cm])
+            hdr_table.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]))
+            story.append(hdr_table)
+        else:
+            for p in hdr_biz_p:
+                story.append(p)
+
+        story.append(Spacer(1, 0.25 * cm))
+        story.append(HRFlowable(width="100%", thickness=1.5, color=_C_RED, spaceAfter=0.2 * cm))
+
+        # Receipt Number & Date Sub-header banner
+        rcpt_no = inv.get("invoice") or inv.get("invoice_ref") or "—"
+        event_dt = inv.get("event_date") or booking_detail.get("date") or "—"
+        b_ref = booking_detail.get("ref") or booking_detail.get("booking_ref") or "—"
+        today_str = _dt_datetime.now().strftime("%B %d, %Y")
+
+        banner_data = [
+            [
+                Paragraph(f"<b>OFFICIAL ORDER &amp; PAYMENT RECEIPT</b>", ParagraphStyle(
+                    "b_title", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK, leading=12)),
+                Paragraph(f"<b>RECEIPT NO:</b> <font color='#E11D48'>{rcpt_no}</font>  ·  <b>DATE:</b> {today_str}", ParagraphStyle(
+                    "b_meta", fontName="Helvetica", fontSize=8.5, textColor=_C_GRAY, alignment=TA_RIGHT, leading=12)),
+            ]
+        ]
+        banner_tbl = Table(banner_data, colWidths=[content_w * 0.5, content_w * 0.5])
+        banner_tbl.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(banner_tbl)
+        story.append(Spacer(1, 0.2 * cm))
+
+        # ── 2. LEFT SIDE: ORDER RECEIPT SUMMARY ───────────────────────────
+        left_flowables = []
+
+        left_flowables.append(Paragraph("<b>ORDER &amp; CLIENT SUMMARY</b>", ParagraphStyle(
+            "l_sec", fontName="Helvetica-Bold", fontSize=9, textColor=_C_RED, leading=12, spaceAfter=4)))
+
+        cust_name = inv.get("customer") or booking_detail.get("name") or "Valued Client"
+        contact_no = booking_detail.get("contact") or inv.get("contact") or "—"
+        occasion = booking_detail.get("occasion") or "Catering Event"
+        venue = booking_detail.get("venue") or "To be followed"
+        pax = str(booking_detail.get("pax") or "—")
+        raw_t = booking_detail.get("time") or booking_detail.get("event_time") or ""
+        time_disp = _repo.format_time_ampm(raw_t, default="To be followed") if raw_t else "To be followed"
+
+        client_info_data = [
+            [Paragraph("<b>Customer:</b>", styles["DetailLabel"]), Paragraph(cust_name, styles["DetailValue"])],
+            [Paragraph("<b>Contact:</b>", styles["DetailLabel"]), Paragraph(contact_no, styles["DetailValue"])],
+            [Paragraph("<b>Occasion:</b>", styles["DetailLabel"]), Paragraph(occasion, styles["DetailValue"])],
+            [Paragraph("<b>Date &amp; Time:</b>", styles["DetailLabel"]), Paragraph(f"{event_dt} · {time_disp}", styles["DetailValue"])],
+            [Paragraph("<b>Venue:</b>", styles["DetailLabel"]), Paragraph(venue, styles["DetailValue"])],
+            [Paragraph("<b>Guest Count:</b>", styles["DetailLabel"]), Paragraph(f"{pax} Pax / Sets", styles["DetailValue"])],
+        ]
+        pkg_name = booking_detail.get("package_name") or booking_detail.get("package")
+        if pkg_name:
+            client_info_data.append([Paragraph("<b>Package:</b>", styles["DetailLabel"]), Paragraph(str(pkg_name), styles["DetailValue"])])
+
+        c_tbl = Table(client_info_data, colWidths=[2.3 * cm, half_w - 2.3 * cm])
+        c_tbl.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.4, _C_BORDER),
+            ("INNERGRID", (0, 0), (-1, -1), 0.2, _C_BORDER),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F8FAFC")),
+        ]))
+        left_flowables.append(c_tbl)
+        left_flowables.append(Spacer(1, 0.25 * cm))
+
+        # Dishes / Inclusions summary
+        dishes = booking_detail.get("selected_dishes") or booking_detail.get("dishes") or []
+        if dishes:
+            left_flowables.append(Paragraph("<b>SELECTED MENU DISHES</b>", ParagraphStyle(
+                "d_sec", fontName="Helvetica-Bold", fontSize=8, textColor=_C_DARK, leading=10, spaceAfter=2)))
+            dish_names = []
+            for d in dishes[:8]:
+                d_nm = d.get("name") if isinstance(d, dict) else str(d)
+                if d_nm:
+                    dish_names.append(f"• {d_nm}")
+            if len(dishes) > 8:
+                dish_names.append(f"• ... and {len(dishes) - 8} more dishes")
+            dish_text = "<br/>".join(dish_names)
+            left_flowables.append(Paragraph(dish_text, ParagraphStyle(
+                "d_list", fontName="Helvetica", fontSize=7.5, textColor=_C_GRAY, leading=9.5)))
+            left_flowables.append(Spacer(1, 0.2 * cm))
+
+        # Additional Charges & Discounts
+        if charges or discounts:
+            chg_rows = []
+            for c in charges:
+                chg_rows.append([
+                    Paragraph(f"+ {c.get('description', 'Extra Charge')}", styles["DetailValue"]),
+                    Paragraph(f"₱ {float(c['amount']):,.2f}", ParagraphStyle("chg_v", fontName="Helvetica", fontSize=7.5, textColor=_C_DARK, alignment=TA_RIGHT, leading=9)),
+                ])
+            for c in discounts:
+                chg_rows.append([
+                    Paragraph(f"- {c.get('description', 'Discount')}", styles["DetailValue"]),
+                    Paragraph(f"- ₱ {abs(float(c['amount'])):,.2f}", ParagraphStyle("disc_v", fontName="Helvetica", fontSize=7.5, textColor=_C_GREEN, alignment=TA_RIGHT, leading=9)),
+                ])
+            if chg_rows:
+                left_flowables.append(Paragraph("<b>ADDITIONAL CHARGES &amp; ADJUSTMENTS</b>", ParagraphStyle(
+                    "chg_h", fontName="Helvetica-Bold", fontSize=8, textColor=_C_DARK, leading=10, spaceAfter=2)))
+                chg_tbl = Table(chg_rows, colWidths=[half_w - 2.8 * cm, 2.8 * cm])
+                chg_tbl.setStyle(TableStyle([
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ]))
+                left_flowables.append(chg_tbl)
+                left_flowables.append(Spacer(1, 0.2 * cm))
+
+        # Payment Financial Breakdown
+        left_flowables.append(Paragraph("<b>PAYMENT BREAKDOWN</b>", ParagraphStyle(
+            "p_sec", fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=3)))
+
+        pay_data = [
+            [Paragraph("Total Amount", styles["DetailLabel"]),
+             Paragraph(f"PHP {total:,.2f}", ParagraphStyle("ptot", fontName="Helvetica-Bold", fontSize=9, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
+        ]
+        if down_payment > 0:
+            pay_data.append([
+                Paragraph("Down Payment", styles["DetailLabel"]),
+                Paragraph(f"PHP {down_payment:,.2f}", ParagraphStyle("pdp", fontName="Helvetica", fontSize=8.5, textColor=_C_GREEN, alignment=TA_RIGHT, leading=11)),
+            ])
+        pay_data.append([
+            Paragraph("Amount Paid", styles["DetailLabel"]),
+            Paragraph(f"PHP {paid:,.2f}", ParagraphStyle("ppd", fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_GREEN, alignment=TA_RIGHT, leading=11)),
+        ])
+        pay_data.append([
+            Paragraph("<b>Balance Due</b>", ParagraphStyle("bld", fontName="Helvetica-Bold", fontSize=9, textColor=_C_DARK, leading=11)),
+            Paragraph(f"<b>PHP {balance:,.2f}</b>", ParagraphStyle("blv", fontName="Helvetica-Bold", fontSize=10, textColor=_C_RED if balance > 0 else _C_GREEN, alignment=TA_RIGHT, leading=12)),
+        ])
+        pay_data.append([
+            Paragraph("Status", styles["DetailLabel"]),
+            Paragraph(f"<b>{status.upper()}</b>", ParagraphStyle("stt", fontName="Helvetica-Bold", fontSize=9, textColor=status_color, alignment=TA_RIGHT, leading=11)),
+        ])
+
+        p_tbl = Table(pay_data, colWidths=[half_w * 0.45, half_w * 0.55])
+        p_tbl.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.4, _C_BORDER),
+            ("INNERGRID", (0, 0), (-1, -1), 0.2, _C_BORDER),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("BACKGROUND", (0, len(pay_data) - 2), (-1, len(pay_data) - 2),
+             colors.HexColor("#FFF1F2") if balance > 0 else colors.HexColor("#F0FDF4")),
+        ]))
+        left_flowables.append(p_tbl)
+
+        # ── 3. RIGHT SIDE: AGREEMENT & TERMS AND CONDITIONS ──────────────
+        right_flowables = []
+
+        right_flowables.append(Paragraph("<b>CATERING AGREEMENT &amp; TERMS</b>", ParagraphStyle(
+            "r_sec", fontName="Helvetica-Bold", fontSize=9, textColor=_C_RED, leading=12, spaceAfter=4)))
+
+        terms_bullets = [
+            ("1. Service Duration", "Buffet catering service is good for <b>3 hours</b> from the function start. Extension beyond 3 hours requires compensation for staff/drivers at a minimum rate of <b>₱500.00/hour</b>."),
+            ("2. Reservation &amp; Down Payment", "A reservation fee of <b>₱5,000.00</b> is required (non-refundable, but deducted from total bill). A <b>50% down payment</b> must be settled 1–2 weeks before the event."),
+            ("3. Balance &amp; Final Payment", "Full remaining balance must be settled <b>before the start of the function</b>. Cash payment or verified bank transfer only."),
+            ("4. Equipment Care &amp; Loss", "All chafing dishes, warmers, tables, chairs, and tableware remain caterer property. Any loss or damage not caused by catering personnel will be charged to client."),
+            ("5. Amenities &amp; Inclusions", "Complimentary use of dining tables, chairs, chafers, buffet skirting, utensils, and drinking water up to the reserved count. Ten (10) backup plates provided."),
+            ("6. Venue &amp; Transport Charges", "Delivery fees apply for venues outside Cebu City (Mandaue ₱800, Talamban ₱800, Talisay ₱800, Cordova ₱1,300, Minglanilla ₱1,200). Porterage fee of ₱500 applies for 3rd floor and above without elevator access."),
+            ("7. Conforme", "The client confirms that all event details, date, venue, guest count, and menu selections stated on this order slip are correct and agreed upon."),
         ]
 
-        hdr_cols = [2.2*cm, 10*cm, 6*cm] if logo_cell else [12.2*cm, 6*cm]
-        hdr_data = [[logo_cell, biz_cell, receipt_cell]] if logo_cell else [[biz_cell, receipt_cell]]
+        t_rows = []
+        for title_str, body_str in terms_bullets:
+            t_rows.append([
+                Paragraph(f"<b>{title_str}:</b> {body_str}", ParagraphStyle(
+                    "t_item", fontName="Helvetica", fontSize=7.5, textColor=_C_GRAY, leading=9.5, spaceAfter=2))
+            ])
 
-        hdr_tbl = Table(hdr_data, colWidths=hdr_cols)
-        hdr_tbl.setStyle(TableStyle([
-            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
-            ("ALIGN",         (-1, 0), (-1, 0), "RIGHT"),
-            ("TOPPADDING",    (0, 0), (-1, -1), 0),
+        t_tbl = Table(t_rows, colWidths=[half_w])
+        t_tbl.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.4, _C_BORDER),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FAFAFA")),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 7),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ]))
+        right_flowables.append(t_tbl)
+
+        # ── 4. ASSEMBLE TWO-COLUMN BODY TABLE ─────────────────────────────
+        split_body_data = [[left_flowables, right_flowables]]
+        split_tbl = Table(split_body_data, colWidths=[half_w, half_w])
+        split_tbl.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
         ]))
-        story.append(hdr_tbl)
-        story.append(Spacer(1, 0.4*cm))
-        story.append(HRFlowable(width="100%", thickness=2.5, color=_C_RED, spaceAfter=0.4*cm))
+        story.append(split_tbl)
+        story.append(Spacer(1, 0.4 * cm))
 
-        def _det_row(label, value, alt=False, value_style=None):
-            bg = colors.HexColor("#F8FAFC") if alt else _C_WHITE
-            vs = value_style or styles["DetailValue"]
-            return [
-                Paragraph(label, styles["DetailLabel"]),
-                Paragraph(str(value), vs),
-            ], bg
-
-        detail_rows_data = [
-            ("Receipt #",    inv.get("invoice", "—"),                   False, None),
-            ("Customer",     inv.get("customer", "—"),                   True,  None),
-            ("Event Date",   inv.get("event_date", "—"),                 False, None),
+        # ── 5. BOTTOM SIGNATURES SECTION ──────────────────────────────────
+        sig_data = [
+            [
+                Paragraph("<b>CONFORME / CLIENT ACCEPTANCE:</b>", ParagraphStyle(
+                    "sig_h1", fontName="Helvetica-Bold", fontSize=8, textColor=_C_DARK, leading=10)),
+                Paragraph("<b>AUTHORIZED REPRESENTATIVE:</b>", ParagraphStyle(
+                    "sig_h2", fontName="Helvetica-Bold", fontSize=8, textColor=_C_DARK, leading=10)),
+            ],
+            [
+                Spacer(1, 1.2 * cm),
+                Spacer(1, 1.2 * cm),
+            ],
+            [
+                Paragraph("____________________________________________<br/><b>Client Signature over Printed Name</b><br/>Date: ________________________", ParagraphStyle(
+                    "sig_b1", fontName="Helvetica", fontSize=7.5, textColor=_C_GRAY, leading=10)),
+                Paragraph(f"____________________________________________<br/><b>{biz_name}</b><br/>Date: ________________________", ParagraphStyle(
+                    "sig_b2", fontName="Helvetica", fontSize=7.5, textColor=_C_GRAY, leading=10)),
+            ],
         ]
-
-        detail_rows = []
-        tbl_style_cmds = [
-            ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
-            ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
-            ("TOPPADDING",   (0, 0), (-1, -1), 7),
-            ("BOTTOMPADDING",(0, 0), (-1, -1), 7),
-            ("LEFTPADDING",  (0, 0), (-1, -1), 10),
+        sig_tbl = Table(sig_data, colWidths=[content_w * 0.5, content_w * 0.5])
+        sig_tbl.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("BOX", (0, 0), (-1, -1), 0.4, _C_BORDER),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
             ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-        ]
-
-        for i, (lbl, val, alt, vstyle) in enumerate(detail_rows_data):
-            row_data, bg = _det_row(lbl, val, alt, vstyle)
-            detail_rows.append(row_data)
-            if alt:
-                tbl_style_cmds.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#F8FAFC")))
-
-        det_tbl = Table(detail_rows, colWidths=[4.5*cm, _CONTENT_W - 4.5*cm])
-        det_tbl.setStyle(TableStyle(tbl_style_cmds))
-        story.append(det_tbl)
-        story.append(Spacer(1, 0.3*cm))
-
-        # Additional Charges / Additional Items breakdown - each stays a
-        # separate, explained line item, never silently merged into the total.
-        if charges:
-            story.append(Paragraph("Additional Charges / Items", styles["DetailLabel"]))
-            story.append(Spacer(1, 4))
-            rows = [[Paragraph("Description", styles["DetailLabel"]), Paragraph("Amount", styles["DetailLabel"])]]
-            for c in charges:
-                rows.append([
-                    Paragraph(str(c.get("description", "")), styles["DetailValue"]),
-                    Paragraph(f"PHP {float(c['amount']):,.2f}", ParagraphStyle(
-                        "chg_amt", fontName="Helvetica", fontSize=9.5,
-                        textColor=_C_DARK, alignment=TA_RIGHT, leading=12)),
-                ])
-            chg_tbl = Table(rows, colWidths=[_CONTENT_W * 0.7, _CONTENT_W * 0.3])
-            chg_tbl.setStyle(TableStyle([
-                ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
-                ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
-                ("BACKGROUND",   (0, 0), (-1, 0),  _C_LIGHT),
-                ("TOPPADDING",   (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
-                ("LEFTPADDING",  (0, 0), (-1, -1), 10),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-            ]))
-            story.append(chg_tbl)
-            story.append(Spacer(1, 0.3*cm))
-
-        if discounts:
-            story.append(Paragraph("Discounts", styles["DetailLabel"]))
-            story.append(Spacer(1, 4))
-            rows = [[Paragraph("Description", styles["DetailLabel"]), Paragraph("Amount", styles["DetailLabel"])]]
-            for c in discounts:
-                rows.append([
-                    Paragraph(str(c.get("description", "")), styles["DetailValue"]),
-                    Paragraph(f"- PHP {abs(float(c['amount'])):,.2f}", ParagraphStyle(
-                        "disc_amt", fontName="Helvetica", fontSize=9.5,
-                        textColor=_C_GREEN, alignment=TA_RIGHT, leading=12)),
-                ])
-            disc_tbl = Table(rows, colWidths=[_CONTENT_W * 0.7, _CONTENT_W * 0.3])
-            disc_tbl.setStyle(TableStyle([
-                ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
-                ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
-                ("BACKGROUND",   (0, 0), (-1, 0),  _C_LIGHT),
-                ("TOPPADDING",   (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
-                ("LEFTPADDING",  (0, 0), (-1, -1), 10),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-            ]))
-            story.append(disc_tbl)
-            story.append(Spacer(1, 0.3*cm))
-
-        amount_rows = [
-            [Paragraph("Total Amount", styles["DetailLabel"]),
-             Paragraph(f"PHP {total:,.2f}", ParagraphStyle(
-                 "amt", fontName="Helvetica", fontSize=10,
-                 textColor=_C_DARK, alignment=TA_RIGHT, leading=13))],
-        ]
-        if down_payment:
-            amount_rows.append([
-                Paragraph("Down Payment", styles["DetailLabel"]),
-                Paragraph(f"PHP {float(down_payment):,.2f}", ParagraphStyle(
-                    "dp", fontName="Helvetica", fontSize=10,
-                    textColor=_C_GREEN, alignment=TA_RIGHT, leading=13)),
-            ])
-        amount_rows.append([
-            Paragraph("Total Amount Paid", styles["DetailLabel"]),
-            Paragraph(f"PHP {paid:,.2f}", ParagraphStyle(
-                "paid", fontName="Helvetica", fontSize=10,
-                textColor=_C_GREEN, alignment=TA_RIGHT, leading=13)),
-        ])
-        amount_rows.append([
-            Paragraph("Balance Due", ParagraphStyle(
-                 "bal_lbl", fontName="Helvetica-Bold", fontSize=10,
-                 textColor=_C_DARK, leading=13)),
-             Paragraph(f"PHP {balance:,.2f}", ParagraphStyle(
-                 "bal_val", fontName="Helvetica-Bold", fontSize=12,
-                 textColor=_C_RED if balance > 0 else _C_GREEN,
-                 alignment=TA_RIGHT, leading=15)),
-        ])
-
-        amt_style = [
-            ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
-            ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
-            ("BACKGROUND",   (0, 0), (-1, 0),  _C_LIGHT),
-            ("BACKGROUND",   (0, len(amount_rows) - 1), (-1, len(amount_rows) - 1),
-                colors.HexColor("#FFF1F2") if balance > 0 else colors.HexColor("#F0FDF4")),
-            ("TOPPADDING",   (0, 0), (-1, -1), 9),
-            ("BOTTOMPADDING",(0, 0), (-1, -1), 9),
-            ("LEFTPADDING",  (0, 0), (-1, -1), 10),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-        ]
-
-        amt_tbl = Table(amount_rows, colWidths=[_CONTENT_W * 0.55, _CONTENT_W * 0.45])
-        amt_tbl.setStyle(TableStyle(amt_style))
-        story.append(amt_tbl)
-        story.append(Spacer(1, 0.3*cm))
-
-        # Payment History - every payment keeps its own recorded date.
-        if payment_records:
-            story.append(Paragraph("Payment History", styles["DetailLabel"]))
-            story.append(Spacer(1, 4))
-            rows = [[
-                Paragraph("Date", styles["DetailLabel"]),
-                Paragraph("Method", styles["DetailLabel"]),
-                Paragraph("Amount", styles["DetailLabel"]),
-            ]]
-            for p in payment_records:
-                rows.append([
-                    Paragraph(str(p.get("payment_date", "")), styles["DetailValue"]),
-                    Paragraph(str(p.get("method", "")), styles["DetailValue"]),
-                    Paragraph(f"PHP {float(p.get('amount', 0)):,.2f}", ParagraphStyle(
-                        "pr_amt", fontName="Helvetica", fontSize=9.5,
-                        textColor=_C_GREEN, alignment=TA_RIGHT, leading=12)),
-                ])
-            pr_tbl = Table(rows, colWidths=[_CONTENT_W * 0.3, _CONTENT_W * 0.35, _CONTENT_W * 0.35])
-            pr_tbl.setStyle(TableStyle([
-                ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
-                ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
-                ("BACKGROUND",   (0, 0), (-1, 0),  _C_LIGHT),
-                ("TOPPADDING",   (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
-                ("LEFTPADDING",  (0, 0), (-1, -1), 10),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-            ]))
-            story.append(pr_tbl)
-            story.append(Spacer(1, 0.3*cm))
-
-        status_row = Table(
-            [[Paragraph("Payment Status:", ParagraphStyle(
-                "st_lbl", fontName="Helvetica-Bold", fontSize=9,
-                textColor=_C_GRAY, leading=12)),
-              Paragraph(status.upper(), ParagraphStyle(
-                "st_val", fontName="Helvetica-Bold", fontSize=11,
-                textColor=status_color, alignment=TA_RIGHT, leading=14))]],
-            colWidths=[_CONTENT_W * 0.5, _CONTENT_W * 0.5],
-        )
-        status_row.setStyle(TableStyle([
-            ("TOPPADDING",    (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ("LEFTPADDING",   (0, 0), (-1, -1), 10),
-            ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
-            ("BOX",           (0, 0), (-1, -1), 0.4, _C_BORDER),
-            ("BACKGROUND",    (0, 0), (-1, 0),  _C_LIGHT),
-            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
         ]))
-        story.append(status_row)
+        story.append(sig_tbl)
+        story.append(Spacer(1, 0.2 * cm))
 
-        story.append(Spacer(1, 0.6*cm))
-        story.append(HRFlowable(width="100%", thickness=0.5, color=_C_BORDER))
-        story.append(Spacer(1, 0.3*cm))
-
-        from datetime import datetime as _dt
-        printed_str = _dt.now().strftime("%B %d, %Y at %I:%M %p")
         story.append(Paragraph(
-            f"Printed: {printed_str}  ·  Thank you for choosing <b>{biz_name}</b>!",
-            styles["Footer"],
+            f"Official Document Generated: {_dt_datetime.now().strftime('%B %d, %Y at %I:%M %p')}  ·  {biz_name}",
+            ParagraphStyle("ftr", fontName="Helvetica", fontSize=7, textColor=_C_MUTED, alignment=TA_CENTER, leading=9)
         ))
-        if balance > 0:
-            story.append(Spacer(1, 4))
-            story.append(Paragraph(
-                f"Please settle the remaining balance of PHP {balance:,.2f} before your event date.",
-                ParagraphStyle("bal_note", fontName="Helvetica", fontSize=7.5,
-                    textColor=_C_RED, alignment=TA_CENTER, leading=10)
-            ))
 
         doc.build(story)
         return True
     except Exception as exc:
         print(f"[exporter] Receipt PDF failed: {exc}")
+        import traceback
+        traceback.print_exc()
         return False
 
 

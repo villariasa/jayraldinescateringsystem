@@ -368,9 +368,15 @@ class EditBillingDialog(QDialog):
         curr_paid = float(self._inv.get("paid") or 0.0)
         curr_bal = float(self._inv.get("balance") if self._inv.get("balance") is not None else max(0.0, self._total_val - curr_paid))
 
-        # Total Amount (Read-only reference)
-        lbl_tot = QLabel(f"₱ {self._total_val:,.2f}")
-        lbl_tot.setStyleSheet("font-weight: 800; font-size: 15px; color: #D97706;")
+        # Total Amount (Editable — user can adjust the overall package amount)
+        self._total_spin = QDoubleSpinBox()
+        self._total_spin.setRange(0, 9999999)
+        self._total_spin.setPrefix("₱ ")
+        self._total_spin.setDecimals(2)
+        self._total_spin.setSingleStep(500)
+        self._total_spin.setValue(self._total_val)
+        self._total_spin.setFixedHeight(38)
+        self._total_spin.setStyleSheet("font-weight: 800; font-size: 13px; color: #D97706;")
 
         # Quick auto-fill options
         opt_box = QFrame()
@@ -412,7 +418,7 @@ class EditBillingDialog(QDialog):
         form = QFormLayout()
         form.setSpacing(12)
         form.setLabelAlignment(Qt.AlignLeft)
-        form.addRow(QLabel("Total Amount"), lbl_tot)
+        form.addRow(QLabel("Total Amount (₱) *"), self._total_spin)
 
         # 1. Paid Amount (Editable)
         self._paid_spin = QDoubleSpinBox()
@@ -434,6 +440,15 @@ class EditBillingDialog(QDialog):
 
         self._updating = False
 
+        def _on_total_changed(val):
+            if self._updating:
+                return
+            self._updating = True
+            self._total_val = val
+            new_bal = max(0.0, val - self._paid_spin.value())
+            self._bal_spin.setValue(new_bal)
+            self._updating = False
+
         def _on_paid_changed(val):
             if self._updating:
                 return
@@ -449,6 +464,8 @@ class EditBillingDialog(QDialog):
             new_paid = max(0.0, self._total_val - val)
             self._paid_spin.setValue(new_paid)
             self._updating = False
+
+        self._total_spin.valueChanged.connect(_on_total_changed)
 
         def _apply_edit_down():
             self._paid_spin.setValue(down_val)
@@ -491,6 +508,7 @@ class EditBillingDialog(QDialog):
         outer.addWidget(container)
 
     def _save(self):
+        new_total = self._total_spin.value()
         new_paid = self._paid_spin.value()
         new_bal = self._bal_spin.value()
 
@@ -505,7 +523,7 @@ class EditBillingDialog(QDialog):
             self._err.show()
             return
 
-        ok = repo.update_invoice_payment(db_id, new_paid, new_bal)
+        ok = repo.update_invoice_payment(db_id, new_paid, new_bal, new_total=new_total)
         if ok:
             self.accept()
         else:
@@ -1378,7 +1396,7 @@ class BillingPage(QWidget):
         paid  = float(inv.get("paid", 0))
         down  = float(inv.get("down_payment") or 0.0)
         bal   = max(0.0, total - paid)
-        is_verified = bool(inv.get("is_verified", True))
+        is_verified = bool(inv.get("payment_verified", True))
 
         c2 = QHBoxLayout()
         c2.setSpacing(14)

@@ -425,6 +425,11 @@ export const api = {
     return repo.getPackages();
   },
 
+  async getPackageItems(pkgId) {
+    await ready();
+    return repo.getPackageItems(pkgId);
+  },
+
   async createPackage(data) {
     await ready();
     const id = repo.addPackage(data.name, data.description, data.price_per_pax, data.min_pax, data.image);
@@ -587,6 +592,8 @@ export const api = {
   },
 
   async getOrder(id) { await ready(); return repo.getOrderDetail(id); },
+  async getBookingsByDate(dateStr) { await ready(); return repo.getBookingsByDate(dateStr); },
+  async getMonthBookings(year, month) { await ready(); return repo.getMonthBookings(year, month); },
 
   async placeOrder(data) {
     await ready();

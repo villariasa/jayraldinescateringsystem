@@ -414,7 +414,7 @@ class MultiMenuSelectionDialog(QDialog):
                     else:
                         r_lay.addWidget(cb, 1)
 
-                    price_lbl = QLabel(f"₱ {i_price:,.2f} / pax")
+                    price_lbl = QLabel(f"₱ {i_price:,.2f} / set")
                     price_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #F59E0B;")
                     r_lay.addWidget(price_lbl)
 
@@ -682,11 +682,11 @@ class AddMultipleBookingsDialog(QDialog):
             for pkg in self._packages:
                 p_name = pkg.get("name", "Package")
                 p_price = float(pkg.get("price_per_pax") or 0.0)
-                menu_combo.addItem(f"📦 {p_name} (₱{p_price:,.0f}/pax)", {
+                menu_combo.addItem(f"📦 {p_name} (₱{p_price:,.0f}/set)", {
                     "type": "package", "name": p_name, "rate": p_price, "id": pkg.get("id")
                 })
         else:
-            menu_combo.addItem("📦 Standard Package (₱350/pax)", {
+            menu_combo.addItem("📦 Standard Package (₱350/set)", {
                 "type": "package", "name": "Standard Package", "rate": 350.0, "id": None
             })
 
@@ -699,7 +699,7 @@ class AddMultipleBookingsDialog(QDialog):
         for it in self._menu_items:
             i_name = it.get("name", "Dish")
             i_price = float(it.get("price") or 0.0)
-            menu_combo.addItem(f"🍲 {i_name} (₱{i_price:,.0f}/pax)", {
+            menu_combo.addItem(f"🍲 {i_name} (₱{i_price:,.0f}/set)", {
                 "type": "custom", "items": [i_name], "rate": i_price, "name": i_name
             })
 
@@ -923,7 +923,7 @@ class AddMultipleBookingsDialog(QDialog):
                 "date": date_val,
                 "event_time": time_val,
                 "time": time_val,
-                "venue": "Client Venue",
+                "venue": "TBD / On-Site Venue",
                 "pax": pax,
                 "total": tot,
                 "amount_paid": down,

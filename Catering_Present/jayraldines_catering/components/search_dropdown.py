@@ -151,8 +151,8 @@ def _build_suggestions(query: str) -> list[dict]:
                 results.append({
                     "type":  "Package",
                     "label": name,
-                    "sub":   f"Min {pkg.get('min_pax', 1)} pax",
-                    "meta":  f"₱{float(pkg.get('price_per_pax', 0)):,.2f}/pax",
+                    "sub":   "Min 1 Set (4 dishes good for 22 person)",
+                    "meta":  f"₱{float(pkg.get('price_per_pax', 0)):,.2f}/set",
                     "id":    pkg.get("id"),
                     "score": score,
                 })

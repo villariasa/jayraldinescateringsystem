@@ -41,8 +41,11 @@ export function findPossibleDuplicateCustomer(contact, name) {
 }
 
 export function formatEventTime(timeStr) {
-  if (!timeStr) return "12:00 PM";
+  if (!timeStr) return "To be followed";
   const str = String(timeStr).trim();
+  if (str.toLowerCase().includes("to be follow") || str.toUpperCase() === "TBF" || str.toUpperCase() === "TBA") {
+    return "To be followed";
+  }
   if (str.includes("AM") || str.includes("PM") || str.includes("am") || str.includes("pm")) {
     return str;
   }
@@ -304,6 +307,95 @@ export function deletePackage(pkgId) {
   return true;
 }
 
+export function getPackageItems(pkgId) {
+  try {
+    const rows = fetchAll(`
+      SELECT pi.*, mi.mi_name, mi.mi_category, mi.mi_price
+      FROM package_items pi
+      LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
+      WHERE pi.pi_package_id = ?
+    `, [pkgId]);
+    return rows.map((r) => ({
+      id: r.pi_id,
+      package_id: r.pi_package_id,
+      menu_item_id: r.pi_menu_item_id,
+      name: r.pi_item_name || r.mi_name || "Dish",
+      item_name: r.pi_item_name || r.mi_name || "Dish",
+      category: r.pi_category || r.mi_category || "Main Course",
+      price: Number(r.pi_custom_price || r.mi_price || 0),
+    }));
+  } catch (e) {
+    try {
+      const rows = fetchAll("SELECT * FROM package_items WHERE pi_package_id = ?", [pkgId]);
+      return rows.map((r) => ({
+        id: r.pi_id,
+        package_id: r.pi_package_id,
+        menu_item_id: r.pi_menu_item_id,
+        name: r.pi_item_name || "Dish",
+        item_name: r.pi_item_name || "Dish",
+        category: r.pi_category || "Main Course",
+        price: Number(r.pi_custom_price || 0),
+      }));
+    } catch (_) {
+      return [];
+    }
+  }
+}
+
+export function getBookingsByDate(dateStr) {
+  try {
+    const rows = fetchAll(`
+      SELECT bk_id, bk_booking_ref, bk_customer_name, bk_event_date, bk_event_time, bk_event_end_time,
+             bk_venue, bk_occasion, bk_pax, bk_status
+      FROM bookings
+      WHERE bk_event_date = ? AND bk_status != 'CANCELLED'
+      ORDER BY bk_event_time ASC
+    `, [dateStr]);
+    return rows.map((r) => ({
+      id: r.bk_id,
+      ref: r.bk_booking_ref,
+      customer: r.bk_customer_name,
+      date: r.bk_event_date,
+      time: formatEventTime(r.bk_event_time),
+      endTime: r.bk_event_end_time ? formatEventTime(r.bk_event_end_time) : "",
+      venue: r.bk_venue || "To be followed",
+      occasion: r.bk_occasion || "Event",
+      pax: Number(r.bk_pax || 0),
+      status: r.bk_status || "PENDING",
+    }));
+  } catch (_) {
+    return [];
+  }
+}
+
+export function getMonthBookings(year, month) {
+  try {
+    const mStr = String(month).padStart(2, "0");
+    const prefix = `${year}-${mStr}-%`;
+    const rows = fetchAll(`
+      SELECT bk_id, bk_booking_ref, bk_customer_name, bk_event_date, bk_event_time, bk_event_end_time,
+             bk_venue, bk_occasion, bk_pax, bk_status
+      FROM bookings
+      WHERE bk_event_date LIKE ? AND bk_status != 'CANCELLED'
+      ORDER BY bk_event_date ASC, bk_event_time ASC
+    `, [prefix]);
+    return rows.map((r) => ({
+      id: r.bk_id,
+      ref: r.bk_booking_ref,
+      customer: r.bk_customer_name,
+      date: r.bk_event_date,
+      time: formatEventTime(r.bk_event_time),
+      endTime: r.bk_event_end_time ? formatEventTime(r.bk_event_end_time) : "",
+      venue: r.bk_venue || "To be followed",
+      occasion: r.bk_occasion || "Event",
+      pax: Number(r.bk_pax || 0),
+      status: r.bk_status || "PENDING",
+    }));
+  } catch (_) {
+    return [];
+  }
+}
+
 export function getAllMenuItems() {
   let rows = [];
   try {
@@ -412,13 +504,13 @@ export function createOrder(order) {
 
   const bookingId = run(`
     INSERT INTO bookings (
-      bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time,
+      bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time, bk_event_end_time,
       bk_venue, bk_occasion, bk_pax, bk_total_amount, bk_base_total, bk_payment_mode,
       bk_amount_paid, bk_down_payment, bk_menu_type, bk_package_id, bk_notes, bk_status, sync_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'package', ?, ?, 'PENDING', 'pending')
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'package', ?, ?, 'PENDING', 'pending')
   `, [
     bookingRef, customerId, order.customer_name, order.address || "", order.event_date,
-    order.event_time || "18:00", order.venue || "", order.occasion || "", Number(order.pax) || 1,
+    order.event_time || "To be followed", order.event_end_time || null, order.venue || "To be followed", order.occasion || "General Event", Number(order.pax) || 1,
     total, baseTotal, order.payment_method || "Cash", downPayment, downPayment,
     order.package_id ?? null, order.notes || "",
   ]);

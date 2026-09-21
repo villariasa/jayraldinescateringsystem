@@ -13,19 +13,21 @@ import utils.db as db
 import utils.menu_store as menu_store
 
 
-def format_time_ampm(t_raw) -> str:
+def format_time_ampm(t_raw, default: str = "") -> str:
     """
     Converts any time representation (e.g. '18:00', '18:00:00', '09:30', time objects)
     into standard 12-hour AM/PM format (e.g. '6:00 PM', '9:30 AM', '11:45 AM').
-    Replaces all military time.
+    Preserves 'To be followed' / 'TBF' / 'TBA' instead of forcing military or hardcoded times.
     """
     if not t_raw:
-        return "6:00 PM"
+        return default or "To be followed"
     if hasattr(t_raw, "strftime"):
         return t_raw.strftime("%I:%M %p").lstrip("0")
     s = str(t_raw).strip()
-    if not s or s in ("—", "-", "TBA", "None", "null"):
-        return "6:00 PM"
+    if not s or s.lower() in ("—", "-", "none", "null"):
+        return default or "To be followed"
+    if s.upper() in ("TBF", "TBA") or "to be follow" in s.lower():
+        return "To be followed"
     for fmt in ("%I:%M %p", "%I:%M%p", "%I:%M %P", "%I:%M%P", "%H:%M:%S", "%H:%M", "%H:%M:%S.%f"):
         try:
             parsed = datetime.strptime(s, fmt).time()
@@ -1133,12 +1135,23 @@ _BOOKING_ROW_SQL = """
                COALESCE(NULLIF(b.bk_email, ''), NULLIF(c.cus_email, ''), '')   AS email,
                b.bk_event_date           AS event_date,
                b.bk_event_time           AS event_time,
+               b.bk_event_end_time       AS event_end_time,
                b.bk_venue                AS venue,
                b.bk_occasion             AS occasion,
                b.bk_pax                  AS pax,
                b.bk_total_amount         AS total_amount,
-               b.bk_amount_paid          AS amount_paid,
-               COALESCE(b.bk_down_payment, b.bk_amount_paid, 0.0) AS down_payment,
+               COALESCE(
+                   NULLIF(b.bk_amount_paid, 0),
+                   (SELECT inv.inv_amount_paid FROM invoices inv WHERE inv.inv_booking_id = b.bk_id LIMIT 1),
+                   b.bk_down_payment,
+                   0.0
+               )                         AS amount_paid,
+               COALESCE(
+                   NULLIF(b.bk_down_payment, 0),
+                   (SELECT inv.inv_down_payment FROM invoices inv WHERE inv.inv_booking_id = b.bk_id LIMIT 1),
+                   b.bk_amount_paid,
+                   0.0
+               )                         AS down_payment,
                b.bk_status               AS status,
                b.bk_color_theme          AS color_theme,
                COALESCE(NULLIF(b.bk_special_notes, ''), NULLIF(b.bk_notes, ''), '') AS notes,
@@ -1158,9 +1171,14 @@ def _rows_to_booking_dicts(rows) -> list[dict]:
     result = []
     for r in rows:
         t_val = format_time_ampm(r.get("event_time"))
+        end_raw = r.get("event_end_time")
+        end_val = format_time_ampm(end_raw, default="") if end_raw else ""
+        display_time = f"{t_val} – {end_val}" if end_val else t_val
         tot_val = float(r.get("total_amount") or 0.0)
         paid_val = float(r.get("amount_paid") or 0.0)
-        bal_val = max(0.0, tot_val - paid_val)
+        dp_val = float(r.get("down_payment") or 0.0)
+        effective_paid = max(paid_val, dp_val)
+        bal_val = max(0.0, tot_val - effective_paid)
         date_str = r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], date) else str(r["event_date"] or "")
 
         result.append({
@@ -1170,8 +1188,9 @@ def _rows_to_booking_dicts(rows) -> list[dict]:
             "ref_id":              r["booking_ref"] or "",
             "date":                date_str,
             "event_date":          date_str,
-            "time":                t_val,
+            "time":                display_time,
             "event_time":          t_val,
+            "event_end_time":      end_val,
             "name":                r["customer_name"] or "",
             "customer_name":       r["customer_name"] or "",
             "client_name":         r["customer_name"] or "",
@@ -1181,10 +1200,10 @@ def _rows_to_booking_dicts(rows) -> list[dict]:
             "venue":               r.get("venue") or "",
             "occasion":            r.get("occasion") or "",
             "pax":                 str(r["pax"] or "0"),
-            "total":               f"\u20b1 {int(tot_val):,}",
+            "total":               f"₱ {tot_val:,.2f}",
             "total_amount":        tot_val,
-            "amount_paid":         paid_val,
-            "down_payment":        paid_val,
+            "amount_paid":         effective_paid,
+            "down_payment":        dp_val if dp_val > 0 else effective_paid,
             "balance":             bal_val,
             "status":              r["status"] or "PENDING",
             "color_theme":         r.get("color_theme") or "#2563EB",
@@ -1404,6 +1423,7 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
                b.bk_address AS address,
                b.bk_event_date AS event_date,
                b.bk_event_time AS event_time,
+               b.bk_event_end_time AS event_end_time,
                b.bk_occasion AS occasion,
                b.bk_venue AS venue,
                b.bk_pax AS pax,
@@ -1435,6 +1455,11 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
         d["date"] = str(d.get("event_date", ""))
     d["time"] = format_time_ampm(d.get("event_time"))
     d["event_time"] = format_time_ampm(d.get("event_time"))
+    end_raw = d.get("event_end_time")
+    d["end_time"] = format_time_ampm(end_raw, default="") if end_raw else ""
+    d["event_end_time"] = d["end_time"]
+    if d["end_time"]:
+        d["time"] = f"{d['time']} – {d['end_time']}"
     d["color_theme"] = d.get("color_theme") or "#2563EB"
     d["color"] = d.get("color_theme") or "#2563EB"
 
@@ -1565,10 +1590,8 @@ def create_booking(data: dict) -> Optional[dict]:
             pm = "Cash"
 
         venue_val = (data.get("venue") or "").strip()
-        if not venue_val:
-            venue_val = (data.get("address") or "").strip()
-        if not venue_val:
-            venue_val = "Main Hall / Venue TBD"
+        if not venue_val or venue_val.lower() in ("tbd", "tba", "to be followed", "client venue"):
+            venue_val = "To be followed"
 
         result = db.callproc_out(
             "sp_create_booking",
@@ -1599,6 +1622,14 @@ def create_booking(data: dict) -> Optional[dict]:
                     db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_id = %s", (str(data["color_theme"]).strip(), b_id))
                 except Exception:
                     pass
+
+            if data.get("event_end_time") or data.get("end_time"):
+                end_t = _parse_time(data.get("event_end_time") or data.get("end_time"))
+                if end_t:
+                    try:
+                        db.execute("UPDATE bookings SET bk_event_end_time = %s WHERE bk_id = %s", (end_t, b_id))
+                    except Exception:
+                        pass
 
             # Save selected package dishes into booking_menu_items
             selected_dishes = data.get("selected_dishes") or []
@@ -1631,12 +1662,17 @@ def create_booking(data: dict) -> Optional[dict]:
                     "amount": total_amt,
                     "down_payment": amount_paid,
                     "ref": result.get("p_booking_ref"),
-                }
+                },
             )
-            return {"booking_id": b_id, "booking_ref": result["p_booking_ref"]}
-    except Exception as exc:
-        print(f"[repository] create_booking failed: {exc}")
-    return None
+            from utils.signals import app_events
+            ev = app_events()
+            if ev:
+                ev.booking_created.emit()
+            return {"id": b_id, "ref": result.get("p_booking_ref")}
+        return None
+    except Exception as e:
+        print(f"[repository] create_booking error: {e}")
+        return None
 
 
 add_booking = create_booking
@@ -1674,10 +1710,8 @@ def update_booking(db_id: int, data: dict) -> None:
             pm = "Cash"
 
         venue_val = (data.get("venue") or "").strip()
-        if not venue_val:
-            venue_val = (data.get("address") or "").strip()
-        if not venue_val:
-            venue_val = "Main Hall / Venue TBD"
+        if not venue_val or venue_val.lower() in ("tbd", "tba", "to be followed", "client venue"):
+            venue_val = "To be followed"
 
         db.callproc_void(
             "sp_update_booking",
@@ -1701,6 +1735,15 @@ def update_booking(db_id: int, data: dict) -> None:
                 amount_paid,
             ),
         )
+
+        if data.get("event_end_time") or data.get("end_time"):
+            end_t = _parse_time(data.get("event_end_time") or data.get("end_time"))
+            if end_t:
+                try:
+                    db.execute("UPDATE bookings SET bk_event_end_time = %s WHERE bk_id = %s", (end_t, db_id))
+                except Exception:
+                    pass
+
         if data.get("color_theme"):
             try:
                 db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_id = %s", (str(data["color_theme"]).strip(), db_id))
@@ -1857,12 +1900,14 @@ _INVOICE_ROW_SQL = """
                i.inv_event_date     AS event_date,
                i.inv_total_amount   AS total_amount,
                i.inv_amount_paid    AS amount_paid,
+               COALESCE(i.inv_down_payment, 0.0) AS down_payment,
                CASE WHEN i.inv_balance IS NOT NULL AND (i.inv_balance > 0 OR (i.inv_total_amount - i.inv_amount_paid) <= 0)
                     THEN i.inv_balance
                     WHEN (i.inv_total_amount - i.inv_amount_paid) > 0
                     THEN ROUND(i.inv_total_amount - i.inv_amount_paid, 2)
                     ELSE 0.0 END AS balance_due,
                i.inv_status         AS status,
+               i.inv_payment_verified AS payment_verified,
                COALESCE(c.cus_email, '') AS customer_email
         FROM invoices i
         LEFT JOIN customers c ON c.cus_name = i.inv_customer_name
@@ -1884,8 +1929,10 @@ def _rows_to_invoice_dicts(rows) -> list[dict]:
             "event_date":     r["event_date"].strftime("%b %d, %Y") if isinstance(r["event_date"], date) else str(r["event_date"]),
             "amount":         float(r["total_amount"]),
             "paid":           float(r["amount_paid"]),
+            "down_payment":   float(r.get("down_payment") or 0.0),
             "balance":        float(r["balance_due"]),
             "status":         r["status"],
+            "payment_verified": bool(r.get("payment_verified")),
         }
         for r in rows
     ]
@@ -2099,12 +2146,12 @@ def pay_invoice(booking_id: int, payment_amount: float, payment_date,
     }
 
 
-def update_invoice_payment(invoice_id: int, new_paid: float, new_balance: float = None) -> bool:
-    """Correct manual encoding mistakes on an invoice's paid amount and balance.
+def update_invoice_payment(invoice_id: int, new_paid: float, new_balance: float = None, new_total: float = None) -> bool:
+    """Correct manual encoding mistakes on an invoice's paid amount, balance, and total.
     
     Updates:
-    - invoices (inv_amount_paid, inv_balance, inv_status)
-    - linked bookings (bk_amount_paid, bk_down_payment, bk_status)
+    - invoices (inv_total_amount, inv_amount_paid, inv_balance, inv_status)
+    - linked bookings (bk_total_amount, bk_amount_paid, bk_down_payment, bk_status)
     - payment_records (updates latest record or creates correction record)
     """
     try:
@@ -2112,7 +2159,8 @@ def update_invoice_payment(invoice_id: int, new_paid: float, new_balance: float 
         if not inv:
             return False
         
-        tot = float(inv.get("inv_total_amount") or 0.0)
+        # Use new_total if provided, otherwise keep existing
+        tot = float(new_total) if new_total is not None else float(inv.get("inv_total_amount") or 0.0)
         paid = max(0.0, float(new_paid))
         if new_balance is not None:
             bal = max(0.0, float(new_balance))
@@ -2123,38 +2171,39 @@ def update_invoice_payment(invoice_id: int, new_paid: float, new_balance: float 
         new_inv_status = db.compute_invoice_status(tot, paid)
         new_bk_status = "CONFIRMED" if new_inv_status in ("Paid", "Partial") else "PENDING"
         
-        # Update invoices
+        # Update invoices (including total amount)
         db.execute("""
             UPDATE invoices
-            SET inv_amount_paid = %s,
+            SET inv_total_amount = %s,
+                inv_amount_paid = %s,
                 inv_balance = %s,
                 inv_status = %s
             WHERE inv_id = %s
-        """, (paid, bal, new_inv_status, invoice_id))
+        """, (tot, paid, bal, new_inv_status, invoice_id))
         
         # Update linked booking if present
         bk_id = inv.get("inv_booking_id")
         if bk_id:
             db.execute("""
                 UPDATE bookings
-                SET bk_amount_paid = %s,
+                SET bk_total_amount = %s,
+                    bk_amount_paid = %s,
                     bk_down_payment = %s
                 WHERE bk_id = %s
-            """, (paid, paid, bk_id))
+            """, (tot, paid, paid, bk_id))
         
-        # Update or insert payment record for audit trail
-        pr = db.fetchone("SELECT pr_id FROM payment_records WHERE pr_invoice_id = %s ORDER BY pr_id DESC LIMIT 1", (invoice_id,))
-        if pr:
-            db.execute("""
-                UPDATE payment_records
-                SET pr_amount = %s, pr_note = %s
-                WHERE pr_id = %s
-            """, (paid, f"Adjusted via Billing Edit ({datetime.now().strftime('%Y-%m-%d %H:%M')})", pr["pr_id"]))
-        elif paid > 0:
+        # Fix ledger: delete all old payment records for this invoice and
+        # insert a single record that matches the corrected paid amount.
+        # Previously, only the latest record was overwritten while older
+        # records kept their stale amounts — the ledger sums ALL records,
+        # so "Adjusted to ₱5K" still showed ₱10K if the old ₱10K first
+        # record was untouched.
+        db.execute("DELETE FROM payment_records WHERE pr_invoice_id = %s", (invoice_id,))
+        if paid > 0:
             db.execute("""
                 INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_payment_method, pr_note)
                 VALUES (%s, %s, %s, %s, %s)
-            """, (invoice_id, paid, date.today(), "Cash", "Initial payment recorded via Billing Edit"))
+            """, (invoice_id, paid, date.today(), "Cash", f"Corrected via Billing Edit ({datetime.now().strftime('%Y-%m-%d %H:%M')})"))
         
         from utils.signals import app_events
         ev = app_events()
@@ -4032,6 +4081,7 @@ def get_calendar_events_for_month(year: int, month: int) -> dict[tuple[int, int,
                b.bk_customer_name AS customer_name,
                b.bk_pax           AS pax,
                b.bk_event_time    AS event_time,
+               b.bk_event_end_time AS event_end_time,
                b.bk_venue         AS venue,
                b.bk_address       AS address,
                b.bk_occasion      AS occasion,
@@ -4065,20 +4115,11 @@ def get_calendar_events_for_month(year: int, month: int) -> dict[tuple[int, int,
 
         key = (ed.year, ed.month, ed.day)
         t_raw = r.get("event_time") or "6:00 PM"
-        if hasattr(t_raw, "strftime"):
-            time_str = t_raw.strftime("%I:%M %p").lstrip("0")
-        else:
-            time_str = str(t_raw).strip()
-            try:
-                for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M%p"):
-                    try:
-                        parsed_t = datetime.strptime(time_str, fmt).time()
-                        time_str = parsed_t.strftime("%I:%M %p").lstrip("0")
-                        break
-                    except ValueError:
-                        continue
-            except Exception:
-                pass
+        time_str = format_time_ampm(t_raw, default="To be followed")
+        end_raw = r.get("event_end_time")
+        end_str = format_time_ampm(end_raw, default="") if end_raw else ""
+        display_time = f"{time_str} – {end_str}" if end_str else time_str
+
         label = r.get("customer_name") or "Valued Client"
         
         tot_val = float(r.get("total_amount") or 0.0)
@@ -4092,8 +4133,8 @@ def get_calendar_events_for_month(year: int, month: int) -> dict[tuple[int, int,
         theme_desc = notes_str or pkg_desc or (f"{occ_str} Theme" if occ_str else "Standard Setup")
         menu_desc = r.get("package_name") or notes_str or ("Custom Menu" if r.get("menu_type") == "custom" else "Standard Package")
         venue_str = r.get("venue") or r.get("address") or "Client Venue"
-        if r.get("address") and r.get("venue") and r.get("address") not in r.get("venue"):
-            venue_str = f"{r.get('venue')}, {r.get('address')}"
+        # Do NOT concatenate customer address with venue — they are separate
+        # fields (bk_venue = event location, bk_address = customer home).
         
         st_val = str(r.get("status") or "CONFIRMED")
         color_theme_val = str(r.get("color_theme") or "#2563EB").strip()
@@ -4105,7 +4146,9 @@ def get_calendar_events_for_month(year: int, month: int) -> dict[tuple[int, int,
             "customer_name":     r.get("customer_name") or "Valued Client",
             "occasion":          occ_str,
             "pax":               int(r.get("pax") or 0),
-            "time":              time_str,
+            "time":              display_time,
+            "start_time":        time_str,
+            "end_time":          end_str,
             "loc":               venue_str,
             "venue":             venue_str,
             "address":           r.get("address") or "",
@@ -4168,8 +4211,55 @@ def get_calendar_events_for_month(year: int, month: int) -> dict[tuple[int, int,
     return result_by_day
 
 
-def get_calendar_events_for_date(event_date: date) -> list[dict]:
+def get_date_bookings_summary(event_date) -> dict:
+    """Check existing bookings for a target date to alert the user of conflicts/capacity."""
+    try:
+        if hasattr(event_date, "strftime"):
+            d_str = event_date.strftime("%Y-%m-%d")
+        else:
+            d_str = str(event_date).strip()
+        rows = db.fetchall(
+            """
+            SELECT bk_id, bk_booking_ref, bk_customer_name, bk_occasion, bk_event_time,
+                   bk_event_end_time, bk_pax, bk_venue, bk_status
+            FROM bookings
+            WHERE bk_event_date = %s AND bk_status NOT IN ('CANCELLED')
+            ORDER BY bk_event_time ASC
+            """,
+            (d_str,)
+        )
+        bookings = []
+        tot_pax = 0
+        for r in rows or []:
+            t_start = format_time_ampm(r.get("bk_event_time"), default="To be followed")
+            end_raw = r.get("bk_event_end_time")
+            t_end = format_time_ampm(end_raw, default="") if end_raw else ""
+            t_disp = f"{t_start} – {t_end}" if t_end else t_start
+            pax = int(r.get("bk_pax") or 0)
+            tot_pax += pax
+            bookings.append({
+                "id": r.get("bk_id"),
+                "ref": r.get("bk_booking_ref"),
+                "customer": r.get("bk_customer_name") or "Client",
+                "occasion": r.get("bk_occasion") or "Event",
+                "time": t_disp,
+                "pax": pax,
+                "venue": r.get("bk_venue") or "Client Venue",
+                "status": r.get("bk_status") or "CONFIRMED",
+            })
+        return {
+            "count": len(bookings),
+            "total_pax": tot_pax,
+            "bookings": bookings,
+            "has_conflict": len(bookings) > 0,
+        }
+    except Exception:
+        return {"count": 0, "total_pax": 0, "bookings": [], "has_conflict": False}
+
+
+def get_calendar_events_for_date(event_date) -> list[dict]:
     result = []
+    d_obj = _parse_date(event_date) if not isinstance(event_date, date) else event_date
 
     booking_rows = db.fetchall(
         """
@@ -4179,35 +4269,29 @@ def get_calendar_events_for_date(event_date: date) -> list[dict]:
                bk_customer_name AS customer_name,
                bk_pax           AS pax,
                bk_event_time    AS event_time,
+               bk_event_end_time AS event_end_time,
                bk_venue         AS venue,
                bk_occasion      AS occasion,
                bk_color_theme   AS color_theme,
                bk_status        AS status
         FROM bookings
-        WHERE bk_status NOT IN ('CANCELLED')
+        WHERE bk_status NOT IN ('CANCELLED') AND bk_event_date = %s
         ORDER BY bk_event_time
-        """
+        """,
+        (d_obj,)
     )
     for r in booking_rows or []:
-        raw_ed = r.get("event_date")
-        if not raw_ed:
-            continue
-        try:
-            ed = _parse_date(raw_ed)
-        except Exception:
-            continue
-        if ed != event_date:
-            continue
-
-        t = r.get("event_time") or "6:00 PM"
-        time_str = t.strftime("%I:%M %p").lstrip("0") if hasattr(t, "strftime") else str(t)
+        t_start = format_time_ampm(r.get("event_time"), default="To be followed")
+        end_raw = r.get("event_end_time")
+        t_end = format_time_ampm(end_raw, default="") if end_raw else ""
+        time_str = f"{t_start} – {t_end}" if t_end else t_start
         label = r.get("customer_name") or "Valued Client"
         if r.get("occasion"):
             label = f"{r['customer_name']} — {r['occasion']}"
         color_val = str(r.get("color_theme") or "#2563EB").strip()
         result.append({
             "id": r.get("db_id"), "db_id": r.get("db_id"), "name": label, "pax": int(r.get("pax") or 0),
-            "time": time_str, "loc": r.get("venue") or "TBD",
+            "time": time_str, "start_time": t_start, "end_time": t_end, "loc": r.get("venue") or "TBD",
             "color_theme": color_val, "color": color_val,
             "source": "booking", "ref": r.get("booking_ref"), "status": r.get("status") or "CONFIRMED",
         })

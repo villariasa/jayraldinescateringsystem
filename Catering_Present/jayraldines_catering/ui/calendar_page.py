@@ -223,7 +223,10 @@ class ScheduleCard(AnimatedCard):
 
             layout.addLayout(meta_row)
 
-        time_lbl = QLabel(f"🕒 Time: {time}")
+        disp_time = str(time).strip()
+        if " – " not in disp_time and not ("AM" in disp_time.upper() or "PM" in disp_time.upper()):
+            disp_time = repo.format_time_ampm(disp_time, default="To be followed")
+        time_lbl = QLabel(f"🕒 Time: {disp_time}")
         time_lbl.setObjectName("subtitle")
         loc_lbl = QLabel(f"📍 Venue: {location}")
         loc_lbl.setObjectName("subtitle")

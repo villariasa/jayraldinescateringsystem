@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     bk_address TEXT,
     bk_event_date DATE NOT NULL,
     bk_event_time TEXT DEFAULT '6:00 PM',
+    bk_event_end_time TEXT,
     bk_venue TEXT,
     bk_occasion TEXT,
     bk_pax INTEGER NOT NULL,
@@ -655,6 +656,7 @@ def _ensure_columns(conn: sqlite3.Connection):
         ("invoices", "inv_payment_verified", "INTEGER DEFAULT 0"),
         ("cash_flow_transactions", "cft_actual_sales", "REAL DEFAULT 0.0"),
         ("bookings", "bk_base_total", "REAL"),
+        ("bookings", "bk_event_end_time", "TEXT NULL"),
         ("menu_items", "mi_image", "TEXT DEFAULT ''"),
         ("menu_items", "image", "TEXT DEFAULT ''"),
         ("packages", "pkg_image", "TEXT DEFAULT ''"),
@@ -883,6 +885,8 @@ def init_sqlite_db(conn: sqlite3.Connection):
             cursor.execute("ALTER TABLE bookings ADD COLUMN bk_down_payment_status TEXT DEFAULT 'PENDING'")
         if "bk_base_total" not in bk_cols:
             cursor.execute("ALTER TABLE bookings ADD COLUMN bk_base_total REAL DEFAULT 0.0")
+        if "bk_event_end_time" not in bk_cols:
+            cursor.execute("ALTER TABLE bookings ADD COLUMN bk_event_end_time TEXT NULL")
 
         # Backfill contact and email from customer records if empty
         cursor.execute("""
