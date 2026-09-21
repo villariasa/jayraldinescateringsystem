@@ -547,13 +547,13 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
                        down_payment: float = None) -> bool:
     """Generate the official A4 Booking Agreement & Order Receipt matching the client's manual form:
     - UPPER SECTION (THE ORDER):
-        * Header with Business Name / Logo and centered 'BOOKING AGREEMENT'
-        * Left Sub-Column: Customer & Event Details, Financial Breakdown, and Signatures (CONFORME, NOTED BY)
+        * Header with Business Name / Unstretched Logo and centered 'BOOKING AGREEMENT'
+        * Left Sub-Column: Client Information, Event Details, and Payment Details
         * Right Sub-Column: Package Inclusions, Itemized MENU, and Additional Charges / Add-ons
-    - LOWER SECTION (TERMS & CONDITIONS):
-        * Red horizontal divider
-        * Terms and Conditions (the 4 exact core terms from the manual paper)
-        * Business invitation, address, telephone numbers, and Facebook footer
+    - Signatures row (CONFORME, NOTED BY with Date)
+    - LOWER SECTION:
+        * Terms and Conditions card with 4 exact core terms
+        * Business invitation with megaphone icon, address, phone, and Facebook footer strip
     """
     if not REPORTLAB_OK:
         return False
@@ -561,8 +561,6 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         import utils.repository as _repo
         additional_charges = additional_charges or []
         payment_records = payment_records or []
-        charges = [c for c in additional_charges if float(c.get("amount", 0)) > 0]
-        discounts = [c for c in additional_charges if float(c.get("amount", 0)) < 0]
 
         if business is None:
             try:
@@ -578,13 +576,21 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
                 booking_detail = _repo.get_booking_detail(booking_id) or {}
             except Exception:
                 booking_detail = {}
+            if not additional_charges:
+                try:
+                    additional_charges = _repo.get_additional_charges(booking_id) or []
+                except Exception:
+                    additional_charges = []
         elif "dishes" in inv or "package_name" in inv:
             booking_detail = dict(inv)
+
+        charges = [c for c in additional_charges if float(c.get("amount", 0)) > 0]
+        discounts = [c for c in additional_charges if float(c.get("amount", 0)) < 0]
 
         doc = SimpleDocTemplate(
             path, pagesize=A4,
             leftMargin=1.0 * cm, rightMargin=1.0 * cm,
-            topMargin=0.8 * cm, bottomMargin=0.8 * cm,
+            topMargin=0.7 * cm, bottomMargin=0.7 * cm,
             title=f"Booking Agreement & Receipt — {inv.get('invoice', inv.get('id', ''))}",
         )
         content_w = A4[0] - 2.0 * cm  # ~19.0 cm
@@ -593,9 +599,9 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         styles = _styles()
         story = []
 
-        biz_name    = business.get("name", "Jayraldine's CATERING SERVICES")
-        biz_address = business.get("address", "121 Katipunan St. Brgy Calamba Cebu City")
-        biz_contact = business.get("contact", "(032) 255-3113, (032) 238-9417 · Globe 0917-6519555, 0917-1051528")
+        biz_name    = business.get("name", "JAYRALDINE'S CATERING")
+        biz_address = business.get("address", "518 Y Rama Ave., Cebu City")
+        biz_contact = business.get("contact", "+63 912 345 6789")
 
         def _val(x):
             if x is None: return 0.0
@@ -610,48 +616,67 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         balance = max(0.0, total - max(paid, down_payment))
         status  = inv.get("status", "Confirmed" if paid >= total and total > 0 else ("Partial" if paid > 0 else "Unpaid"))
 
+        icons_dir = os.path.join(os.path.dirname(__file__), "..", "assets", "receipt_icons")
+
+        def _card_header(icon_name: str, title: str):
+            icon_file = os.path.join(icons_dir, f"icon_{icon_name}.png")
+            img_tag = f"<img src='{icon_file}' width='10' height='10' valign='bottom'/>  " if os.path.exists(icon_file) else ""
+            return Paragraph(f"<b>{img_tag}<font color='#DC2626'>{title}</font></b>", ParagraphStyle(
+                f"h_{icon_name}", fontName="Helvetica-Bold", fontSize=8.5, leading=11, textColor=colors.HexColor("#DC2626")))
+
         # ── 1. HEADER (UPPER SECTION) ─────────────────────────────────────
         logo_cell = ""
         _lp = _logo_path()
         if os.path.exists(_lp):
             try:
-                logo_cell = Image(_lp, width=2.4 * cm, height=1.3 * cm)
+                # 1:1 strict square aspect ratio — logo will NEVER stretch!
+                logo_cell = Image(_lp, width=1.6 * cm, height=1.6 * cm)
             except Exception:
                 logo_cell = ""
 
         hdr_biz_p = [
-            Paragraph(f"<b><font color='#E11D48'>{biz_name.upper()}</font></b>", ParagraphStyle(
-                "h_biz", fontName="Helvetica-Bold", fontSize=15, alignment=TA_CENTER, leading=17)),
-            Spacer(1, 2),
-            Paragraph("<u><b>BOOKING AGREEMENT</b></u>", ParagraphStyle(
-                "h_agree", fontName="Helvetica-Bold", fontSize=11, textColor=_C_DARK, alignment=TA_CENTER, leading=13)),
+            Paragraph("<b><font color='#DC2626'>JAYRALDINE'S CATERING</font></b>", ParagraphStyle(
+                "h_biz", fontName="Helvetica-Bold", fontSize=15, alignment=TA_LEFT, leading=18)),
+            Paragraph("<b><font color='#0F172A'>BOOKING AGREEMENT</font></b>", ParagraphStyle(
+                "h_agree", fontName="Helvetica-Bold", fontSize=11.5, textColor=_C_DARK, alignment=TA_LEFT, leading=14)),
+        ]
+
+        rcpt_no = inv.get("invoice") or inv.get("invoice_ref") or booking_detail.get("ref") or booking_detail.get("booking_ref") or "TB-00001-69215"
+        today_str = _dt_datetime.now().strftime("%B %d, %Y")
+        hdr_meta_p = [
+            Paragraph(f"<font color='#64748B'>ORDER REF:</font>  <b><font color='#0F172A'>{rcpt_no}</font></b>", ParagraphStyle(
+                "h_meta1", fontName="Helvetica", fontSize=8.5, alignment=TA_RIGHT, leading=12)),
+            Paragraph(f"<font color='#64748B'>DATE ISSUED:</font>  <font color='#0F172A'>{today_str}</font>", ParagraphStyle(
+                "h_meta2", fontName="Helvetica", fontSize=8, alignment=TA_RIGHT, leading=12)),
         ]
 
         if logo_cell:
-            hdr_table = Table([[logo_cell, hdr_biz_p, ""]], colWidths=[2.6 * cm, content_w - 5.2 * cm, 2.6 * cm])
+            hdr_table = Table([[logo_cell, "", hdr_biz_p, hdr_meta_p]], colWidths=[1.8 * cm, 0.15 * cm, content_w - 6.75 * cm, 4.8 * cm])
             hdr_table.setStyle(TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("LINEBEFORE", (2, 0), (2, 0), 1.5, colors.HexColor("#DC2626")),
+                ("LEFTPADDING", (2, 0), (2, 0), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ("LEFTPADDING", (0, 0), (0, 0), 0),
+                ("RIGHTPADDING", (-1, -1), (-1, -1), 0),
+            ]))
+            story.append(hdr_table)
+        else:
+            hdr_table = Table([[hdr_biz_p, hdr_meta_p]], colWidths=[content_w - 5.0 * cm, 5.0 * cm])
+            hdr_table.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("TOPPADDING", (0, 0), (-1, -1), 0),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
             ]))
             story.append(hdr_table)
-        else:
-            for p in hdr_biz_p:
-                story.append(p)
 
-        # Reference and Date Sub-bar
-        rcpt_no = inv.get("invoice") or inv.get("invoice_ref") or booking_detail.get("ref") or booking_detail.get("booking_ref") or "—"
-        today_str = _dt_datetime.now().strftime("%B %d, %Y")
-        story.append(Spacer(1, 0.1 * cm))
-        story.append(Paragraph(f"<b>ORDER REF:</b> <font color='#E11D48'>{rcpt_no}</font>  ·  <b>DATE ISSUED:</b> {today_str}", ParagraphStyle(
-            "sub_bar", fontName="Helvetica", fontSize=8, textColor=_C_GRAY, alignment=TA_RIGHT, leading=10)))
-        story.append(Spacer(1, 0.15 * cm))
+        story.append(Spacer(1, 0.12 * cm))
+        story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#DC2626"), spaceAfter=0.22 * cm))
 
         # ── 2. UPPER ORDER DETAILS (2 SUB-COLUMNS) ────────────────────────
-        # Left Sub-Column: Customer Info, Financials, Signatures
         left_sub = []
-        cust_name = inv.get("customer") or booking_detail.get("name") or "Valued Client"
+        cust_name = inv.get("customer") or booking_detail.get("name") or "aasdfasdf"
         contact_no = booking_detail.get("contact") or inv.get("contact") or "—"
         address = booking_detail.get("address") or inv.get("address") or "—"
         event_dt = inv.get("event_date") or booking_detail.get("date") or "—"
@@ -659,124 +684,130 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         time_disp = _repo.format_time_ampm(raw_t, default="To be followed") if raw_t else "To be followed"
         if booking_detail.get("event_end_time"):
             time_disp += f" - {_repo.format_time_ampm(booking_detail['event_end_time'])}"
-        venue = booking_detail.get("venue") or "To be followed"
+        venue = booking_detail.get("venue") or address or "To be followed"
         occasion = booking_detail.get("occasion") or "General Event"
         motif = booking_detail.get("color_theme") or booking_detail.get("motif") or "Standard"
         pax = str(booking_detail.get("pax") or "—")
         notes = booking_detail.get("notes") or booking_detail.get("special_notes") or "Standard arrangement."
         pay_mode = inv.get("payment_method") or booking_detail.get("payment_mode") or "Cash"
 
-        client_fields = [
-            ("Name:", cust_name, "Date:", event_dt),
-            ("Address:", address, None, None),
-            ("Contact #:", contact_no, None, None),
-            ("Function Date:", event_dt, "Time:", time_disp),
-            ("Venue:", venue, None, None),
-            ("Occasion:", occasion, "Motif:", motif),
-            ("No. of Pax:", f"{pax} pax / sets", None, None),
-            ("Special Instructions:", notes, None, None),
+        # Card 1: CLIENT INFORMATION
+        c1_head = _card_header("user", "CLIENT INFORMATION")
+        c1_rows = [
+            [c1_head, ""],
+            [Paragraph("<b>Name:</b>", styles["DetailLabel"]), Paragraph(str(cust_name), styles["DetailValue"])],
+            [Paragraph("<b>Address:</b>", styles["DetailLabel"]), Paragraph(str(address), styles["DetailValue"])],
+            [Paragraph("<b>Contact #:</b>", styles["DetailLabel"]), Paragraph(str(contact_no), styles["DetailValue"])],
         ]
-
-        f_rows = []
-        for row in client_fields:
-            if row[2]:
-                f_rows.append([
-                    Paragraph(f"<b>{row[0]}</b>", styles["DetailLabel"]),
-                    Paragraph(str(row[1]), styles["DetailValue"]),
-                    Paragraph(f"<b>{row[2]}</b>", styles["DetailLabel"]),
-                    Paragraph(str(row[3]), styles["DetailValue"]),
-                ])
-            else:
-                f_rows.append([
-                    Paragraph(f"<b>{row[0]}</b>", styles["DetailLabel"]),
-                    Paragraph(str(row[1]), styles["DetailValue"]),
-                    "", ""
-                ])
-
-        f_tbl = Table(f_rows, colWidths=[1.8 * cm, 3.4 * cm, 1.4 * cm, 2.7 * cm])
-        f_tbl.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("TOPPADDING", (0, 0), (-1, -1), 1.5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 2),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-            ("SPAN", (1, 1), (3, 1)),
-            ("SPAN", (1, 2), (3, 2)),
-            ("SPAN", (1, 4), (3, 4)),
-            ("SPAN", (1, 6), (3, 6)),
-            ("SPAN", (1, 7), (3, 7)),
-        ]))
-        left_sub.append(f_tbl)
-        left_sub.append(Spacer(1, 0.2 * cm))
-
-        # Financial Breakdown Box
-        fin_data = [
-            [Paragraph("<b>Total Amount:</b>", styles["DetailLabel"]), Paragraph(f"<b>PHP {total:,.2f}</b>", ParagraphStyle("ft", fontName="Helvetica-Bold", fontSize=9, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
-            [Paragraph("<b>Downpayment:</b>", styles["DetailLabel"]), Paragraph(f"PHP {down_payment:,.2f} <font color='#64748B'>({pay_mode} · {status})</font>", ParagraphStyle("fd", fontName="Helvetica", fontSize=8, textColor=_C_GREEN, alignment=TA_RIGHT, leading=10))],
-            [Paragraph("<b>Balance Due:</b>", styles["DetailLabel"]), Paragraph(f"<b>PHP {balance:,.2f}</b>", ParagraphStyle("fb", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_RED if balance > 0 else _C_GREEN, alignment=TA_RIGHT, leading=11))],
-        ]
-        fin_tbl = Table(fin_data, colWidths=[2.8 * cm, half_w - 2.8 * cm])
-        fin_tbl.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 0.5, _C_BORDER),
-            ("INNERGRID", (0, 0), (-1, -1), 0.25, _C_BORDER),
+        c1_tbl = Table(c1_rows, colWidths=[2.2 * cm, half_w - 2.2 * cm])
+        c1_tbl.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
+            ("SPAN", (0, 0), (1, 0)),
+            ("LINEBELOW", (0, 0), (1, 0), 0.5, colors.HexColor("#E2E8F0")),
             ("TOPPADDING", (0, 0), (-1, -1), 2.5),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
             ("LEFTPADDING", (0, 0), (-1, -1), 4),
             ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-            ("BACKGROUND", (0, 2), (-1, 2), colors.HexColor("#FFF1F2") if balance > 0 else colors.HexColor("#F0FDF4")),
         ]))
-        left_sub.append(fin_tbl)
-        left_sub.append(Spacer(1, 0.25 * cm))
+        left_sub.append(c1_tbl)
+        left_sub.append(Spacer(1, 0.22 * cm))
 
-        # Signatures
-        sig_data = [
-            [Paragraph("<b>CONFORME:</b> ___________________________", styles["DetailLabel"]), Paragraph("<b>Date:</b> _________", styles["DetailLabel"])],
-            [Paragraph(f"<b>NOTED BY:</b> ___________________________", styles["DetailLabel"]), Paragraph("<b>Date:</b> _________", styles["DetailLabel"])],
+        # Card 2: EVENT DETAILS
+        c2_head = _card_header("calendar", "EVENT DETAILS")
+        c2_rows = [
+            [c2_head, ""],
+            [Paragraph("<b>Function Date:</b>", styles["DetailLabel"]), Paragraph(str(event_dt), styles["DetailValue"])],
+            [Paragraph("<b>Time:</b>", styles["DetailLabel"]), Paragraph(str(time_disp), styles["DetailValue"])],
+            [Paragraph("<b>Venue:</b>", styles["DetailLabel"]), Paragraph(str(venue), styles["DetailValue"])],
+            [Paragraph("<b>Occasion:</b>", styles["DetailLabel"]), Paragraph(str(occasion), styles["DetailValue"])],
+            [Paragraph("<b>Motif:</b>", styles["DetailLabel"]), Paragraph(str(motif), styles["DetailValue"])],
+            [Paragraph("<b>No. of Pax:</b>", styles["DetailLabel"]), Paragraph(f"{pax} pax / sets", styles["DetailValue"])],
+            [Paragraph("<b>Special Instructions:</b>", styles["DetailLabel"]), Paragraph(str(notes), styles["DetailValue"])],
         ]
-        sig_tbl = Table(sig_data, colWidths=[half_w - 2.2 * cm, 2.2 * cm])
-        sig_tbl.setStyle(TableStyle([
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        c2_tbl = Table(c2_rows, colWidths=[3.7 * cm, half_w - 3.7 * cm])
+        c2_tbl.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
+            ("SPAN", (0, 0), (1, 0)),
+            ("LINEBELOW", (0, 0), (1, 0), 0.5, colors.HexColor("#E2E8F0")),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
         ]))
-        left_sub.append(sig_tbl)
+        left_sub.append(c2_tbl)
+        left_sub.append(Spacer(1, 0.22 * cm))
 
-        # Right Sub-Column: Package, Menu, Add-ons
+        # Card 3: PAYMENT DETAILS
+        c3_head = _card_header("coins", "PAYMENT DETAILS")
+        c3_rows = [
+            [c3_head, ""],
+            [Paragraph("<b>Total Amount:</b>", styles["DetailLabel"]), Paragraph(f"<b>PHP {total:,.2f}</b>", ParagraphStyle("ft", fontName="Helvetica-Bold", fontSize=9, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
+            [Paragraph("<b>Downpayment:</b>", styles["DetailLabel"]), Paragraph(f"PHP {down_payment:,.2f} <font color='#16A34A'>({pay_mode} - {status})</font>", ParagraphStyle("fd", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#16A34A"), alignment=TA_RIGHT, leading=10))],
+            [Paragraph("<b><font color='#DC2626'>Balance Due:</font></b>", styles["DetailLabel"]), Paragraph(f"<b><font color='#DC2626'>PHP {balance:,.2f}</font></b>", ParagraphStyle("fb", fontName="Helvetica-Bold", fontSize=9.5, textColor=colors.HexColor("#DC2626"), alignment=TA_RIGHT, leading=11))],
+        ]
+        c3_tbl = Table(c3_rows, colWidths=[2.6 * cm, half_w - 2.6 * cm])
+        c3_tbl.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
+            ("SPAN", (0, 0), (1, 0)),
+            ("LINEBELOW", (0, 0), (1, 0), 0.5, colors.HexColor("#E2E8F0")),
+            ("BACKGROUND", (0, 3), (-1, 3), colors.HexColor("#FFF1F2")),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        left_sub.append(c3_tbl)
+
+        # Right Sub-Column: Card 4 (PACKAGE & MENU)
         right_sub = []
-        pkg_name = booking_detail.get("package_name") or booking_detail.get("package") or "Custom Package"
+        pkg_name = booking_detail.get("package_name") or booking_detail.get("package") or "CUSTOM PACKAGE"
         base_tot = _val(booking_detail.get("base_total") or total)
-        right_sub.append(Paragraph(f"<b>PACKAGE: {str(pkg_name).upper()}</b>", ParagraphStyle(
-            "r_pkg", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_RED, leading=12)))
-        right_sub.append(Paragraph(f"Good for {pax} person(s) · Base: PHP {base_tot:,.2f}", ParagraphStyle(
-            "r_pkg_sub", fontName="Helvetica", fontSize=8, textColor=_C_GRAY, leading=10, spaceAfter=4)))
 
-        # Itemized Menu List (1., 2., 3...)
+        c4_head = _card_header("cloche", "PACKAGE &amp; MENU")
+        c4_content = [
+            c4_head,
+            HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=0.15 * cm),
+            Paragraph(f"<b><font color='#BE123C'>PACKAGE: {str(pkg_name).upper()}</font></b>", ParagraphStyle(
+                "r_pkg", fontName="Helvetica-Bold", fontSize=9, textColor=colors.HexColor("#BE123C"), leading=11)),
+            Paragraph(f"Good for {pax} person(s)  ·  Base: PHP {base_tot:,.2f}", ParagraphStyle(
+                "r_pkg_sub", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#64748B"), leading=10, spaceAfter=4)),
+            Paragraph("<b>MENU:</b>", ParagraphStyle(
+                "r_menu_h", fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=2)),
+        ]
+
         dishes = booking_detail.get("selected_dishes") or booking_detail.get("dishes") or []
-        right_sub.append(Paragraph("<b>MENU:</b>", ParagraphStyle(
-            "r_menu_h", fontName="Helvetica-Bold", fontSize=9, textColor=_C_DARK, leading=11, spaceAfter=2)))
         if dishes:
             d_lines = []
             for i, d in enumerate(dishes, 1):
                 d_nm = d.get("name") if isinstance(d, dict) else str(d)
                 d_cat = f" <font color='#64748B'>({d.get('category', '')})</font>" if isinstance(d, dict) and d.get("category") else ""
                 d_lines.append(f"<b>{i}.</b> {d_nm}{d_cat}")
-            right_sub.append(Paragraph("<br/>".join(d_lines), ParagraphStyle(
-                "r_menu_l", fontName="Helvetica", fontSize=8, textColor=_C_DARK, leading=10.5)))
+            c4_content.append(Paragraph("<br/>".join(d_lines), ParagraphStyle(
+                "r_menu_l", fontName="Helvetica", fontSize=8, textColor=_C_DARK, leading=11)))
         else:
-            right_sub.append(Paragraph("<i>Standard package menu buffet.</i>", ParagraphStyle(
+            c4_content.append(Paragraph("<i>Standard package inclusions.</i>", ParagraphStyle(
                 "r_menu_none", fontName="Helvetica-Oblique", fontSize=8, textColor=_C_MUTED, leading=10)))
 
         # Add-ons & Inclusions
         if charges:
-            right_sub.append(Spacer(1, 0.15 * cm))
-            right_sub.append(Paragraph("<b>ADD-ONS &amp; EXTRAS:</b>", ParagraphStyle(
-                "r_chg_h", fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_DARK, leading=10.5, spaceAfter=2)))
+            c4_content.append(Spacer(1, 0.15 * cm))
+            c4_content.append(Paragraph("<b>ADD-ONS &amp; EXTRAS:</b>", ParagraphStyle(
+                "r_chg_h", fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=2)))
             chg_lines = []
             for c in charges:
-                chg_lines.append(f"• {c.get('description', 'Extra')}: <b>+ PHP {float(c['amount']):,.2f}</b>")
-            right_sub.append(Paragraph("<br/>".join(chg_lines), ParagraphStyle(
-                "r_chg_l", fontName="Helvetica", fontSize=8, textColor=_C_DARK, leading=10)))
+                chg_lines.append(f"• {c.get('description', 'Extra')}: <b>+PHP {float(c['amount']):,.2f}</b>")
+            c4_content.append(Paragraph("<br/>".join(chg_lines), ParagraphStyle(
+                "r_chg_l", fontName="Helvetica", fontSize=8, textColor=_C_DARK, leading=10.5)))
+
+        c4_tbl = Table([[c4_content]], colWidths=[half_w])
+        c4_tbl.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        right_sub.append(c4_tbl)
 
         # Assemble Upper Two-Column Table
         upper_table = Table([[left_sub, right_sub]], colWidths=[half_w, half_w])
@@ -784,62 +815,104 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("TOPPADDING", (0, 0), (-1, -1), 0),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ("LEFTPADDING", (0, 0), (-1, -1), 2),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ]))
         story.append(upper_table)
-        story.append(Spacer(1, 0.25 * cm))
+        story.append(Spacer(1, 0.22 * cm))
 
-        # ── 3. LOWER SECTION: TERMS AND CONDITIONS ────────────────────────
-        story.append(HRFlowable(width="100%", thickness=1.5, color=_C_RED, spaceAfter=0.15 * cm))
-        story.append(Paragraph("<b>Terms and Conditions</b>", ParagraphStyle(
-            "tc_h", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK, leading=12, spaceAfter=4)))
+        # Signatures
+        sig_col1_w = content_w * 0.65
+        sig_col2_w = content_w * 0.35
+        sig_data = [
+            [Paragraph("<b>CONFORME:</b>  ___________________________________________", styles["DetailLabel"]),
+             Paragraph("<b>Date:</b>  ____________________", styles["DetailLabel"])],
+            [Paragraph("<b>NOTED BY:</b>   ___________________________________________", styles["DetailLabel"]),
+             Paragraph("<b>Date:</b>  ____________________", styles["DetailLabel"])],
+        ]
+        sig_tbl = Table(sig_data, colWidths=[sig_col1_w, sig_col2_w])
+        sig_tbl.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        story.append(sig_tbl)
+        story.append(Spacer(1, 0.18 * cm))
 
+        # ── 3. LOWER SECTION: TERMS AND CONDITIONS CARD ───────────────────
+        tc_head = _card_header("doc", "TERMS AND CONDITIONS")
         tc_terms = [
             "<b>The client shall pay 50% downpayment upon reservation of booking</b> and shall pay the full amount 3 days before the date of the event.",
             "<b>Mode of payment.</b> The client shall personally pay in Cash for the downpayment and full payment. If cash is not available, the client can also pay through Bank Transfer or Gcash.",
-            "<b>Failure to pay.</b> A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply: (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%.",
-            "<b>Outside Food and Liabilities.</b> Any Food and Drinks or any consumables that is NOT prepared by JAY-RALDINE SERVICES brought by the client will FREE US ON ANY LIABILITIES due to food poisoning and spoilage. We charge Corkage Fee for bringing outside Food and Drinks. Precise time should be placed in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage."
+            "<b>Failure to pay.</b> A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply. (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%.",
+            "<b>Consider Food and Liabilities.</b> Any Food and Drinks or any consumables that is NOT prepared by JAYRALDINE SERVICES brought by the client will FREE US ON ANY LIABILITIES due to food poisoning and spoilage. We charge Corkage Fee for bringing outside Food and Drinks. Precise time should be placed in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage."
         ]
-
+        tc_items = [tc_head, HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=0.15 * cm)]
         for term in tc_terms:
-            story.append(Paragraph(f"• {term}", ParagraphStyle(
-                "tc_item", fontName="Helvetica", fontSize=7.5, textColor=_C_GRAY, leading=9.5, spaceAfter=3)))
+            tc_items.append(Paragraph(f"• {term}", ParagraphStyle(
+                "tc_item", fontName="Helvetica", fontSize=7.2, textColor=_C_GRAY, leading=9.2, spaceAfter=2)))
 
-        # ── 4. FOOTER ─────────────────────────────────────────────────────
-        story.append(Spacer(1, 0.15 * cm))
-        footer_content = [
-            Paragraph("<b>WE INVITE YOU TO SEE HOW WE CAN HELP YOUR EVENT THE BEST IT CAN POSSIBLY BE!!!</b>", ParagraphStyle(
-                "f_inv", fontName="Helvetica-Bold", fontSize=8, textColor=_C_RED, alignment=TA_CENTER, leading=10)),
-            Paragraph(f"Located at {biz_address}", ParagraphStyle(
-                "f_loc", fontName="Helvetica", fontSize=7.5, textColor=_C_DARK, alignment=TA_CENTER, leading=9.5)),
-            Paragraph(f"Please feel free to call us at {biz_contact}", ParagraphStyle(
-                "f_tel", fontName="Helvetica", fontSize=7.5, textColor=_C_DARK, alignment=TA_CENTER, leading=9.5)),
-            Paragraph("Find us on Facebook: <b>Jayraldine's Catering Services</b>", ParagraphStyle(
-                "f_fb", fontName="Helvetica", fontSize=7.5, textColor=_C_DARK, alignment=TA_CENTER, leading=9.5)),
-        ]
-        ftr_table = Table([[footer_content]], colWidths=[content_w])
-        ftr_table.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 0.4, _C_BORDER),
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        tc_tbl = Table([[tc_items]], colWidths=[content_w])
+        tc_tbl.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
         ]))
-        story.append(ftr_table)
+        story.append(tc_tbl)
+
+        # ── 4. FOOTER BANNER ──────────────────────────────────────────────
+        story.append(Spacer(1, 0.12 * cm))
+        story.append(HRFlowable(width="100%", thickness=1.2, color=colors.HexColor("#DC2626"), spaceAfter=0.12 * cm))
+
+        # Megaphone line (Centered)
+        mg_file = os.path.join(icons_dir, "icon_megaphone.png")
+        mg_tag = f"<img src='{mg_file}' width='11' height='11' valign='middle'/>  " if os.path.exists(mg_file) else ""
+        story.append(Paragraph(f"<b>{mg_tag}<font color='#DC2626'>WE INVITE YOU TO SEE HOW WE CAN HELP YOUR EVENT; THE BEST IT CAN POSSIBLY BE!!!</font></b>", ParagraphStyle(
+            "f_inv", fontName="Helvetica-Bold", fontSize=8, textColor=colors.HexColor("#DC2626"), alignment=TA_CENTER, leading=10.5)))
+
+        story.append(Paragraph(f"Located at {biz_address}", ParagraphStyle(
+            "f_loc", fontName="Helvetica", fontSize=7.2, textColor=_C_DARK, alignment=TA_CENTER, leading=9)))
+        story.append(Paragraph(f"Please feel free to call us at {biz_contact}", ParagraphStyle(
+            "f_tel", fontName="Helvetica", fontSize=7.2, textColor=_C_DARK, alignment=TA_CENTER, leading=9)))
+        story.append(Paragraph("Find us on Facebook: <b>Jayraldine's Catering Services</b>", ParagraphStyle(
+            "f_fb", fontName="Helvetica", fontSize=7.2, textColor=_C_DARK, alignment=TA_CENTER, leading=9)))
+
+        # 3-part bottom strip with icons
+        strip_w = content_w / 3.0
+        pin_file = os.path.join(icons_dir, "icon_pin.png")
+        phone_file = os.path.join(icons_dir, "icon_phone.png")
+        fb_file = os.path.join(icons_dir, "icon_fb.png")
+
+        pin_tag = f"<img src='{pin_file}' width='9' height='9' valign='middle'/>  " if os.path.exists(pin_file) else ""
+        phone_tag = f"<img src='{phone_file}' width='9' height='9' valign='middle'/>  " if os.path.exists(phone_file) else ""
+        fb_tag = f"<img src='{fb_file}' width='9' height='9' valign='middle'/>  " if os.path.exists(fb_file) else ""
+
+        p_loc = Paragraph(f"{pin_tag}Located at {biz_address}", ParagraphStyle("st1", fontName="Helvetica", fontSize=6.5, textColor=_C_DARK, alignment=TA_CENTER, leading=8.5))
+        p_tel = Paragraph(f"{phone_tag}Please feel free to call us at {biz_contact}", ParagraphStyle("st2", fontName="Helvetica", fontSize=6.5, textColor=_C_DARK, alignment=TA_CENTER, leading=8.5))
+        p_fb = Paragraph(f"{fb_tag}Find us on Facebook: <b>Jayraldine's Catering Services</b>", ParagraphStyle("st3", fontName="Helvetica", fontSize=6.5, textColor=_C_DARK, alignment=TA_CENTER, leading=8.5))
+
+        strip_tbl = Table([[p_loc, p_tel, p_fb]], colWidths=[strip_w, strip_w, strip_w])
+        strip_tbl.setStyle(TableStyle([
+            ("LINEBEFORE", (1, 0), (1, 0), 1.0, colors.HexColor("#DC2626")),
+            ("LINEBEFORE", (2, 0), (2, 0), 1.0, colors.HexColor("#DC2626")),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        story.append(Spacer(1, 0.08 * cm))
+        story.append(strip_tbl)
 
         doc.build(story)
         return True
     except Exception as exc:
         logger.error(f"[exporter] export_receipt_pdf failed: {exc}", exc_info=True)
-        return False
-
-        doc.build(story)
-        return True
-    except Exception as exc:
-        print(f"[exporter] Receipt PDF failed: {exc}")
-        import traceback
-        traceback.print_exc()
         return False
 
 
