@@ -279,55 +279,26 @@ function render() {
 }
 
 function wireCartSwipeToRemove(cart) {
-  const container = cart.querySelector("#cart-selected-dishes-list");
-  if (!container) return;
-
   const d = wizard.draft;
 
-  const executeRemoval = (itemId, wrapperEl) => {
-    if (!wrapperEl || wrapperEl.classList.contains("is-removing")) return;
-    wrapperEl.classList.add("is-removing");
-    const content = wrapperEl.querySelector(".cart-dish-row-content");
-    if (content) content.style.transform = "translateX(-100%)";
-
-    setTimeout(() => {
-      const idx = d.menuSelections.findIndex((m) => String(m.menu_item_id) === String(itemId));
-      if (idx !== -1) {
-        d.menuSelections.splice(idx, 1);
-      }
-      // Uncheck the dish card on Step 3 if currently in DOM
-      const dishCard = document.querySelector(`.select-card[data-item-id="${itemId}"]`);
-      if (dishCard) {
-        dishCard.classList.remove("selected");
-        const badge = dishCard.querySelector(".item-check-badge");
-        if (badge) badge.innerHTML = icon("plus");
-      }
-      // Update Step 3 counts if function registered
-      if (typeof window._updateStep3Counts === "function") {
-        window._updateStep3Counts();
-      }
-      // Update wizard step footer button if on Step 3
-      const wizNext = document.getElementById("wiz-next");
-      if (wizNext && wizard.step === 3) {
-        wizNext.textContent = window.innerWidth < 640
-          ? `Next: Add-ons (${d.menuSelections.length})`
-          : `Next Step: Event Add-ons (${d.menuSelections.length} Chosen)`;
-      }
-      // Re-render summary
-      renderCart();
-    }, 200);
-  };
-
-  container.querySelectorAll(".cart-dish-row-wrapper").forEach((wrapper) => {
-    const itemId = wrapper.dataset.menuId;
+  const attachSwipeRow = (wrapper, onRemove) => {
     const content = wrapper.querySelector(".cart-dish-row-content");
     const removeBtn = wrapper.querySelector(".cart-dish-reveal-action");
     if (!content) return;
 
+    const executeRemovalWithAnimation = () => {
+      if (wrapper.classList.contains("is-removing")) return;
+      wrapper.classList.add("is-removing");
+      content.style.transform = "translateX(-100%)";
+      setTimeout(() => {
+        onRemove();
+      }, 200);
+    };
+
     if (removeBtn) {
       removeBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        executeRemoval(itemId, wrapper);
+        executeRemovalWithAnimation();
       });
     }
 
@@ -397,7 +368,7 @@ function wireCartSwipeToRemove(cart) {
       const effectiveOffset = baseOffset + dx;
 
       if (effectiveOffset < -85) {
-        executeRemoval(itemId, wrapper);
+        executeRemovalWithAnimation();
       } else if (effectiveOffset < -35) {
         snapTo(-80);
       } else {
@@ -438,7 +409,7 @@ function wireCartSwipeToRemove(cart) {
         const effectiveOffset = baseOffset + dx;
 
         if (effectiveOffset < -85) {
-          executeRemoval(itemId, wrapper);
+          executeRemovalWithAnimation();
         } else if (effectiveOffset < -35) {
           snapTo(-80);
         } else {
@@ -449,7 +420,54 @@ function wireCartSwipeToRemove(cart) {
       window.addEventListener("mousemove", onMouseMove);
       window.addEventListener("mouseup", onMouseUp);
     });
-  });
+  };
+
+  // Wire menu dish rows
+  const dishesContainer = cart.querySelector("#cart-selected-dishes-list");
+  if (dishesContainer) {
+    dishesContainer.querySelectorAll(".cart-dish-row-wrapper:not(.cart-addon-row-wrapper)").forEach((wrapper) => {
+      const itemId = wrapper.dataset.menuId;
+      attachSwipeRow(wrapper, () => {
+        const idx = d.menuSelections.findIndex((m) => String(m.menu_item_id) === String(itemId));
+        if (idx !== -1) {
+          d.menuSelections.splice(idx, 1);
+        }
+        const dishCard = document.querySelector(`.select-card[data-item-id="${itemId}"]`);
+        if (dishCard) {
+          dishCard.classList.remove("selected");
+          const badge = dishCard.querySelector(".item-check-badge");
+          if (badge) badge.innerHTML = icon("plus");
+        }
+        if (typeof window._updateStep3Counts === "function") {
+          window._updateStep3Counts();
+        }
+        const wizNext = document.getElementById("wiz-next");
+        if (wizNext && wizard.step === 3) {
+          wizNext.textContent = window.innerWidth < 640
+            ? `Next: Add-ons (${d.menuSelections.length})`
+            : `Next Step: Event Add-ons (${d.menuSelections.length} Chosen)`;
+        }
+        renderCart();
+      });
+    });
+  }
+
+  // Wire add-on rows
+  const addonsContainer = cart.querySelector("#cart-selected-addons-list");
+  if (addonsContainer) {
+    addonsContainer.querySelectorAll(".cart-addon-row-wrapper").forEach((wrapper) => {
+      const addonIdx = Number(wrapper.dataset.addonIdx);
+      attachSwipeRow(wrapper, () => {
+        if (addonIdx >= 0 && addonIdx < d.additionalCharges.length) {
+          d.additionalCharges.splice(addonIdx, 1);
+        }
+        if (typeof window._updateStep4Addons === "function") {
+          window._updateStep4Addons();
+        }
+        renderCart();
+      });
+    });
+  }
 }
 
 function renderCart() {
@@ -497,9 +515,34 @@ function renderCart() {
     `;
   }
 
-  const chargeLines = d.additionalCharges.map(
-    (c) => `<div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;"><span style="color:var(--text-muted);">${escapeHtml(c.description)}</span><span style="font-weight:600; color:var(--gold);">${peso(c.amount)}</span></div>`
-  ).join("");
+  let addonsHtml = "";
+  if (d.additionalCharges && d.additionalCharges.length > 0) {
+    addonsHtml = `
+      <div class="cart-section-header" style="display:flex; justify-content:space-between; align-items:center; margin:14px 0 8px;">
+        <span class="cart-section-title" style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted);">Add-ons &amp; Extras</span>
+        <span class="cart-section-badge" style="font-size:11px !important; font-weight:800 !important; padding:2px 8px !important; border-radius:9999px !important; background:var(--gold) !important; color:#000 !important;">${d.additionalCharges.length} ADDED</span>
+      </div>
+      <div class="cart-selected-dishes-container" id="cart-selected-addons-list">
+        ${d.additionalCharges.map((c, idx) => `
+          <div class="cart-dish-row-wrapper cart-addon-row-wrapper" data-addon-idx="${idx}">
+            <div class="cart-dish-reveal-action" data-remove-addon-idx="${idx}" role="button" aria-label="Remove ${escapeHtml(c.description)}">
+              <span>REMOVE</span>
+            </div>
+            <div class="cart-dish-row-content">
+              <div class="cart-dish-text-col">
+                <div class="cart-dish-name">${escapeHtml(c.description)}</div>
+                <div class="cart-dish-category">EVENT ADD-ON</div>
+              </div>
+              <div class="cart-dish-price-col">
+                <span class="cart-dish-price" style="color:var(--gold); font-weight:700;">${peso(c.amount)}</span>
+              </div>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
   const total = grandTotal(d);
   const downPct = total > 0 ? Math.round(((d.downPayment || 0) / total) * 100) : 0;
 
@@ -520,8 +563,8 @@ function renderCart() {
     
     <div style="border-bottom:1.5px solid var(--border); padding-bottom:10px; margin-bottom:10px;">
       ${selectedDishesHtml}
+      ${addonsHtml}
     </div>
-    ${chargeLines ? `<div style="border-bottom:1.5px solid var(--border); padding-bottom:10px; margin-bottom:10px;">${chargeLines}</div>` : ""}
 
     <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:12px;">
       <span style="font-size:15px; font-weight:700;">Grand Total</span>
@@ -1576,34 +1619,73 @@ function renderStepAddons(card) {
     <div id="charge-list"></div>
   `;
 
+  function updateUpsellButtons() {
+    card.querySelectorAll("[data-upsell]").forEach((btn) => {
+      const idx = Number(btn.dataset.upsell);
+      const u = UPSELLS[idx];
+      if (!u) return;
+      const isSelected = d.additionalCharges.some((c) => c.description === u.name);
+      if (isSelected) {
+        btn.className = "btn btn-danger-outline";
+        btn.style.padding = "8px 16px";
+        btn.style.fontWeight = "700";
+        btn.innerHTML = `${icon("trash")} Remove`;
+      } else {
+        btn.className = "btn btn-secondary";
+        btn.style.padding = "8px 16px";
+        btn.style.fontWeight = "";
+        btn.innerHTML = `${icon("plus")} Add`;
+      }
+    });
+  }
+
   function renderChargeList() {
     const list = card.querySelector("#charge-list");
     list.innerHTML = d.additionalCharges.map((c, i) => `
       <div class="card card-elevated" style="display:flex; justify-content:space-between; align-items:center; padding:12px 18px; margin-bottom:8px;">
-        <span style="font-weight:600;">${escapeHtml(c.description)}</span>
+        <div>
+          <span style="font-weight:700; font-size:14px; color:var(--text);">${escapeHtml(c.description)}</span>
+          <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-top:2px;">Event Add-on / Charge</div>
+        </div>
         <div style="display:flex; align-items:center; gap:12px;">
-          <span style="font-weight:700; color:var(--gold);">${peso(c.amount)}</span>
-          <button class="icon-btn icon-btn-danger" data-remove="${i}" style="width:32px; height:32px;">${icon("trash")}</button>
+          <span style="font-weight:800; color:var(--gold); font-size:14.5px;">${peso(c.amount)}</span>
+          <button class="btn btn-ghost" data-remove="${i}" style="color:var(--danger); border-color:var(--danger); font-size:12px; padding:4px 10px; display:inline-flex; align-items:center; gap:4px;" title="Remove this add-on">
+            ${icon("trash")} Remove
+          </button>
         </div>
       </div>
-    `).join("") || `<p style="color:var(--text-muted); padding:10px;">No additional charges applied.</p>`;
+    `).join("") || `<p style="color:var(--text-muted); padding:10px;">No additional charges applied. Tap "Add" above or enter a custom charge.</p>`;
     
     list.querySelectorAll("[data-remove]").forEach((el) => {
       el.addEventListener("click", () => {
         d.additionalCharges.splice(Number(el.dataset.remove), 1);
         renderChargeList();
+        updateUpsellButtons();
         renderCart();
       });
     });
   }
   renderChargeList();
+  updateUpsellButtons();
+
+  window._updateStep4Addons = () => {
+    renderChargeList();
+    updateUpsellButtons();
+  };
 
   card.querySelectorAll("[data-upsell]").forEach((el) => {
     el.addEventListener("click", () => {
       const u = UPSELLS[Number(el.dataset.upsell)];
-      d.additionalCharges.push({ description: u.name, amount: u.price });
-      toast(`Added ${u.name}`, "success");
+      const existIdx = d.additionalCharges.findIndex((c) => c.description === u.name);
+      if (existIdx !== -1) {
+        d.additionalCharges.splice(existIdx, 1);
+        toast(`Removed ${u.name}`, "info");
+      } else {
+        d.additionalCharges.push({ description: u.name, amount: u.price });
+        toast(`Added ${u.name}`, "success");
+      }
       renderChargeList();
+      updateUpsellButtons();
       renderCart();
     });
   });
@@ -1616,6 +1698,7 @@ function renderStepAddons(card) {
     card.querySelector("#charge-desc").value = "";
     card.querySelector("#charge-amount").value = "";
     renderChargeList();
+    updateUpsellButtons();
     renderCart();
   });
 

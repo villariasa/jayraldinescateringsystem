@@ -749,7 +749,7 @@ export function searchCebuAddress(query, limit = 15) {
 export function getPendingSyncRecords() {
   let bookings = [];
   try {
-    bookings = fetchAll("SELECT * FROM bookings WHERE sync_status = 'pending' OR sync_status IS NULL");
+    bookings = fetchAll("SELECT * FROM bookings WHERE sync_status = 'pending' OR sync_status IS NULL OR bk_id IN (SELECT DISTINCT ac_booking_id FROM booking_additional_charges)");
   } catch (_) {
     bookings = fetchAll("SELECT * FROM bookings");
   }
@@ -757,16 +757,21 @@ export function getPendingSyncRecords() {
   const enrichedBookings = bookings.map((b) => {
     let items = [];
     let inv = null;
+    let charges = [];
     try {
       items = fetchAll("SELECT * FROM booking_menu_items WHERE bmi_booking_id = ?", [b.bk_id]);
     } catch (_) {}
     try {
       inv = fetchOne("SELECT * FROM invoices WHERE inv_booking_id = ?", [b.bk_id]);
     } catch (_) {}
+    try {
+      charges = fetchAll("SELECT * FROM booking_additional_charges WHERE ac_booking_id = ?", [b.bk_id]);
+    } catch (_) {}
     return {
       ...b,
       menu_items: items,
       invoice: inv,
+      additional_charges: charges,
     };
   });
 

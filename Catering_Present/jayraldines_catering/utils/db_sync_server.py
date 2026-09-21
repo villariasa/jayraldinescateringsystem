@@ -1409,6 +1409,28 @@ def perform_server_sync(payload: dict) -> dict:
                         except Exception as bmie:
                             logger.warning(f"[SyncServer] booking_menu_item note: {bmie}")
 
+                    # Handle booking additional charges (add-ons) if sent
+                    add_charges = b.get("additional_charges") or b.get("charges") or []
+                    for chg in add_charges:
+                        try:
+                            desc = (chg.get("ac_description") or chg.get("description") or "").strip()
+                            amt = float(chg.get("ac_amount") if chg.get("ac_amount") is not None else (chg.get("amount") or 0.0))
+                            date_added = chg.get("ac_date_added") or chg.get("date_added") or ev_date
+                            added_by = chg.get("ac_added_by") or chg.get("added_by") or "Tablet Kiosk"
+                            if desc:
+                                if db.get_engine_type() == "postgres":
+                                    db.execute("""
+                                        INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
+                                        VALUES (%s, %s, %s, %s, %s)
+                                    """, (bk_id, desc, amt, date_added, added_by))
+                                else:
+                                    db.execute("""
+                                        INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
+                                        VALUES (?, ?, ?, ?, ?)
+                                    """, (bk_id, desc, amt, date_added, added_by))
+                        except Exception as che:
+                            logger.warning(f"[SyncServer] booking_additional_charges insert note: {che}")
+
                     # Create invoice
                     try:
                         inv_num = ref.replace("TB-", "INV-").replace("BK-", "INV-")
@@ -1502,6 +1524,45 @@ def perform_server_sync(payload: dict) -> dict:
                         logger.warning(f"[SyncServer] Invoice insert note: {ie}")
             except Exception as e:
                 logger.warning(f"[SyncServer] Failed to insert booking {ref}: {e}")
+        else:
+            # Booking already exists in DB - backfill any missing additional charges or updated totals
+            try:
+                bk_id = existing_b.get("bk_id")
+                ev_date = b.get("bk_event_date") or b.get("event_date") or datetime.now().strftime("%Y-%m-%d")
+                total = float(b.get("bk_total_amount") or b.get("total_amount") or 0.0)
+                base_tot = float(b.get("bk_base_total") or b.get("base_total") or total)
+
+                add_charges = b.get("additional_charges") or b.get("charges") or []
+                for chg in add_charges:
+                    desc = (chg.get("ac_description") or chg.get("description") or "").strip()
+                    amt = float(chg.get("ac_amount") if chg.get("ac_amount") is not None else (chg.get("amount") or 0.0))
+                    date_added = chg.get("ac_date_added") or chg.get("date_added") or ev_date
+                    added_by = chg.get("ac_added_by") or chg.get("added_by") or "Tablet Kiosk"
+                    if desc and bk_id:
+                        chk_c_sql = "SELECT ac_id FROM booking_additional_charges WHERE ac_booking_id = %s AND LOWER(ac_description) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT ac_id FROM booking_additional_charges WHERE ac_booking_id = ? AND LOWER(ac_description) = LOWER(?) LIMIT 1"
+                        existing_c = db.fetchone(chk_c_sql, (bk_id, desc))
+                        if not existing_c:
+                            if db.get_engine_type() == "postgres":
+                                db.execute("""
+                                    INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
+                                    VALUES (%s, %s, %s, %s, %s)
+                                """, (bk_id, desc, amt, date_added, added_by))
+                            else:
+                                db.execute("""
+                                    INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
+                                    VALUES (?, ?, ?, ?, ?)
+                                """, (bk_id, desc, amt, date_added, added_by))
+
+                # Update total amount in bookings and invoices if tablet total is greater
+                if bk_id and total > 0:
+                    if db.get_engine_type() == "postgres":
+                        db.execute("UPDATE bookings SET bk_total_amount = GREATEST(bk_total_amount, %s), bk_base_total = GREATEST(bk_base_total, %s) WHERE bk_id = %s", (total, base_tot, bk_id))
+                        db.execute("UPDATE invoices SET inv_total_amount = GREATEST(inv_total_amount, %s), inv_balance = GREATEST(0.0, GREATEST(inv_total_amount, %s) - inv_amount_paid) WHERE inv_booking_id = %s", (total, total, bk_id))
+                    else:
+                        db.execute("UPDATE bookings SET bk_total_amount = MAX(bk_total_amount, ?), bk_base_total = MAX(bk_base_total, ?) WHERE bk_id = ?", (total, base_tot, bk_id))
+                        db.execute("UPDATE invoices SET inv_total_amount = MAX(inv_total_amount, ?), inv_balance = MAX(0.0, MAX(inv_total_amount, ?) - inv_amount_paid) WHERE inv_booking_id = ?", (total, total, bk_id))
+            except Exception as ex_be:
+                logger.warning(f"[SyncServer] Existing booking backfill note for {ref}: {ex_be}")
 
         synced_booking_refs.append(ref)
 
