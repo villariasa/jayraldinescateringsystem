@@ -3253,3 +3253,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Conducted dollar-bill compression drag tests across all four sides of insulated food pan carrier door silicone gaskets.
 - Replaced worn and cracked compression latches to maintain internal heat retention above 65°C for 4 hours without electrical power.
 - Ensured hot gourmet entrees arrive at distant countryside wedding venues steaming hot and bacteriologically safe.
+
+### Mobile Bar Craft Beer CO2 Regulator Pressure Dual-Gauge Accuracy Calibrations
+- Calibrated primary high-pressure tank gauges and low-pressure secondary output regulators (12 PSI) on draft beer dispense rigs.
+- Eliminated keg line over-carbonation and prevented flat pours by balancing draught line resistance across 10-foot 3/16-inch lines.
+- Achieved perfect two-finger creamy foam heads on craft pilsners and IPAs served across high-volume outdoor corporate events.
