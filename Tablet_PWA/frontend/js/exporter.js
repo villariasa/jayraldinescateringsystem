@@ -165,7 +165,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   doc.setTextColor(220, 38, 38); // Red
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.text("JAYRALDINE'S CATERING", textLeftX, headerTopY + 20);
+  doc.text("JAYRALDINE'S CATERING SERVICES", textLeftX, headerTopY + 20);
 
   doc.setTextColor(15, 23, 42); // Dark Charcoal / Navy #0F172A
   doc.setFont("helvetica", "bold");
@@ -328,7 +328,36 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   doc.setTextColor(15, 23, 42); // Black
   doc.text(`Good for ${pax} person(s)   ·   Base: ${peso(baseTotal)}`, rightColX + 8, rY);
 
-  rY += 16;
+  rY += 12;
+
+  // INCLUSIONS — fetched from order or SQLite package table
+  let pkgInclusions = order.package_inclusions || order.pkg_description || order.package_description || order.inclusions || "";
+  if (!pkgInclusions && typeof window !== "undefined" && window.sqlite && typeof window.sqlite.fetchOne === "function") {
+    try {
+      const pRow = order.package_id
+        ? window.sqlite.fetchOne("SELECT pkg_description FROM packages WHERE pkg_id = ?", [order.package_id])
+        : window.sqlite.fetchOne("SELECT pkg_description FROM packages WHERE LOWER(TRIM(pkg_name)) = LOWER(TRIM(?)) LIMIT 1", [pkgName]);
+      if (pRow && pRow.pkg_description) pkgInclusions = pRow.pkg_description;
+    } catch (_) {}
+  }
+
+  if (pkgInclusions && String(pkgInclusions).trim()) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text("INCLUSIONS:", rightColX + 8, rY);
+    rY += 10;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.8);
+    doc.setTextColor(51, 65, 85);
+    const incLines = doc.splitTextToSize(String(pkgInclusions).trim(), rightColW - 16);
+    const showLines = incLines.slice(0, 4);
+    doc.text(showLines, rightColX + 8, rY);
+    rY += showLines.length * 9.5 + 4;
+  }
+
+  rY += 2;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9.5);
   doc.setTextColor(15, 23, 42);

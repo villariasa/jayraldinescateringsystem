@@ -650,8 +650,8 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
                 logo_cell = ""
 
         hdr_biz_p = [
-            Paragraph("<b><font color='#DC2626'>JAYRALDINE'S CATERING</font></b>", ParagraphStyle(
-                "h_biz", fontName="Helvetica-Bold", fontSize=15, alignment=TA_LEFT, leading=18)),
+            Paragraph("<b><font color='#DC2626'>JAYRALDINE'S CATERING SERVICES</font></b>", ParagraphStyle(
+                "h_biz", fontName="Helvetica-Bold", fontSize=14, alignment=TA_LEFT, leading=18)),
             Paragraph("<b><font color='#0F172A'>BOOKING AGREEMENT</font></b>", ParagraphStyle(
                 "h_agree", fontName="Helvetica-Bold", fontSize=11.5, textColor=_C_DARK, alignment=TA_LEFT, leading=14)),
         ]
@@ -778,16 +778,48 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         base_tot = _val(booking_detail.get("base_total") or total)
 
         c4_head = _card_header("cloche", "PACKAGE &amp; MENU")
+        # Try fetching package inclusions from DB if not already in booking_detail
+        pkg_inclusions = (
+            booking_detail.get("package_inclusions")
+            or booking_detail.get("pkg_description")
+            or booking_detail.get("package_description")
+            or ""
+        )
+        if not pkg_inclusions:
+            try:
+                pkg_id = booking_detail.get("package_id") or inv.get("package_id")
+                if pkg_id:
+                    _pr = _repo.db.fetchone("SELECT pkg_description FROM packages WHERE pkg_id = ?", (pkg_id,))
+                else:
+                    _pr = _repo.db.fetchone(
+                        "SELECT pkg_description FROM packages WHERE LOWER(TRIM(pkg_name)) = LOWER(TRIM(?)) LIMIT 1",
+                        (pkg_name,)
+                    )
+                if _pr and _pr.get("pkg_description"):
+                    pkg_inclusions = _pr["pkg_description"]
+            except Exception:
+                pass
+
         c4_content = [
             c4_head,
-            HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=0.15 * cm),
+            HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=0.12 * cm),
             Paragraph(f"<b>PACKAGE: {str(pkg_name).upper()}</b>", ParagraphStyle(
                 "r_pkg", fontName="Helvetica-Bold", fontSize=10, textColor=_C_DARK, leading=12)),
             Paragraph(f"Good for {pax} person(s)  ·  Base: PHP {base_tot:,.2f}", ParagraphStyle(
-                "r_pkg_sub", fontName="Helvetica", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=4)),
-            Paragraph("<b>MENU:</b>", ParagraphStyle(
-                "r_menu_h", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK, leading=12, spaceAfter=2)),
+                "r_pkg_sub", fontName="Helvetica", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=3)),
         ]
+
+        # INCLUSIONS section (from package description)
+        if pkg_inclusions and str(pkg_inclusions).strip():
+            c4_content.append(Paragraph("<b>INCLUSIONS:</b>", ParagraphStyle(
+                "r_inc_h", fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=1)))
+            inc_lines = str(pkg_inclusions).strip().splitlines()
+            shown = "\n".join(inc_lines[:5])  # show up to 5 lines
+            c4_content.append(Paragraph(shown.replace("\n", "<br/>"), ParagraphStyle(
+                "r_inc_v", fontName="Helvetica", fontSize=7.8, textColor=colors.HexColor("#334155"), leading=10.5, spaceAfter=3)))
+
+        c4_content.append(Paragraph("<b>MENU:</b>", ParagraphStyle(
+            "r_menu_h", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK, leading=12, spaceAfter=2)))
 
         dishes = booking_detail.get("selected_dishes") or booking_detail.get("dishes") or []
         if dishes:
