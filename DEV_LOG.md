@@ -3063,3 +3063,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Calibrated clear acrylic breath protector barrier angles at 45 degrees over self-service hot buffet counter lines.
 - Enforced a vertical mouth-to-food clearance barrier minimum of 350 mm in accordance with sanitation and hygiene codes.
 - Specified anti-scratch optical polycarbonate material resistant to repeated alcohol-based sanitization wipe-downs.
+
+### Commercial Convection Oven Temperature Calibration & Steam Injection Timers
+- Conducted multi-point digital thermocouple testing across six rack positions inside commercial commissary convection ovens.
+- Calibrated 10-second intermittent steam injection pulses for artisanal crust development during banquet dinner roll baking.
+- Eliminated localized hot spots to achieve uniform golden-brown browning across 300 portions of roasted chicken supreme.
