@@ -32,13 +32,13 @@ function formatDateIssued(dRaw) {
 
 // ── Native Vector Icon Helpers for PDF Rendering ─────────────────────────────
 function drawUserIcon(doc, x, y) {
-  doc.setFillColor(220, 38, 38);
+  doc.setFillColor(15, 23, 42); // Black
   doc.circle(x + 5, y + 4, 2.5, "F");
   doc.roundedRect(x + 1, y + 8, 8, 4, 2, 2, "F");
 }
 
 function drawCalendarIcon(doc, x, y) {
-  doc.setFillColor(220, 38, 38);
+  doc.setFillColor(15, 23, 42); // Black
   doc.roundedRect(x + 1, y + 2, 8, 9, 1.5, 1.5, "F");
   doc.setFillColor(255, 255, 255);
   doc.rect(x + 2.5, y + 1, 1, 2.5, "F");
@@ -50,21 +50,21 @@ function drawCalendarIcon(doc, x, y) {
 }
 
 function drawCoinsIcon(doc, x, y) {
-  doc.setFillColor(220, 38, 38);
+  doc.setFillColor(15, 23, 42); // Black
   doc.ellipse(x + 5, y + 3.5, 4, 1.8, "F");
   doc.ellipse(x + 5, y + 6.5, 4, 1.8, "F");
   doc.ellipse(x + 5, y + 9.5, 4, 1.8, "F");
 }
 
 function drawClocheIcon(doc, x, y) {
-  doc.setFillColor(220, 38, 38);
+  doc.setFillColor(15, 23, 42); // Black
   doc.circle(x + 5, y + 2, 1, "F");
   doc.roundedRect(x + 1, y + 3.5, 8, 5, 3.5, 3.5, "F");
   doc.roundedRect(x + 0.5, y + 8.5, 9, 1.5, 0.5, 0.5, "F");
 }
 
 function drawDocIcon(doc, x, y) {
-  doc.setFillColor(220, 38, 38);
+  doc.setFillColor(15, 23, 42); // Black
   doc.roundedRect(x + 1, y + 1, 8, 10, 1, 1, "F");
   doc.setFillColor(255, 255, 255);
   doc.rect(x + 2.5, y + 3.5, 5, 1, "F");
