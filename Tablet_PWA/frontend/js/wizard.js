@@ -278,14 +278,225 @@ function render() {
   document.body.scrollTop = 0;
 }
 
+function wireCartSwipeToRemove(cart) {
+  const container = cart.querySelector("#cart-selected-dishes-list");
+  if (!container) return;
+
+  const d = wizard.draft;
+
+  const executeRemoval = (itemId, wrapperEl) => {
+    if (!wrapperEl || wrapperEl.classList.contains("is-removing")) return;
+    wrapperEl.classList.add("is-removing");
+    const content = wrapperEl.querySelector(".cart-dish-row-content");
+    if (content) content.style.transform = "translateX(-100%)";
+
+    setTimeout(() => {
+      const idx = d.menuSelections.findIndex((m) => String(m.menu_item_id) === String(itemId));
+      if (idx !== -1) {
+        d.menuSelections.splice(idx, 1);
+      }
+      // Uncheck the dish card on Step 3 if currently in DOM
+      const dishCard = document.querySelector(`.select-card[data-item-id="${itemId}"]`);
+      if (dishCard) {
+        dishCard.classList.remove("selected");
+        const badge = dishCard.querySelector(".item-check-badge");
+        if (badge) badge.innerHTML = icon("plus");
+      }
+      // Update Step 3 counts if function registered
+      if (typeof window._updateStep3Counts === "function") {
+        window._updateStep3Counts();
+      }
+      // Update wizard step footer button if on Step 3
+      const wizNext = document.getElementById("wiz-next");
+      if (wizNext && wizard.step === 3) {
+        wizNext.textContent = window.innerWidth < 640
+          ? `Next: Add-ons (${d.menuSelections.length})`
+          : `Next Step: Event Add-ons (${d.menuSelections.length} Chosen)`;
+      }
+      // Re-render summary
+      renderCart();
+    }, 200);
+  };
+
+  container.querySelectorAll(".cart-dish-row-wrapper").forEach((wrapper) => {
+    const itemId = wrapper.dataset.menuId;
+    const content = wrapper.querySelector(".cart-dish-row-content");
+    const removeBtn = wrapper.querySelector(".cart-dish-reveal-action");
+    if (!content) return;
+
+    if (removeBtn) {
+      removeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        executeRemoval(itemId, wrapper);
+      });
+    }
+
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let isTracking = false;
+    let isHorizontal = false;
+    let isOpen = false;
+
+    const snapTo = (x) => {
+      content.style.transition = "transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)";
+      content.style.transform = `translateX(${x}px)`;
+      isOpen = (x === -80);
+    };
+
+    content.addEventListener("click", (e) => {
+      if (isOpen) {
+        e.stopPropagation();
+        snapTo(0);
+      }
+    });
+
+    content.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      currentX = startX;
+      isTracking = true;
+      isHorizontal = false;
+      content.style.transition = "none";
+    }, { passive: true });
+
+    content.addEventListener("touchmove", (e) => {
+      if (!isTracking || e.touches.length !== 1) return;
+      currentX = e.touches[0].clientX;
+      const currentY = e.touches[0].clientY;
+      const dx = currentX - startX;
+      const dy = currentY - startY;
+
+      if (!isHorizontal) {
+        if (Math.abs(dx) > 7 && Math.abs(dx) > Math.abs(dy)) {
+          isHorizontal = true;
+        } else if (Math.abs(dy) > 7) {
+          isTracking = false;
+          return;
+        }
+      }
+
+      if (isHorizontal) {
+        if (e.cancelable) e.preventDefault();
+        const baseOffset = isOpen ? -80 : 0;
+        let targetX = baseOffset + dx;
+        if (targetX > 0) targetX = 0;
+        if (targetX < -130) targetX = -130 - (targetX + 130) * 0.2;
+        content.style.transform = `translateX(${targetX}px)`;
+      }
+    }, { passive: false });
+
+    const handleTouchEnd = () => {
+      if (!isTracking) return;
+      isTracking = false;
+      if (!isHorizontal) return;
+
+      const dx = currentX - startX;
+      const baseOffset = isOpen ? -80 : 0;
+      const effectiveOffset = baseOffset + dx;
+
+      if (effectiveOffset < -85) {
+        executeRemoval(itemId, wrapper);
+      } else if (effectiveOffset < -35) {
+        snapTo(-80);
+      } else {
+        snapTo(0);
+      }
+    };
+
+    content.addEventListener("touchend", handleTouchEnd, { passive: true });
+    content.addEventListener("touchcancel", handleTouchEnd, { passive: true });
+
+    // Desktop mouse dragging support
+    content.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      let mouseStartX = e.clientX;
+      let mouseCurrentX = mouseStartX;
+      let isDraggingMouse = true;
+      content.style.transition = "none";
+
+      const onMouseMove = (moveEvt) => {
+        if (!isDraggingMouse) return;
+        mouseCurrentX = moveEvt.clientX;
+        const dx = mouseCurrentX - mouseStartX;
+        const baseOffset = isOpen ? -80 : 0;
+        let targetX = baseOffset + dx;
+        if (targetX > 0) targetX = 0;
+        if (targetX < -130) targetX = -130;
+        content.style.transform = `translateX(${targetX}px)`;
+      };
+
+      const onMouseUp = () => {
+        if (!isDraggingMouse) return;
+        isDraggingMouse = false;
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+
+        const dx = mouseCurrentX - mouseStartX;
+        const baseOffset = isOpen ? -80 : 0;
+        const effectiveOffset = baseOffset + dx;
+
+        if (effectiveOffset < -85) {
+          executeRemoval(itemId, wrapper);
+        } else if (effectiveOffset < -35) {
+          snapTo(-80);
+        } else {
+          snapTo(0);
+        }
+      };
+
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+    });
+  });
+}
+
 function renderCart() {
   const d = wizard.draft;
   const cart = document.getElementById("wizard-cart");
   if (!cart) return;
 
-  const menuLines = d.menuSelections.map(
-    (m) => `<div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;"><span style="color:var(--text-muted);">${escapeHtml(m.item_name)}</span><span style="font-weight:600;">${m.price ? peso(m.price) : "Included"}</span></div>`
-  ).join("");
+  const selectedCount = d.menuSelections.length;
+
+  let selectedDishesHtml = "";
+  if (selectedCount > 0) {
+    selectedDishesHtml = `
+      <div class="cart-section-header" style="display:flex; justify-content:space-between; align-items:center; margin:10px 0 8px;">
+        <span class="cart-section-title" style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted);">Selected Menu</span>
+        <span class="cart-section-badge">${selectedCount} SELECTED</span>
+      </div>
+      <div class="cart-selected-dishes-container" id="cart-selected-dishes-list">
+        ${d.menuSelections.map((m, idx) => `
+          <div class="cart-dish-row-wrapper" data-menu-id="${m.menu_item_id}" data-index="${idx}">
+            <div class="cart-dish-reveal-action" data-remove-id="${m.menu_item_id}" role="button" aria-label="Remove ${escapeHtml(m.item_name)}">
+              <span>REMOVE</span>
+            </div>
+            <div class="cart-dish-row-content">
+              <div class="cart-dish-text-col">
+                <div class="cart-dish-name">${escapeHtml(m.item_name)}</div>
+                <div class="cart-dish-category">${escapeHtml(m.category || "Menu Item")}</div>
+              </div>
+              <div class="cart-dish-price-col">
+                ${m.price ? `<span class="cart-dish-price">+ ${peso(m.price)}</span>` : `<span class="cart-dish-included">Included</span>`}
+              </div>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  } else {
+    selectedDishesHtml = `
+      <div class="cart-section-header" style="display:flex; justify-content:space-between; align-items:center; margin:10px 0 8px;">
+        <span class="cart-section-title" style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted);">Selected Menu</span>
+        <span class="cart-section-badge" style="background:var(--border) !important; color:var(--text-muted) !important;">0 SELECTED</span>
+      </div>
+      <div class="cart-empty-dishes">
+        No dishes selected yet. Tap a dish to select. Swipe left to remove.
+      </div>
+    `;
+  }
+
   const chargeLines = d.additionalCharges.map(
     (c) => `<div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;"><span style="color:var(--text-muted);">${escapeHtml(c.description)}</span><span style="font-weight:600; color:var(--gold);">${peso(c.amount)}</span></div>`
   ).join("");
@@ -307,7 +518,9 @@ function renderCart() {
       </div>
     </div>
     
-    ${menuLines ? `<div style="border-bottom:1.5px solid var(--border); padding-bottom:10px; margin-bottom:10px;">${menuLines}</div>` : ""}
+    <div style="border-bottom:1.5px solid var(--border); padding-bottom:10px; margin-bottom:10px;">
+      ${selectedDishesHtml}
+    </div>
     ${chargeLines ? `<div style="border-bottom:1.5px solid var(--border); padding-bottom:10px; margin-bottom:10px;">${chargeLines}</div>` : ""}
 
     <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:12px;">
@@ -326,6 +539,9 @@ function renderCart() {
       ${icon("trash")} Discard Order
     </button>
   `;
+
+  wireCartSwipeToRemove(cart);
+
   cart.querySelector("#cart-quick-next")?.addEventListener("click", () => {
     // Forward to the current step's primary next button so all form inputs are properly harvested into state and validated!
     const stepNextBtn = document.getElementById("wiz-next") || document.getElementById("sticky-next-btn-top");
@@ -1090,21 +1306,6 @@ async function renderStepMenu(card) {
       </div>
     </div>
 
-    <!-- Selected Dishes Tray with Foodpanda-Style Touch List & Buffet Reordering -->
-    <div id="kiosk-selected-tray" class="selected-buffet-tray">
-      <div class="selected-buffet-header">
-        <div class="selected-buffet-title-wrap">
-          <div class="selected-buffet-heading-row">
-            <span style="font-size:18px;">📋</span>
-            <h4>Selected Menu Dishes &amp; Buffet Order</h4>
-          </div>
-          <p class="selected-buffet-subtitle">Arrange the buffet sequence. Swipe left to remove a dish.</p>
-        </div>
-        <span class="pill pill-paid selected-buffet-badge" id="selected-tray-count">${d.menuSelections.length} SELECTED</span>
-      </div>
-      <div id="drag-drop-dish-list" class="selected-buffet-list"></div>
-    </div>
-
     <div id="menu-categories-container">
       ${Object.entries(menuGroupedCache).map(([cat, items]) => `
         <div class="kiosk-category-section" id="cat-sec-${escapeHtml(cat.replace(/[^a-zA-Z0-9]/g, "-"))}" data-category-name="${escapeHtml(cat.toLowerCase())}" style="margin-bottom:28px;">
@@ -1231,296 +1432,6 @@ async function renderStepMenu(card) {
     });
   });
 
-  function renderDragDropList() {
-    const listEl = card.querySelector("#drag-drop-dish-list");
-    const countEl = card.querySelector("#selected-tray-count");
-    if (!listEl) return;
-
-    if (countEl) countEl.textContent = `${d.menuSelections.length} SELECTED`;
-
-    if (d.menuSelections.length === 0) {
-      listEl.innerHTML = `
-        <div class="selected-buffet-empty">
-          <span style="font-size:22px;">🍽️</span>
-          <div>
-            <div style="font-weight:700; color:var(--text); margin-bottom:2px;">No dishes chosen yet</div>
-            <div style="font-size:12.5px; color:var(--text-muted);">Tap dishes below to add them to your buffet order.</div>
-          </div>
-        </div>
-      `;
-      return;
-    }
-
-    listEl.innerHTML = d.menuSelections.map((m, idx) => `
-      <div class="selected-dish-row-wrapper" data-index="${idx}" data-item-id="${m.menu_item_id}">
-        <!-- Revealed Remove Button underneath (revealed on swipe left) -->
-        <div class="selected-dish-reveal-action" data-remove-index="${idx}" title="Remove ${escapeHtml(m.item_name)}">
-          <span style="font-size:20px; line-height:1;">🗑️</span>
-          <span class="action-label">Remove</span>
-        </div>
-
-        <!-- Sliding Foreground Card -->
-        <div class="selected-dish-card" data-index="${idx}">
-          <!-- Left Drag Handle for Buffet Reordering -->
-          <div class="selected-dish-handle" data-drag-index="${idx}" title="Hold & drag to reorder buffet sequence">
-            <span class="selected-dish-handle-dots">⋮⋮</span>
-          </div>
-
-          <!-- Center Dish Info -->
-          <div class="selected-dish-info">
-            <div class="selected-dish-name">${escapeHtml(m.item_name)}</div>
-            <div class="selected-dish-meta">
-              <span class="selected-dish-category">${escapeHtml(m.category || 'Buffet Dish')}</span>
-              ${m.price ? `<span class="selected-dish-price-badge">+ ${peso(m.price)}</span>` : `<span style="font-size:11px; color:var(--success); font-weight:700;">Included</span>`}
-            </div>
-          </div>
-
-          <!-- Right Side Actions & Swipe Hint -->
-          <div class="selected-dish-right">
-            <span class="selected-dish-swipe-hint" title="Swipe left to remove">
-              <span>◀</span> Swipe
-            </span>
-            <button type="button" class="btn-selected-dish-remove" data-remove-index="${idx}" title="Remove ${escapeHtml(m.item_name)}">
-              ✕
-            </button>
-          </div>
-        </div>
-      </div>
-    `).join("");
-
-    // Execution helper to remove a dish smoothly
-    const executeRemove = (remIdx, wrapperEl) => {
-      if (remIdx < 0 || remIdx >= d.menuSelections.length) return;
-      if (wrapperEl) {
-        const cardEl = wrapperEl.querySelector(".selected-dish-card");
-        if (cardEl) cardEl.style.transform = "translateX(-100%)";
-        wrapperEl.classList.add("is-removing");
-      }
-
-      setTimeout(() => {
-        const removed = d.menuSelections.splice(remIdx, 1)[0];
-        if (removed) {
-          const cardEl = card.querySelector(`.select-card[data-item-id="${removed.menu_item_id}"]`);
-          if (cardEl) {
-            cardEl.classList.remove("selected");
-            cardEl.querySelector(".item-check-badge").innerHTML = icon("plus");
-          }
-        }
-        updateCounts();
-        renderDragDropList();
-        renderCart();
-      }, 220);
-    };
-
-    // Direct click on revealed remove or fallback remove button
-    listEl.querySelectorAll("[data-remove-index]").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const remIdx = Number(btn.dataset.removeIndex);
-        const wrapper = btn.closest(".selected-dish-row-wrapper");
-        executeRemove(remIdx, wrapper);
-      });
-    });
-
-    let draggedIdx = null;
-
-    // Attach gestures to each row wrapper
-    listEl.querySelectorAll(".selected-dish-row-wrapper").forEach((wrapper) => {
-      const cardEl = wrapper.querySelector(".selected-dish-card");
-      const handleEl = wrapper.querySelector(".selected-dish-handle");
-      const idx = Number(wrapper.dataset.index);
-      if (!cardEl) return;
-
-      // ── 1. TOUCH SWIPE-TO-REMOVE (FOODPANDA STYLE) ──
-      let startX = 0;
-      let startY = 0;
-      let currentX = 0;
-      let isSwiping = false;
-      let isScrolling = false;
-      let isOpen = false;
-
-      cardEl.addEventListener("touchstart", (e) => {
-        // Ignore if touch started on the drag handle
-        if (e.target.closest(".selected-dish-handle")) return;
-        if (e.touches.length !== 1) return;
-        startX = e.touches[0].clientX;
-        startY = e.touches[0].clientY;
-        currentX = startX;
-        isSwiping = false;
-        isScrolling = false;
-        cardEl.style.transition = "none";
-      }, { passive: true });
-
-      cardEl.addEventListener("touchmove", (e) => {
-        if (e.target.closest(".selected-dish-handle")) return;
-        if (isScrolling) return;
-        if (e.touches.length !== 1) return;
-
-        const touch = e.touches[0];
-        const dx = touch.clientX - startX;
-        const dy = touch.clientY - startY;
-
-        if (!isSwiping) {
-          if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 7) {
-            isScrolling = true;
-            return;
-          }
-          if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 7) {
-            isSwiping = true;
-          }
-        }
-
-        if (isSwiping) {
-          if (e.cancelable) e.preventDefault();
-          let targetX = isOpen ? -90 + dx : dx;
-          if (targetX > 0) targetX = 0; // Don't allow swiping right past closed
-          if (targetX < -150) targetX = -150 + (targetX + 150) * 0.25; // Resistance
-          cardEl.style.transform = `translateX(${targetX}px)`;
-          currentX = touch.clientX;
-        }
-      }, { passive: false });
-
-      cardEl.addEventListener("touchend", () => {
-        if (e.target.closest(".selected-dish-handle")) return;
-        cardEl.style.transition = "transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)";
-
-        if (!isSwiping) {
-          if (isOpen) {
-            // Tap on open row snaps it closed
-            cardEl.style.transform = "translateX(0px)";
-            isOpen = false;
-          }
-          return;
-        }
-
-        const dx = currentX - startX;
-        const totalOffset = isOpen ? -90 + dx : dx;
-
-        // Full swipe left (> 110px) -> Remove dish!
-        if (totalOffset < -110) {
-          executeRemove(idx, wrapper);
-        }
-        // Partial swipe left (45px to 110px) -> Snap open to reveal Remove action
-        else if (totalOffset < -45) {
-          cardEl.style.transform = "translateX(-90px)";
-          isOpen = true;
-        }
-        // Snap closed
-        else {
-          cardEl.style.transform = "translateX(0px)";
-          isOpen = false;
-        }
-        isSwiping = false;
-      });
-
-      // ── 2. TABLET TOUCH DRAG REORDERING ON HANDLE ──
-      if (handleEl) {
-        let activeTargetIdx = null;
-
-        handleEl.addEventListener("touchstart", (e) => {
-          if (e.touches.length !== 1) return;
-          e.stopPropagation();
-          draggedIdx = Number(wrapper.dataset.index);
-          wrapper.classList.add("is-dragging");
-        }, { passive: false });
-
-        handleEl.addEventListener("touchmove", (e) => {
-          if (draggedIdx === null) return;
-          e.preventDefault(); // Prevent page scroll while dragging handle
-          const touch = e.touches[0];
-          const touchX = touch.clientX;
-          const touchY = touch.clientY;
-
-          listEl.querySelectorAll(".selected-dish-row-wrapper").forEach((w) => {
-            w.classList.remove("drag-over-top", "drag-over-bottom");
-          });
-
-          const elemUnder = document.elementFromPoint(touchX, touchY);
-          const targetRow = elemUnder ? elemUnder.closest(".selected-dish-row-wrapper") : null;
-          if (targetRow && targetRow !== wrapper) {
-            activeTargetIdx = Number(targetRow.dataset.index);
-            const rect = targetRow.getBoundingClientRect();
-            if (touchY < rect.top + rect.height / 2) {
-              targetRow.classList.add("drag-over-top");
-            } else {
-              targetRow.classList.add("drag-over-bottom");
-            }
-          } else {
-            activeTargetIdx = null;
-          }
-        }, { passive: false });
-
-        const finishTouchDrag = (e) => {
-          e.stopPropagation();
-          wrapper.classList.remove("is-dragging");
-          listEl.querySelectorAll(".selected-dish-row-wrapper").forEach((w) => {
-            w.classList.remove("drag-over-top", "drag-over-bottom");
-          });
-
-          if (draggedIdx !== null && activeTargetIdx !== null && draggedIdx !== activeTargetIdx) {
-            const item = d.menuSelections.splice(draggedIdx, 1)[0];
-            d.menuSelections.splice(activeTargetIdx, 0, item);
-            renderDragDropList();
-            renderCart();
-            toast("Buffet sequence updated.", "info");
-          }
-          draggedIdx = null;
-          activeTargetIdx = null;
-        };
-
-        handleEl.addEventListener("touchend", finishTouchDrag);
-        handleEl.addEventListener("touchcancel", finishTouchDrag);
-      }
-
-      // ── 3. DESKTOP HTML5 DRAG & DROP FOR MOUSE USERS ──
-      wrapper.setAttribute("draggable", "true");
-      wrapper.addEventListener("dragstart", (e) => {
-        draggedIdx = Number(wrapper.dataset.index);
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", String(draggedIdx));
-        wrapper.classList.add("is-dragging");
-      });
-
-      wrapper.addEventListener("dragend", () => {
-        wrapper.classList.remove("is-dragging");
-        listEl.querySelectorAll(".selected-dish-row-wrapper").forEach((w) => {
-          w.classList.remove("drag-over-top", "drag-over-bottom");
-        });
-      });
-
-      wrapper.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        const rect = wrapper.getBoundingClientRect();
-        const mid = rect.top + rect.height / 2;
-        if (e.clientY < mid) {
-          wrapper.classList.add("drag-over-top");
-          wrapper.classList.remove("drag-over-bottom");
-        } else {
-          wrapper.classList.add("drag-over-bottom");
-          wrapper.classList.remove("drag-over-top");
-        }
-      });
-
-      wrapper.addEventListener("dragleave", () => {
-        wrapper.classList.remove("drag-over-top", "drag-over-bottom");
-      });
-
-      wrapper.addEventListener("drop", (e) => {
-        e.preventDefault();
-        wrapper.classList.remove("drag-over-top", "drag-over-bottom");
-        const targetIdx = Number(wrapper.dataset.index);
-        if (draggedIdx !== null && draggedIdx !== targetIdx) {
-          const item = d.menuSelections.splice(draggedIdx, 1)[0];
-          d.menuSelections.splice(targetIdx, 0, item);
-          renderDragDropList();
-          renderCart();
-          toast("Buffet sequence updated.", "info");
-        }
-      });
-    });
-  }
-
   function updateCounts() {
     const counts = {};
     for (const m of d.menuSelections) counts[m.category] = (counts[m.category] || 0) + 1;
@@ -1555,6 +1466,7 @@ async function renderStepMenu(card) {
       }
     }
   }
+  window._updateStep3Counts = updateCounts;
 
   const goNextStep = () => { wizard.step = 4; render(); };
   const topNextBtn = card.querySelector("#sticky-next-btn-top");
@@ -1575,7 +1487,6 @@ async function renderStepMenu(card) {
         el.querySelector(".item-check-badge").innerHTML = icon("plus");
       }
       updateCounts();
-      renderDragDropList();
       renderCart();
     });
   });
@@ -1605,13 +1516,11 @@ async function renderStepMenu(card) {
           }
         }
         updateCounts();
-        renderDragDropList();
         renderCart();
       });
     });
   });
   updateCounts();
-  renderDragDropList();
 
   footer(
     window.innerWidth < 640

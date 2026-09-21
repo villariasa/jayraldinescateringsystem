@@ -4961,236 +4961,134 @@ body.wizard-mode {
 }
 
 /* ==========================================================================
-   SELECTED MENU DISHES & BUFFET ORDER — FOODPANDA-STYLE TOUCH LIST
+   LIVE EVENT SUMMARY — SELECTED MENU LIST WITH SWIPE-TO-REMOVE
    ========================================================================== */
-.selected-buffet-tray {
-  background: var(--card);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px 20px;
-  margin-bottom: 24px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-}
-
-.selected-buffet-header {
+.cart-section-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 14px;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.selected-buffet-title-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  flex: 1;
-  min-width: 200px;
-}
-
-.selected-buffet-heading-row {
-  display: flex;
   align-items: center;
-  gap: 8px;
+  padding: 8px 0 6px 0;
+  margin-top: 4px;
 }
 
-.selected-buffet-heading-row h4 {
-  margin: 0;
-  font-size: 16px;
+.cart-section-title {
+  font-size: 11.5px;
   font-weight: 800;
-  color: var(--text);
-  letter-spacing: -0.2px;
-}
-
-.selected-buffet-subtitle {
-  margin: 0;
-  font-size: 12.5px;
   color: var(--text-muted);
-  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
 }
 
-.selected-buffet-badge {
-  font-size: 12px !important;
+.cart-section-badge {
+  font-size: 11px !important;
   font-weight: 800 !important;
-  padding: 6px 14px !important;
+  padding: 2px 8px !important;
   border-radius: 9999px !important;
   background: var(--accent) !important;
   color: #FFFFFF !important;
-  letter-spacing: 0.5px !important;
-  white-space: nowrap !important;
-  box-shadow: 0 2px 8px var(--accent-glow) !important;
 }
 
-.selected-buffet-list {
+.cart-selected-dishes-container {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 460px;
+  gap: 6px;
+  max-height: 320px;
   overflow-y: auto;
-  padding: 4px 2px;
+  padding: 2px 1px;
+  margin-bottom: 8px;
   touch-action: pan-y;
   overscroll-behavior: contain;
 }
 
-/* Custom styled scrollbar for touch list */
-.selected-buffet-list::-webkit-scrollbar {
-  width: 6px;
+/* Custom styled scrollbar */
+.cart-selected-dishes-container::-webkit-scrollbar {
+  width: 5px;
 }
-.selected-buffet-list::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.05);
+.cart-selected-dishes-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.04);
   border-radius: 4px;
 }
-.selected-buffet-list::-webkit-scrollbar-thumb {
+.cart-selected-dishes-container::-webkit-scrollbar-thumb {
   background: var(--border-light);
   border-radius: 4px;
 }
 
-/* Empty State */
-.selected-buffet-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 28px 16px;
-  border: 1.5px dashed var(--border);
-  border-radius: var(--radius-md);
-  background: rgba(0, 0, 0, 0.02);
-  color: var(--text-muted);
-  font-size: 13.5px;
-  font-weight: 500;
-  text-align: center;
-}
-
-/* Row Container (holding reveal action underneath and sliding card on top) */
-.selected-dish-row-wrapper {
+/* Row wrapper for each dish in the cart */
+.cart-dish-row-wrapper {
   position: relative;
   overflow: hidden;
-  border-radius: var(--radius-md);
+  border-radius: 8px;
+  background: #DC2626; /* revealed action bg */
   user-select: none;
   touch-action: pan-y;
-  background: #DC2626; /* revealed action bg */
-  transition: max-height 0.25s ease, margin 0.25s ease, opacity 0.25s ease, transform 0.15s ease;
-  min-height: 56px;
+  min-height: 48px;
+  transition: max-height 0.22s ease, margin 0.22s ease, opacity 0.22s ease;
 }
 
-.selected-dish-row-wrapper.is-removing {
+.cart-dish-row-wrapper.is-removing {
   max-height: 0 !important;
   min-height: 0 !important;
-  margin-bottom: 0 !important;
+  margin: 0 !important;
   opacity: 0 !important;
   padding: 0 !important;
 }
 
-/* Revealed Remove Action underneath */
-.selected-dish-reveal-action {
+/* Revealed red action on swipe left */
+.cart-dish-reveal-action {
   position: absolute;
   top: 0;
   bottom: 0;
   right: 0;
-  width: 90px;
+  width: 80px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
   background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
   color: #FFFFFF;
   cursor: pointer;
   z-index: 1;
-  transition: background-color 0.15s ease;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
 }
 
-.selected-dish-reveal-action:active {
+.cart-dish-reveal-action:active {
   background: #B91C1C;
 }
 
-.selected-dish-reveal-action span.action-label {
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* Sliding Foreground Card */
-.selected-dish-card {
+/* Sliding foreground content */
+.cart-dish-row-content {
   position: relative;
   z-index: 2;
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 14px;
-  padding: 12px 16px;
-  min-height: 56px;
+  padding: 8px 12px;
+  min-height: 48px;
   background: var(--card-elevated);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
-  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s, background-color 0.2s;
-  will-change: transform;
-}
-
-.selected-dish-card:hover {
-  border-color: var(--border-light);
-}
-
-.selected-dish-row-wrapper.is-dragging {
-  opacity: 0.45;
-  transform: scale(0.98);
-}
-
-.selected-dish-row-wrapper.drag-over-top {
-  border-top: 3px solid var(--accent) !important;
-}
-
-.selected-dish-row-wrapper.drag-over-bottom {
-  border-bottom: 3px solid var(--accent) !important;
-}
-
-/* Left Drag Handle */
-.selected-dish-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 40px;
-  margin-left: -4px;
-  color: var(--text-muted);
-  cursor: grab;
-  touch-action: none;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  transition: color 0.15s, background-color 0.15s, transform 0.15s;
-  flex-shrink: 0;
-  user-select: none;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s, border-color 0.15s;
+  will-change: transform;
+  cursor: grab;
 }
 
-.selected-dish-handle:hover,
-.selected-dish-handle:active {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
+.cart-dish-row-content:active {
   cursor: grabbing;
 }
 
-.selected-dish-handle-dots {
-  font-size: 20px;
-  font-weight: 900;
-  letter-spacing: -2px;
-  line-height: 1;
-  display: inline-block;
-  user-select: none;
-  pointer-events: none;
-}
-
-/* Center Info (Name + Category) */
-.selected-dish-info {
+.cart-dish-text-col {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   flex: 1;
   min-width: 0;
+  padding-right: 8px;
 }
 
-.selected-dish-name {
-  font-size: 15px;
+.cart-dish-name {
+  font-size: 13px;
   font-weight: 700;
   color: var(--text);
   white-space: nowrap;
@@ -5199,65 +5097,39 @@ body.wizard-mode {
   line-height: 1.25;
 }
 
-.selected-dish-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.selected-dish-category {
-  font-size: 11px;
+.cart-dish-category {
+  font-size: 10px;
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.6px;
-  background: rgba(255, 255, 255, 0.06);
-  padding: 1px 7px;
-  border-radius: 4px;
+  letter-spacing: 0.5px;
 }
 
-.selected-dish-price-badge {
-  font-size: 11.5px;
-  font-weight: 700;
-  color: var(--gold);
-}
-
-/* Right Actions */
-.selected-dish-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.cart-dish-price-col {
   flex-shrink: 0;
-}
-
-.selected-dish-swipe-hint {
-  font-size: 11px;
-  color: var(--text-faint);
-  display: flex;
-  align-items: center;
-  gap: 3px;
+  font-size: 12px;
   font-weight: 600;
-  opacity: 0.7;
+  text-align: right;
 }
 
-.btn-selected-dish-remove {
-  background: transparent;
-  border: none;
-  color: var(--text-faint);
-  font-size: 16px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: color 0.15s, background-color 0.15s;
+.cart-dish-included {
+  color: var(--success);
+  font-weight: 700;
+  font-size: 11.5px;
 }
 
-.btn-selected-dish-remove:hover {
-  color: #EF4444;
-  background: rgba(239, 68, 68, 0.14);
+.cart-dish-price {
+  color: var(--gold);
+  font-weight: 700;
 }
+
+.cart-empty-dishes {
+  padding: 14px 8px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-style: italic;
+}
+
 
 
