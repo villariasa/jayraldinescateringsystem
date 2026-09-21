@@ -3333,3 +3333,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Enforced strict intake inspection criteria for fresh tuna, red snapper, and tiger prawns delivered directly from coastal fish markets.
 - Verified bright red gills, ocean-fresh sea aroma, clear convex eyes, and flesh resilience under instant infrared temp checks (<2°C).
 - Rejected supplier batches failing temperature or organoleptic criteria, guaranteeing premium seafood quality for banquet sashimi bars.
+
+### Banquet Table Skirting Flame-Retardant NFPA 701 Certificate Verification Standards
+- Audited manufacturer NFPA 701 flammability compliance certificates for all pleat-gathered spun polyester banquet table skirts.
+- Logged certified flame-retardant laundering cycles, re-treating fabrics after 25 commercial washings with certified chemical agents.
+- Safeguarded banquet buffet setups from chafer candle accidents, ensuring complete compliance with venue fire marshal audits.
