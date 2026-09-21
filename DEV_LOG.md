@@ -3173,3 +3173,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Positioned commercial twin-bulb 250W red infrared ceramic heat lamps precisely 450 mm above roasted beef ribeye carving boards.
 - Anchored commercial NSF end-grain butcher blocks using non-skid food-safe silicone grip mats to eliminate blade slippage.
 - Maintained juicy carving surface temperatures at 65°C while capturing natural meat au jus in perimeter drip retention wells.
+
+### Banquet Table Linen Pressing Temperature & Anti-Static Fabric Treatment Standards
+- Programmed rotary steam iron flatwork presses to 165°C for crisp creaseless pressing of 100% spun polyester banquet table cloths.
+- Applied eco-friendly botanical fabric conditioner sprays to neutralize electrostatic cling and repel accidental fluid spills.
+- Maintained immaculately straight floor-length table drops with zero center creases across 50 presidential dining tables.
