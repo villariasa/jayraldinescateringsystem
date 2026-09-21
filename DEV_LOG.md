@@ -3258,3 +3258,8 @@ Daily tracking and development notes for Jayraldine's Catering System.
 - Calibrated primary high-pressure tank gauges and low-pressure secondary output regulators (12 PSI) on draft beer dispense rigs.
 - Eliminated keg line over-carbonation and prevented flat pours by balancing draught line resistance across 10-foot 3/16-inch lines.
 - Achieved perfect two-finger creamy foam heads on craft pilsners and IPAs served across high-volume outdoor corporate events.
+
+### Banquet Buffet Salad Bar Crushed Ice Bed Depth & Food Pan Rim Clearance
+- Standardized a minimum 100 mm bed depth of flaked crushed ice in drop-in cold buffet tables for seafood and salad pans.
+- Ensured stainless steel insert pan food zones sit recessed below the ambient air boundary layer for optimal thermal conduction.
+- Maintained raw shellfish, shrimp cocktail, and gourmet pasta salads below 4°C throughout a 3-hour self-service luncheon.
