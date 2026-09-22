@@ -277,6 +277,34 @@ async function _flushPendingMenuItemImageUploads(host, port = 8000) {
   return summary;
 }
 
+async function _proxyPackageWrite(method, path, body) {
+  // Unlike _proxyServerWrite (which POSTs raw SQL to a "/api/db/write" route
+  // that was never implemented on this kiosk's own backend and always
+  // failed silently), this calls the REAL package REST endpoints that
+  // backend/app.py exposes (PUT/POST/DELETE /api/packages...), so edits
+  // actually reach the kiosk server's local DB and survive the next sync.
+  try {
+    const host = _getStoredSyncHost();
+    if (!host) return false;
+    const baseUrls = _getSyncBaseUrls(host, 8000);
+    for (const base of baseUrls) {
+      try {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(`${base}${path}`, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        });
+        clearTimeout(tid);
+        if (res.ok) return true;
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return false;
+}
+
 async function _proxyServerWrite(sql, params = []) {
   try {
     const host = _getStoredSyncHost();
@@ -437,10 +465,13 @@ export const api = {
     if (imageChanged) {
       repo.queuePackageImageUpload(id, data.image || "", !data.image);
     }
-    _proxyServerWrite(
-      "INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
-      [data.name, data.description || "", Number(data.price_per_pax) || 0, Number(data.min_pax) || 30]
-    ).catch(() => {});
+    // Await the proxy write before triggering a sync — otherwise the sync's
+    // pull-from-Postgres step can race ahead of this edit reaching the
+    // kiosk server and pull back the stale price/name.
+    await _proxyPackageWrite("POST", "/api/packages", {
+      name: data.name, description: data.description || "",
+      price_per_pax: Number(data.price_per_pax) || 0, min_pax: Number(data.min_pax) || 30,
+    }).catch(() => {});
     api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Package upload queued:", e));
     return { id, image_sync: imageChanged ? "pending" : "none" };
   },
@@ -451,18 +482,22 @@ export const api = {
     if (imageChanged) {
       repo.queuePackageImageUpload(id, data.image || "", !data.image);
     }
-    _proxyServerWrite(
-      "UPDATE packages SET pkg_name = ?, pkg_description = ?, pkg_price_per_pax = ?, pkg_min_pax = ? WHERE pkg_id = ?",
-      [data.name, data.description || "", Number(data.price_per_pax) || 0, Number(data.min_pax) || 30, id]
-    ).catch(() => {});
+    // price_per_pax may legitimately be 0 (e.g. a free/promo package) — keep
+    // that intact rather than letting `|| 0` mask a real value. Await this
+    // before syncing so the sync's pull step doesn't race ahead of the edit
+    // and pull back the stale price.
+    await _proxyPackageWrite("PUT", `/api/packages/${id}`, {
+      name: data.name, description: data.description || "",
+      price_per_pax: data.price_per_pax != null ? Number(data.price_per_pax) : 0,
+      min_pax: Number(data.min_pax) || 30,
+    }).catch(() => {});
     api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Package update note:", e));
     return { ok, image_sync: imageChanged ? "pending" : "unchanged" };
   },
   async deletePackage(id) {
     await ready();
     repo.deletePackage(id);
-    _proxyServerWrite("DELETE FROM package_items WHERE pi_package_id = ?", [id]).catch(() => {});
-    _proxyServerWrite("DELETE FROM packages WHERE pkg_id = ?", [id]).catch(() => {});
+    _proxyPackageWrite("DELETE", `/api/packages/${id}`).catch(() => {});
     return { ok: true };
   },
 
@@ -603,29 +638,23 @@ export const api = {
           try {
             const controller = new AbortController();
             const tid = setTimeout(() => controller.abort(), 2500);
-            const res = await fetch(`${base}/api/db/query`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                sql: "SELECT bk_id, bk_booking_ref, bk_event_date, bk_event_time, bk_event_end_time, bk_venue, bk_occasion, bk_pax, bk_status FROM bookings WHERE bk_event_date = ? AND bk_status != 'CANCELLED' ORDER BY bk_event_time ASC",
-                params: [dateStr]
-              }),
+            const res = await fetch(`${base}/api/bookings/by-date?date=${encodeURIComponent(dateStr)}`, {
               signal: controller.signal
             });
             clearTimeout(tid);
             if (res.ok) {
-              const data = await res.json();
-              if (data && Array.isArray(data.rows)) {
-                const sMapped = data.rows.map(r => ({
-                  id: r.bk_id,
-                  ref: r.bk_booking_ref,
-                  date: r.bk_event_date,
-                  time: repo.formatEventTime ? repo.formatEventTime(r.bk_event_time) : (r.bk_event_time || ""),
-                  endTime: r.bk_event_end_time ? (repo.formatEventTime ? repo.formatEventTime(r.bk_event_end_time) : r.bk_event_end_time) : "",
-                  venue: r.bk_venue || "",
-                  occasion: r.bk_occasion || "Event",
-                  pax: Number(r.bk_pax || 0),
-                  status: r.bk_status || "PENDING"
+              const rows = await res.json();
+              if (Array.isArray(rows)) {
+                const sMapped = rows.map(r => ({
+                  id: r.id,
+                  ref: r.ref,
+                  customer: r.customer || "",
+                  date: r.date,
+                  time: repo.formatEventTime ? repo.formatEventTime(r.time) : (r.time || ""),
+                  venue: r.venue || "",
+                  occasion: r.occasion || "Event",
+                  pax: Number(r.pax || 0),
+                  status: r.status || "PENDING"
                 }));
                 const seen = new Set(local.map(l => l.ref || `${l.date}_${l.time}`));
                 for (const sm of sMapped) {
@@ -651,36 +680,28 @@ export const api = {
     try {
       const host = _getStoredSyncHost();
       if (host) {
-        const mStr = String(month).padStart(2, "0");
-        const prefix = `${year}-${mStr}-%`;
         const baseUrls = _getSyncBaseUrls(host, 8000);
         for (const base of baseUrls) {
           try {
             const controller = new AbortController();
             const tid = setTimeout(() => controller.abort(), 2500);
-            const res = await fetch(`${base}/api/db/query`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                sql: "SELECT bk_id, bk_booking_ref, bk_event_date, bk_event_time, bk_event_end_time, bk_venue, bk_occasion, bk_pax, bk_status FROM bookings WHERE bk_event_date LIKE ? AND bk_status != 'CANCELLED' ORDER BY bk_event_date ASC, bk_event_time ASC",
-                params: [prefix]
-              }),
+            const res = await fetch(`${base}/api/bookings/by-month?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`, {
               signal: controller.signal
             });
             clearTimeout(tid);
             if (res.ok) {
-              const data = await res.json();
-              if (data && Array.isArray(data.rows)) {
-                const sMapped = data.rows.map(r => ({
-                  id: r.bk_id,
-                  ref: r.bk_booking_ref,
-                  date: r.bk_event_date,
-                  time: repo.formatEventTime ? repo.formatEventTime(r.bk_event_time) : (r.bk_event_time || ""),
-                  endTime: r.bk_event_end_time ? (repo.formatEventTime ? repo.formatEventTime(r.bk_event_end_time) : r.bk_event_end_time) : "",
-                  venue: r.bk_venue || "",
-                  occasion: r.bk_occasion || "Event",
-                  pax: Number(r.bk_pax || 0),
-                  status: r.bk_status || "PENDING"
+              const rows = await res.json();
+              if (Array.isArray(rows)) {
+                const sMapped = rows.map(r => ({
+                  id: r.id,
+                  ref: r.ref,
+                  customer: r.customer || "",
+                  date: r.date,
+                  time: repo.formatEventTime ? repo.formatEventTime(r.time) : (r.time || ""),
+                  venue: r.venue || "",
+                  occasion: r.occasion || "Event",
+                  pax: Number(r.pax || 0),
+                  status: r.status || "PENDING"
                 }));
                 const seen = new Set(local.map(l => l.ref || `${l.date}_${l.time}`));
                 for (const sm of sMapped) {

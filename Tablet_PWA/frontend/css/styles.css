@@ -2603,6 +2603,41 @@ svg {
   display: none;
 }
 
+/* Explore Our Catering Menu (Landing Page): the whole showcase head — the
+   "Culinary Showcase" heading/search/actions AND the category tabs bar —
+   pins together directly below the fixed header once scrolled to, so it
+   stays visible while the dish grid keeps scrolling underneath. */
+#landing-menu-sticky-head {
+  position: -webkit-sticky;
+  position: sticky;
+  top: var(--kiosk-header-h, 78px);
+  z-index: 30;
+  background: var(--card, var(--bg-surface));
+  margin: 0 -26px 16px -26px;
+  padding: 16px 26px 10px 26px;
+  border-bottom: 1.5px solid transparent;
+  box-sizing: border-box;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+#landing-menu-sticky-head .menu-showcase-header {
+  margin-bottom: 12px;
+}
+
+#landing-menu-sticky-head.is-stuck {
+  border-bottom-color: var(--border);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+@media (max-width: 768px) {
+  #landing-menu-sticky-head {
+    margin: 0 -16px 12px -16px;
+    padding: 12px 16px 10px 16px;
+  }
+}
+
 .kiosk-cat-pill {
   padding: 8px 16px;
   border-radius: 24px;

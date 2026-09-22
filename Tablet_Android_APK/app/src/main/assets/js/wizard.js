@@ -570,7 +570,7 @@ function renderCart() {
         <span style="font-weight:700; color:var(--text);">${escapeHtml(d.package.name || "None")}</span>
       </div>
       <div style="display:flex; justify-content:space-between; font-size:14px;">
-        <span style="color:var(--text-muted);">${isFoodSet(d.package.name) ? "Order Quantity" : "Guest Count"}</span>
+        <span style="color:var(--text-muted);">${isFoodSet(d.package.name) ? "No. of Sets" : "No. of Pax"}</span>
         <span style="font-weight:700; color:var(--gold);">${d.event.pax || 0} ${isFoodSet(d.package.name) ? "set(s)" : "pax"}</span>
       </div>
     </div>
@@ -983,10 +983,10 @@ async function renderStepPackage(card) {
     </div>
     <div class="grid-2">
       <div class="form-group">
-        <label id="lbl-order-qty">${isFoodSet(d.package.name) ? "Order Quantity / Sets (Min: 1 Set)" : "Guest Count (Pax) *"}</label>
+        <label id="lbl-order-qty">${isFoodSet(d.package.name) ? "No. of Sets (Min: 1 Set) *" : "No. of Pax *"}</label>
         <input type="number" class="form-control" id="e-pax" min="1" max="2000" value="${d.event.pax || 1}">
         <span id="lbl-order-hint" style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">
-          ${isFoodSet(d.package.name) ? "1 Set is good for 22 persons (4 dishes). Minimum order: 1 set." : "Total number of guests attending the buffet."}
+          ${ isFoodSet(d.package.name) ? "1 Set is good for 22 persons (4 dishes). Minimum order: 1 set." : "Enter the total number of guests (pax)." }
         </span>
       </div>
       <div class="form-group">
@@ -1041,8 +1041,8 @@ async function renderStepPackage(card) {
             </div>
             <p class="kiosk-card-desc">${escapeHtml(p.description || "Standard buffet catering setup.")}</p>
             <div class="kiosk-card-footer">
-              <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / ${isFoodSet(p.name) ? "set" : "pax"}</span></span>
-              <span class="kiosk-status-pill">${isFoodSet(p.name) ? "Min 1 Set (4 dishes good for 22 person)" : `Min ${p.min_pax || 60} Pax`}</span>
+              <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / set</span></span>
+              <span class="kiosk-status-pill">Min 1 Set (4 dishes good for 22 person)</span>
             </div>
           </div>
         </div>
@@ -1052,7 +1052,7 @@ async function renderStepPackage(card) {
 
     <div class="grid-2" style="margin-top:20px;">
       <div class="form-group">
-        <label id="lbl-price-rate">${isFoodSet(d.package.name) ? "Price Per Set (₱)" : "Price Per Pax (₱)"}</label>
+        <label id="lbl-price-rate">Price Per Set (₱)</label>
         <input type="number" class="form-control" id="e-price-per-pax" step="0.01" value="${d.package.pricePerPax || 0}">
       </div>
       <div class="form-group">
@@ -1079,12 +1079,28 @@ async function renderStepPackage(card) {
       const bks = await api.getBookingsByDate(dateVal);
       if (bks && bks.length > 0) {
         dateWarning.style.display = "block";
-        dateWarning.innerHTML = `<div style="display:flex; align-items:flex-start; gap:8px;">${icon("alertTriangle")} <div><b>Notice:</b> ${bks.length} catering booking(s) already scheduled on this date. You may still proceed with reservation.</div></div>`;
+        dateWarning.innerHTML = `
+          <div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:8px;">
+            ${icon("alertTriangle")} <div><b>Notice:</b> ${bks.length} catering booking(s) already scheduled on this date. You may still proceed with reservation.</div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            ${bks.map((b) => `
+              <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:var(--card-bg); border:1px solid var(--border); border-radius:6px; padding:6px 10px; font-size:11.5px; font-weight:600; color:var(--text);">
+                ${b.time ? `<span style="display:flex; align-items:center; gap:4px;">${icon("clock")} ${escapeHtml(b.time)}</span>` : ""}
+                ${b.customer ? `<span style="display:flex; align-items:center; gap:4px;">${icon("users")} ${escapeHtml(b.customer)}</span>` : ""}
+                ${b.venue ? `<span style="display:flex; align-items:center; gap:4px;">${icon("mapPin")} ${escapeHtml(b.venue)}</span>` : ""}
+                <span style="display:flex; align-items:center; gap:4px;">${b.pax || 0} pax</span>
+              </div>
+            `).join("")}
+          </div>
+        `;
       } else {
         dateWarning.style.display = "none";
+        dateWarning.innerHTML = "";
       }
     } catch (_) {
       dateWarning.style.display = "none";
+      dateWarning.innerHTML = "";
     }
   };
   dateInput?.addEventListener("change", () => checkDateConflict(dateInput.value));
@@ -1247,9 +1263,9 @@ async function renderStepPackage(card) {
 
     const isSet = isFoodSet(pkg.name);
     const qtyLbl = card.querySelector("#lbl-order-qty");
-    if (qtyLbl) qtyLbl.textContent = isSet ? "Order Quantity / Sets (Min: 1 Set)" : "Guest Count (Pax) *";
+    if (qtyLbl) qtyLbl.textContent = isSet ? "No. of Sets (Min: 1 Set) *" : "No. of Pax *";
     const hintLbl = card.querySelector("#lbl-order-hint");
-    if (hintLbl) hintLbl.textContent = isSet ? "1 Set is good for 22 persons (4 dishes). Minimum order: 1 set." : `Minimum guests required for this package: ${pkg.min_pax || 60} pax.`;
+    if (hintLbl) hintLbl.textContent = isSet ? "1 Set is good for 22 persons (4 dishes). Minimum order: 1 set." : "Enter the total number of guests (pax).";
     const priceRateLbl = card.querySelector("#lbl-price-rate");
     if (priceRateLbl) priceRateLbl.textContent = isSet ? "Price Per Set (₱)" : "Price Per Pax (₱)";
 
@@ -1841,13 +1857,13 @@ function renderStepPreview(card) {
       <div class="card card-elevated" style="padding:16px;">
         <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase;">Event Schedule</div>
         <div style="font-size:16px; font-weight:700; color:var(--text); margin-top:4px;">${escapeHtml(d.event.date)} at ${escapeHtml(d.event.time)}</div>
-        <div style="font-size:13px; color:var(--gold); font-weight:700;">${d.event.pax} ${isFoodSet(d.package.name) ? "Set(s)" : "Guests"} · ${escapeHtml(d.event.venue)}</div>
+        <div style="font-size:13px; color:var(--gold); font-weight:700;">${d.event.pax} ${isFoodSet(d.package.name) ? "Set(s)" : "Pax"} · ${escapeHtml(d.event.venue)}</div>
       </div>
     </div>
 
     <div class="card card-elevated" style="padding:18px; margin-bottom:20px;">
       <div style="font-size:14px; font-weight:700; margin-bottom:6px;">Package &amp; Menu Selections</div>
-      <div style="color:var(--gold); font-weight:700; font-size:15px; margin-bottom:8px;">${escapeHtml(d.package.name)} (${peso(d.package.pricePerPax)} / ${isFoodSet(d.package.name) ? "set" : "pax"})</div>
+      <div style="color:var(--gold); font-weight:700; font-size:15px; margin-bottom:8px;">${escapeHtml(d.package.name)} (${peso(d.package.pricePerPax)} / set)</div>
       <p style="color:var(--text-muted); font-size:13px; margin:0; line-height:1.6;">
         ${d.menuSelections.map((m) => escapeHtml(m.item_name)).join(", ") || "No specific dishes selected."}
       </p>
@@ -2098,7 +2114,7 @@ function openPackageDetailsModal(p, selectCallback) {
           </div>
           <div style="text-align:right;">
             <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.04em;">${isFoodSet(p.name) ? "Minimum Sets" : "Minimum Pax"}</div>
-            <div style="font-size:17px; font-weight:800; color:var(--text);">${p.min_pax} ${isFoodSet(p.name) ? "Set(s)" : "Guests"}</div>
+            <div style="font-size:17px; font-weight:800; color:var(--text);">${p.min_pax} ${isFoodSet(p.name) ? "Set(s)" : "Pax"}</div>
           </div>
         </div>
 
@@ -2206,8 +2222,9 @@ function openDishDetailsModal(it, isSelected, toggleCallback) {
   });
 }
 
-export function openLightCalendarModal(onSelectDate) {
+export function openLightCalendarModal(onSelectDate, opts = {}) {
   const modalId = "light-calendar-modal";
+  const viewOnly = Boolean(opts.viewOnly || !onSelectDate);
   const now = new Date();
   let viewYear = now.getFullYear();
   let viewMonth = now.getMonth(); // 0-indexed
@@ -2215,7 +2232,7 @@ export function openLightCalendarModal(onSelectDate) {
 
   openModal({
     id: modalId,
-    title: `${icon("calendar")} Event Scheduling Calendar`,
+    title: viewOnly ? `${icon("calendar")} Event Calendar` : `${icon("calendar")} Event Scheduling Calendar`,
     large: true,
     bodyHtml: `<div id="calendar-modal-content"></div>`,
     footerHtml: `<button class="btn btn-secondary" data-close>Close</button>`,
@@ -2232,14 +2249,14 @@ export function openLightCalendarModal(onSelectDate) {
       const dStr = b.date || b.bk_event_date;
       if (dStr) {
         if (!dateSchedules[dStr]) dateSchedules[dStr] = [];
-        // Only record public schedule information — strictly omit client name & personal contact
         dateSchedules[dStr].push({
           time: b.time || (b.bk_event_time ? (repo.formatEventTime ? repo.formatEventTime(b.bk_event_time) : b.bk_event_time) : "Time TBD"),
           endTime: b.endTime || (b.bk_event_end_time ? (repo.formatEventTime ? repo.formatEventTime(b.bk_event_end_time) : b.bk_event_end_time) : ""),
           occasion: b.occasion || b.bk_occasion || "Event",
           status: b.status || b.bk_status || "Booked",
           venue: b.venue || b.bk_venue || "",
-          pax: Number(b.pax || b.bk_pax || 0)
+          pax: Number(b.pax || b.bk_pax || 0),
+          customer: b.customer || b.bk_customer_name || ""
         });
       }
     }
@@ -2343,23 +2360,31 @@ export function openLightCalendarModal(onSelectDate) {
             </div>
             <div style="display:flex; flex-direction:column; gap:6px;">
               ${scheds.map((s) => `
-                <div style="display:flex; justify-content:space-between; align-items:center; background:var(--card-bg); border:1px solid var(--border); border-radius:6px; padding:8px 12px; font-size:12.5px;">
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <span style="font-weight:800; color:var(--text); display:flex; align-items:center; gap:4px;">
-                      ${icon("clock")} ${escapeHtml(s.time)}${s.endTime ? ` – ${escapeHtml(s.endTime)}` : ""}
-                    </span>
-                    <span style="color:var(--text-muted); font-size:12px;">• ${escapeHtml(s.occasion)}</span>
+                <div style="display:flex; flex-direction:column; gap:4px; background:var(--card-bg); border:1px solid var(--border); border-radius:6px; padding:8px 12px; font-size:12.5px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span style="font-weight:800; color:var(--text); display:flex; align-items:center; gap:4px;">
+                        ${icon("clock")} ${escapeHtml(s.time)}${s.endTime ? ` – ${escapeHtml(s.endTime)}` : ""}
+                      </span>
+                      <span style="color:var(--text-muted); font-size:12px;">• ${escapeHtml(s.occasion)}</span>
+                    </div>
+                    <span style="font-size:11px; font-weight:700; color:#D97706; text-transform:uppercase;">${escapeHtml(s.status)}</span>
                   </div>
-                  <span style="font-size:11px; font-weight:700; color:#D97706; text-transform:uppercase;">${escapeHtml(s.status)}</span>
+                  <div style="display:flex; flex-wrap:wrap; gap:12px; color:var(--text-muted); font-size:11.5px;">
+                    ${s.customer ? `<span style="display:flex; align-items:center; gap:4px;">${icon("users")} ${escapeHtml(s.customer)}</span>` : ""}
+                    ${s.venue ? `<span style="display:flex; align-items:center; gap:4px;">${icon("mapPin")} ${escapeHtml(s.venue)}</span>` : ""}
+                    <span style="display:flex; align-items:center; gap:4px;">${s.pax || 0} pax</span>
+                  </div>
                 </div>
               `).join("")}
             </div>
             <p style="margin:8px 0 10px; font-size:11px; color:var(--text-muted); line-height:1.4;">
-              Client personal details are protected. You may still proceed with booking this date if your preferred event slot does not conflict.
+              You may still proceed with booking this date if your preferred event slot does not conflict.
             </p>
+            ${!viewOnly ? `
             <button type="button" class="btn btn-primary" id="btn-select-cal-day" style="width:100%; padding:9px; font-weight:800; display:inline-flex; align-items:center; justify-content:center; gap:6px;">
               ${icon("check")} Select ${selectedDate} &amp; Proceed
-            </button>
+            </button>` : ""}
           </div>
         `;
       } else {
@@ -2373,9 +2398,10 @@ export function openLightCalendarModal(onSelectDate) {
             <p style="margin:0 0 10px; font-size:12px; color:var(--text-muted);">
               No catering events scheduled on this date. All time slots are open!
             </p>
+            ${!viewOnly ? `
             <button type="button" class="btn btn-primary" id="btn-select-cal-day" style="width:100%; padding:9px; font-weight:800; display:inline-flex; align-items:center; justify-content:center; gap:6px;">
               ${icon("check")} Select ${selectedDate} &amp; Proceed
-            </button>
+            </button>` : ""}
           </div>
         `;
       }

@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { openModal, closeModal, toast, escapeHtml, statusPill } from "./views.js";
 import { wizard, peso } from "./state.js";
-import { mountWizard } from "./wizard.js";
+import { mountWizard, openLightCalendarModal } from "./wizard.js";
 import { openOwnerSettings, openOrderDetailModal, openLiveDbConfigModal } from "./settings.js";
 import { icon } from "./icons.js";
 import { mountLandingSlider } from "./slider.js";
@@ -585,6 +585,12 @@ async function renderHome() {
           </div>
           <span class="nav-action-label">Fullscreen</span>
         </button>
+        <button class="nav-action-btn" id="calendar-btn" title="Event Calendar">
+          <div class="nav-action-icon">
+            ${icon("calendar")}
+          </div>
+          <span class="nav-action-label">Calendar</span>
+        </button>
         <button class="nav-action-btn" id="owner-settings-btn" title="Admin Settings">
           <div class="nav-action-icon">
             ${icon("settings")}
@@ -627,6 +633,16 @@ async function renderHome() {
           <div class="nav-dropdown-item-text">
             <span class="nav-dropdown-label">Fullscreen</span>
             <span class="nav-dropdown-desc">Expand to full screen</span>
+          </div>
+        </button>
+        <div class="nav-dropdown-divider"></div>
+        <button class="nav-dropdown-item" id="calendar-btn-mob" title="Event Calendar">
+          <div class="nav-dropdown-item-icon">
+            ${icon("calendar")}
+          </div>
+          <div class="nav-dropdown-item-text">
+            <span class="nav-dropdown-label">Calendar</span>
+            <span class="nav-dropdown-desc">View upcoming events</span>
           </div>
         </button>
         <div class="nav-dropdown-divider"></div>
@@ -816,30 +832,31 @@ async function renderHome() {
 
         <!-- Live Menu Showcase Section directly on the Dashboard / Landing Page -->
         <section class="kiosk-menu-showcase-section" id="kiosk-menu-showcase">
-          <div class="menu-showcase-header">
-            <div class="menu-showcase-title-area">
-              <div class="menu-showcase-badge">${icon("utensils")} Culinary Showcase</div>
-              <h3 class="menu-showcase-heading">Explore Our Catering Menu</h3>
-              <p class="menu-showcase-sub">Browse our chef-crafted entrees, specialties, sides, and signature desserts</p>
-              <div class="quick-options-accent-bar" style="margin-top:6px;"></div>
-            </div>
-            <div class="menu-showcase-actions">
-              <div class="menu-showcase-search-box">
-                <span class="search-box-icon">${icon("search")}</span>
-                <input type="text" id="landing-menu-search-input" placeholder="Search dishes, beef, pasta..." autocomplete="off" />
-                <button type="button" id="landing-menu-search-clear" class="search-box-clear" style="display:none;" title="Clear search">${icon("close")}</button>
+          <!-- Sticky head: Culinary Showcase heading/search/actions + Category
+               Tabs Bar all pin together below the header once scrolled to. -->
+          <div class="landing-menu-sticky-head" id="landing-menu-sticky-head">
+            <div class="menu-showcase-header">
+              <div class="menu-showcase-title-area">
+                <div class="menu-showcase-badge">${icon("utensils")} Culinary Showcase</div>
+                <h3 class="menu-showcase-heading">Explore Our Catering Menu</h3>
+                <p class="menu-showcase-sub">Browse our chef-crafted entrees, specialties, sides, and signature desserts</p>
+                <div class="quick-options-accent-bar" style="margin-top:6px;"></div>
               </div>
-              <button class="btn btn-secondary menu-showcase-modal-btn" id="btn-showcase-open-modal">
-                ${icon("fullscreen")} Full Menu Window
+              <div class="menu-showcase-actions">
+                <div class="menu-showcase-search-box">
+                  <span class="search-box-icon">${icon("search")}</span>
+                  <input type="text" id="landing-menu-search-input" placeholder="Search dishes, beef, pasta..." autocomplete="off" />
+                  <button type="button" id="landing-menu-search-clear" class="search-box-clear" style="display:none;" title="Clear search">${icon("close")}</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Category Tabs Bar -->
+            <div class="kiosk-cat-bar" id="landing-menu-categories">
+              <button class="kiosk-cat-pill active" data-cat="ALL">
+                ${icon("utensils")} All Dishes
               </button>
             </div>
-          </div>
-
-          <!-- Category Tabs Bar -->
-          <div class="kiosk-cat-bar" id="landing-menu-categories">
-            <button class="kiosk-cat-pill active" data-cat="ALL">
-              ${icon("utensils")} All Dishes
-            </button>
           </div>
 
           <!-- Dish Cards Grid -->
@@ -966,6 +983,12 @@ async function renderHome() {
     closeMobileDropdown();
   });
 
+  // Mobile dropdown: calendar
+  document.getElementById("calendar-btn-mob")?.addEventListener("click", () => {
+    openLightCalendarModal(null, { viewOnly: true });
+    closeMobileDropdown();
+  });
+
   // Mobile dropdown: settings
   document.getElementById("settings-btn-mob")?.addEventListener("click", () => {
     openOwnerSettings("bookings");
@@ -982,6 +1005,9 @@ async function renderHome() {
     if (iconWrap) iconWrap.innerHTML = icon(isLight ? "moon" : "sun");
   });
   document.getElementById("fullscreen-btn").addEventListener("click", toggleFullscreen);
+  document.getElementById("calendar-btn").addEventListener("click", () => {
+    openLightCalendarModal(null, { viewOnly: true });
+  });
   document.getElementById("owner-settings-btn").addEventListener("click", () => {
     openOwnerSettings("bookings");
   });
@@ -997,6 +1023,22 @@ async function renderHome() {
   const sliderContainer = document.getElementById("landing-hero-slider-container");
   if (sliderContainer) {
     mountLandingSlider(sliderContainer);
+  }
+
+  // Track the fixed header's real height so the Explore Menu category bar
+  // (position: sticky) can pin itself directly beneath it, not underneath.
+  const kioskHeaderEl = document.querySelector(".kiosk-header-fixed");
+  if (kioskHeaderEl) {
+    const updateKioskHeaderH = () => {
+      const h = kioskHeaderEl.getBoundingClientRect().height || kioskHeaderEl.offsetHeight || 78;
+      document.documentElement.style.setProperty("--kiosk-header-h", `${Math.round(h)}px`);
+    };
+    updateKioskHeaderH();
+    requestAnimationFrame(updateKioskHeaderH);
+    window.addEventListener("resize", updateKioskHeaderH, { passive: true });
+    if (window.ResizeObserver) {
+      new ResizeObserver(updateKioskHeaderH).observe(kioskHeaderEl);
+    }
   }
 
   // Mount the Live Menu Showcase on the Landing Page / Dashboard
@@ -1262,15 +1304,34 @@ async function mountLandingMenuShowcase() {
     console.warn("[app] Failed to fetch menu items for landing showcase:", err);
   }
 
+  const stickyHead = container.querySelector("#landing-menu-sticky-head");
   const catBar = container.querySelector("#landing-menu-categories");
   const grid = container.querySelector("#landing-menu-grid");
   const searchInput = container.querySelector("#landing-menu-search-input");
   const clearBtn = container.querySelector("#landing-menu-search-clear");
-  const openModalBtn = container.querySelector("#btn-showcase-open-modal");
   const startOrderBtn = container.querySelector("#btn-landing-menu-start-order");
 
   let selectedCat = "ALL";
   let searchQuery = "";
+
+  // Toggle a `.is-stuck` class on the sticky showcase head (heading/search/
+  // actions + category bar) once it has actually pinned to the top, so it
+  // can pick up a subtle shadow/border.
+  if (stickyHead && !stickyHead._stickyWatcherMounted) {
+    stickyHead._stickyWatcherMounted = true;
+    let stuckRaf = null;
+    const checkStuck = () => {
+      stuckRaf = null;
+      const topOffset = parseFloat(getComputedStyle(stickyHead).top) || 0;
+      const isStuck = stickyHead.getBoundingClientRect().top <= topOffset + 0.5;
+      stickyHead.classList.toggle("is-stuck", isStuck);
+    };
+    window.addEventListener("scroll", () => {
+      if (stuckRaf) return;
+      stuckRaf = requestAnimationFrame(checkStuck);
+    }, { passive: true });
+    checkStuck();
+  }
 
   // Collect unique categories
   const categoriesSet = new Set();
@@ -1417,12 +1478,6 @@ async function mountLandingMenuShowcase() {
       searchQuery = "";
       clearBtn.style.display = "none";
       renderDishes();
-    });
-  }
-
-  if (openModalBtn) {
-    openModalBtn.addEventListener("click", () => {
-      openQuickMenuModal({ initialCategory: selectedCat !== "ALL" ? selectedCat : undefined, initialSearch: searchQuery });
     });
   }
 

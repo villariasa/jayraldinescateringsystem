@@ -287,6 +287,21 @@ def order_receipt(booking_id: int):
     return FileResponse(str(out_path), media_type="application/pdf", filename=out_path.name)
 
 
+@app.get("/api/bookings/by-date")
+def bookings_by_date(date: str):
+    """Bookings for one calendar date — backs the kiosk's Calendar feature
+    (dashboard + ordering-step date view)."""
+    return repo.get_bookings_by_date(date)
+
+
+@app.get("/api/bookings/by-month")
+def bookings_by_month(year: int, month: int):
+    """Bookings for a calendar month — backs the kiosk's Calendar feature."""
+    if not (1 <= month <= 12):
+        raise HTTPException(400, "month must be between 1 and 12.")
+    return repo.get_bookings_by_month(year, month)
+
+
 @app.post("/api/orders/archive-and-clear")
 def archive_and_clear():
     """Mirrors the original kiosk's 'Archive & Clear Orders' action: export
@@ -612,7 +627,10 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
 
         pg_conn.commit()
 
-        # 3. Pull Master Packages & Menu from Central Server to Tablet
+        # 3. Push locally-edited packages (this kiosk's own price/name/min-pax
+        # edits, made via PUT /api/packages/{id}) up to Central PostgreSQL
+        # BEFORE pulling — otherwise a price edit (even a legitimate 0) is
+        # immediately overwritten by the stale value still on the server.
         pg_cur.execute("""
             SELECT column_name FROM information_schema.columns
             WHERE table_schema = 'public' AND table_name = 'packages'
@@ -620,6 +638,34 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
         pkg_cols = {row["column_name"] for row in pg_cur.fetchall()}
         price_col = "pkg_per_head_price" if "pkg_per_head_price" in pkg_cols else ("pkg_price_per_pax" if "pkg_price_per_pax" in pkg_cols else "pkg_base_price")
 
+        try:
+            local_pkgs = db.fetchall("SELECT * FROM packages") or []
+        except Exception:
+            local_pkgs = []
+        for lp in local_pkgs:
+            l_name = (lp.get("pkg_name") or "").strip()
+            if not l_name:
+                continue
+            try:
+                pg_cur.execute(f"""
+                    INSERT INTO packages (pkg_name, pkg_description, {price_col}, pkg_min_pax)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (pkg_name) DO UPDATE SET
+                        pkg_description = EXCLUDED.pkg_description,
+                        {price_col} = EXCLUDED.{price_col},
+                        pkg_min_pax = EXCLUDED.pkg_min_pax
+                """, (
+                    l_name, lp.get("pkg_description", ""),
+                    float(lp["pkg_price_per_pax"]) if lp.get("pkg_price_per_pax") is not None else 350.0,
+                    int(lp.get("pkg_min_pax") or 30),
+                ))
+            except Exception:
+                pass
+        pg_conn.commit()
+
+        # 4. Pull Master Packages & Menu from Central Server to Tablet
+        # (reflects this kiosk's own just-pushed edits plus any changes
+        # made elsewhere, so the local cache stays authoritative post-sync)
         pg_cur.execute(f"""
             SELECT pkg_id, pkg_name, COALESCE(pkg_description, '') AS pkg_description,
                    COALESCE({price_col}, 350.0) AS pkg_price_per_pax,
@@ -638,7 +684,11 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
                         pkg_description = excluded.pkg_description,
                         pkg_price_per_pax = excluded.pkg_price_per_pax,
                         pkg_min_pax = excluded.pkg_min_pax
-                """, (p["pkg_name"], p.get("pkg_description", ""), float(p.get("pkg_price_per_pax") or 350.0), int(p.get("pkg_min_pax") or 30)))
+                """, (
+                    p["pkg_name"], p.get("pkg_description", ""),
+                    float(p["pkg_price_per_pax"]) if p.get("pkg_price_per_pax") is not None else 350.0,
+                    int(p.get("pkg_min_pax") or 30),
+                ))
             except Exception:
                 pass
 

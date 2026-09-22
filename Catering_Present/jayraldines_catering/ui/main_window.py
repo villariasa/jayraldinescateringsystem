@@ -621,11 +621,13 @@ class MainWindow(QMainWindow):
             self._notif_popover._refresh_list()
 
         if _notifications:
-            max_id = max(n.get("db_id", 0) for n in _notifications)
+            # db_id can arrive as a string when proxied from a client-mode
+            # server (JSON round-trip), so coerce before comparing.
+            max_id = max(int(n.get("db_id", 0) or 0) for n in _notifications)
             if self._last_notif_id is None:
                 self._last_notif_id = max_id
             else:
-                new_ones = [n for n in _notifications if n.get("db_id", 0) > self._last_notif_id]
+                new_ones = [n for n in _notifications if int(n.get("db_id", 0) or 0) > self._last_notif_id]
                 if new_ones:
                     for n in new_ones:
                         self._toast_manager.show(n["title"], n["message"], n.get("color", "#3B82F6"), duration_ms=7000)

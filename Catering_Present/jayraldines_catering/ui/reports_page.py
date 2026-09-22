@@ -1281,7 +1281,7 @@ class ReportsPage(QWidget):
         # 12-Month Table
         self._eval_table = QTableWidget(13, 4)
         self._eval_table.setHorizontalHeaderLabels([
-            "Month", "Target Sales (₱)", "Actual Sales (₱)", "Evaluation / Remaining (₱)"
+            "Month", "Target Sales (₱)", "Net Profit (₱)", "Evaluation / Remaining (₱)"
         ])
         self._eval_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._eval_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -1321,7 +1321,7 @@ class ReportsPage(QWidget):
         for r_idx, m_info in enumerate(months):
             m_name = m_info["month_name"]
             t_amt = m_info["target_sales"]
-            a_amt = m_info["actual_sales"]
+            np_amt = m_info.get("net_profit", m_info.get("actual_sales", 0.0))
             rem = m_info["remaining"]
 
             item_m = QTableWidgetItem(m_name)
@@ -1331,19 +1331,18 @@ class ReportsPage(QWidget):
             item_t = QTableWidgetItem(f"₱ {t_amt:,.2f}")
             item_t.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-            item_a = QTableWidgetItem(f"₱ {a_amt:,.2f}")
+            item_a = QTableWidgetItem(f"₱ {np_amt:,.2f}")
             item_a.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            if a_amt > 0:
-                item_a.setForeground(QColor("#22C55E"))
+            item_a.setForeground(QColor("#22C55E") if np_amt >= 0 else QColor("#EF4444"))
 
             # Ref Image 1: Shortfall displayed in red parenthesis e.g. (85,000.00)
-            if a_amt < t_amt:
+            if np_amt < t_amt:
                 eval_str = f"(₱ {rem:,.2f})"
                 item_e = QTableWidgetItem(eval_str)
                 item_e.setForeground(QColor("#EF4444"))
                 item_e.setToolTip(f"₱{rem:,.2f} remaining to hit the target")
             else:
-                surplus = a_amt - t_amt
+                surplus = np_amt - t_amt
                 eval_str = f"+₱ {surplus:,.2f} (Target Achieved)"
                 item_e = QTableWidgetItem(eval_str)
                 item_e.setForeground(QColor("#22C55E"))
@@ -1357,7 +1356,7 @@ class ReportsPage(QWidget):
 
         # Summary Row (13th row)
         tot_target = data.get("total_target", 0.0)
-        tot_actual = data.get("total_actual", 0.0)
+        tot_net_profit = data.get("total_net_profit", data.get("total_actual", 0.0))
         tot_rem = data.get("total_remaining", 0.0)
 
         tot_m = QTableWidgetItem("TOTAL ANNUAL:")
@@ -1368,17 +1367,17 @@ class ReportsPage(QWidget):
         tot_t.setFont(QFont("Segoe UI", 11, QFont.Bold))
         tot_t.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        tot_a = QTableWidgetItem(f"₱ {tot_actual:,.2f}")
+        tot_a = QTableWidgetItem(f"₱ {tot_net_profit:,.2f}")
         tot_a.setFont(QFont("Segoe UI", 11, QFont.Bold))
         tot_a.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        tot_a.setForeground(QColor("#22C55E"))
+        tot_a.setForeground(QColor("#22C55E") if tot_net_profit >= 0 else QColor("#EF4444"))
 
-        if tot_actual < tot_target:
+        if tot_net_profit < tot_target:
             tot_e_str = f"(₱ {tot_rem:,.2f})"
             tot_e = QTableWidgetItem(tot_e_str)
             tot_e.setForeground(QColor("#EF4444"))
         else:
-            tot_e = QTableWidgetItem(f"+₱ {(tot_actual - tot_target):,.2f} (Target Exceeded)")
+            tot_e = QTableWidgetItem(f"+₱ {(tot_net_profit - tot_target):,.2f} (Target Exceeded)")
             tot_e.setForeground(QColor("#22C55E"))
 
         tot_e.setFont(QFont("Segoe UI", 11, QFont.Bold))
@@ -1400,12 +1399,14 @@ class ReportsPage(QWidget):
             with open(path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow([f"Jayraldine's Catering - Sales Evaluation Report ({yr})"])
-                writer.writerow(["Month", "Target Sales", "Actual Sales", "Evaluation / Remaining"])
+                writer.writerow(["Month", "Target Sales", "Net Profit", "Evaluation / Remaining"])
                 for m in data.get("months", []):
-                    rem_str = f"({m['remaining']:,.2f})" if m['is_shortfall'] else f"{m['actual_sales'] - m['target_sales']:,.2f}"
-                    writer.writerow([m["month_name"], f"{m['target_sales']:,.2f}", f"{m['actual_sales']:,.2f}", rem_str])
+                    np_amt = m.get("net_profit", m.get("actual_sales", 0.0))
+                    rem_str = f"({m['remaining']:,.2f})" if m['is_shortfall'] else f"{np_amt - m['target_sales']:,.2f}"
+                    writer.writerow([m["month_name"], f"{m['target_sales']:,.2f}", f"{np_amt:,.2f}", rem_str])
                 writer.writerow([])
-                writer.writerow(["TOTAL ANNUAL", f"{data['total_target']:,.2f}", f"{data['total_actual']:,.2f}", f"({data['total_remaining']:,.2f})" if data['overall_shortfall'] else "Achieved"])
+                tot_np = data.get("total_net_profit", data.get("total_actual", 0.0))
+                writer.writerow(["TOTAL ANNUAL", f"{data['total_target']:,.2f}", f"{tot_np:,.2f}", f"({data['total_remaining']:,.2f})" if data['overall_shortfall'] else "Achieved"])
             prompt_file_saved(self, path, title="Sales Evaluation Exported", message="Sales evaluation report exported successfully.")
         except Exception as e:
             QMessageBox.warning(self, "Export Error", str(e))

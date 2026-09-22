@@ -327,6 +327,45 @@ def get_all_orders(limit: int = 200) -> list[dict]:
     ]
 
 
+def _map_calendar_booking_row(r: dict) -> dict:
+    return {
+        "id": r["bk_id"],
+        "ref": r["bk_booking_ref"],
+        "customer": r["bk_customer_name"],
+        "date": r["bk_event_date"],
+        "time": r["bk_event_time"] or "",
+        "venue": r["bk_venue"] or "",
+        "occasion": r["bk_occasion"] or "Event",
+        "pax": int(r["bk_pax"] or 0),
+        "status": r["bk_status"] or "PENDING",
+    }
+
+
+def get_bookings_by_date(date_str: str) -> list[dict]:
+    """Bookings for one calendar date, for the kiosk's Calendar feature."""
+    rows = db.fetchall("""
+        SELECT bk_id, bk_booking_ref, bk_customer_name, bk_event_date, bk_event_time,
+               bk_venue, bk_occasion, bk_pax, bk_status
+        FROM bookings
+        WHERE bk_event_date = ? AND bk_status != 'CANCELLED'
+        ORDER BY bk_event_time ASC
+    """, (date_str,))
+    return [_map_calendar_booking_row(r) for r in rows]
+
+
+def get_bookings_by_month(year: int, month: int) -> list[dict]:
+    """Bookings for a calendar month (01-12), for the kiosk's Calendar feature."""
+    month_prefix = f"{int(year):04d}-{int(month):02d}"
+    rows = db.fetchall("""
+        SELECT bk_id, bk_booking_ref, bk_customer_name, bk_event_date, bk_event_time,
+               bk_venue, bk_occasion, bk_pax, bk_status
+        FROM bookings
+        WHERE bk_event_date LIKE ? AND bk_status != 'CANCELLED'
+        ORDER BY bk_event_date ASC, bk_event_time ASC
+    """, (f"{month_prefix}%",))
+    return [_map_calendar_booking_row(r) for r in rows]
+
+
 def clear_all_orders() -> int:
     row = db.fetchone("SELECT COUNT(*) AS c FROM bookings")
     count = row["c"] if row else 0

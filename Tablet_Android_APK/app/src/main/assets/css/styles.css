@@ -744,6 +744,18 @@ svg {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.btn-danger-outline {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger);
+  border: 1.5px solid var(--danger);
+  font-weight: 700;
+}
+
+.btn-danger-outline:hover {
+  background: var(--danger);
+  color: #FFFFFF;
+}
+
 [data-theme="light"] .btn-secondary {
   background: #FFFFFF;
   color: #0F172A;
@@ -2589,6 +2601,41 @@ svg {
 
 .kiosk-cat-bar::-webkit-scrollbar {
   display: none;
+}
+
+/* Explore Our Catering Menu (Landing Page): the whole showcase head — the
+   "Culinary Showcase" heading/search/actions AND the category tabs bar —
+   pins together directly below the fixed header once scrolled to, so it
+   stays visible while the dish grid keeps scrolling underneath. */
+#landing-menu-sticky-head {
+  position: -webkit-sticky;
+  position: sticky;
+  top: var(--kiosk-header-h, 78px);
+  z-index: 30;
+  background: var(--card, var(--bg-surface));
+  margin: 0 -26px 16px -26px;
+  padding: 16px 26px 10px 26px;
+  border-bottom: 1.5px solid transparent;
+  box-sizing: border-box;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+#landing-menu-sticky-head .menu-showcase-header {
+  margin-bottom: 12px;
+}
+
+#landing-menu-sticky-head.is-stuck {
+  border-bottom-color: var(--border);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+@media (max-width: 768px) {
+  #landing-menu-sticky-head {
+    margin: 0 -16px 12px -16px;
+    padding: 12px 16px 10px 16px;
+  }
 }
 
 .kiosk-cat-pill {
@@ -4959,4 +5006,177 @@ body.wizard-mode {
 .is-installed-apk .apk-download-banner {
   display: none !important;
 }
+
+/* ==========================================================================
+   LIVE EVENT SUMMARY — SELECTED MENU LIST WITH SWIPE-TO-REMOVE
+   ========================================================================== */
+.cart-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0 6px 0;
+  margin-top: 4px;
+}
+
+.cart-section-title {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.cart-section-badge {
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  padding: 2px 8px !important;
+  border-radius: 9999px !important;
+  background: var(--accent) !important;
+  color: #FFFFFF !important;
+}
+
+.cart-selected-dishes-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 2px 1px;
+  margin-bottom: 8px;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+/* Custom styled scrollbar */
+.cart-selected-dishes-container::-webkit-scrollbar {
+  width: 5px;
+}
+.cart-selected-dishes-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 4px;
+}
+.cart-selected-dishes-container::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 4px;
+}
+
+/* Row wrapper for each dish in the cart */
+.cart-dish-row-wrapper {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #DC2626; /* revealed action bg */
+  user-select: none;
+  touch-action: pan-y;
+  min-height: 48px;
+  transition: max-height 0.22s ease, margin 0.22s ease, opacity 0.22s ease;
+}
+
+.cart-dish-row-wrapper.is-removing {
+  max-height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  opacity: 0 !important;
+  padding: 0 !important;
+}
+
+/* Revealed red action on swipe left */
+.cart-dish-reveal-action {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+  color: #FFFFFF;
+  cursor: pointer;
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.cart-dish-reveal-action:active {
+  background: #B91C1C;
+}
+
+/* Sliding foreground content */
+.cart-dish-row-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  min-height: 48px;
+  background: var(--card-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s, border-color 0.15s;
+  will-change: transform;
+  cursor: grab;
+}
+
+.cart-dish-row-content:active {
+  cursor: grabbing;
+}
+
+.cart-dish-text-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding-right: 8px;
+}
+
+.cart-dish-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
+}
+
+.cart-dish-category {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cart-dish-price-col {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.cart-dish-included {
+  color: var(--success);
+  font-weight: 700;
+  font-size: 11.5px;
+}
+
+.cart-dish-price {
+  color: var(--gold);
+  font-weight: 700;
+}
+
+.cart-empty-dishes {
+  padding: 14px 8px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-style: italic;
+}
+
+
 

@@ -274,12 +274,27 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
     c2y += 14;
   }
 
+  const isFoodSet = (name) => {
+    if (!name) return false;
+    const n = String(name).trim().toLowerCase();
+    return (
+      n.includes("food set") ||
+      n.includes("food pack") ||
+      n.includes("foodset") ||
+      n.includes("foodpack") ||
+      n.includes("set of dish") ||
+      n.startsWith("set ") ||
+      n.includes(" set")
+    );
+  };
+  const isSet = isFoodSet(order.package_name || order.bk_package_name || "");
+
   drawFieldRow("Function Date:", eventDate);
   drawFieldRow("Time:", eventTime);
   drawFieldRow("Venue:", venue);
   drawFieldRow("Occasion:", occasion);
   drawFieldRow("Motif:", motif);
-  drawFieldRow("No. of Pax:", `${pax} pax / sets`);
+  drawFieldRow(isSet ? "No. of Sets:" : "No. of Pax:", `${pax} ${isSet ? "Set(s)" : "Pax"}`);
   drawFieldRow("Special Instructions:", instructions);
 
   // Card 3: PAYMENT DETAILS
@@ -326,7 +341,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(15, 23, 42); // Black
-  doc.text(`Good for ${pax} person(s)   ·   Base: ${peso(baseTotal)}`, rightColX + 8, rY);
+  doc.text(`Quantity: ${pax} ${isSet ? "Set(s)" : "Pax"}   ·   Base: ${peso(baseTotal)}`, rightColX + 8, rY);
 
   rY += 12;
 

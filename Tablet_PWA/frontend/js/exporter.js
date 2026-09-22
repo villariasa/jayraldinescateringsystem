@@ -294,7 +294,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   drawFieldRow("Venue:", venue);
   drawFieldRow("Occasion:", occasion);
   drawFieldRow("Motif:", motif);
-  drawFieldRow("No. of Sets:", `${pax} Set(s)`);
+  drawFieldRow(isSet ? "No. of Sets:" : "No. of Pax:", `${pax} ${isSet ? "Set(s)" : "Pax"}`);
   drawFieldRow("Special Instructions:", instructions);
 
   // Card 3: PAYMENT DETAILS
@@ -341,7 +341,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(15, 23, 42); // Black
-  doc.text(`Quantity: ${pax} Set(s)   ·   Base: ${peso(baseTotal)}`, rightColX + 8, rY);
+  doc.text(`Quantity: ${pax} ${isSet ? "Set(s)" : "Pax"}   ·   Base: ${peso(baseTotal)}`, rightColX + 8, rY);
 
   rY += 12;
 

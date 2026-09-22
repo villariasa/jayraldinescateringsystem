@@ -271,7 +271,7 @@ class ExtractWorker(QThread):
                 # Client Mode: save config pointing to host server
                 self.progress.emit(75, "Configuring Client connection to Main Station...")
                 host = self.client_config.get("host", "localhost")
-                port = int(self.client_config.get("port", 5432))
+                port = int(self.client_config.get("port", 8000))
                 engine = self.client_config.get("engine", "postgres" if port == 5432 else "sqlite")
 
                 # Ensure client local SQLite database cache exists
@@ -1044,7 +1044,13 @@ class ModernInstallerWindow(QWidget):
         self.client_host_edit.setPlaceholderText("Main Station LAN IP (e.g. 192.168.1.32)")
         self.client_host_edit.setStyleSheet(input_style)
 
-        self.client_port_edit = QLineEdit("5432")
+        # Default to the LAN Sync Hub port (8000) — the server setup step
+        # above always provisions the Main Station as a SQLite LAN sync hub,
+        # never a standalone PostgreSQL server, so a fresh client install
+        # defaulting to 5432 would point at a server that doesn't exist and
+        # silently fall back to an empty local cache (reads work via nothing,
+        # writes crash with "No database connection" on first login).
+        self.client_port_edit = QLineEdit("8000")
         self.client_port_edit.setFixedWidth(70)
         self.client_port_edit.setPlaceholderText("Port")
         self.client_port_edit.setStyleSheet(input_style)

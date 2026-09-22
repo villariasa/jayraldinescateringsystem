@@ -1065,6 +1065,7 @@ def execute(sql: str, params: tuple = ()) -> None:
     # ── Client Workstation Write-Through Proxy ──
     # When this machine is a client, send the write to the server first,
     # then also apply locally so the UI stays responsive.
+    proxied_ok = False
     try:
         from utils.client_sync import is_client_mode, proxy_write, get_server_url
         if is_client_mode():
@@ -1072,11 +1073,16 @@ def execute(sql: str, params: tuple = ()) -> None:
             is_write = any(sql_upper.startswith(k) for k in ("INSERT", "UPDATE", "DELETE", "REPLACE"))
             # Skip schema/pragma statements — those only run locally
             if is_write:
-                proxy_write(sql, params, server_url=get_server_url())
+                proxied_ok = proxy_write(sql, params, server_url=get_server_url())
     except Exception as _proxy_err:
         log.debug(f"[db.execute] Client proxy error (non-fatal): {_proxy_err}")
 
     if not _ensure_connected():
+        # The write already reached the server (source of truth for clients) —
+        # don't hard-fail just because this workstation has no local cache
+        # connection yet (e.g. right after a fresh client install/login).
+        if proxied_ok:
+            return
         raise RuntimeError("No database connection")
     if _engine_type == "sqlite":
         with _db_lock:
@@ -1291,14 +1297,19 @@ def callproc_out(proc: str, in_params: tuple = (), out_names: list = None) -> Op
     # sp_pay_invoice, etc.), so those writes never reached the server from a
     # client workstation. Best-effort: local emulation still runs regardless
     # so the UI stays responsive even if the server is unreachable.
+    proxy_result = None
     try:
         from utils.client_sync import is_client_mode, proxy_callproc, get_server_url
         if is_client_mode():
-            proxy_callproc(proc, in_params=in_params, out_names=out_names, void=False, server_url=get_server_url())
+            proxy_result = proxy_callproc(proc, in_params=in_params, out_names=out_names, void=False, server_url=get_server_url())
     except Exception as _proxy_err:
         log.debug(f"[db.callproc_out] Client proxy error (non-fatal): {_proxy_err}")
 
     if not _ensure_connected():
+        # Server already applied the call — return its result instead of
+        # failing outright when this workstation has no local cache yet.
+        if proxy_result:
+            return proxy_result.get("result") or {}
         return None
 
     if _engine_type == "sqlite":
@@ -1348,15 +1359,18 @@ def callproc_out(proc: str, in_params: tuple = (), out_names: list = None) -> Op
 def callproc_void(proc: str, in_params: tuple = ()) -> bool:
     """Emulate void stored procedure execution for SQLite, or run PostgreSQL procedure."""
     # ── Client Workstation Write-Through Proxy ── (see callproc_out for why)
+    proxy_result = None
     try:
         from utils.client_sync import is_client_mode, proxy_callproc, get_server_url
         if is_client_mode():
-            proxy_callproc(proc, in_params=in_params, void=True, server_url=get_server_url())
+            proxy_result = proxy_callproc(proc, in_params=in_params, void=True, server_url=get_server_url())
     except Exception as _proxy_err:
         log.debug(f"[db.callproc_void] Client proxy error (non-fatal): {_proxy_err}")
 
     if not _ensure_connected():
-        return False
+        # Server already applied the call — treat as success rather than
+        # failing outright when this workstation has no local cache yet.
+        return bool(proxy_result)
 
     if _engine_type == "sqlite":
         with _db_lock:

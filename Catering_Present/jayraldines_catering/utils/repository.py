@@ -5548,6 +5548,72 @@ def get_monthly_sales_evaluation_report(year: int) -> dict:
         except Exception as err:
             print(f"[reports] Error parsing cash flow date '{d_val}': {err}")
 
+    # 3. Expenses per month, so Actual Sales can be turned into Net Profit
+    expenses_by_month = {m: 0.0 for m in range(1, 13)}
+    expenses = db.fetchall("""
+        SELECT exp_amount, COALESCE(exp_expense_date, exp_date) AS expense_date
+        FROM expenses
+    """) or []
+
+    for e in expenses:
+        d_val = e.get("expense_date")
+        if not d_val:
+            continue
+        try:
+            if isinstance(d_val, (datetime, date)):
+                e_year = d_val.year
+                e_month = d_val.month
+            else:
+                qd = _parse_date(str(d_val))
+                if qd:
+                    e_year = qd.year
+                    e_month = qd.month
+                else:
+                    parts = str(d_val).split("-")
+                    e_year = int(parts[0])
+                    e_month = int(parts[1])
+
+            if e_year == int(year) and 1 <= e_month <= 12:
+                expenses_by_month[e_month] += float(e.get("exp_amount") or 0.0)
+        except Exception as err:
+            print(f"[reports] Error parsing expense date '{d_val}': {err}")
+
+    # 4. Booking contract revenue (CONFIRMED/COMPLETED, by event date) — the
+    # SAME basis the Reports overview's "Net Profit" KPI card uses (see
+    # get_report_kpis / ui/reports_page.py _reload_kpis: total_revenue minus
+    # total_expenses for confirmed/completed bookings in the period). Net
+    # profit here must use this, not actual_sales_by_month (cash collected),
+    # so the monthly evaluation row matches the top KPI card for that month.
+    revenue_by_month = {m: 0.0 for m in range(1, 13)}
+    bk_rows = db.fetchall("""
+        SELECT bk_total_amount, bk_event_date, bk_status
+        FROM bookings
+        WHERE bk_status IN ('CONFIRMED', 'COMPLETED')
+    """) or []
+
+    for b in bk_rows:
+        d_val = b.get("bk_event_date")
+        if not d_val:
+            continue
+        try:
+            if isinstance(d_val, (datetime, date)):
+                b_year = d_val.year
+                b_month = d_val.month
+            else:
+                qd = _parse_date(str(d_val))
+                if qd:
+                    b_year = qd.year
+                    b_month = qd.month
+                else:
+                    parts = str(d_val).split("-")
+                    b_year = int(parts[0])
+                    b_month = int(parts[1])
+
+            if b_year == int(year) and 1 <= b_month <= 12:
+                revenue_by_month[b_month] += float(b.get("bk_total_amount") or 0.0)
+        except Exception as err:
+            print(f"[reports] Error parsing booking event date '{d_val}': {err}")
+
     month_names = [
         "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
         "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"
@@ -5556,33 +5622,42 @@ def get_monthly_sales_evaluation_report(year: int) -> dict:
     months_data = []
     tot_target = 0.0
     tot_actual = 0.0
+    tot_net_profit = 0.0
 
     for m in range(1, 13):
         t_amt = targets.get(m, 85000.0)
         a_amt = actual_sales_by_month.get(m, 0.0)
-        rem = t_amt - a_amt
+        exp_amt = expenses_by_month.get(m, 0.0)
+        rev_amt = revenue_by_month.get(m, 0.0)
+        net_profit = rev_amt - exp_amt
+        rem = t_amt - net_profit
         tot_target += t_amt
         tot_actual += a_amt
+        tot_net_profit += net_profit
 
         months_data.append({
             "month_num": m,
             "month_name": month_names[m - 1],
             "target_sales": t_amt,
             "actual_sales": a_amt,
+            "revenue": rev_amt,
+            "expenses": exp_amt,
+            "net_profit": net_profit,
             "remaining": rem,
-            "is_shortfall": (a_amt < t_amt),
-            "is_achieved": (a_amt >= t_amt),
+            "is_shortfall": (net_profit < t_amt),
+            "is_achieved": (net_profit >= t_amt),
         })
 
-    tot_remaining = tot_target - tot_actual
+    tot_remaining = tot_target - tot_net_profit
 
     return {
         "year": year,
         "months": months_data,
         "total_target": tot_target,
         "total_actual": tot_actual,
+        "total_net_profit": tot_net_profit,
         "total_remaining": tot_remaining,
-        "overall_shortfall": (tot_actual < tot_target),
+        "overall_shortfall": (tot_net_profit < tot_target),
     }
 
 

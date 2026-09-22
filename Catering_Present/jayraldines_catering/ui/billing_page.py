@@ -19,6 +19,7 @@ import utils.exporter as exporter
 from utils.session import get_actor
 from utils.signals import app_events
 from utils.data_loader import run_async
+from utils.theme import ThemeManager
 
 
 _STATUS_COLORS = {"Paid": "#22C55E", "Partial": "#F59E0B", "Unpaid": "#EF4444"}
@@ -169,20 +170,25 @@ class RecordPaymentDialog(QDialog):
         opt_lay.addLayout(preset_row)
         lay.addWidget(opt_box)
 
-        STYLE_INACTIVE = """
-            QPushButton {
-                background: #FFFFFF;
-                border: 1.5px solid #CBD5E1;
+        _pal = ThemeManager().palette
+        _inactive_bg = _pal.get("surface", "#FFFFFF")
+        _inactive_border = _pal.get("border", "#CBD5E1")
+        _inactive_text = _pal.get("text_primary", "#334155")
+        _inactive_hover = _pal.get("surface_hover", _pal.get("background", "#F1F5F9"))
+        STYLE_INACTIVE = f"""
+            QPushButton {{
+                background: {_inactive_bg};
+                border: 1.5px solid {_inactive_border};
                 border-radius: 6px;
-                color: #334155;
+                color: {_inactive_text};
                 font-weight: 600;
                 font-size: 12px;
                 padding: 4px 8px;
-            }
-            QPushButton:hover {
-                border-color: #94A3B8;
-                background: #F1F5F9;
-            }
+            }}
+            QPushButton:hover {{
+                border-color: {_inactive_border};
+                background: {_inactive_hover};
+            }}
         """
         STYLE_ACTIVE_DOWN = """
             QPushButton {
@@ -323,7 +329,7 @@ class EditBillingDialog(QDialog):
         self.setWindowTitle("Edit Billing Payment")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(460)
+        self.setFixedWidth(560)
         self.setModal(True)
         self._build_ui()
 
@@ -379,14 +385,15 @@ class EditBillingDialog(QDialog):
         self._total_spin.setStyleSheet("font-weight: 800; font-size: 13px; color: #D97706;")
 
         # Quick auto-fill options
+        _pal = ThemeManager().palette
         opt_box = QFrame()
-        opt_box.setStyleSheet("""
-            QFrame {
-                background: #F8FAFC;
-                border: 1px solid #E2E8F0;
+        opt_box.setStyleSheet(f"""
+            QFrame {{
+                background: {_pal.get("surface_hover", _pal.get("surface", "#F8FAFC"))};
+                border: 1px solid {_pal.get("border", "#E2E8F0")};
                 border-radius: 8px;
                 padding: 6px;
-            }
+            }}
         """)
         opt_lay = QVBoxLayout(opt_box)
         opt_lay.setContentsMargins(8, 8, 8, 8)
@@ -399,16 +406,25 @@ class EditBillingDialog(QDialog):
         preset_row = QHBoxLayout()
         preset_row.setSpacing(8)
 
+        _quickfill_style = (
+            f"background: {_pal.get('surface', '#FFFFFF')}; "
+            f"border: 1.5px solid {_pal.get('border', '#CBD5E1')}; "
+            f"border-radius: 6px; color: {_pal.get('text_primary', '#334155')}; "
+            f"font-weight: 600; font-size: 11px;"
+        )
+
         down_val = round(self._total_val * 0.50, 2)
         btn_down = QPushButton(f"💰 50% Down (₱ {down_val:,.2f})")
         btn_down.setCursor(Qt.PointingHandCursor)
-        btn_down.setFixedHeight(32)
-        btn_down.setStyleSheet("background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 6px; font-weight: 600; font-size: 11px;")
+        btn_down.setFixedHeight(36)
+        btn_down.setMinimumWidth(220)
+        btn_down.setStyleSheet(_quickfill_style)
 
         btn_full = QPushButton(f"💳 Fully Paid (₱ {self._total_val:,.2f})")
         btn_full.setCursor(Qt.PointingHandCursor)
-        btn_full.setFixedHeight(32)
-        btn_full.setStyleSheet("background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 6px; font-weight: 600; font-size: 11px;")
+        btn_full.setFixedHeight(36)
+        btn_full.setMinimumWidth(220)
+        btn_full.setStyleSheet(_quickfill_style)
 
         preset_row.addWidget(btn_down, 1)
         preset_row.addWidget(btn_full, 1)
@@ -1422,16 +1438,6 @@ class BillingPage(QWidget):
             dp_box.addWidget(dp_val)
             c2.addLayout(dp_box)
 
-        p_box = QVBoxLayout()
-        p_box.setSpacing(2)
-        p_title = QLabel("PAID")
-        p_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280;")
-        p_val = QLabel(f"₱{paid:,.2f}")
-        p_val.setStyleSheet("font-weight: 700; font-size: 13px; color: #22C55E;")
-        p_box.addWidget(p_title)
-        p_box.addWidget(p_val)
-        c2.addLayout(p_box)
-
         b_box = QVBoxLayout()
         b_box.setSpacing(2)
         b_title = QLabel("BALANCE")
@@ -1759,14 +1765,14 @@ class BillingPage(QWidget):
             return
         with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["Invoice", "Customer", "Event Date", "Total", "Paid", "Balance", "Status"])
+            writer.writerow(["Invoice", "Customer", "Event Date", "Total", "Balance", "Status"])
             for inv in self._invoices:
                 total = float(inv.get("amount", 0))
                 paid  = float(inv.get("paid", 0))
                 writer.writerow([
                     inv.get("invoice", ""), inv.get("customer", ""),
                     inv.get("event_date", ""),
-                    f"{total:,.2f}", f"{paid:,.2f}", f"{total-paid:,.2f}",
+                    f"{total:,.2f}", f"{total-paid:,.2f}",
                     inv.get("status", ""),
                 ])
         prompt_file_saved(self, path, title="Invoices Exported", message="Invoices list exported successfully.")

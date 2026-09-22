@@ -547,7 +547,7 @@ class BookingModal(QDialog):
 
         v5 = QVBoxLayout()
         v5.setSpacing(4)
-        self.lbl_pax_field = _field_label("No. of Sets *")
+        self.lbl_pax_field = _field_label("No. of Pax *")
         v5.addWidget(self.lbl_pax_field)
         self.f_pax = QSpinBox()
         self.f_pax.setRange(1, 2000)
@@ -960,9 +960,9 @@ class BookingModal(QDialog):
 
         is_set = self._is_food_set(pkg_name)
         if hasattr(self, "lbl_pax_field"):
-            self.lbl_pax_field.setText("No. of Sets *")
+            self.lbl_pax_field.setText("No. of Sets *" if is_set else "No. of Pax *")
         if hasattr(self, "lbl_pax_title"):
-            self.lbl_pax_title.setText("📦 Quantity (Sets):")
+            self.lbl_pax_title.setText("📦 Quantity (Sets):" if is_set else "👥 Quantity (Pax):")
 
     def _select_package(self, idx, clicked_card=None, open_popup=True):
         # select a package and switch menu mode to Packages
@@ -1042,7 +1042,24 @@ class BookingModal(QDialog):
                 if hasattr(self, "_pkg_dishes_count_lbl"):
                     self._pkg_dishes_count_lbl.setText(f"✓ {cnt} dishes selected for this package order")
 
+            # Also pre-check the same items on the Custom Menu tab, so a
+            # package's predefined selection is visible/editable there too.
+            self._sync_custom_checks_from_package(pkg_id)
+
             self._update_pkg_card_badges()
+
+    def _sync_custom_checks_from_package(self, pkg_id):
+        """Check the Custom Menu tab's checkboxes to match the given package's
+        currently selected dishes (from self._pkg_selected_dishes)."""
+        if not hasattr(self, "_custom_checks"):
+            return
+        chosen = getattr(self, "_pkg_selected_dishes", {}).get(pkg_id) or []
+        sel_lowers = {s.strip().lower() for s in chosen}
+        for chk, itm in self._custom_checks:
+            name = (itm.get("item") or itm.get("name") or itm.get("item_name", "")).strip().lower()
+            chk.blockSignals(True)
+            chk.setChecked(name in sel_lowers)
+            chk.blockSignals(False)
 
     def _update_pkg_card_badges(self):
         db_pkgs = getattr(self, "_db_packages", [])
@@ -1168,6 +1185,7 @@ class BookingModal(QDialog):
                 itm.get("item") or itm.get("name") or itm.get("item_name", "")
                 for chk, itm in getattr(self, "_pkg_dish_checks", []) if chk.isChecked()
             ]
+            self._sync_custom_checks_from_package(pkg_id)
             self._update_pkg_card_badges()
 
     def _reset_pkg_dishes_to_default(self):
@@ -1184,6 +1202,7 @@ class BookingModal(QDialog):
         if not hasattr(self, "_pkg_selected_dishes"):
             self._pkg_selected_dishes = {}
         self._pkg_selected_dishes[pkg_id] = [p["item_name"] for p in default_items if p.get("item_name")]
+        self._sync_custom_checks_from_package(pkg_id)
         self._on_pkg_dish_toggled()
 
     def _select_all_pkg_dishes(self):
