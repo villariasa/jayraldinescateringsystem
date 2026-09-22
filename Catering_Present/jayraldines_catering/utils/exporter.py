@@ -736,7 +736,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             [Paragraph("<b>Venue:</b>", styles["DetailLabel"]), Paragraph(str(venue), styles["DetailValue"])],
             [Paragraph("<b>Occasion:</b>", styles["DetailLabel"]), Paragraph(str(occasion), styles["DetailValue"])],
             [Paragraph("<b>Motif:</b>", styles["DetailLabel"]), Paragraph(str(motif), styles["DetailValue"])],
-            [Paragraph("<b>No. of Pax:</b>", styles["DetailLabel"]), Paragraph(f"{pax} pax / sets", styles["DetailValue"])],
+            [Paragraph(f"<b>{pax_lbl}</b>", styles["DetailLabel"]), Paragraph(pax_val_str, styles["DetailValue"])],
             [Paragraph("<b>Special Instructions:</b>", styles["DetailLabel"]), Paragraph(str(notes), styles["DetailValue"])],
         ]
         c2_tbl = Table(c2_rows, colWidths=[3.7 * cm, half_w - 3.7 * cm])
@@ -805,7 +805,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=0.12 * cm),
             Paragraph(f"<b>PACKAGE: {str(pkg_name).upper()}</b>", ParagraphStyle(
                 "r_pkg", fontName="Helvetica-Bold", fontSize=10, textColor=_C_DARK, leading=12)),
-            Paragraph(f"Good for {pax} person(s)  ·  Base: PHP {base_tot:,.2f}", ParagraphStyle(
+            Paragraph(f"{'Quantity: ' + str(pax) + ' Set(s)' if is_food_set else 'Good for ' + str(pax) + ' person(s)'}  ·  Base: PHP {base_tot:,.2f}", ParagraphStyle(
                 "r_pkg_sub", fontName="Helvetica", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=3)),
         ]
 
@@ -1019,6 +1019,10 @@ def export_order_slip_pdf(path: str, booking: dict, business: dict) -> bool:
         raw_t     = booking.get("event_time") or booking.get("time") or ""
         time_str  = _format_time_ampm(raw_t) if raw_t else "TBA"
         pax       = str(booking.get("pax", "100"))
+        pkg_name_inv = str(booking.get("package_name") or booking.get("pkg_name") or "")
+        is_food_set_inv = any(k in pkg_name_inv.lower() for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or pkg_name_inv.lower().startswith("set ") or " set" in pkg_name_inv.lower()
+        guest_lbl = "Quantity:" if is_food_set_inv else "Guest Count:"
+        pax_disp = f"<b>{pax} Set(s)</b>" if is_food_set_inv else f"<b>{pax} Pax</b>"
         pkg_name  = str(booking.get("package_name") or booking.get("menu_value") or "Standard Package")
         motif     = str(booking.get("color_theme") or booking.get("color") or "")
         occasion  = str(booking.get("occasion") or "Catering Event")
@@ -1083,8 +1087,8 @@ def export_order_slip_pdf(path: str, booking: dict, business: dict) -> bool:
             [
                 Paragraph("<b>Occasion:</b>", styles["DetailLabel"]),
                 Paragraph(occasion, styles["DetailValue"]),
-                Paragraph("<b>Guest Count:</b>", styles["DetailLabel"]),
-                Paragraph(f"<b>{pax} Pax</b>", styles["DetailValueBold"]),
+                Paragraph(f"<b>{guest_lbl}</b>", styles["DetailLabel"]),
+                Paragraph(pax_disp, styles["DetailValueBold"]),
             ],
         ]
         if motif:

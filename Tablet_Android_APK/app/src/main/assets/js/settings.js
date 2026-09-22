@@ -1309,7 +1309,7 @@ async function renderDatabaseTab(content) {
               Checking LAN Connection…
             </div>
             <div style="font-size:11px; color:var(--text-muted); font-weight:600;">
-              Local Storage: <span style="color:var(--success);">IndexedDB Active ✓</span>
+              Local Storage: <span style="color:var(--success); display:inline-flex; align-items:center; gap:4px;">IndexedDB Active ${icon("check")}</span>
             </div>
           </div>
         </div>
@@ -1317,7 +1317,7 @@ async function renderDatabaseTab(content) {
         <!-- Hardware & Network Permission Verification Strip -->
         <div style="background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.22); border-radius:var(--radius-md); padding:10px 16px; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:15px; color:var(--success);">🛡️</span>
+            <span style="color:var(--success); display:inline-flex; align-items:center;">${icon("shield")}</span>
             <span style="font-size:12.5px; font-weight:600; color:var(--text);">
               <b>Tablet Permissions:</b> Local Wi-Fi Network &amp; LAN Communication Granted
             </span>
@@ -1342,8 +1342,8 @@ async function renderDatabaseTab(content) {
                 <label style="font-size:12px; font-weight:700; color:var(--text); margin:0;">
                   Central Server IP / Host Address *
                 </label>
-                <button type="button" id="btn-autodiscover-host" class="btn btn-sm" style="font-size:11px; padding:3px 8px; background:rgba(225,29,72,0.1); color:var(--accent); border:1px solid rgba(225,29,72,0.25); border-radius:6px; cursor:pointer;">
-                  🔍 Auto-Detect IP
+                <button type="button" id="btn-autodiscover-host" class="btn btn-sm" style="font-size:11px; padding:3px 8px; background:rgba(225,29,72,0.1); color:var(--accent); border:1px solid rgba(225,29,72,0.25); border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+                  ${icon("search")} Auto-Detect IP
                 </button>
               </div>
               <input type="text" id="input-lan-host" class="input" value="${localStorage.getItem('jayraldines_lan_host') || (typeof window !== 'undefined' && window.location && window.location.hostname ? window.location.hostname : '127.0.0.1')}" placeholder="e.g. 192.168.4.128 or localhost" style="width:100%; font-size:13.5px; font-weight:600; font-family:monospace; padding:10px 14px;">
@@ -1405,7 +1405,7 @@ async function renderDatabaseTab(content) {
         <!-- Pending Sync Counter Strip -->
         <div style="margin-bottom:18px; background:rgba(225,29,72,0.05); border:1px solid rgba(225,29,72,0.18); border-radius:var(--radius-md); padding:12px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
           <div style="display:flex; align-items:center; gap:10px;">
-            <span style="font-size:16px;">📦</span>
+            <span style="color:var(--accent); display:inline-flex; align-items:center;">${icon("package")}</span>
             <div>
               <div style="font-size:12px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Unsynchronized Tablet Transactions:</div>
               <div id="lan-pending-info" style="font-size:14px; font-weight:800; color:var(--accent); margin-top:2px;">Checking...</div>
@@ -1551,7 +1551,7 @@ async function renderDatabaseTab(content) {
       const isDbOnline = Boolean(stat.online && (stat.db_connected !== false));
       if (isDbOnline) {
         const displayHost = cleanDisplayHost(stat.host || (hostInput ? hostInput.value.trim() : "") || host) || "Central PC";
-        statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--success);"></span> 🟢 Central Server &amp; SQLite DB Online (${escapeHtml(displayHost)}:${stat.port || 8000})`;
+        statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--success);"></span> Central Server &amp; SQLite DB Online (${escapeHtml(displayHost)}:${stat.port || 8000})`;
         statusPill.style.background = "rgba(16,185,129,0.15)";
         statusPill.style.color = "var(--success)";
         statusPill.style.borderColor = "rgba(16,185,129,0.35)";
@@ -1562,13 +1562,13 @@ async function renderDatabaseTab(content) {
           diagBox.style.border = "1px solid rgba(16,185,129,0.3)";
           diagBox.style.color = "var(--success)";
           diagBox.innerHTML = `
-            <b>✅ Connection Verified:</b> Successfully reached Central Server at <code>${escapeHtml(displayHost)}:${stat.port || 8000}</code>.<br>
+            <b>Connection Verified:</b> Successfully reached Central Server at <code>${escapeHtml(displayHost)}:${stat.port || 8000}</code>.<br>
             Database engine: <b>${escapeHtml((stat.db_engine || 'SQLite').toUpperCase())}</b> (${escapeHtml(stat.db_name || 'catering.db')}). Server and Database are Online and ready to synchronize!
           `;
         }
       } else if (stat.online) {
         const displayHost = cleanDisplayHost(stat.host || (hostInput ? hostInput.value.trim() : "") || host) || "Central PC";
-        statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--gold);"></span> 🟡 HTTP Hub Online (${escapeHtml(displayHost)}:8000), Checking DB…`;
+        statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--gold);"></span> HTTP Hub Online (${escapeHtml(displayHost)}:8000), Checking DB…`;
         statusPill.style.background = "rgba(245,158,11,0.15)";
         statusPill.style.color = "var(--gold)";
         statusPill.style.borderColor = "rgba(245,158,11,0.35)";
@@ -1579,11 +1579,11 @@ async function renderDatabaseTab(content) {
           diagBox.style.border = "1px solid rgba(245,158,11,0.3)";
           diagBox.style.color = "var(--gold)";
           diagBox.innerHTML = `
-            <b>🟡 Sync Hub Online:</b> Reached server on port 8000. Database initialization in progress (${escapeHtml(stat.error || 'Standby')}).
+            <b>Sync Hub Online:</b> Reached server on port 8000. Database initialization in progress (${escapeHtml(stat.error || 'Standby')}).
           `;
         }
       } else {
-        statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--gold);"></span> 🟡 Offline Mode (Local Storage)`;
+        statusPill.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--gold);"></span> Offline Mode (Local Storage)`;
         statusPill.style.background = "rgba(245,158,11,0.15)";
         statusPill.style.color = "var(--gold)";
         statusPill.style.borderColor = "rgba(245,158,11,0.35)";
@@ -1599,7 +1599,7 @@ async function renderDatabaseTab(content) {
           diagBox.style.border = "1px solid rgba(239,68,68,0.3)";
           diagBox.style.color = "var(--danger)";
           diagBox.innerHTML = `
-            <b>❌ Central Server Unreachable at <code>http://${escapeHtml(curHost)}:${escapeHtml(port || '8000')}</code></b><br>
+            <b>Central Server Unreachable at <code>http://${escapeHtml(curHost)}:${escapeHtml(port || '8000')}</code></b><br>
             ${stat.error ? `<span style="font-size:12px; color:var(--danger); display:block; margin-top:4px;"><b>Reason:</b> ${escapeHtml(stat.error)}</span>` : ''}
             <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:4px;">
               • Verify that this tablet and the PC are connected to the <b>same Wi-Fi network</b>.<br>
@@ -1668,7 +1668,7 @@ async function renderDatabaseTab(content) {
         diagBox.style.border = "1px solid rgba(16,185,129,0.35)";
         diagBox.style.color = "var(--success)";
         diagBox.innerHTML = `
-          <b>✅ Synchronization Complete!</b><br>
+          <b>Synchronization Complete!</b><br>
           • Pushed to Central DB: <b>${res.pushed_bookings || 0}</b> booking(s), <b>${res.pushed_customers || 0}</b> customer(s).<br>
           • Pulled from Central DB: <b>${(res.packages || []).length}</b> packages, <b>${(res.menu_items || []).length}</b> dishes, <b>${(res.customers || []).length}</b> customer(s).<br>
           • Server Status: Online (${res.status || "OK"})<br>
@@ -1685,7 +1685,7 @@ async function renderDatabaseTab(content) {
         diagBox.style.border = "1px solid rgba(239,68,68,0.3)";
         diagBox.style.color = "var(--danger)";
         diagBox.innerHTML = `
-          <b>❌ Sync Failed:</b> ${escapeHtml(err.message)}<br>
+          <b>Sync Failed:</b> ${escapeHtml(err.message)}<br>
           <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:4px;">
             Please ensure both devices are on the same Wi-Fi and Central Server is active.
           </span>
@@ -1766,7 +1766,7 @@ function renderLandingTab(content) {
           <div class="card" style="padding:16px; display:flex; flex-direction:column; gap:12px; position:relative; overflow:hidden;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <span class="pill pill-paid" style="font-weight:700; font-size:12px;">
-                ${idx === 0 ? "★ Slide #1 (Main Hero)" : `Slide #${idx + 1}`}
+                ${idx === 0 ? "Slide #1 (Main Hero)" : `Slide #${idx + 1}`}
               </span>
               <span style="font-size:12px; color:var(--text-muted);">Active Showcase</span>
             </div>
@@ -2046,8 +2046,8 @@ function _renderLiveDbConfigModal() {
     large: true,
     bodyHtml: `
       <div style="margin-bottom:18px;">
-        <div style="background:rgba(37,99,235,0.08); border:1.5px solid rgba(37,99,235,0.25); border-radius:var(--radius-md); padding:14px 18px; color:var(--text); font-size:13.5px; line-height:1.5;">
-          <b>📡 Live Central Database Setup:</b> Connect this tablet directly to the central SQLite database on your laptop over Wi-Fi. All menu packages, dishes, and booking transactions synchronize in real time via Port 8000.
+        <div style="background:rgba(37,99,235,0.08); border:1.5px solid rgba(37,99,235,0.25); border-radius:var(--radius-md); padding:14px 18px; color:var(--text); font-size:13.5px; line-height:1.5; display:flex; align-items:center; gap:8px;">
+          ${icon("server")} <b>Live Central Database Setup:</b> Connect this tablet directly to the central SQLite database on your laptop over Wi-Fi. All menu packages, dishes, and booking transactions synchronize in real time via Port 8000.
         </div>
       </div>
 
@@ -2055,8 +2055,8 @@ function _renderLiveDbConfigModal() {
       ${!api.isInstalledApp() ? `
       <div class="apk-download-banner" style="background:rgba(16,185,129,0.08); border:1.5px solid rgba(16,185,129,0.3); border-radius:var(--radius-md); padding:14px 18px; margin-bottom:18px; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
         <div style="display:flex; align-items:center; gap:12px;">
-          <div style="width:38px; height:38px; border-radius:10px; background:rgba(16,185,129,0.18); color:#10B981; display:flex; align-items:center; justify-content:center; font-size:20px;">
-            📱
+          <div style="width:38px; height:38px; border-radius:10px; background:rgba(16,185,129,0.18); color:#10B981; display:flex; align-items:center; justify-content:center;">
+            ${icon("monitorShield")}
           </div>
           <div>
             <div style="font-weight:800; font-size:13.5px; color:var(--text);">Standalone Android Tablet App (.APK)</div>
@@ -2082,8 +2082,8 @@ function _renderLiveDbConfigModal() {
               <label style="font-size:12.5px; font-weight:700; color:var(--text); margin:0;">
                 Server LAN IP Address
               </label>
-              <button type="button" id="cfg-btn-autodetect" class="btn btn-sm" style="font-size:11px; padding:3px 10px; background:rgba(37,99,235,0.15); color:#3B82F6; border:1px solid rgba(37,99,235,0.3); border-radius:6px; cursor:pointer; font-weight:700;">
-                🔍 Auto-Detect IP
+              <button type="button" id="cfg-btn-autodetect" class="btn btn-sm" style="font-size:11px; padding:3px 10px; background:rgba(37,99,235,0.15); color:#3B82F6; border:1px solid rgba(37,99,235,0.3); border-radius:6px; cursor:pointer; font-weight:700; display:inline-flex; align-items:center; gap:4px;">
+                ${icon("search")} Auto-Detect IP
               </button>
             </div>
             <input type="text" id="cfg-lan-host" class="input" value="${escapeHtml(currentHost)}" placeholder="e.g. 192.168.1.32" style="width:100%; font-size:14px; font-weight:700; font-family:monospace; padding:11px 14px;">
@@ -2163,11 +2163,11 @@ function _renderLiveDbConfigModal() {
     `,
     footerHtml: `
       <button class="btn btn-secondary" data-close>Cancel</button>
-      <button class="btn btn-outline" id="cfg-btn-test" style="border:1.5px solid var(--border); font-weight:700;">
-        ⚡ Test Connection
+      <button class="btn btn-outline" id="cfg-btn-test" style="border:1.5px solid var(--border); font-weight:700; display:inline-flex; align-items:center; gap:6px;">
+        ${icon("refresh")} Test Connection
       </button>
-      <button class="btn btn-primary" id="cfg-btn-save" style="font-weight:800; padding:11px 22px; box-shadow:0 4px 14px rgba(225,29,72,0.3);">
-        💾 Save &amp; Connect Live DB
+      <button class="btn btn-primary" id="cfg-btn-save" style="font-weight:800; padding:11px 22px; box-shadow:0 4px 14px rgba(225,29,72,0.3); display:inline-flex; align-items:center; gap:6px;">
+        ${icon("save")} Save &amp; Connect Live DB
       </button>
     `,
   });
@@ -2224,7 +2224,7 @@ function _renderLiveDbConfigModal() {
     // Auto-Detect) - strip scheme+port before re-appending ":port" for display,
     // otherwise this reads as "http://http://host:8000:8000".
     const cleanDisplayHost = (v) => (v || "").trim().replace(/^https?:\/\//i, "").split(":")[0];
-    diagBox.innerHTML = `⏳ Probing server at <code>http://${escapeHtml(cleanDisplayHost(hostInp.value))}:${escapeHtml(portInp.value.trim() || '8000')}</code>…`;
+    diagBox.innerHTML = `Probing server at <code>http://${escapeHtml(cleanDisplayHost(hostInp.value))}:${escapeHtml(portInp.value.trim() || '8000')}</code>…`;
 
     try {
       const host = hostInp.value.trim() || autoIp || "127.0.0.1";
@@ -2237,7 +2237,7 @@ function _renderLiveDbConfigModal() {
         diagBox.style.border = "1.5px solid rgba(16,185,129,0.4)";
         diagBox.style.color = "var(--success)";
         diagBox.innerHTML = `
-          <b>✅ Connection Successful!</b><br>
+          <b>Connection Successful!</b><br>
           Connected to Central Server at <code>${escapeHtml(cleanDisplayHost(stat.host || host))}:${stat.port || port}</code>.<br>
           Database Engine: <b>${escapeHtml((stat.db_engine || 'SQLite').toUpperCase())}</b> (${escapeHtml(stat.db_name || 'catering.db')}).<br>
           Live Database is online and accessible.
@@ -2248,7 +2248,7 @@ function _renderLiveDbConfigModal() {
         diagBox.style.border = "1.5px solid rgba(239,68,68,0.35)";
         diagBox.style.color = "var(--danger)";
         diagBox.innerHTML = `
-          <b>❌ Cannot reach Central Server at <code>http://${escapeHtml(cleanDisplayHost(host))}:${escapeHtml(String(port))}</code></b><br>
+          <b>Cannot reach Central Server at <code>http://${escapeHtml(cleanDisplayHost(host))}:${escapeHtml(String(port))}</code></b><br>
           ${stat && stat.error ? `<span style="font-size:12px; color:var(--danger); display:block; margin-top:4px;"><b>Reason:</b> ${escapeHtml(stat.error)}</span>` : ''}
           <span style="font-size:12px; color:var(--text-muted); line-height:1.6; display:block; margin-top:6px;">
             1. Confirm that both tablet and laptop are connected to the exact same Wi-Fi.<br>
@@ -2265,7 +2265,7 @@ function _renderLiveDbConfigModal() {
       diagBox.innerHTML = `<b>Error:</b> ${escapeHtml(e.message)}`;
     } finally {
       testBtn.disabled = false;
-      testBtn.innerHTML = `⚡ Test Connection`;
+      testBtn.innerHTML = `${icon("refresh")} Test Connection`;
     }
   });
 
@@ -2304,7 +2304,7 @@ function _renderLiveDbConfigModal() {
     } catch (err) {
       toast("Connection note: " + err.message, "error");
       saveBtn.disabled = false;
-      saveBtn.textContent = "💾 Save & Connect Live DB";
+      saveBtn.innerHTML = `${icon("save")} Save & Connect Live DB`;
     }
   });
 }

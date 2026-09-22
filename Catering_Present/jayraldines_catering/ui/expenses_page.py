@@ -940,6 +940,25 @@ class ExpensesPage(QWidget):
 
     # ── Add / delete ─────────────────────────────────────────────────────────
 
+    def _apply_description_completer(self, desc_edit):
+        """Wire the description field to autocomplete from past expense
+        descriptions, so staff pick an existing entry instead of retyping
+        their own spelling of it each time (the recurring "Gas" / "gas" /
+        "Gasoline" problem that fragments expense reporting)."""
+        from PySide6.QtWidgets import QCompleter
+        from PySide6.QtCore import Qt
+        try:
+            suggestions = repo.get_expense_description_suggestions()
+        except Exception:
+            suggestions = []
+        if not suggestions:
+            return
+        completer = QCompleter(suggestions, desc_edit)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        desc_edit.setCompleter(completer)
+
     def _open_add_expense(self):
         if not SessionManager.has_permission("expenses", "create"):
             error(self, title="Access Denied", message="You do not have permission to record expenses.")
@@ -966,6 +985,7 @@ class ExpensesPage(QWidget):
 
         desc_edit = QLineEdit()
         desc_edit.setPlaceholderText("Description")
+        self._apply_description_completer(desc_edit)
         form.addRow("Description:", desc_edit)
 
         amt_edit = QLineEdit()
@@ -1029,6 +1049,7 @@ class ExpensesPage(QWidget):
 
         desc_edit = QLineEdit(exp.get("description", ""))
         desc_edit.setPlaceholderText("Description")
+        self._apply_description_completer(desc_edit)
         form.addRow("Description:", desc_edit)
 
         amt_edit = QLineEdit(f"{exp.get('amount', 0.0):,.2f}")

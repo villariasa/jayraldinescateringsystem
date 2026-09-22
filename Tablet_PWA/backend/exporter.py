@@ -82,7 +82,7 @@ def export_order_receipt_pdf(path: str, order: dict, business_name: str = "Jayra
             [_lbl("Function Date:"), _val(f"{event_date}  ({event_time})", True)],
             [_lbl("Venue:"), _val(venue)],
             [_lbl("Occasion:"), _val(f"{occasion}  ·  Motif: {motif}")],
-            [_lbl("No. of Pax:"), _val(f"{pax} Guests  @ {pkg_name}", True)],
+            [_lbl("No. of Sets:"), _val(f"{pax} Set(s)  @ {pkg_name}", True)],
         ]
         notes = order.get("notes") or order.get("special_instructions") or ""
         if notes:

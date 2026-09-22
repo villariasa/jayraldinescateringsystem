@@ -592,8 +592,113 @@ export const api = {
   },
 
   async getOrder(id) { await ready(); return repo.getOrderDetail(id); },
-  async getBookingsByDate(dateStr) { await ready(); return repo.getBookingsByDate(dateStr); },
-  async getMonthBookings(year, month) { await ready(); return repo.getMonthBookings(year, month); },
+  async getBookingsByDate(dateStr) {
+    await ready();
+    const local = repo.getBookingsByDate(dateStr) || [];
+    try {
+      const host = _getStoredSyncHost();
+      if (host) {
+        const baseUrls = _getSyncBaseUrls(host, 8000);
+        for (const base of baseUrls) {
+          try {
+            const controller = new AbortController();
+            const tid = setTimeout(() => controller.abort(), 2500);
+            const res = await fetch(`${base}/api/db/query`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sql: "SELECT bk_id, bk_booking_ref, bk_event_date, bk_event_time, bk_event_end_time, bk_venue, bk_occasion, bk_pax, bk_status FROM bookings WHERE bk_event_date = ? AND bk_status != 'CANCELLED' ORDER BY bk_event_time ASC",
+                params: [dateStr]
+              }),
+              signal: controller.signal
+            });
+            clearTimeout(tid);
+            if (res.ok) {
+              const data = await res.json();
+              if (data && Array.isArray(data.rows)) {
+                const sMapped = data.rows.map(r => ({
+                  id: r.bk_id,
+                  ref: r.bk_booking_ref,
+                  date: r.bk_event_date,
+                  time: repo.formatEventTime ? repo.formatEventTime(r.bk_event_time) : (r.bk_event_time || ""),
+                  endTime: r.bk_event_end_time ? (repo.formatEventTime ? repo.formatEventTime(r.bk_event_end_time) : r.bk_event_end_time) : "",
+                  venue: r.bk_venue || "",
+                  occasion: r.bk_occasion || "Event",
+                  pax: Number(r.bk_pax || 0),
+                  status: r.bk_status || "PENDING"
+                }));
+                const seen = new Set(local.map(l => l.ref || `${l.date}_${l.time}`));
+                for (const sm of sMapped) {
+                  const key = sm.ref || `${sm.date}_${sm.time}`;
+                  if (!seen.has(key)) {
+                    local.push(sm);
+                    seen.add(key);
+                  }
+                }
+                return local;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return local;
+  },
+
+  async getMonthBookings(year, month) {
+    await ready();
+    const local = repo.getMonthBookings(year, month) || [];
+    try {
+      const host = _getStoredSyncHost();
+      if (host) {
+        const mStr = String(month).padStart(2, "0");
+        const prefix = `${year}-${mStr}-%`;
+        const baseUrls = _getSyncBaseUrls(host, 8000);
+        for (const base of baseUrls) {
+          try {
+            const controller = new AbortController();
+            const tid = setTimeout(() => controller.abort(), 2500);
+            const res = await fetch(`${base}/api/db/query`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sql: "SELECT bk_id, bk_booking_ref, bk_event_date, bk_event_time, bk_event_end_time, bk_venue, bk_occasion, bk_pax, bk_status FROM bookings WHERE bk_event_date LIKE ? AND bk_status != 'CANCELLED' ORDER BY bk_event_date ASC, bk_event_time ASC",
+                params: [prefix]
+              }),
+              signal: controller.signal
+            });
+            clearTimeout(tid);
+            if (res.ok) {
+              const data = await res.json();
+              if (data && Array.isArray(data.rows)) {
+                const sMapped = data.rows.map(r => ({
+                  id: r.bk_id,
+                  ref: r.bk_booking_ref,
+                  date: r.bk_event_date,
+                  time: repo.formatEventTime ? repo.formatEventTime(r.bk_event_time) : (r.bk_event_time || ""),
+                  endTime: r.bk_event_end_time ? (repo.formatEventTime ? repo.formatEventTime(r.bk_event_end_time) : r.bk_event_end_time) : "",
+                  venue: r.bk_venue || "",
+                  occasion: r.bk_occasion || "Event",
+                  pax: Number(r.bk_pax || 0),
+                  status: r.bk_status || "PENDING"
+                }));
+                const seen = new Set(local.map(l => l.ref || `${l.date}_${l.time}`));
+                for (const sm of sMapped) {
+                  const key = sm.ref || `${sm.date}_${sm.time}`;
+                  if (!seen.has(key)) {
+                    local.push(sm);
+                    seen.add(key);
+                  }
+                }
+                return local;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return local;
+  },
 
   async placeOrder(data) {
     await ready();
@@ -1021,7 +1126,22 @@ function _getSyncBaseUrls(host, port = 8000) {
   const defaultHost = (typeof window !== "undefined" && window.location && window.location.hostname && !window.location.origin.startsWith("file:"))
     ? window.location.hostname
     : "127.0.0.1";
-  urls.push(`http://${defaultHost}:${targetPort}`);
+  const defaultTarget = `http://${defaultHost}:${targetPort}`;
+  if (!urls.includes(defaultTarget)) urls.push(defaultTarget);
+
+  // When running in a browser over HTTP/HTTPS, also allow the origin itself (port 8080) as a direct candidate
+  if (typeof window !== "undefined" && window.location && window.location.origin && !window.location.origin.startsWith("file:")) {
+    const originUrl = window.location.origin.replace(/\/+$/, "");
+    if (!urls.includes(originUrl)) {
+      urls.push(originUrl);
+    }
+  }
+
+  // Always include direct localhost and 127.0.0.1 on target sync port (8000) for seamless local testing
+  for (const lh of ["127.0.0.1", "localhost"]) {
+    const localTarget = `http://${lh}:${targetPort}`;
+    if (!urls.includes(localTarget)) urls.push(localTarget);
+  }
 
   return urls;
 }

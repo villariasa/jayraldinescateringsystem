@@ -143,8 +143,8 @@ function mountLanding() {
 
       <!-- Live DB Offline Warning Banner -->
       <div id="live-db-alert-bar" style="display:none; background:linear-gradient(90deg, rgba(245, 158, 11, 0.2) 0%, rgba(217, 119, 6, 0.2) 100%); border-bottom:1.5px solid #F59E0B; padding:10px 24px; color:#FEF3C7; font-size:13px; font-weight:600; align-items:center; justify-content:space-between; gap:12px;">
-        <span>📡 <b>Offline Mode Active</b>: Operating with local offline catalog. Bookings will automatically synchronize once reconnected.</span>
-        <button id="btn-reconnect-live-db" class="btn btn-sm" style="background:#D97706; color:#fff; border:none; padding:5px 14px; border-radius:6px; font-weight:700; cursor:pointer;">⚡ Connect Live DB</button>
+        <span style="display:flex; align-items:center; gap:8px;">${icon("wifiOff")} <b>Offline Mode Active</b>: Operating with local offline catalog. Bookings will automatically synchronize once reconnected.</span>
+        <button id="btn-reconnect-live-db" class="btn btn-sm" style="background:#D97706; color:#fff; border:none; padding:5px 14px; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">${icon("refresh")} Connect Live DB</button>
       </div>
 
       <!-- Split Interactive Hero Stage -->
@@ -656,11 +656,11 @@ async function renderHome() {
     <!-- Live DB Offline Warning Banner -->
     <div id="live-db-alert-bar" style="display:none; background:linear-gradient(90deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.15) 100%); border-bottom:1.5px solid #F59E0B; padding:10px 24px; color:#B45309; font-size:13px; font-weight:600; align-items:center; justify-content:space-between; gap:12px; z-index:99; position:relative; flex-wrap:wrap;">
       <span style="display:flex; align-items:center; gap:8px;">
-        📡 <b>Offline Mode Active</b>: Browsing offline menu. Bookings will automatically synchronize once connected to the server.
+        ${icon("wifiOff")} <b>Offline Mode Active</b>: Browsing offline menu. Bookings will automatically synchronize once connected to the server.
       </span>
       <div style="display:flex; align-items:center; gap:8px;">
-        <button id="btn-setup-live-db" class="btn btn-sm" style="background:#2563EB; color:#fff; border:none; padding:7px 16px; border-radius:8px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">⚙️ Setup IP &amp; Credentials</button>
-        <button id="btn-reconnect-live-db" class="btn btn-sm" style="background:#D97706; color:#fff; border:none; padding:7px 16px; border-radius:8px; font-weight:700; cursor:pointer;">⚡ Connect Server</button>
+        <button id="btn-setup-live-db" class="btn btn-sm" style="background:#2563EB; color:#fff; border:none; padding:7px 16px; border-radius:8px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">${icon("settings")} Setup IP &amp; Credentials</button>
+        <button id="btn-reconnect-live-db" class="btn btn-sm" style="background:#D97706; color:#fff; border:none; padding:7px 16px; border-radius:8px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">${icon("refresh")} Connect Server</button>
       </div>
     </div>
 
@@ -1102,7 +1102,7 @@ async function openQuickPackagesModal() {
   try {
     packages = await api.getPackages();
   } catch (err) {
-    toast("❌ " + err.message, "error");
+    toast(err.message, "error");
     return;
   }
   openModal({
@@ -1321,7 +1321,7 @@ async function mountLandingMenuShowcase() {
     if (!filtered.length) {
       grid.innerHTML = `
         <div class="menu-showcase-empty" style="grid-column: 1 / -1; padding: 40px 20px; text-align: center;">
-          <div style="font-size: 38px; margin-bottom: 8px;">🍽️</div>
+          <div style="display:inline-flex; align-items:center; justify-content:center; width:52px; height:52px; border-radius:50%; background:var(--input-bg); margin-bottom:8px; color:var(--text-muted);">${icon("utensils")}</div>
           <h4 style="font-size: 16px; font-weight: 700; color: var(--text); margin: 0 0 6px;">No dishes found</h4>
           <p style="font-size: 13px; color: var(--text-muted); margin: 0 0 14px;">
             ${q ? `No menu item matched "${escapeHtml(searchQuery)}".` : "No dishes available in this category."}
@@ -1442,7 +1442,7 @@ async function openQuickMenuModal({ initialCategory = "ALL", initialSearch = "" 
   try {
     items = await api.getMenuItems();
   } catch (err) {
-    toast("❌ " + err.message, "error");
+    toast(err.message, "error");
     return;
   }
 
@@ -1516,7 +1516,7 @@ async function openQuickMenuModal({ initialCategory = "ALL", initialSearch = "" 
         if (!filtered.length) {
           gridEl.innerHTML = `
             <div style="grid-column:1/-1; padding:48px 16px; text-align:center; color:var(--text-muted);">
-              <div style="font-size:36px; margin-bottom:8px;">🔍</div>
+              <div style="display:inline-flex; align-items:center; justify-content:center; width:52px; height:52px; border-radius:50%; background:var(--input-bg); margin-bottom:8px; color:var(--text-muted);">${icon("search")}</div>
               <h4 style="margin:0 0 6px; color:var(--text);">No dishes match your filter</h4>
               <p style="font-size:13px; margin:0;">Try a different keyword or select another category above.</p>
             </div>
@@ -1707,10 +1707,10 @@ function openQuickAboutUsModal() {
 
           <div style="background:var(--input-bg); border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px; display:flex; flex-direction:column; gap:8px;">
             <div style="font-weight:700; color:var(--text); font-size:13px; margin-bottom:2px;">Contact &amp; Location:</div>
-            <div>📍 <b>Location:</b> Cebu City, Philippines</div>
-            <div>📞 <b>Phone:</b> (+63) 912 345 6789 / (032) 412-8899</div>
-            <div>✉️ <b>Email:</b> jayraldinescatering@gmail.com</div>
-            <div>⏰ <b>Kiosk System:</b> 100% Offline Standalone PWA</div>
+            <div style="display:flex; align-items:center; gap:8px;">${icon("mapPin")} <b>Location:</b> Cebu City, Philippines</div>
+            <div style="display:flex; align-items:center; gap:8px;">${icon("phone")} <b>Phone:</b> (+63) 912 345 6789 / (032) 412-8899</div>
+            <div style="display:flex; align-items:center; gap:8px;">${icon("mail")} <b>Email:</b> jayraldinescatering@gmail.com</div>
+            <div style="display:flex; align-items:center; gap:8px;">${icon("clock")} <b>Kiosk System:</b> 100% Offline Standalone PWA</div>
           </div>
         </div>
       </div>

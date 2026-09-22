@@ -1,4 +1,6 @@
 // Terms & Conditions data with structured HTML rendering for the kiosk UI.
+import { icon } from "./icons.js";
+
 const CURRENT_TERMS_VERSION = "1.1";
 const TERMS_TITLE = "Jayraldine's Catering Services — Terms & Conditions";
 
@@ -40,13 +42,13 @@ export function getTermsHtml() {
           <img src="icons/logo.png" alt="Jayraldine's Catering Logo" class="terms-logo" style="width:68px; height:68px; min-width:68px; border-radius:12px; object-fit:cover; border:2.5px solid rgba(225,29,72,0.45); box-shadow:0 4px 16px rgba(0,0,0,0.2); display:block;">
           <div style="text-align:left;">
             <div class="terms-biz-title">JAYRALDINE'S CATERING SERVICES</div>
-            <div class="terms-biz-address">📍 121 Katipunan Street, Barangay Calamba, Cebu City</div>
+            <div class="terms-biz-address" style="display:flex; align-items:center; gap:6px;">${icon("mapPin")} 121 Katipunan Street, Barangay Calamba, Cebu City</div>
           </div>
         </div>
         <div class="terms-biz-contacts">
-          <span class="contact-tag">📞 Globe: 255-3113 / 0917-651-9555</span>
-          <span class="contact-tag">📞 Sun: 0922-775-9213</span>
-          <span class="contact-tag">📞 Dito: 0991-652-8017</span>
+          <span class="contact-tag" style="display:inline-flex; align-items:center; gap:5px;">${icon("phone")} Globe: 255-3113 / 0917-651-9555</span>
+          <span class="contact-tag" style="display:inline-flex; align-items:center; gap:5px;">${icon("phone")} Sun: 0922-775-9213</span>
+          <span class="contact-tag" style="display:inline-flex; align-items:center; gap:5px;">${icon("phone")} Dito: 0991-652-8017</span>
         </div>
       </div>
 

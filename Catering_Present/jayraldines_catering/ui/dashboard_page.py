@@ -696,7 +696,7 @@ class EventItem(QWidget):
         left.setSpacing(3)
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
-        date_lbl = QLabel(f"{date_str}  ·  {pax} pax")
+        date_lbl = QLabel(f"{date_str}  ·  {pax} set(s)")
         date_lbl.setStyleSheet("font-size: 12px;")
         left.addWidget(name_lbl)
         left.addWidget(date_lbl)

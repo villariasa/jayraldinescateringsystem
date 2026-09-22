@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer
 from utils.accent import AccentManager
-from utils.db import get_server_connection_stats, get_connected_devices
+from utils.db import get_server_connection_stats, get_connected_devices_with_status
 
 
 class ConnectedDevicesPanel(QFrame):
@@ -174,20 +174,22 @@ class ConnectedDevicesPanel(QFrame):
         """Fetch live stats and refresh device monitoring table."""
         try:
             stats = get_server_connection_stats()
-            devices = get_connected_devices()
+            # Use this call's OWN reachability result, not the shared
+            # "most recent proxy call" flag — that global gets overwritten by
+            # any unrelated background write/read elsewhere in the app
+            # (heartbeats, other screens polling, etc.), so it could report
+            # "ok" even when THIS specific device query just failed and
+            # silently fell back to an empty/stale result.
+            devices, devices_ok, devices_err = get_connected_devices_with_status()
 
             try:
-                from utils.client_sync import is_client_mode, get_last_proxy_status
-                if is_client_mode():
-                    ok, err = get_last_proxy_status()
-                    if not ok:
-                        self._proxy_warning_lbl.setText(
-                            f"⚠ Could not reach the central server — showing this machine's own local "
-                            f"cache only, which may be missing terminals connected elsewhere. ({err or 'unreachable'})"
-                        )
-                        self._proxy_warning_lbl.show()
-                    else:
-                        self._proxy_warning_lbl.hide()
+                from utils.client_sync import is_client_mode
+                if is_client_mode() and not devices_ok:
+                    self._proxy_warning_lbl.setText(
+                        f"⚠ Could not reach the central server — showing this machine's own local "
+                        f"cache only, which may be missing terminals connected elsewhere. ({devices_err or 'unreachable'})"
+                    )
+                    self._proxy_warning_lbl.show()
                 else:
                     self._proxy_warning_lbl.hide()
             except Exception:

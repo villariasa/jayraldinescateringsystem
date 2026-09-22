@@ -1699,11 +1699,15 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         inv_id = cur.lastrowid
 
         # Auto create payment record if down payment > 0
+        # Dated to today (when the cash was actually collected), NOT the
+        # event date — sales/evaluation reports bucket by pr_payment_date,
+        # so dating this to a future event date silently moves the payment
+        # out of the month it was actually received in.
         if amt_paid > 0:
             cur.execute("""
                 INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_payment_method, pr_method, pr_is_downpayment, pr_is_verified, pr_notes, pr_note)
                 VALUES (?, ?, ?, ?, ?, 1, 0, 'Initial down payment on booking request', 'Initial down payment on booking request')
-            """, (inv_id, amt_paid, event_d, pay_mode, pay_mode))
+            """, (inv_id, amt_paid, date.today().strftime("%Y-%m-%d"), pay_mode, pay_mode))
 
         # Auto create kitchen order
         cur.execute("""
@@ -1962,10 +1966,24 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
             # Sum all real payment records to get the accurate paid amount
             cur.execute("SELECT COALESCE(SUM(pr_amount), 0.0) FROM payment_records WHERE pr_invoice_id = ?", (inv_id_upd,))
             sum_row = cur.fetchone()
-            new_paid = float(sum_row[0] if sum_row else 0.0)
-            # If the booking was created with a down payment but payment_records is empty, use bk_amount_paid as fallback
-            if new_paid <= 0.0 and amt_paid > 0.0:
+            logged_paid = float(sum_row[0] if sum_row else 0.0)
+
+            # If this edit raised the amount paid beyond what's already logged,
+            # log the increase as a real payment_records row (dated today) so
+            # it's counted as actual cash collected this month — otherwise the
+            # increase only lands on bookings.bk_amount_paid, which sales/
+            # evaluation reports never read, and the cash silently disappears
+            # from those reports.
+            if amt_paid > logged_paid + 0.01:
+                diff = amt_paid - logged_paid
+                cur.execute("""
+                    INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_payment_method, pr_notes)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (inv_id_upd, diff, date.today().strftime("%Y-%m-%d"), pay_mode, "Recorded via booking edit"))
                 new_paid = amt_paid
+            else:
+                new_paid = logged_paid
+
             rem = max(0.0, tot - new_paid)
             inv_stat = compute_invoice_status(tot, new_paid)
             cur.execute("""
@@ -1982,6 +2000,12 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
                 INSERT INTO invoices (inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name, inv_event_date, inv_total_amount, inv_amount_paid, inv_balance, inv_status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (bk_id, inv_num, inv_num, c_name, event_d, tot, amt_paid, rem, inv_stat))
+            inv_id_new = cur.lastrowid
+            if amt_paid > 0:
+                cur.execute("""
+                    INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_payment_method, pr_notes)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (inv_id_new, amt_paid, date.today().strftime("%Y-%m-%d"), pay_mode, "Recorded via booking edit"))
 
         # Update customer table
         cur.execute("SELECT bk_customer_id FROM bookings WHERE bk_id = ?", (bk_id,))
@@ -2202,9 +2226,18 @@ def update_device_heartbeat(
     username: Optional[str] = None,
     user_role: Optional[str] = None,
     active_module: Optional[str] = None,
-    status: str = "online"
+    status: str = "online",
+    hostname: str = "",
+    ip_address: str = "",
+    os_info: str = "",
+    app_version: str = ""
 ) -> bool:
-    """Update active heartbeat ping and current screen from a connected client device."""
+    """Update active heartbeat ping and current screen from a connected client device.
+
+    hostname/ip_address/os_info/app_version are optional and only used to
+    self-heal (see below) — pass them from the caller's cached values when
+    available (device_tracker already has these on hand for every heartbeat).
+    """
     _ensure_connected()
     if _engine_type == "postgres":
         sql = """
@@ -2216,6 +2249,7 @@ def update_device_heartbeat(
                 active_module = COALESCE(%s, active_module)
             WHERE device_id = %s
         """
+        exists_sql = "SELECT device_id FROM device_sessions WHERE device_id = %s"
     else:
         sql = """
             UPDATE device_sessions SET
@@ -2226,9 +2260,39 @@ def update_device_heartbeat(
                 active_module = COALESCE(?, active_module)
             WHERE device_id = ?
         """
+        exists_sql = "SELECT device_id FROM device_sessions WHERE device_id = ?"
     params = (status, username, user_role, active_module, device_id)
     try:
         execute(sql, params)
+
+        # Self-heal: on a client workstation, the row this UPDATE targets
+        # only exists because an earlier upsert_device_session() write made
+        # it to the server — and that write is fire-and-forget with no
+        # retry (utils/db.py execute()'s proxy_write result is never
+        # checked). If that one write was lost (e.g. fired before the
+        # network was fully up at startup), this device's row never
+        # existed server-side and every heartbeat since has been silently
+        # updating zero rows, forever, with no error anywhere. Detect that
+        # and recreate the row instead of failing silently.
+        try:
+            from utils.client_sync import is_client_mode
+            if is_client_mode():
+                row = fetchone(exists_sql, (device_id,))
+                if not row:
+                    upsert_device_session(
+                        device_id=device_id,
+                        hostname=hostname or device_id,
+                        ip_address=ip_address,
+                        os_info=os_info,
+                        app_version=app_version,
+                        username=username or "",
+                        user_role=user_role or "",
+                        active_module=active_module or "Dashboard",
+                        status=status
+                    )
+        except Exception as heal_err:
+            log.debug(f"[DB] update_device_heartbeat self-heal check failed: {heal_err}")
+
         return True
     except Exception as e:
         log.warning(f"[DB] update_device_heartbeat failed: {e}")
@@ -2250,8 +2314,53 @@ def set_device_offline(device_id: str) -> bool:
         return False
 
 
+_CONNECTED_DEVICES_SQLITE_SQL = """
+    SELECT
+        device_id, hostname, ip_address, os_info, app_version,
+        username, user_role, active_module,
+        CASE
+            WHEN status = 'offline' THEN 'offline'
+            WHEN (julianday('now') - julianday(last_heartbeat)) * 86400 <= 35 THEN 'online'
+            WHEN (julianday('now') - julianday(last_heartbeat)) * 86400 <= 90 THEN 'idle'
+            ELSE 'offline'
+        END AS live_status,
+        status AS raw_status,
+        first_connected_at,
+        last_heartbeat,
+        CAST((julianday('now') - julianday(last_heartbeat)) * 86400 AS INTEGER) AS seconds_since_ping
+    FROM device_sessions
+    ORDER BY last_heartbeat DESC
+"""
+
+
 def get_connected_devices() -> List[Dict[str, Any]]:
     """Retrieve list of all monitored devices with computed live status."""
+    devices, _ok, _err = get_connected_devices_with_status()
+    return devices
+
+
+def get_connected_devices_with_status() -> "Tuple[List[Dict[str, Any]], bool, Optional[str]]":
+    """Like get_connected_devices(), but also reports whether THIS specific
+    call reached the server in client mode, instead of the shared
+    'most recent proxy call' flag in client_sync (get_last_proxy_status),
+    which any unrelated concurrent write/read elsewhere in the app can
+    overwrite between this call and the caller checking it — leading to a
+    stale/empty device list with no visible warning. Returns
+    (devices, proxy_ok, proxy_error); proxy_ok/proxy_error are always
+    (True, None) when this machine is not in client mode.
+    """
+    try:
+        from utils.client_sync import is_client_mode, proxy_fetchall, get_server_url
+        if is_client_mode():
+            server_rows = proxy_fetchall(_CONNECTED_DEVICES_SQLITE_SQL, (), server_url=get_server_url())
+            if server_rows is None:
+                from utils.client_sync import get_last_proxy_status
+                _ok, err = get_last_proxy_status()
+                return [], False, (err or "Server unreachable")
+            return server_rows, True, None
+    except Exception as e:
+        log.debug(f"[DB] get_connected_devices_with_status client-mode check failed: {e}")
+
     _ensure_connected()
     if _engine_type == "postgres":
         # Auto-discover any active remote PostgreSQL client connections
@@ -2299,23 +2408,7 @@ def get_connected_devices() -> List[Dict[str, Any]]:
             ORDER BY last_heartbeat DESC
         """
     else:
-        sql = """
-            SELECT 
-                device_id, hostname, ip_address, os_info, app_version,
-                username, user_role, active_module,
-                CASE 
-                    WHEN status = 'offline' THEN 'offline'
-                    WHEN (julianday('now') - julianday(last_heartbeat)) * 86400 <= 35 THEN 'online'
-                    WHEN (julianday('now') - julianday(last_heartbeat)) * 86400 <= 90 THEN 'idle'
-                    ELSE 'offline'
-                END AS live_status,
-                status AS raw_status,
-                first_connected_at,
-                last_heartbeat,
-                CAST((julianday('now') - julianday(last_heartbeat)) * 86400 AS INTEGER) AS seconds_since_ping
-            FROM device_sessions
-            ORDER BY last_heartbeat DESC
-        """
+        sql = _CONNECTED_DEVICES_SQLITE_SQL
     try:
         rows = fetchall(sql)
         devices = []
@@ -2330,10 +2423,10 @@ def get_connected_devices() -> List[Dict[str, Any]]:
                     "live_status": r[8], "raw_status": r[9], "first_connected_at": r[10],
                     "last_heartbeat": r[11], "seconds_since_ping": r[12]
                 })
-        return devices
+        return devices, True, None
     except Exception as e:
         log.warning(f"[DB] get_connected_devices failed: {e}")
-        return []
+        return [], False, str(e)
 
 
 def get_server_connection_stats() -> Dict[str, Any]:
@@ -2365,9 +2458,11 @@ def get_server_connection_stats() -> Dict[str, Any]:
                 else:
                     stats["database_name"] = str(db_name_res)
 
-        devices = get_connected_devices()
+        devices, devices_ok, devices_err = get_connected_devices_with_status()
         stats["active_devices_count"] = sum(1 for d in devices if d.get("live_status") == "online")
         stats["total_registered_devices"] = len(devices)
+        stats["devices_reachable"] = devices_ok
+        stats["devices_error"] = devices_err
     except Exception as e:
         log.warning(f"[DB] get_server_connection_stats failed: {e}")
     finally:

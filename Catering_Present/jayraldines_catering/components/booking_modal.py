@@ -234,6 +234,27 @@ class StepIndicator(QWidget):
             )
 
 
+def _make_step_scroll(content_widget):
+    """Wrap a step widget in its own isolated QScrollArea.
+    This ensures each step's scroll is completely independent —
+    a long Menu tab will never push a scrollbar into Customer/Event/Payment.
+    """
+    sa = QScrollArea()
+    sa.setWidgetResizable(True)
+    sa.setFrameShape(QFrame.NoFrame)
+    sa.setStyleSheet(
+        "QScrollArea { background: transparent; border: none; }"
+        "QScrollBar:vertical { width: 6px; border-radius: 3px; }"
+        "QScrollBar::handle:vertical { background: rgba(148,163,184,0.42); border-radius: 3px; min-height: 28px; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+    )
+    sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    sa.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    sa.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    sa.setWidget(content_widget)
+    return sa
+
+
 class BookingModal(QDialog):
     booking_saved = Signal(dict)
 
@@ -247,9 +268,12 @@ class BookingModal(QDialog):
         self.setModal(True)
 
         from PySide6.QtWidgets import QApplication
-        self.setFixedWidth(720)
-        self.setMinimumHeight(480)
-        self.setMaximumHeight(680)
+        screen = QApplication.primaryScreen()
+        screen_h = screen.availableGeometry().height() if screen else 900
+        max_h = min(int(screen_h * 0.90), 920)
+        self.setFixedWidth(760)
+        self.setMinimumHeight(520)
+        self.setMaximumHeight(max_h)
 
         self._step = 0
         self._data = {}
@@ -272,7 +296,7 @@ class BookingModal(QDialog):
         self._container.setObjectName("modalCard")
 
         container_layout = QVBoxLayout(self._container)
-        container_layout.setContentsMargins(28, 18, 28, 16)
+        container_layout.setContentsMargins(24, 18, 24, 16)
         container_layout.setSpacing(12)
 
         from components.loading_overlay import LoadingOverlay
@@ -306,26 +330,21 @@ class BookingModal(QDialog):
         div.setObjectName("divider")
         container_layout.addWidget(div)
 
+        # Each step gets its own isolated QScrollArea so scrollbars on one step
+        # never affect other steps (e.g. Menu with many packages won't bleed into Customer tab).
         self._stack = QStackedWidget()
+        self._stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._step_widgets = [None, None, None, None]
+        self._step_scrolls = [None, None, None, None]
         self._step_widgets[0] = self._build_step0()
         self._step_widgets[1] = self._build_step1()
-        self._stack.addWidget(self._step_widgets[0])
-        self._stack.addWidget(self._step_widgets[1])
+        self._step_scrolls[0] = _make_step_scroll(self._step_widgets[0])
+        self._step_scrolls[1] = _make_step_scroll(self._step_widgets[1])
+        self._stack.addWidget(self._step_scrolls[0])
+        self._stack.addWidget(self._step_scrolls[1])
         for _ in range(2):
-            self._stack.addWidget(QWidget())
-
-
-
-        # Responsive Scroll Area for Stacked Content (Guarantees footer is always visible on PC/small screens)
-        stack_scroll = QScrollArea()
-        stack_scroll.setWidgetResizable(True)
-        stack_scroll.setFrameShape(QFrame.NoFrame)
-        stack_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollBar:vertical { width: 6px; }")
-        stack_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        stack_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        stack_scroll.setWidget(self._stack)
-        container_layout.addWidget(stack_scroll, 1)
+            self._stack.addWidget(QWidget())  # placeholder; replaced lazily
+        container_layout.addWidget(self._stack, 1)
 
         footer_div = QFrame()
         footer_div.setObjectName("divider")
@@ -371,9 +390,11 @@ class BookingModal(QDialog):
         builders = [self._build_step0, self._build_step1, self._build_step2, self._build_step3]
         w = builders[idx]()
         self._step_widgets[idx] = w
+        sa = _make_step_scroll(w)
+        self._step_scrolls[idx] = sa
         old = self._stack.widget(idx)
         self._stack.removeWidget(old)
-        self._stack.insertWidget(idx, w)
+        self._stack.insertWidget(idx, sa)
         if old:
             old.deleteLater()
         return w
@@ -381,9 +402,8 @@ class BookingModal(QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         animate_dialog_open(self, duration=240, auto_center=True)
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(60, lambda: self._ensure_step_built(2))
-        QTimer.singleShot(150, lambda: self._ensure_step_built(3))
+        # Do NOT pre-build steps 2/3 eagerly — lazy build on navigate prevents
+        # tall hidden steps from inflating the stack height for other tabs.
 
 
 
@@ -527,9 +547,10 @@ class BookingModal(QDialog):
 
         v5 = QVBoxLayout()
         v5.setSpacing(4)
-        v5.addWidget(_field_label("No. of Pax *"))
+        self.lbl_pax_field = _field_label("No. of Sets *")
+        v5.addWidget(self.lbl_pax_field)
         self.f_pax = QSpinBox()
-        self.f_pax.setRange(10, 2000)
+        self.f_pax.setRange(1, 2000)
         self.f_pax.setValue(100)
         self.f_pax.setFixedHeight(38)
         self.f_pax.setMinimumWidth(90)
@@ -548,17 +569,16 @@ class BookingModal(QDialog):
         lay.addWidget(self.lbl_date_warning)
         self.f_date.dateChanged.connect(self._check_date_availability)
 
-        lay.addWidget(_field_label("Event Theme / Motif & Special Notes"))
+        lay.addWidget(_field_label("🎨 Theme & Motif"))
+        self.f_motif = _input("e.g. Royal Blue & Gold, Dusty Pink, Rustic Green, Ivory...")
+        lay.addWidget(self.f_motif)
+
+        lay.addWidget(_field_label("Event Special Notes / Requests"))
         self.f_notes = QTextEdit()
-        self.f_notes.setPlaceholderText("e.g. Purple & Gold theme, Twin Babies, Dusty Blue & Blush Pink motif, Big Venue setup...")
-        self.f_notes.setFixedHeight(65)
+        self.f_notes.setPlaceholderText("e.g. Twin Babies, Big Venue setup, VIP table layout...")
+        self.f_notes.setFixedHeight(60)
         self.f_notes.setStyleSheet(_notes_style())
         lay.addWidget(self.f_notes)
-
-        lay.addWidget(_field_label("🎨 Color Theme / Motif"))
-        init_color = str(self._booking_data.get("color_theme") or self._booking_data.get("color") or "#2563EB") if (self._edit_mode and self._booking_data) else "#2563EB"
-        self.f_color_picker = ColorThemeSelector(initial_color=init_color)
-        lay.addWidget(self.f_color_picker)
         lay.addStretch()
 
         if self._edit_mode:
@@ -605,11 +625,15 @@ class BookingModal(QDialog):
                 self.f_occasion.setCurrentIndex(0)
 
             self.f_venue.setText(self._booking_data.get("venue", ""))
-            if self._booking_data.get("color_theme") or self._booking_data.get("color"):
-                self.f_color_picker.set_color(self._booking_data.get("color_theme") or self._booking_data.get("color") or "#2563EB")
+            motif_init = str(self._booking_data.get("color_theme") or self._booking_data.get("color") or self._booking_data.get("motif") or "")
+            if motif_init and motif_init.lower() != "standard" and not motif_init.startswith("#"):
+                self.f_motif.setText(motif_init)
+            elif motif_init and not motif_init.startswith("#"):
+                self.f_motif.setText(motif_init)
 
         # Initial date conflict check
         self._check_date_availability()
+        self._update_pax_set_labels()
         return w
 
     def _check_date_availability(self):
@@ -720,7 +744,8 @@ class BookingModal(QDialog):
                 card_lay.addLayout(info, 1)
 
                 price_val = float(pkg.get("price_per_pax", 0))
-                p_lbl = QLabel(f"₱{price_val:,.2f}/set")
+                p_unit = "set" if self._is_food_set(pkg.get("name", "")) else "pax"
+                p_lbl = QLabel(f"₱{price_val:,.2f}/{p_unit}")
                 p_lbl.setStyleSheet("font-size: 13.5px; font-weight: 700; color: #E11D48; margin-right: 6px;")
                 card_lay.addWidget(p_lbl)
 
@@ -775,41 +800,44 @@ class BookingModal(QDialog):
             dishes_box_lay.setContentsMargins(14, 12, 14, 12)
             dishes_box_lay.setSpacing(10)
 
-            dh_row = QHBoxLayout()
-            dh_row.setSpacing(8)
+            dh_top = QHBoxLayout()
+            dh_top.setSpacing(8)
             self._pkg_dishes_title = QLabel("🍽️ Package Dishes & Menu Customizer")
-            self._pkg_dishes_title.setStyleSheet("font-weight: 700; font-size: 13.5px;")
-            dh_row.addWidget(self._pkg_dishes_title)
-            dh_row.addStretch()
+            self._pkg_dishes_title.setStyleSheet("font-weight: 700; font-size: 13px;")
+            dh_top.addWidget(self._pkg_dishes_title, 1)
 
             btn_popup = QPushButton("🍽️ Open Selection Popup")
             btn_popup.setCursor(Qt.PointingHandCursor)
             btn_popup.setStyleSheet("background: #E11D48; color: white; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 6px; border: none;")
             btn_popup.clicked.connect(lambda: self._open_package_menu_popup(self._selected_pkg))
-            dh_row.addWidget(btn_popup)
+            dh_top.addWidget(btn_popup)
+            dishes_box_lay.addLayout(dh_top)
+
+            dh_actions = QHBoxLayout()
+            dh_actions.setSpacing(6)
+            self._pkg_dishes_count_lbl = QLabel("")
+            self._pkg_dishes_count_lbl.setStyleSheet("font-size: 12px; color: #10B981; font-weight: 600;")
+            dh_actions.addWidget(self._pkg_dishes_count_lbl)
+            dh_actions.addStretch()
 
             btn_reset_defaults = QPushButton("✓ Defaults")
             btn_reset_defaults.setCursor(Qt.PointingHandCursor)
             btn_reset_defaults.setStyleSheet("font-size: 11px; padding: 3px 8px; border-radius: 6px;")
             btn_reset_defaults.clicked.connect(self._reset_pkg_dishes_to_default)
-            dh_row.addWidget(btn_reset_defaults)
+            dh_actions.addWidget(btn_reset_defaults)
 
             btn_sel_all = QPushButton("Select All")
             btn_sel_all.setCursor(Qt.PointingHandCursor)
             btn_sel_all.setStyleSheet("font-size: 11px; padding: 3px 8px; border-radius: 6px;")
             btn_sel_all.clicked.connect(self._select_all_pkg_dishes)
-            dh_row.addWidget(btn_sel_all)
+            dh_actions.addWidget(btn_sel_all)
 
             btn_clr_all = QPushButton("Clear")
             btn_clr_all.setCursor(Qt.PointingHandCursor)
             btn_clr_all.setStyleSheet("font-size: 11px; padding: 3px 8px; border-radius: 6px;")
             btn_clr_all.clicked.connect(self._clear_all_pkg_dishes)
-            dh_row.addWidget(btn_clr_all)
-            dishes_box_lay.addLayout(dh_row)
-
-            self._pkg_dishes_count_lbl = QLabel("")
-            self._pkg_dishes_count_lbl.setStyleSheet("font-size: 12px; color: #10B981; font-weight: 600;")
-            dishes_box_lay.addWidget(self._pkg_dishes_count_lbl)
+            dh_actions.addWidget(btn_clr_all)
+            dishes_box_lay.addLayout(dh_actions)
 
             self._pkg_dishes_list_w = QWidget()
             self._pkg_dishes_list_w.setStyleSheet("background: transparent;")
@@ -915,6 +943,27 @@ class BookingModal(QDialog):
             duration=180,
         )
 
+    def _is_food_set(self, pkg_name: str) -> bool:
+        if not pkg_name:
+            return False
+        name = str(pkg_name).strip().lower()
+        return any(k in name for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or name.startswith("set ") or " set" in name
+
+    def _update_pax_set_labels(self):
+        pkg_name = ""
+        if hasattr(self, "_db_packages") and getattr(self, "_selected_pkg", None) is not None:
+            if self._selected_pkg < len(self._db_packages):
+                pkg = self._db_packages[self._selected_pkg]
+                pkg_name = pkg.get("name") or pkg.get("pkg_name") or ""
+        elif getattr(self, "_booking_data", None):
+            pkg_name = self._booking_data.get("package_name") or self._booking_data.get("pkg_name") or ""
+
+        is_set = self._is_food_set(pkg_name)
+        if hasattr(self, "lbl_pax_field"):
+            self.lbl_pax_field.setText("No. of Sets *")
+        if hasattr(self, "lbl_pax_title"):
+            self.lbl_pax_title.setText("📦 Quantity (Sets):")
+
     def _select_package(self, idx, clicked_card=None, open_popup=True):
         # select a package and switch menu mode to Packages
         self._selected_pkg = idx
@@ -924,7 +973,15 @@ class BookingModal(QDialog):
         except Exception:
             pass
         if hasattr(self, "_db_packages") and idx < len(self._db_packages):
-            rate = float(self._db_packages[idx].get("price_per_pax", 0))
+            pkg = self._db_packages[idx]
+            pkg_name = pkg.get("name") or pkg.get("pkg_name") or ""
+            if self._is_food_set(pkg_name):
+                cur_val = self.f_pax.value() if hasattr(self, "f_pax") else 100
+                if cur_val > 50:
+                    min_p = int(pkg.get("min_pax") or 1)
+                    if hasattr(self, "f_pax"):
+                        self.f_pax.setValue(min_p)
+            rate = float(pkg.get("price_per_pax", 0))
             pax_val = self.f_pay_pax.value() if hasattr(self, "f_pay_pax") else (self.f_pax.value() if hasattr(self, "f_pax") else 100)
             if hasattr(self, "f_pay_package_total"):
                 self.f_pay_package_total.setValue(pax_val * rate)
@@ -944,6 +1001,7 @@ class BookingModal(QDialog):
         self._update_package_dishes(idx)
         self._update_cost()
         self._update_pkg_card_badges()
+        self._update_pax_set_labels()
 
         if open_popup:
             self._open_package_menu_popup(idx)
@@ -1151,20 +1209,20 @@ class BookingModal(QDialog):
         pax_box = QFrame()
         pax_box.setObjectName("cardElevated")
         pax_lay = QHBoxLayout(pax_box)
-        pax_lay.setContentsMargins(16, 10, 16, 10)
-        pax_lay.setSpacing(14)
+        pax_lay.setContentsMargins(14, 10, 14, 10)
+        pax_lay.setSpacing(10)
 
-        lbl_pax_title = QLabel("👥 Guests (Pax):")
-        lbl_pax_title.setStyleSheet("font-weight: 600; font-size: 13px;")
+        self.lbl_pax_title = QLabel("📦 Quantity (Sets):")
+        self.lbl_pax_title.setStyleSheet("font-weight: 600; font-size: 13px;")
         
         self.f_pay_pax = QSpinBox()
-        self.f_pay_pax.setRange(10, 2000)
+        self.f_pay_pax.setRange(1, 2000)
         self.f_pay_pax.setValue(self.f_pax.value())
         self.f_pay_pax.setFixedHeight(34)
-        self.f_pay_pax.setMinimumWidth(85)
+        self.f_pay_pax.setFixedWidth(80)
         self.f_pay_pax.valueChanged.connect(self._on_pay_pax_changed)
 
-        lbl_total_title = QLabel("📦 Overall Package Base Total (₱):")
+        lbl_total_title = QLabel("📦 Base Total (₱):")
         lbl_total_title.setStyleSheet("font-weight: 600; font-size: 13px;")
 
         self.f_pay_package_total = QDoubleSpinBox()
@@ -1172,7 +1230,7 @@ class BookingModal(QDialog):
         self.f_pay_package_total.setDecimals(2)
         self.f_pay_package_total.setPrefix("₱ ")
         self.f_pay_package_total.setFixedHeight(34)
-        self.f_pay_package_total.setMinimumWidth(150)
+        self.f_pay_package_total.setMinimumWidth(130)
         
         pax_val = self.f_pax.value()
         initial_base_total = 0.0
@@ -1183,33 +1241,33 @@ class BookingModal(QDialog):
         self.f_pay_package_total.setValue(initial_base_total)
         self.f_pay_package_total.valueChanged.connect(lambda: self._update_cost())
 
-        pax_lay.addWidget(lbl_pax_title)
+        pax_lay.addWidget(self.lbl_pax_title)
         pax_lay.addWidget(self.f_pay_pax)
         pax_lay.addSpacing(10)
         pax_lay.addWidget(lbl_total_title)
         pax_lay.addWidget(self.f_pay_package_total)
         pax_lay.addStretch()
         lay.addWidget(pax_box)
+        self._update_pax_set_labels()
 
         # Custom Add-ons & Adjustments Card
         addon_card = QFrame()
         addon_card.setObjectName("cardElevated")
         addon_lay = QVBoxLayout(addon_card)
-        addon_lay.setContentsMargins(16, 12, 16, 12)
+        addon_lay.setContentsMargins(14, 12, 14, 12)
         addon_lay.setSpacing(10)
 
         addon_head = QHBoxLayout()
         addon_title = QLabel("Custom Add-ons & Price Adjustments")
-        addon_title.setStyleSheet("font-weight: 700; font-size: 13.5px;")
+        addon_title.setStyleSheet("font-weight: 700; font-size: 13px;")
         addon_head.addWidget(addon_title)
         addon_head.addStretch()
 
-        btn_add_addon = QPushButton("  + Add Custom Add-on / Fee")
+        btn_add_addon = QPushButton("  Add Custom Add-on")
         btn_add_addon.setIcon(get_icon("plus", color="#FFFFFF", size=QSize(14, 14)))
         btn_add_addon.setIconSize(QSize(14, 14))
         btn_add_addon.setCursor(Qt.PointingHandCursor)
         btn_add_addon.setFixedHeight(34)
-        btn_add_addon.setMinimumWidth(210)
         btn_add_addon.setStyleSheet("""
             QPushButton {
                 font-size: 12px;
@@ -1218,7 +1276,7 @@ class BookingModal(QDialog):
                 color: #FFFFFF;
                 border: 1px solid #3B82F6;
                 border-radius: 6px;
-                padding: 0 14px;
+                padding: 0 12px;
             }
             QPushButton:hover {
                 background-color: #1D4ED8;
@@ -1345,7 +1403,7 @@ class BookingModal(QDialog):
         amt_edit = QLineEdit()
         amt_edit.setPlaceholderText("Amount (₱) e.g. 5000 or -1000")
         amt_edit.setFixedHeight(34)
-        amt_edit.setFixedWidth(180)
+        amt_edit.setFixedWidth(130)
         if amount != 0.0:
             amt_edit.setText(str(amount))
         amt_edit.textChanged.connect(lambda: self._update_cost())
@@ -1451,8 +1509,13 @@ class BookingModal(QDialog):
             allow_zero = False
         deposit = round(grand_total * pct / 100, 2)
 
+        # Step 3 (Payment) labels only exist after that step is first built (lazy).
+        # Guard all references so _update_cost is safe to call from earlier steps.
+        if not hasattr(self, "_lbl_base"):
+            return
+
         rate_per_pax = (base_total / pax) if pax > 0 else 0.0
-        self._lbl_base.setText(f"Base Package Total: ₱{base_total:,.2f}  (₱{rate_per_pax:,.2f}/pax for {pax} pax)")
+        self._lbl_base.setText(f"Base Package Total: ₱{base_total:,.2f}  (₱{rate_per_pax:,.2f}/set for {pax} set(s))")
         if addons_total != 0:
             sign = "+" if addons_total > 0 else "-"
             self._lbl_addons.setText(f"Custom Add-ons Total: {sign} ₱{abs(addons_total):,.2f}")
@@ -1627,6 +1690,9 @@ class BookingModal(QDialog):
         recorded_down = orig_paid if orig_paid > 0 else (getattr(self, "_last_deposit", 0.0) if hasattr(self, "_last_deposit") else 0.0)
 
         end_time_val = self.f_end_time.time().toString("hh:mm AP") if (hasattr(self, "chk_end_time") and self.chk_end_time.isChecked()) else ""
+        motif_val = self.f_motif.text().strip() if hasattr(self, "f_motif") else ""
+        if not motif_val:
+            motif_val = "Standard"
 
         data = {
             "db_id":           self._booking_data.get("db_id") if self._booking_data else None,
@@ -1650,8 +1716,9 @@ class BookingModal(QDialog):
             "total":           total,
             "amount_paid":     recorded_down,
             "down_payment":    recorded_down,
-            "color_theme":     self.f_color_picker.get_color() if hasattr(self, "f_color_picker") else "#2563EB",
-            "color":           self.f_color_picker.get_color() if hasattr(self, "f_color_picker") else "#2563EB",
+            "color_theme":     motif_val,
+            "color":           motif_val,
+            "motif":           motif_val,
             "status":          orig_status or "PENDING",
         }
         self.booking_saved.emit(data)

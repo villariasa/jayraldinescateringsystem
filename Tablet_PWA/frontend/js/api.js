@@ -592,8 +592,113 @@ export const api = {
   },
 
   async getOrder(id) { await ready(); return repo.getOrderDetail(id); },
-  async getBookingsByDate(dateStr) { await ready(); return repo.getBookingsByDate(dateStr); },
-  async getMonthBookings(year, month) { await ready(); return repo.getMonthBookings(year, month); },
+  async getBookingsByDate(dateStr) {
+    await ready();
+    const local = repo.getBookingsByDate(dateStr) || [];
+    try {
+      const host = _getStoredSyncHost();
+      if (host) {
+        const baseUrls = _getSyncBaseUrls(host, 8000);
+        for (const base of baseUrls) {
+          try {
+            const controller = new AbortController();
+            const tid = setTimeout(() => controller.abort(), 2500);
+            const res = await fetch(`${base}/api/db/query`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sql: "SELECT bk_id, bk_booking_ref, bk_event_date, bk_event_time, bk_event_end_time, bk_venue, bk_occasion, bk_pax, bk_status FROM bookings WHERE bk_event_date = ? AND bk_status != 'CANCELLED' ORDER BY bk_event_time ASC",
+                params: [dateStr]
+              }),
+              signal: controller.signal
+            });
+            clearTimeout(tid);
+            if (res.ok) {
+              const data = await res.json();
+              if (data && Array.isArray(data.rows)) {
+                const sMapped = data.rows.map(r => ({
+                  id: r.bk_id,
+                  ref: r.bk_booking_ref,
+                  date: r.bk_event_date,
+                  time: repo.formatEventTime ? repo.formatEventTime(r.bk_event_time) : (r.bk_event_time || ""),
+                  endTime: r.bk_event_end_time ? (repo.formatEventTime ? repo.formatEventTime(r.bk_event_end_time) : r.bk_event_end_time) : "",
+                  venue: r.bk_venue || "",
+                  occasion: r.bk_occasion || "Event",
+                  pax: Number(r.bk_pax || 0),
+                  status: r.bk_status || "PENDING"
+                }));
+                const seen = new Set(local.map(l => l.ref || `${l.date}_${l.time}`));
+                for (const sm of sMapped) {
+                  const key = sm.ref || `${sm.date}_${sm.time}`;
+                  if (!seen.has(key)) {
+                    local.push(sm);
+                    seen.add(key);
+                  }
+                }
+                return local;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return local;
+  },
+
+  async getMonthBookings(year, month) {
+    await ready();
+    const local = repo.getMonthBookings(year, month) || [];
+    try {
+      const host = _getStoredSyncHost();
+      if (host) {
+        const mStr = String(month).padStart(2, "0");
+        const prefix = `${year}-${mStr}-%`;
+        const baseUrls = _getSyncBaseUrls(host, 8000);
+        for (const base of baseUrls) {
+          try {
+            const controller = new AbortController();
+            const tid = setTimeout(() => controller.abort(), 2500);
+            const res = await fetch(`${base}/api/db/query`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sql: "SELECT bk_id, bk_booking_ref, bk_event_date, bk_event_time, bk_event_end_time, bk_venue, bk_occasion, bk_pax, bk_status FROM bookings WHERE bk_event_date LIKE ? AND bk_status != 'CANCELLED' ORDER BY bk_event_date ASC, bk_event_time ASC",
+                params: [prefix]
+              }),
+              signal: controller.signal
+            });
+            clearTimeout(tid);
+            if (res.ok) {
+              const data = await res.json();
+              if (data && Array.isArray(data.rows)) {
+                const sMapped = data.rows.map(r => ({
+                  id: r.bk_id,
+                  ref: r.bk_booking_ref,
+                  date: r.bk_event_date,
+                  time: repo.formatEventTime ? repo.formatEventTime(r.bk_event_time) : (r.bk_event_time || ""),
+                  endTime: r.bk_event_end_time ? (repo.formatEventTime ? repo.formatEventTime(r.bk_event_end_time) : r.bk_event_end_time) : "",
+                  venue: r.bk_venue || "",
+                  occasion: r.bk_occasion || "Event",
+                  pax: Number(r.bk_pax || 0),
+                  status: r.bk_status || "PENDING"
+                }));
+                const seen = new Set(local.map(l => l.ref || `${l.date}_${l.time}`));
+                for (const sm of sMapped) {
+                  const key = sm.ref || `${sm.date}_${sm.time}`;
+                  if (!seen.has(key)) {
+                    local.push(sm);
+                    seen.add(key);
+                  }
+                }
+                return local;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return local;
+  },
 
   async placeOrder(data) {
     await ready();

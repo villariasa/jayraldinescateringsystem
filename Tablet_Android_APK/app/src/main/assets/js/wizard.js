@@ -38,6 +38,20 @@ const UPSELLS = [
   { name: "Sound System", price: 3000 },
 ];
 
+export function isFoodSet(name) {
+  if (!name) return false;
+  const n = String(name).trim().toLowerCase();
+  return (
+    n.includes("food set") ||
+    n.includes("food pack") ||
+    n.includes("foodset") ||
+    n.includes("foodpack") ||
+    n.includes("set of dish") ||
+    n.startsWith("set ") ||
+    n.includes(" set")
+  );
+}
+
 let root = null;
 let packagesCache = [];
 let menuGroupedCache = {};
@@ -556,8 +570,8 @@ function renderCart() {
         <span style="font-weight:700; color:var(--text);">${escapeHtml(d.package.name || "None")}</span>
       </div>
       <div style="display:flex; justify-content:space-between; font-size:14px;">
-        <span style="color:var(--text-muted);">Guest Count</span>
-        <span style="font-weight:700; color:var(--gold);">${d.event.pax || 0} pax</span>
+        <span style="color:var(--text-muted);">${isFoodSet(d.package.name) ? "Order Quantity" : "Guest Count"}</span>
+        <span style="font-weight:700; color:var(--gold);">${d.event.pax || 0} ${isFoodSet(d.package.name) ? "set(s)" : "pax"}</span>
       </div>
     </div>
     
@@ -907,14 +921,14 @@ async function renderStepPackage(card) {
   } catch (err) {
     card.innerHTML = `
       <div style="padding:36px; text-align:center;">
-        <div style="font-size:42px; margin-bottom:12px;">🔴</div>
+        <div style="display:inline-flex; align-items:center; justify-content:center; width:56px; height:56px; border-radius:50%; background:rgba(239,68,68,0.15); color:#EF4444; margin-bottom:12px;">${icon("alertCircle")}</div>
         <h3 style="color:#EF4444; margin:0 0 8px;">Live Central Database Disconnected</h3>
         <p style="color:var(--text-muted); max-width:480px; margin:0 auto 20px; font-size:14px; line-height:1.5;">
           Tablet is configured to <b>strictly fetch data only from the Live Central Database</b>. Ensure your laptop is connected to Wi-Fi and the central server is running.
         </p>
         <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap;">
-          <button class="btn btn-outline" id="setup-live-packages" style="font-weight:700; border:1.5px solid var(--border); padding:10px 20px;">⚙️ Setup IP &amp; Credentials</button>
-          <button class="btn btn-primary" id="retry-live-packages" style="font-weight:700; padding:10px 20px;">⚡ Retry Connection</button>
+          <button class="btn btn-outline" id="setup-live-packages" style="font-weight:700; border:1.5px solid var(--border); padding:10px 20px; display:inline-flex; align-items:center; gap:6px;">${icon("settings")} Setup IP &amp; Credentials</button>
+          <button class="btn btn-primary" id="retry-live-packages" style="font-weight:700; padding:10px 20px; display:inline-flex; align-items:center; gap:6px;">${icon("refresh")} Retry Connection</button>
         </div>
       </div>
     `;
@@ -950,8 +964,8 @@ async function renderStepPackage(card) {
       <div class="form-group">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
           <label style="margin:0;">Event Date *</label>
-          <button type="button" class="btn btn-ghost" id="btn-open-calendar" style="padding:2px 8px; font-size:12px; height:24px; color:var(--accent); font-weight:700;">
-            📅 View Calendar
+          <button type="button" class="btn btn-ghost" id="btn-open-calendar" style="padding:2px 8px; font-size:12px; height:24px; color:var(--accent); font-weight:700; display:inline-flex; align-items:center; gap:4px;">
+            ${icon("calendar")} View Calendar
           </button>
         </div>
         <input type="date" class="form-control" id="e-date" value="${d.event.date}">
@@ -969,9 +983,11 @@ async function renderStepPackage(card) {
     </div>
     <div class="grid-2">
       <div class="form-group">
-        <label>Order Quantity / Sets (Min: 1 Set)</label>
+        <label id="lbl-order-qty">${isFoodSet(d.package.name) ? "Order Quantity / Sets (Min: 1 Set)" : "Guest Count (Pax) *"}</label>
         <input type="number" class="form-control" id="e-pax" min="1" max="2000" value="${d.event.pax || 1}">
-        <span style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">1 Set is good for 22 persons (4 dishes). Minimum order: 1 set.</span>
+        <span id="lbl-order-hint" style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">
+          ${isFoodSet(d.package.name) ? "1 Set is good for 22 persons (4 dishes). Minimum order: 1 set." : "Total number of guests attending the buffet."}
+        </span>
       </div>
       <div class="form-group">
         <label>Occasion / Event Type *</label>
@@ -993,7 +1009,7 @@ async function renderStepPackage(card) {
       </div>
     </div>
     <div class="form-group">
-      <label>🎨 Theme &amp; Motif</label>
+      <label style="display:flex; align-items:center; gap:6px;">${icon("palette")} Theme &amp; Motif</label>
       <input type="text" class="form-control" id="e-motif" placeholder="e.g. Rose Gold &amp; Ivory, Black &amp; White Elegance, Garden Green…" value="${escapeHtml(d.event.motif || "")}">
       <span style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">Type the event's color theme or motif. This will appear on the official receipt.</span>
     </div>
@@ -1025,8 +1041,8 @@ async function renderStepPackage(card) {
             </div>
             <p class="kiosk-card-desc">${escapeHtml(p.description || "Standard buffet catering setup.")}</p>
             <div class="kiosk-card-footer">
-              <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / set</span></span>
-              <span class="kiosk-status-pill">Min 1 Set (4 dishes good for 22 person)</span>
+              <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / ${isFoodSet(p.name) ? "set" : "pax"}</span></span>
+              <span class="kiosk-status-pill">${isFoodSet(p.name) ? "Min 1 Set (4 dishes good for 22 person)" : `Min ${p.min_pax || 60} Pax`}</span>
             </div>
           </div>
         </div>
@@ -1036,7 +1052,7 @@ async function renderStepPackage(card) {
 
     <div class="grid-2" style="margin-top:20px;">
       <div class="form-group">
-        <label>Price Per Set (₱)</label>
+        <label id="lbl-price-rate">${isFoodSet(d.package.name) ? "Price Per Set (₱)" : "Price Per Pax (₱)"}</label>
         <input type="number" class="form-control" id="e-price-per-pax" step="0.01" value="${d.package.pricePerPax || 0}">
       </div>
       <div class="form-group">
@@ -1063,7 +1079,7 @@ async function renderStepPackage(card) {
       const bks = await api.getBookingsByDate(dateVal);
       if (bks && bks.length > 0) {
         dateWarning.style.display = "block";
-        dateWarning.innerHTML = `⚠️ <b>Notice:</b> ${bks.length} catering booking(s) already scheduled on this date. You may still proceed with reservation.`;
+        dateWarning.innerHTML = `<div style="display:flex; align-items:flex-start; gap:8px;">${icon("alertTriangle")} <div><b>Notice:</b> ${bks.length} catering booking(s) already scheduled on this date. You may still proceed with reservation.</div></div>`;
       } else {
         dateWarning.style.display = "none";
       }
@@ -1229,8 +1245,22 @@ async function renderStepPackage(card) {
       console.warn("Could not load default package items:", e);
     }
 
+    const isSet = isFoodSet(pkg.name);
+    const qtyLbl = card.querySelector("#lbl-order-qty");
+    if (qtyLbl) qtyLbl.textContent = isSet ? "Order Quantity / Sets (Min: 1 Set)" : "Guest Count (Pax) *";
+    const hintLbl = card.querySelector("#lbl-order-hint");
+    if (hintLbl) hintLbl.textContent = isSet ? "1 Set is good for 22 persons (4 dishes). Minimum order: 1 set." : `Minimum guests required for this package: ${pkg.min_pax || 60} pax.`;
+    const priceRateLbl = card.querySelector("#lbl-price-rate");
+    if (priceRateLbl) priceRateLbl.textContent = isSet ? "Price Per Set (₱)" : "Price Per Pax (₱)";
+
     const currentPax = Number(paxInput.value || 0);
-    if (currentPax < 1) {
+    if (isSet && currentPax > 50) {
+      d.event.pax = Number(pkg.min_pax || 1);
+      paxInput.value = d.event.pax;
+    } else if (!isSet && currentPax <= 1) {
+      d.event.pax = Number(pkg.min_pax || 60);
+      paxInput.value = d.event.pax;
+    } else if (currentPax < 1) {
       d.event.pax = 1;
       paxInput.value = 1;
     }
@@ -1294,12 +1324,12 @@ async function renderStepMenu(card) {
   } catch (err) {
     card.innerHTML = `
       <div style="padding:36px; text-align:center;">
-        <div style="font-size:42px; margin-bottom:12px;">🔴</div>
+        <div style="display:inline-flex; align-items:center; justify-content:center; width:56px; height:56px; border-radius:50%; background:rgba(239,68,68,0.15); color:#EF4444; margin-bottom:12px;">${icon("alertCircle")}</div>
         <h3 style="color:#EF4444; margin:0 0 8px;">Live Central Database Disconnected</h3>
         <p style="color:var(--text-muted); max-width:460px; margin:0 auto 20px; font-size:14px; line-height:1.5;">
           Tablet is configured to <b>strictly fetch data only from the Live Central Database</b>. Local offline dishes are disabled. Ensure Wi-Fi ARISE! is active and server is running at 192.168.1.10.
         </p>
-        <button class="btn btn-primary" id="retry-live-menu">⚡ Retry Live Connection</button>
+        <button class="btn btn-primary" id="retry-live-menu" style="display:inline-flex; align-items:center; gap:6px;">${icon("refresh")} Retry Live Connection</button>
       </div>
     `;
     card.querySelector("#retry-live-menu")?.addEventListener("click", () => renderStepMenu(card));
@@ -1333,7 +1363,7 @@ async function renderStepMenu(card) {
         <div style="position:relative; flex:1; min-width:220px;">
           <input type="text" class="form-control" id="menu-dish-search" placeholder="Search dish name, ingredients or category…" style="padding-left:36px; padding-right:32px; height:40px; font-size:13.5px; border-radius:20px;">
           <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-muted); pointer-events:none;">${icon("search")}</span>
-          <button type="button" id="menu-dish-search-clear" style="display:none; position:absolute; right:10px; top:50%; transform:translateY(-50%); background:transparent; border:none; color:var(--text-muted); cursor:pointer; font-size:14px; padding:2px 6px;">✕</button>
+          <button type="button" id="menu-dish-search-clear" style="display:none; position:absolute; right:10px; top:50%; transform:translateY(-50%); background:transparent; border:none; color:var(--text-muted); cursor:pointer; font-size:14px; padding:2px 6px; display:inline-flex; align-items:center;">${icon("close")}</button>
         </div>
         <div id="search-match-count" style="display:none; font-size:12.5px; color:var(--gold); font-weight:700;"></div>
       </div>
@@ -1400,7 +1430,7 @@ async function renderStepMenu(card) {
       `).join("") || "<p style='color:var(--text-muted);'>No menu items available.</p>"}
     </div>
     <div id="menu-no-search-results" style="display:none; padding:48px 24px; text-align:center; color:var(--text-muted);">
-      <div style="font-size:36px; margin-bottom:8px;">🔍</div>
+      <div style="display:inline-flex; align-items:center; justify-content:center; width:52px; height:52px; border-radius:50%; background:var(--input-bg); margin-bottom:8px; color:var(--text-muted);">${icon("search")}</div>
       <h3 style="margin:0 0 6px; color:var(--text);">No dishes found</h3>
       <p style="margin:0 0 16px; font-size:13.5px;">Try searching for a different dish name or category.</p>
       <button type="button" class="btn btn-secondary" id="btn-clear-search-empty">Clear Search Filter</button>
@@ -1811,13 +1841,13 @@ function renderStepPreview(card) {
       <div class="card card-elevated" style="padding:16px;">
         <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase;">Event Schedule</div>
         <div style="font-size:16px; font-weight:700; color:var(--text); margin-top:4px;">${escapeHtml(d.event.date)} at ${escapeHtml(d.event.time)}</div>
-        <div style="font-size:13px; color:var(--gold); font-weight:700;">${d.event.pax} Guests · ${escapeHtml(d.event.venue)}</div>
+        <div style="font-size:13px; color:var(--gold); font-weight:700;">${d.event.pax} ${isFoodSet(d.package.name) ? "Set(s)" : "Guests"} · ${escapeHtml(d.event.venue)}</div>
       </div>
     </div>
 
     <div class="card card-elevated" style="padding:18px; margin-bottom:20px;">
       <div style="font-size:14px; font-weight:700; margin-bottom:6px;">Package &amp; Menu Selections</div>
-      <div style="color:var(--gold); font-weight:700; font-size:15px; margin-bottom:8px;">${escapeHtml(d.package.name)} (${peso(d.package.pricePerPax)} / pax)</div>
+      <div style="color:var(--gold); font-weight:700; font-size:15px; margin-bottom:8px;">${escapeHtml(d.package.name)} (${peso(d.package.pricePerPax)} / ${isFoodSet(d.package.name) ? "set" : "pax"})</div>
       <p style="color:var(--text-muted); font-size:13px; margin:0; line-height:1.6;">
         ${d.menuSelections.map((m) => escapeHtml(m.item_name)).join(", ") || "No specific dishes selected."}
       </p>
@@ -1902,7 +1932,7 @@ function renderStepPreview(card) {
             </div>
             <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:13px;">
               <span style="color:var(--text-muted);">Package</span>
-              <span style="font-weight:700;">${escapeHtml(d.package.name || "Custom Package")} (${d.event.pax} Pax)</span>
+              <span style="font-weight:700;">${escapeHtml(d.package.name || "Custom Package")} (${d.event.pax} ${isFoodSet(d.package.name) ? "Set(s)" : "Pax"})</span>
             </div>
             <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:13px;">
               <span style="color:var(--text-muted);">Selected Dishes</span>
@@ -2064,11 +2094,11 @@ function openPackageDetailsModal(p, selectCallback) {
         <div style="display:flex; justify-content:space-between; align-items:center; background:var(--card-elevated); padding:14px 18px; border-radius:var(--radius); border:1.5px solid var(--border);">
           <div>
             <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.04em;">Price Rate</div>
-            <div style="font-family:'Outfit',sans-serif; font-size:24px; font-weight:800; color:var(--gold);">${peso(p.price_per_pax)}<span style="font-size:13px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / pax</span></div>
+            <div style="font-family:'Outfit',sans-serif; font-size:24px; font-weight:800; color:var(--gold);">${peso(p.price_per_pax)}<span style="font-size:13px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / ${isFoodSet(p.name) ? "set" : "pax"}</span></div>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.04em;">Minimum Pax</div>
-            <div style="font-size:17px; font-weight:800; color:var(--text);">${p.min_pax} Guests</div>
+            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.04em;">${isFoodSet(p.name) ? "Minimum Sets" : "Minimum Pax"}</div>
+            <div style="font-size:17px; font-weight:800; color:var(--text);">${p.min_pax} ${isFoodSet(p.name) ? "Set(s)" : "Guests"}</div>
           </div>
         </div>
 
@@ -2181,10 +2211,12 @@ export function openLightCalendarModal(onSelectDate) {
   const now = new Date();
   let viewYear = now.getFullYear();
   let viewMonth = now.getMonth(); // 0-indexed
+  let selectedDate = wizard.draft?.event?.date || "";
 
   openModal({
     id: modalId,
-    title: `📅 Event Scheduling Calendar`,
+    title: `${icon("calendar")} Event Scheduling Calendar`,
+    large: true,
     bodyHtml: `<div id="calendar-modal-content"></div>`,
     footerHtml: `<button class="btn btn-secondary" data-close>Close</button>`,
   });
@@ -2193,12 +2225,22 @@ export function openLightCalendarModal(onSelectDate) {
   const container = modal.querySelector("#calendar-modal-content");
 
   async function renderMonth() {
-    container.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted);">Loading schedule…</div>`;
+    container.innerHTML = `<div style="text-align:center; padding:32px; color:var(--text-muted); font-size:13.5px;">Loading event schedules…</div>`;
     const bookings = await api.getMonthBookings(viewYear, viewMonth + 1).catch(() => []);
-    const dateCounts = {};
+    const dateSchedules = {};
     for (const b of (bookings || [])) {
-      if (b.bk_event_date) {
-        dateCounts[b.bk_event_date] = (dateCounts[b.bk_event_date] || 0) + 1;
+      const dStr = b.date || b.bk_event_date;
+      if (dStr) {
+        if (!dateSchedules[dStr]) dateSchedules[dStr] = [];
+        // Only record public schedule information — strictly omit client name & personal contact
+        dateSchedules[dStr].push({
+          time: b.time || (b.bk_event_time ? (repo.formatEventTime ? repo.formatEventTime(b.bk_event_time) : b.bk_event_time) : "Time TBD"),
+          endTime: b.endTime || (b.bk_event_end_time ? (repo.formatEventTime ? repo.formatEventTime(b.bk_event_end_time) : b.bk_event_end_time) : ""),
+          occasion: b.occasion || b.bk_occasion || "Event",
+          status: b.status || b.bk_status || "Booked",
+          venue: b.venue || b.bk_venue || "",
+          pax: Number(b.pax || b.bk_pax || 0)
+        });
       }
     }
 
@@ -2213,31 +2255,137 @@ export function openLightCalendarModal(onSelectDate) {
     for (let day = 1; day <= daysInMonth; day++) {
       const pad = (n) => String(n).padStart(2, "0");
       const dStr = `${viewYear}-${pad(viewMonth + 1)}-${pad(day)}`;
-      const cnt = dateCounts[dStr] || 0;
+      const scheds = dateSchedules[dStr] || [];
+      const cnt = scheds.length;
+      const isSelected = selectedDate === dStr;
+
       daysHtml += `
-        <div class="cal-day-cell" data-date="${dStr}" style="padding:8px 4px; border:1.5px solid ${cnt > 0 ? "rgba(245,158,11,0.5)" : "var(--border)"}; border-radius:8px; text-align:center; cursor:pointer; background:${cnt > 0 ? "rgba(245,158,11,0.1)" : "transparent"}; transition:all 0.15s; user-select:none;">
+        <div class="cal-day-cell" data-date="${dStr}" style="padding:8px 4px; border:1.5px solid ${isSelected ? "var(--accent)" : (cnt > 0 ? "rgba(245,158,11,0.55)" : "var(--border)")}; border-radius:8px; text-align:center; cursor:pointer; background:${isSelected ? "rgba(225,29,72,0.14)" : (cnt > 0 ? "rgba(245,158,11,0.12)" : "var(--input-bg)")}; transition:all 0.15s; user-select:none; display:flex; flex-direction:column; justify-content:space-between; min-height:58px;">
           <div style="font-weight:800; font-size:14px; color:${cnt > 0 ? "#D97706" : "var(--text)"};">${day}</div>
-          ${cnt > 0 ? `<span style="font-size:9.5px; font-weight:800; padding:1px 4px; border-radius:8px; background:#D97706; color:#fff; display:inline-block; margin-top:2px;">${cnt} event${cnt > 1 ? "s" : ""}</span>` : `<span style="font-size:9.5px; color:var(--text-muted); opacity:0.6;">Available</span>`}
+          ${cnt > 0 
+            ? `<span style="font-size:9px; font-weight:800; padding:2px 4px; border-radius:6px; background:#D97706; color:#fff; display:inline-block; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(scheds.map(s => `${s.time}: ${s.occasion}`).join(' | '))}">${cnt === 1 && scheds[0].time && scheds[0].time !== "Time TBD" ? escapeHtml(scheds[0].time) : `${cnt} Sched${cnt > 1 ? "s" : ""}`}</span>` 
+            : `<span style="font-size:9px; color:var(--text-muted); opacity:0.75;">Available</span>`
+          }
         </div>
       `;
     }
 
     container.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-        <button type="button" class="btn btn-ghost" id="cal-prev-month" style="font-size:14px; padding:6px 12px; font-weight:700;">◀ Prev</button>
-        <h3 style="margin:0; font-size:16px; font-weight:800;">${monthNames[viewMonth]} ${viewYear}</h3>
-        <button type="button" class="btn btn-ghost" id="cal-next-month" style="font-size:14px; padding:6px 12px; font-weight:700;">Next ▶</button>
+        <button type="button" class="btn btn-ghost" id="cal-prev-month" style="font-size:13px; padding:6px 14px; font-weight:700; display:inline-flex; align-items:center; gap:4px;">
+          ${icon("chevronLeft")} Prev
+        </button>
+        <h3 style="margin:0; font-size:16px; font-weight:800; color:var(--text);">${monthNames[viewMonth]} ${viewYear}</h3>
+        <button type="button" class="btn btn-ghost" id="cal-next-month" style="font-size:13px; padding:6px 14px; font-weight:700; display:inline-flex; align-items:center; gap:4px;">
+          Next ${icon("chevronRight")}
+        </button>
       </div>
-      <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:6px; font-weight:700; font-size:11px; text-align:center; color:var(--text-muted); margin-bottom:6px;">
+
+      <!-- Schedule Legend -->
+      <div style="display:flex; align-items:center; justify-content:center; gap:16px; font-size:11.5px; color:var(--text-muted); margin-bottom:10px;">
+        <span style="display:inline-flex; align-items:center; gap:6px;">
+          <span style="display:inline-block; width:10px; height:10px; border-radius:3px; background:rgba(245,158,11,0.5); border:1px solid #D97706;"></span>
+          Has Booked Schedule
+        </span>
+        <span style="display:inline-flex; align-items:center; gap:6px;">
+          <span style="display:inline-block; width:10px; height:10px; border-radius:3px; background:var(--input-bg); border:1px solid var(--border);"></span>
+          Open / Available
+        </span>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:6px; font-weight:700; font-size:11.5px; text-align:center; color:var(--text-muted); margin-bottom:6px;">
         <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
       </div>
       <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:6px;" id="cal-grid-days">
         ${daysHtml}
       </div>
-      <p style="margin:12px 0 0; font-size:12px; color:var(--text-muted); text-align:center;">
-        Tap any date to select it for your catering reservation.
-      </p>
+
+      <!-- Interactive Selected Date & Schedule Info Card -->
+      <div id="cal-preview-box" style="margin-top:12px;"></div>
     `;
+
+    function updateSelectionView(dateStr) {
+      selectedDate = dateStr;
+      container.querySelectorAll(".cal-day-cell").forEach((c) => {
+        const isThis = c.dataset.date === selectedDate;
+        const cellCnt = (dateSchedules[c.dataset.date] || []).length;
+        c.style.border = isThis ? "2px solid var(--accent)" : (cellCnt > 0 ? "1.5px solid rgba(245,158,11,0.55)" : "1.5px solid var(--border)");
+        c.style.background = isThis ? "rgba(225,29,72,0.14)" : (cellCnt > 0 ? "rgba(245,158,11,0.12)" : "var(--input-bg)");
+      });
+
+      const previewBox = container.querySelector("#cal-preview-box");
+      if (!previewBox) return;
+
+      if (!selectedDate) {
+        previewBox.innerHTML = `
+          <div style="text-align:center; padding:12px; color:var(--text-muted); font-size:12.5px;">
+            Tap any date above to inspect its schedules and select it for your reservation.
+          </div>
+        `;
+        return;
+      }
+
+      const scheds = dateSchedules[selectedDate] || [];
+      const [pY, pM, pD] = selectedDate.split("-");
+      const dateObj = new Date(Number(pY), Number(pM) - 1, Number(pD));
+      const dateFormatted = dateObj.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+      if (scheds.length > 0) {
+        previewBox.innerHTML = `
+          <div style="background:rgba(245,158,11,0.08); border:1.5px solid rgba(245,158,11,0.35); border-radius:10px; padding:12px 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+              <span style="font-size:13px; font-weight:800; color:#D97706; display:flex; align-items:center; gap:6px;">
+                ${icon("alertTriangle")} ${scheds.length} Existing Schedule${scheds.length > 1 ? "s" : ""} on ${dateFormatted}
+              </span>
+              <span style="font-size:10.5px; font-weight:700; color:#D97706; text-transform:uppercase; background:rgba(245,158,11,0.18); padding:2px 8px; border-radius:10px;">
+                Reserved Slot
+              </span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              ${scheds.map((s) => `
+                <div style="display:flex; justify-content:space-between; align-items:center; background:var(--card-bg); border:1px solid var(--border); border-radius:6px; padding:8px 12px; font-size:12.5px;">
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-weight:800; color:var(--text); display:flex; align-items:center; gap:4px;">
+                      ${icon("clock")} ${escapeHtml(s.time)}${s.endTime ? ` – ${escapeHtml(s.endTime)}` : ""}
+                    </span>
+                    <span style="color:var(--text-muted); font-size:12px;">• ${escapeHtml(s.occasion)}</span>
+                  </div>
+                  <span style="font-size:11px; font-weight:700; color:#D97706; text-transform:uppercase;">${escapeHtml(s.status)}</span>
+                </div>
+              `).join("")}
+            </div>
+            <p style="margin:8px 0 10px; font-size:11px; color:var(--text-muted); line-height:1.4;">
+              Client personal details are protected. You may still proceed with booking this date if your preferred event slot does not conflict.
+            </p>
+            <button type="button" class="btn btn-primary" id="btn-select-cal-day" style="width:100%; padding:9px; font-weight:800; display:inline-flex; align-items:center; justify-content:center; gap:6px;">
+              ${icon("check")} Select ${selectedDate} &amp; Proceed
+            </button>
+          </div>
+        `;
+      } else {
+        previewBox.innerHTML = `
+          <div style="background:rgba(16,185,129,0.08); border:1.5px solid rgba(16,185,129,0.25); border-radius:10px; padding:12px 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <span style="font-size:13px; font-weight:800; color:var(--success); display:flex; align-items:center; gap:6px;">
+                ${icon("checkCircle")} Fully Available Date: ${dateFormatted}
+              </span>
+            </div>
+            <p style="margin:0 0 10px; font-size:12px; color:var(--text-muted);">
+              No catering events scheduled on this date. All time slots are open!
+            </p>
+            <button type="button" class="btn btn-primary" id="btn-select-cal-day" style="width:100%; padding:9px; font-weight:800; display:inline-flex; align-items:center; justify-content:center; gap:6px;">
+              ${icon("check")} Select ${selectedDate} &amp; Proceed
+            </button>
+          </div>
+        `;
+      }
+
+      previewBox.querySelector("#btn-select-cal-day")?.addEventListener("click", () => {
+        if (onSelectDate) onSelectDate(selectedDate);
+        closeModal(modalId);
+        toast(`Selected date: ${selectedDate}`, "success");
+      });
+    }
 
     container.querySelector("#cal-prev-month")?.addEventListener("click", () => {
       if (viewMonth === 0) { viewMonth = 11; viewYear--; } else { viewMonth--; }
@@ -2250,18 +2398,33 @@ export function openLightCalendarModal(onSelectDate) {
 
     container.querySelectorAll(".cal-day-cell[data-date]").forEach((cell) => {
       cell.addEventListener("click", () => {
+        updateSelectionView(cell.dataset.date);
+      });
+      cell.addEventListener("dblclick", () => {
         const picked = cell.dataset.date;
         if (onSelectDate) onSelectDate(picked);
         closeModal(modalId);
         toast(`Selected date: ${picked}`, "success");
       });
-      cell.addEventListener("mouseenter", () => { cell.style.borderColor = "var(--accent)"; });
+      cell.addEventListener("mouseenter", () => {
+        if (cell.dataset.date !== selectedDate) {
+          cell.style.borderColor = "var(--accent)";
+        }
+      });
       cell.addEventListener("mouseleave", () => {
-        const dStr = cell.dataset.date;
-        const cnt = dateCounts[dStr] || 0;
-        cell.style.borderColor = cnt > 0 ? "rgba(245,158,11,0.5)" : "var(--border)";
+        if (cell.dataset.date !== selectedDate) {
+          const dStr = cell.dataset.date;
+          const cnt = (dateSchedules[dStr] || []).length;
+          cell.style.borderColor = cnt > 0 ? "rgba(245,158,11,0.55)" : "var(--border)";
+        }
       });
     });
+
+    if (selectedDate) {
+      updateSelectionView(selectedDate);
+    } else {
+      updateSelectionView("");
+    }
   }
 
   renderMonth();

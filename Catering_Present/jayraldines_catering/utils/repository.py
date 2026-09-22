@@ -1668,7 +1668,12 @@ def create_booking(data: dict) -> Optional[dict]:
             ev = app_events()
             if ev:
                 ev.booking_created.emit()
-            return {"id": b_id, "ref": result.get("p_booking_ref")}
+            return {
+                "id": b_id,
+                "ref": result.get("p_booking_ref"),
+                "booking_id": b_id,
+                "booking_ref": result.get("p_booking_ref"),
+            }
         return None
     except Exception as e:
         print(f"[repository] create_booking error: {e}")
@@ -3207,6 +3212,40 @@ def get_all_expenses() -> list[dict]:
     return _rows_to_expense_dicts(rows)
 
 
+def get_expense_description_suggestions() -> list[str]:
+    """Distinct expense descriptions ever entered, ranked by how often each
+    was used, for autocompleting the Add/Edit Expense description field.
+
+    The client's actual problem is spelling drift — "Gas", "gas refill",
+    "Gasoline" all meaning the same line item, which breaks category/expense
+    reporting consistency. Suggesting past entries (instead of letting staff
+    free-type every time) nudges everyone toward reusing the same wording.
+    Case-only variants ("Gas" vs "gas" vs "GAS") are collapsed into a single
+    suggestion — whichever exact casing was used most often wins — so the
+    dropdown itself doesn't keep listing near-duplicates.
+    """
+    rows = db.fetchall("""
+        SELECT exp_description AS description, COUNT(*) AS uses
+        FROM expenses
+        WHERE exp_description IS NOT NULL AND TRIM(exp_description) != ''
+        GROUP BY exp_description
+    """) or []
+
+    best_by_key: dict[str, tuple[str, int]] = {}
+    for r in rows:
+        desc = str(r.get("description") or "").strip()
+        if not desc:
+            continue
+        uses = int(r.get("uses") or 0)
+        key = desc.lower()
+        cur = best_by_key.get(key)
+        if cur is None or uses > cur[1]:
+            best_by_key[key] = (desc, uses)
+
+    ranked = sorted(best_by_key.values(), key=lambda t: (-t[1], t[0].lower()))
+    return [desc for desc, _uses in ranked]
+
+
 def get_expenses_page(offset: int = 0, limit: int = 50) -> list[dict]:
     """Fetch one page of expenses, newest first. Used for incremental/lazy loading."""
     rows = db.fetchall(
@@ -4092,8 +4131,13 @@ def get_calendar_events_for_month(year: int, month: int) -> dict[tuple[int, int,
                p.pkg_description  AS package_description,
                b.bk_total_amount  AS total_amount,
                b.bk_amount_paid   AS amount_paid,
+               i.inv_total_amount AS inv_total_amount,
                i.inv_amount_paid  AS inv_amount_paid,
-               i.inv_balance      AS balance,
+               CASE WHEN i.inv_balance IS NOT NULL AND (i.inv_balance > 0 OR (i.inv_total_amount - i.inv_amount_paid) <= 0)
+                    THEN i.inv_balance
+                    WHEN (i.inv_total_amount - i.inv_amount_paid) > 0
+                    THEN ROUND(i.inv_total_amount - i.inv_amount_paid, 2)
+                    ELSE i.inv_balance END AS balance,
                b.bk_status        AS status
         FROM bookings b
         LEFT JOIN packages p ON b.bk_package_id = p.pkg_id
@@ -4122,7 +4166,11 @@ def get_calendar_events_for_month(year: int, month: int) -> dict[tuple[int, int,
 
         label = r.get("customer_name") or "Valued Client"
         
-        tot_val = float(r.get("total_amount") or 0.0)
+        # Prefer the invoice's own total/paid (same source billing_page reads
+        # from _INVOICE_ROW_SQL) so the calendar can't disagree with billing
+        # about whether a booking is fully paid. bk_total_amount/bk_amount_paid
+        # are only a fallback for bookings that never got an invoice row.
+        tot_val = float(r.get("inv_total_amount") if r.get("inv_total_amount") is not None else (r.get("total_amount") or 0.0))
         paid_val = float(r.get("inv_amount_paid") if r.get("inv_amount_paid") is not None else (r.get("amount_paid") or 0.0))
         bal_val = float(r.get("balance") if r.get("balance") is not None else max(0.0, tot_val - paid_val))
         

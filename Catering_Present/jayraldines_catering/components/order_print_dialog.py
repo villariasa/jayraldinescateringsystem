@@ -51,6 +51,13 @@ _SLIP_LAYOUT_WIDTH = 800
 _SLIP_HALF_HEIGHT = round(_SLIP_LAYOUT_WIDTH * (297 / 210) / 2)
 
 
+def is_food_set_pkg(pkg_name: str) -> bool:
+    if not pkg_name:
+        return False
+    name = str(pkg_name).strip().lower()
+    return any(k in name for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or name.startswith("set ") or " set" in name
+
+
 class OrderPrintDialog(QDialog):
     """
     Banquet Booking Agreement & Order Slip / Kitchen Dispatch Dialog.
@@ -473,6 +480,8 @@ class OrderPrintDialog(QDialog):
         pax = str(booking.get("pax", 100))
         occasion = str(booking.get("occasion") or "Banquet Catering")
         pkg_name = str(booking.get("package_name") or booking.get("menu_value") or "Standard Catering Package")
+        is_food_set = is_food_set_pkg(pkg_name)
+        pax_lbl = "SET" if is_food_set else "PAX"
         contact = str(booking.get("contact") or "")
 
         notes_str = str(booking.get("notes") or "").strip()
@@ -542,7 +551,7 @@ class OrderPrintDialog(QDialog):
                     <div style="font-size:{strip_val}; font-weight:800; line-height:1.1; margin-top:1px;">{time_str}</div>
                 </td>
                 <td style="padding:{strip_pad}; text-align:center; color:#000000; width:18%; vertical-align:middle;">
-                    <div style="font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; line-height:1.0; margin:0;">PAX</div>
+                    <div style="font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; line-height:1.0; margin:0;">{pax_lbl}</div>
                     <div style="font-size:{strip_val}; font-weight:800; line-height:1.1; margin-top:1px;">{pax}</div>
                 </td>
             </tr>
@@ -680,6 +689,7 @@ class OrderPrintDialog(QDialog):
         motif = html.escape(str(booking.get("motif") or booking.get("color_theme") or "Standard Motif"))
         pax = str(booking.get("pax") or 0)
         pkg_name = html.escape(str(booking.get("package_name") or booking.get("menu_type") or "Catering Package"))
+        is_food_set = is_food_set_pkg(pkg_name)
         notes = html.escape(str(booking.get("notes") or booking.get("special_instructions") or ""))
         issue_date = html.escape(str(booking.get("created_at") or datetime.now().strftime("%Y-%m-%d")))
 
@@ -797,8 +807,8 @@ class OrderPrintDialog(QDialog):
                                 <td style="font-size:11px; color:#0F172A; padding:2.5px 0; vertical-align:top;">{occasion} &middot; {motif}</td>
                             </tr>
                             <tr>
-                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">No. of Pax:</td>
-                                <td style="font-size:11px; font-weight:800; color:#0F172A; padding:2.5px 0; vertical-align:top;">{pax} Guests @ {pkg_name}</td>
+                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">No. of Sets:</td>
+                                <td style="font-size:11px; font-weight:800; color:#0F172A; padding:2.5px 0; vertical-align:top;">{pax} Set(s) @ {pkg_name}</td>
                             </tr>
                             {instructions_block}
                         </table>
@@ -860,7 +870,7 @@ class OrderPrintDialog(QDialog):
                         <!-- Package Banner -->
                         <div style="background:#FFF1F2; border:1px solid #FECDD3; border-radius:6px; padding:6px 10px; margin-bottom:8px;">
                             <div style="font-size:12px; font-weight:900; color:#BE123C; text-transform:uppercase;">{pkg_name}</div>
-                            <div style="font-size:9.5px; color:#475569; margin-top:1px;">Good for <b>{pax}</b> Guests</div>
+                            <div style="font-size:9.5px; color:#475569; margin-top:1px;">{f"Quantity: <b>{pax}</b> Set(s)" if is_food_set else f"Good for <b>{pax}</b> Guests"}</div>
                         </div>
 
                         <!-- Menu Header & Dishes -->
@@ -976,7 +986,7 @@ Order Ref: {order_ref}
 DATE:        {date_str}
 NAME:        {cust_name}
 TIME:        {time_str}
-PAX:         {pax} Guests
+{f"SET:         {pax} Set(s)"}
 VENUE:       {venue}
 PACKAGE:     {pkg_name}
 
@@ -1031,7 +1041,7 @@ Order Ref: {order_ref}
 DATE:        {date_str}
 NAME:        {cust_name}
 TIME:        {time_str}
-PAX:         {pax} Guests
+{f"SET:         {pax} Set(s)"}
 LOCATION:    {venue}
 PACKAGE:     {pkg_name}
 
@@ -1098,8 +1108,75 @@ ADDITIONAL ITEMS (NO CHARGES):
         dialog = QPrintDialog(printer, self)
         dialog.setWindowTitle("Print Banquet Order Slip" if len(self._bookings) == 1 else "Print Banquet Order Slips")
         if dialog.exec() == QPrintDialog.Accepted:
+            # Booking Agreement prints must be pixel-identical to Export PDF
+            # (same client complaint every time they drifted apart) — render
+            # the exact same ReportLab-generated PDF onto the printer instead
+            # of the separate QTextDocument/HTML layout below. That HTML path
+            # only remains for Kitchen Slip mode and multi-booking prints,
+            # which export_receipt_pdf doesn't support.
+            if (self._current_mode == "agreement" and len(self._bookings) == 1
+                    and exporter.REPORTLAB_OK and self._print_agreement_via_pdf(printer)):
+                success(self, message="Order slip sent to printer successfully.")
+                return
             self._print_document(printer)
             success(self, message="Order slip sent to printer successfully." if len(self._bookings) == 1 else "Order slips sent to printer successfully.")
+
+    def _print_agreement_via_pdf(self, printer) -> bool:
+        """Generate the official Booking Agreement PDF (same function Export
+        PDF uses) and rasterize its pages straight onto the printer, so
+        Print and Export PDF always match exactly. Returns False on any
+        failure so the caller can fall back to the HTML print path."""
+        import tempfile
+        tmp_path = None
+        try:
+            from PySide6.QtPdf import QPdfDocument
+            from PySide6.QtGui import QPainter
+            from PySide6.QtCore import QSize, QRectF
+
+            b = self._bookings[0]
+            fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+            os.close(fd)
+            if not exporter.export_receipt_pdf(
+                tmp_path, b, business=self._business,
+                additional_charges=b.get("additional_charges", [])
+            ):
+                return False
+
+            pdf_doc = QPdfDocument(self)
+            if pdf_doc.load(tmp_path) != QPdfDocument.Error.None_:
+                return False
+            if pdf_doc.pageCount() <= 0:
+                return False
+
+            painter = QPainter()
+            if not painter.begin(printer):
+                return False
+            try:
+                page_rect = printer.pageRect(QPrinter.DevicePixel)
+                dpi_x = printer.physicalDpiX() or 300
+                dpi_y = printer.physicalDpiY() or 300
+                for page_idx in range(pdf_doc.pageCount()):
+                    if page_idx > 0:
+                        printer.newPage()
+                    pt_size = pdf_doc.pagePointSize(page_idx)
+                    px_w = max(1, int(pt_size.width() / 72.0 * dpi_x))
+                    px_h = max(1, int(pt_size.height() / 72.0 * dpi_y))
+                    image = pdf_doc.render(page_idx, QSize(px_w, px_h))
+                    if image.isNull():
+                        continue
+                    painter.drawImage(QRectF(0, 0, page_rect.width(), page_rect.height()), image)
+            finally:
+                painter.end()
+            return True
+        except Exception as e:
+            print(f"[OrderPrintDialog] PDF-based print failed, falling back to HTML print: {e}")
+            return False
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
     def _print_document(self, printer):
         # Each PHYSICAL A4 sheet is rendered from its own independent

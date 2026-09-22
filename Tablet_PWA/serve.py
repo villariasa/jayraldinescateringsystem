@@ -211,6 +211,42 @@ class KioskHTTPRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": True, "version": 1})
             return
 
+        # 3b. Read-only DB query
+        if path == "/api/db/query":
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len).decode("utf-8") if content_len > 0 else "{}"
+            try:
+                payload = json.loads(body) if body else {}
+            except Exception:
+                payload = {}
+
+            sql = payload.get("sql", "").strip()
+            params = payload.get("params", [])
+            one = payload.get("one", False)
+            if isinstance(params, list):
+                params = tuple(params)
+
+            sql_upper = sql.upper().lstrip()
+            if not sql_upper.startswith("SELECT") and not sql_upper.startswith("WITH"):
+                self._send_json({"error": "Only SELECT statements allowed on /api/db/query"}, status=403)
+                return
+
+            if DIRECT_DB_READY and sql:
+                try:
+                    if one:
+                        row = db.fetchone(sql, params)
+                        clean = {k: (str(v) if v is not None else None) for k, v in row.items()} if row else None
+                        self._send_json({"row": clean})
+                    else:
+                        rows = db.fetchall(sql, params)
+                        clean = [{k: (str(v) if v is not None else None) for k, v in r.items()} for r in rows]
+                        self._send_json({"rows": clean})
+                except Exception as exc:
+                    self._send_json({"error": str(exc)}, status=500)
+            else:
+                self._send_json({"rows": []})
+            return
+
         # 4. Device offline notification
         if path.startswith("/api/sync/device-offline"):
             self._send_json({"ok": True, "offline": True})

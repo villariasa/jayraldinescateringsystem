@@ -176,7 +176,11 @@ class DeviceTracker(QObject):
                     username=username,
                     user_role=role,
                     active_module=self._active_module,
-                    status="online"
+                    status="online",
+                    hostname=self._hostname,
+                    ip_address=self._ip_address,
+                    os_info=self._os_info,
+                    app_version=self._app_version
                 )
             except Exception as e:
                 log.debug(f"[DeviceTracker] Heartbeat error: {e}")

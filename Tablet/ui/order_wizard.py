@@ -27,6 +27,13 @@ from ui.step_progress import StepProgress
 from ui.components.address_search import AddressSearchWidget
 
 
+def _is_food_set(name):
+    if not name:
+        return False
+    n = str(name).strip().lower()
+    return any(k in n for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or n.startswith("set ") or " set" in n
+
+
 def _card(elevated=False, accent=False):
     f = QFrame()
     theme.style_card(f, elevated=elevated, accent_border=accent)
@@ -255,14 +262,15 @@ class OrderWizard(QWidget):
         play.addWidget(pname)
         self._cart_items_lay.addWidget(pkg_box)
 
-        # Guests Card
+        # Guests / Sets Card
+        is_set = _is_food_set(self._draft.get("package_name"))
         guests_box = QFrame()
         guests_box.setStyleSheet("background: #0B1220; border: 1px solid #1E293B; border-radius: 8px; padding: 10px;")
         glay = QVBoxLayout(guests_box)
         glay.setSpacing(2)
-        gtag = QLabel("GUESTS")
+        gtag = QLabel("SETS" if is_set else "GUESTS")
         gtag.setStyleSheet("font-size: 10px; font-weight: 800; color: #94A3B8; letter-spacing: 1.2px;")
-        gpax = QLabel(f"{pax} Pax")
+        gpax = QLabel(f"{pax} Set(s)" if is_set else f"{pax} Pax")
         gpax.setStyleSheet("font-size: 14px; font-weight: 700; color: #FFFFFF;")
         glay.addWidget(gtag)
         glay.addWidget(gpax)
@@ -627,11 +635,12 @@ class OrderWizard(QWidget):
 
         pbox = QVBoxLayout()
         pbox.setSpacing(4)
-        plbl = QLabel("Guest Count (Pax):")
+        is_init_set = _is_food_set(self._draft.get("package_name"))
+        plbl = QLabel("Order Quantity (Sets):" if is_init_set else "Guest Count (Pax):")
         plbl.setStyleSheet("font-size: 12px; color: #94A3B8; font-weight: 600;")
         pax_in = QSpinBox()
-        pax_in.setRange(10, 2000)
-        pax_in.setValue(self._draft["pax"] or 50)
+        pax_in.setRange(1 if is_init_set else 10, 2000)
+        pax_in.setValue(self._draft["pax"] or (1 if is_init_set else 50))
         pax_in.setMinimumHeight(44)
         pbox.addWidget(plbl)
         pbox.addWidget(pax_in)
@@ -686,9 +695,12 @@ class OrderWizard(QWidget):
 
             price_tag = QVBoxLayout()
             price_tag.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            p_amt = QLabel(f"₱{pkg['price_per_pax']:,.2f} / pax")
+            is_pkg_set = _is_food_set(pkg.get("name"))
+            unit_str = "set" if is_pkg_set else "pax"
+            min_str = f"Min: {pkg['min_pax']} Set(s)" if is_pkg_set else f"Min: {pkg['min_pax']} Pax"
+            p_amt = QLabel(f"₱{pkg['price_per_pax']:,.2f} / {unit_str}")
             p_amt.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {theme.GOLD};")
-            p_min = QLabel(f"Min: {pkg['min_pax']} Pax")
+            p_min = QLabel(min_str)
             p_min.setStyleSheet("font-size: 11px; color: #94A3B8;")
             price_tag.addWidget(p_amt)
             price_tag.addWidget(p_min)
@@ -703,6 +715,11 @@ class OrderWizard(QWidget):
             def make_select(p=pkg, frame=pf, sbtn=select_btn):
                 def do_sel():
                     selected_pkg.update(p)
+                    is_set = _is_food_set(p.get("name"))
+                    plbl.setText("Order Quantity (Sets):" if is_set else "Guest Count (Pax):")
+                    pax_in.setRange(1 if is_set else 10, 2000)
+                    if is_set and pax_in.value() > 50:
+                        pax_in.setValue(int(p.get("min_pax") or 1))
                     for of, ob in pkg_frames:
                         theme.style_dish_card(of, selected=False)
                         ob.setObjectName("Secondary")

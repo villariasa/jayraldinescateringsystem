@@ -318,7 +318,7 @@ class KitchenPage(QWidget):
         event_lbl.setStyleSheet(f"color: {_muted_color()}; font-size: 11px;")
         lay.addWidget(event_lbl)
 
-        pax_lbl = QLabel(f"{order['pax']} pax")
+        pax_lbl = QLabel(f"{order['pax']} set(s)")
         pax_lbl.setStyleSheet(f"color: {_muted_color()}; font-size: 11px;")
         lay.addWidget(pax_lbl)
 

@@ -1969,7 +1969,7 @@ class BookingPage(QWidget):
         c2.setSpacing(2)
         name_lbl = QLabel(b["name"])
         name_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
-        pax_lbl = QLabel(f"{b['pax']} pax")
+        pax_lbl = QLabel(f"{b['pax']} set(s)")
         pax_lbl.setObjectName("subtitle")
         c2.addWidget(name_lbl)
         c2.addWidget(pax_lbl)
@@ -2468,8 +2468,8 @@ class BookingPage(QWidget):
         if not result:
             QMessageBox.warning(self, "Booking Failed", "Failed to save booking to database. Please check application logs.")
             return
-        bkg_id = result["booking_ref"]
-        db_id  = result["booking_id"]
+        bkg_id = result.get("booking_ref") or result.get("ref") or ""
+        db_id  = result.get("booking_id") or result.get("id")
 
         repo.write_audit_log(get_actor(), "CREATE", "bookings", db_id,
                              None, {"customer": data.get("name"), "amount": data.get("total")})
