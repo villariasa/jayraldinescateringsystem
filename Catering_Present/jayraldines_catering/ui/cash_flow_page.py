@@ -209,6 +209,7 @@ class CashFlowPage(QWidget):
         self._dirty = True  # Load on first show
         self._filter_date = None
         self._search_text = ""
+        self._reload_deferred = False
         self._transactions = []
         self._selected_ids = set()
         self._row_checkboxes = {}
@@ -240,8 +241,18 @@ class CashFlowPage(QWidget):
     def _mark_dirty(self):
         self._dirty = True
 
+    def _has_active_search(self) -> bool:
+        try:
+            return bool(self._search_input.text().strip())
+        except Exception:
+            return bool(getattr(self, "_search_text", "").strip())
+
     def _mark_dirty_and_reload(self):
         self._dirty = True
+        # Don't rebuild the table while the user is actively searching.
+        if self._has_active_search():
+            self._reload_deferred = True
+            return
         if self.isVisible():
             self.reload()
 
@@ -512,6 +523,7 @@ class CashFlowPage(QWidget):
             return
         self._reload_in_flight = True
         self._reload_pending = False
+        self._reload_deferred = False
 
         # Pagination resets on every full reload - we always re-fetch page 0.
         self._has_more = True
