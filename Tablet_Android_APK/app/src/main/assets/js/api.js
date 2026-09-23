@@ -458,6 +458,52 @@ export const api = {
     return repo.getPackageItems(pkgId);
   },
 
+  async getPackageBuckets(pkgId) {
+    await ready();
+    return repo.getPackageBuckets(pkgId);
+  },
+
+  // Authors a full package definition (package + default dishes + selection
+  // buckets) on the Central Server. The server writes to Postgres and the
+  // change flows back to every device on the next sync. Returns the server's
+  // {ok, pkg_id, buckets, items} response, or throws if the server is unreachable.
+  async definePackage({ package: pkg, items = [], buckets = [] } = {}) {
+    await ready();
+    const host = _getStoredSyncHost();
+    if (!host) {
+      throw new Error("Central Server host is not configured. Connect to the server, then try again.");
+    }
+    const baseUrls = _getSyncBaseUrls(host, 8000);
+    let lastErr = null;
+    for (const base of baseUrls) {
+      try {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 15000);
+        const res = await fetch(`${base}/api/packages/define`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "69420" },
+          body: JSON.stringify({ package: pkg || {}, items: items || [], buckets: buckets || [] }),
+          signal: controller.signal,
+        });
+        clearTimeout(tid);
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (data && data.version) {
+            _knownServerDbVersion = Math.max(_knownServerDbVersion || 0, Number(data.version) || 0);
+          }
+          // Pull the authoritative catalog (incl. buckets) back down.
+          api.syncWithServer().catch(() => {});
+          return data;
+        }
+        const errData = await res.json().catch(() => ({}));
+        lastErr = new Error(errData.error || `HTTP ${res.status}`);
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw new Error(lastErr?.message || "Could not reach the Central Server to save this package.");
+  },
+
   async createPackage(data) {
     await ready();
     const id = repo.addPackage(data.name, data.description, data.price_per_pax, data.min_pax, data.image);
@@ -941,7 +987,7 @@ export const api = {
       }
 
       if (res.packages || res.menu_items || res.customers || res.occasions) {
-        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || [], res.occasions || []);
+        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || [], res.occasions || [], res.package_buckets || []);
       }
       if (res.synced_booking_refs || res.synced_customer_names) {
         repo.markRecordsSynced(res.synced_booking_refs || [], res.synced_customer_names || []);
