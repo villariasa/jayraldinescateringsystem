@@ -1,3 +1,18 @@
+"""Booking calendar page for the Jayraldine's Catering desktop app.
+
+Renders a month grid (:class:`DayCell`) with per-day catering bookings, a
+right-hand side panel that lists the selected day's schedule
+(:class:`ScheduleCard`), and a dialog for manually editing a day's events
+(:class:`ManageScheduleDialog`). :class:`CalendarPage` is the top-level page
+widget that wires the grid, side panel, header actions (import/export/template
+download/new booking) and asynchronous month-data loading together.
+
+Data is fetched from ``utils.repository`` (keyed by ``(year, month, day)``) and
+loaded off the UI thread via ``utils.data_loader.run_async`` so month
+navigation never blocks the interface. Daily capacity is capped at 600 pax,
+which drives the colour-coded fullness indicators throughout the page.
+"""
+
 import calendar
 from datetime import datetime, date as date_type
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFrame,
@@ -16,15 +31,32 @@ from utils.data_loader import run_async
 
 
 class AnimatedCard(QFrame):
+    """Base card frame styled via the ``#card`` object name in the app QSS."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("card")
 
 # --- HELPER: Clickable Day Cell ---
 class DayCell(QFrame):
-    clicked = Signal(int) 
+    """A single clickable day tile in the month grid.
+
+    Displays the day number, a colour-coded total-pax tag, and a stack of
+    per-event labels. Emits :attr:`clicked` (carrying the day-of-month int)
+    when a populated in-month cell is pressed. Out-of-month / filler cells
+    (``day_num == 0`` or ``is_current_month=False``) render as inert blanks.
+    """
+
+    # Emitted with the day-of-month number when the cell is clicked.
+    clicked = Signal(int)
 
     def __init__(self, day_num, is_current_month=True, parent=None):
+        """Build the tile for ``day_num``.
+
+        :param day_num: Day of month (0 marks an empty filler cell).
+        :param is_current_month: False for leading/trailing days shown as blanks.
+        :param parent: Optional Qt parent widget.
+        """
         super().__init__(parent)
         self.day_num = day_num
         self.is_current_month = is_current_month
@@ -38,10 +70,13 @@ class DayCell(QFrame):
         self.layout.setSpacing(2)
 
         if not is_current_month or day_num == 0:
-            # Empty filler cell
+            # Empty filler cell (padding days from adjacent months) — no header,
+            # no events box, and rendered invisible so the grid stays aligned.
             self.setStyleSheet("background: transparent; border: none;")
         else:
             self.setObjectName("dayCell")
+            # "active" drives the selected-day highlight via QSS; toggled in
+            # CalendarPage.on_day_clicked and re-polished to force a repaint.
             self.setProperty("active", False)
             
             # Top Header Row: Day Number (left) & Pax Tag (right)
@@ -70,13 +105,24 @@ class DayCell(QFrame):
             self.layout.addStretch()
 
     def set_events(self, events):
+        """Populate the cell with a day's bookings.
+
+        Sums the pax across ``events`` to colour the header tag (green/gold/red
+        by fullness against the 600-pax cap), clears any previously rendered
+        rows, then adds one label per event with sizing that scales down as the
+        event count grows. No-op for filler cells or empty ``events``.
+
+        :param events: List of event dicts (keys like ``pax``, ``occasion``,
+            ``time``, ``color_theme``) for this day.
+        """
         if not self.is_current_month or self.day_num == 0 or not events:
             return
 
         total_pax = sum(int(e.get("pax", 0) or 0) for e in events)
         d_count = len(events)
 
-        # 1. Update Header Pax Tag on the top right
+        # 1. Update Header Pax Tag on the top right; colour by capacity band so
+        #    near-full (400+) and fully-booked (600) days read at a glance.
         self.lbl_pax_tag.setText(f"{total_pax}p")
         self.lbl_pax_tag.show()
         if total_pax >= 600:
@@ -92,18 +138,23 @@ class DayCell(QFrame):
             if item.widget():
                 item.widget().deleteLater()
 
-        # Display ALL booking items without truncating or hiding behind +X more
+        # Display ALL booking items without truncating or hiding behind +X more.
+        # Fallback palette cycles per-event when a booking has no explicit colour.
         border_colors = ["#38BDF8", "#F59E0B", "#34D399", "#A855F7", "#F43F5E", "#06B6D4", "#EC4899"]
         N = len(events)
+        # Denser layouts as more events share one cell: 3+ = compact, 5+ = ultra
+        # (single-line rows) so many bookings still fit without overflow.
         is_compact = (N >= 3)
         is_ultra = (N >= 5)
 
         for idx, ev in enumerate(events):
+            # Occasion/name is resolved from several possible keys; upper-cased for the tag.
             occ = str(ev.get("occasion") or ev.get("name") or ev.get("customer_name") or "EVENT").strip().upper()
             t_raw = ev.get("time") or ev.get("event_time") or ""
             t_short = self._format_time_short(t_raw)
             pax = int(ev.get("pax", 0) or 0)
 
+            # Prefer a booking's own colour; otherwise cycle the fallback palette.
             b_col = ev.get("color_theme") or ev.get("color") or border_colors[idx % len(border_colors)]
             title_txt = f"{occ} {t_short}".strip()
 
@@ -144,6 +195,16 @@ class DayCell(QFrame):
             self.events_box.addWidget(item_lbl)
 
     def set_data(self, total_pax, booking_count, events=None):
+        """Populate the cell from pre-aggregated totals or a full event list.
+
+        When ``events`` is given it defers to :meth:`set_events` (full render);
+        otherwise it only shows the summary pax tag from ``total_pax`` when
+        ``booking_count`` is positive. No-op for filler cells.
+
+        :param total_pax: Aggregate pax for the day (used in summary mode).
+        :param booking_count: Number of bookings; <= 0 renders nothing.
+        :param events: Optional full event list to render in detail.
+        """
         if events is not None:
             self.set_events(events)
         else:
@@ -154,11 +215,22 @@ class DayCell(QFrame):
 
     @staticmethod
     def _format_time_short(t_raw) -> str:
+        """Normalise a time value to a compact tag string (e.g. ``6PM``).
+
+        Accepts either a ``datetime``/``time`` object or a string in one of
+        several common formats, parses it, then strips leading zeros, the
+        ``:00`` minutes, and spaces to keep the calendar tile tag short.
+
+        :param t_raw: Raw time (object or string); falsy returns ``""``.
+        :returns: Upper-cased compact time label, or ``""`` if unparseable/empty.
+        """
         if not t_raw:
             return ""
         if hasattr(t_raw, "strftime"):
+            # Already a datetime/time object — format directly.
             s = t_raw.strftime("%I:%M %p").lstrip("0")
         else:
+            # String input: try each known format until one parses.
             s = str(t_raw).strip()
             for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M%p"):
                 try:
@@ -167,18 +239,45 @@ class DayCell(QFrame):
                     break
                 except ValueError:
                     continue
+        # Collapse ":00" and whitespace so "6:00 PM" -> "6PM" for tight tiles.
         return s.replace(":00 ", " ").replace(" ", "").upper()
 
     def mousePressEvent(self, event):
+        """Emit :attr:`clicked` for real in-month days; ignore filler cells."""
         if self.is_current_month and self.day_num != 0:
             self.clicked.emit(self.day_num)
             super().mousePressEvent(event)
 
 # --- HELPER: Schedule Item Card ---
 class ScheduleCard(AnimatedCard):
+    """Side-panel card summarising one event for the selected day.
+
+    Shows the event name, pax badge, and (for repository-sourced bookings) a
+    reference, status dot, and payment state; plus time, venue, and optional
+    theme/notes. The left border colour distinguishes booking vs. manual
+    entries (or uses an explicit ``color_theme``).
+    """
+
     def __init__(self, event_name, pax, time, location, source="manual", ref=None, status=None,
                  theme_notes=None, balance=0.0, total_amount=0.0, amount_paid=0.0, color_theme=None, parent=None):
+        """Build the schedule card.
+
+        :param event_name: Event/occasion title.
+        :param pax: Guest count shown in the badge.
+        :param time: Time string; reformatted to AM/PM if not already ranged/tagged.
+        :param location: Venue text.
+        :param source: ``"booking"`` (from repository) or ``"manual"`` — sets default border.
+        :param ref: Booking reference, shown only for booking-sourced cards.
+        :param status: Booking status (CONFIRMED/PENDING/COMPLETED) driving the status dot colour.
+        :param theme_notes: Optional theme/notes line (hidden if empty or "Standard Setup").
+        :param balance: Outstanding balance; drives the payment badge.
+        :param total_amount: Total contract amount; payment badge only shown when > 0.
+        :param amount_paid: Amount already paid; distinguishes partial vs. unpaid.
+        :param color_theme: Explicit left-border colour override.
+        :param parent: Optional Qt parent widget.
+        """
         super().__init__(parent)
+        # Explicit theme wins; else blue for bookings, brand red for manual entries.
         border_color = color_theme if color_theme else ("#3B82F6" if source == "booking" else "#E11D48")
         self.setStyleSheet(f"QFrame#card {{ border-left: 4px solid {border_color}; border-radius: 8px; }}")
 
@@ -209,8 +308,10 @@ class ScheduleCard(AnimatedCard):
                 meta_row.addWidget(st_lbl)
             meta_row.addStretch()
 
+            # Payment badge only makes sense when a contract total exists.
             if total_amount > 0:
                 if balance <= 0:
+                    # Nothing owed -> fully paid.
                     pay_lbl = QLabel("✓ Fully Paid")
                     pay_lbl.setStyleSheet("font-size:10px;font-weight:700;color:#22C55E;background:rgba(34,197,94,0.12);padding:2px 6px;border-radius:4px;")
                 elif amount_paid > 0:
@@ -223,6 +324,8 @@ class ScheduleCard(AnimatedCard):
 
             layout.addLayout(meta_row)
 
+        # Only reformat when the value isn't already a range or AM/PM string,
+        # so pre-formatted times pass through untouched.
         disp_time = str(time).strip()
         if " – " not in disp_time and not ("AM" in disp_time.upper() or "PM" in disp_time.upper()):
             disp_time = repo.format_time_ampm(disp_time, default="To be followed")
@@ -242,18 +345,33 @@ class ScheduleCard(AnimatedCard):
 
 # --- MANAGE DAY SCHEDULE DIALOG ---
 class ManageScheduleDialog(QDialog):
+    """Modal dialog for adding/removing the manual events of a single day.
+
+    Presents the day's current events with delete buttons and a form to append
+    new ones. On save it exposes the edited list via :meth:`get_result`; the
+    caller persists only the manual entries. The events list is copied on init
+    so edits are discarded if the dialog is cancelled.
+    """
+
     def __init__(self, parent=None, date_str="", events=None):
+        """Set up a frameless, translucent modal for ``date_str``.
+
+        :param parent: Optional Qt parent widget.
+        :param date_str: Human-readable date shown in the header.
+        :param events: Existing events for the day (copied; ``None`` -> empty).
+        """
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(480)
         self.setModal(True)
-        self._events = list(events or [])
-        self._result = None
+        self._events = list(events or [])  # working copy; committed only on save
+        self._result = None                # populated by _save, read by get_result
         self._date_str = date_str
         self._build_ui()
 
     def _build_ui(self):
+        """Construct the dialog's card, event list, add-event form, and buttons."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
@@ -335,6 +453,11 @@ class ManageScheduleDialog(QDialog):
         outer.addWidget(container)
 
     def _refresh_events(self):
+        """Re-render the editable event rows from ``self._events``.
+
+        Clears the layout (removing widgets so it shrinks), then rebuilds one
+        row per event with a delete button, or a placeholder when empty.
+        """
         while self._events_layout.count():
             item = self._events_layout.takeAt(0)
             if item.widget():
@@ -355,6 +478,7 @@ class ManageScheduleDialog(QDialog):
             del_btn.setFixedSize(26, 26)
             del_btn.setStyleSheet("background: transparent; border: none;")
             del_btn.setCursor(Qt.PointingHandCursor)
+            # Bind the current index via default arg so each row deletes itself.
             del_btn.clicked.connect(lambda _, idx=i: self._remove_event(idx))
             row.addWidget(info)
             row.addWidget(del_btn)
@@ -363,6 +487,11 @@ class ManageScheduleDialog(QDialog):
             self._events_layout.addWidget(w)
 
     def _add_event(self):
+        """Validate the form and append a new manual event, then reset inputs.
+
+        Requires a name and a numeric pax; on failure it surfaces an inline
+        error and leaves the form intact.
+        """
         name = self._name_f.text().strip()
         pax_text = self._pax_f.text().strip()
         if not name or not pax_text:
@@ -372,6 +501,7 @@ class ManageScheduleDialog(QDialog):
         try:
             pax = int(pax_text)
         except ValueError:
+            # Non-numeric pax — reject with an inline message.
             self._err.setText("Pax must be a number.")
             self._err.show()
             return
@@ -388,27 +518,45 @@ class ManageScheduleDialog(QDialog):
         self._refresh_events()
 
     def _remove_event(self, idx):
+        """Delete the event at ``idx`` (bounds-checked) and re-render the list."""
         if 0 <= idx < len(self._events):
             self._events.pop(idx)
             self._refresh_events()
 
     def _save(self):
+        """Commit the working copy to ``self._result`` and accept the dialog."""
         self._result = list(self._events)
         self.accept()
 
     def get_result(self):
+        """Return the saved event list, or ``None`` if the dialog was cancelled."""
         return self._result
 
 
 # --- MAIN PAGE ---
 class CalendarPage(QWidget):
+    """Top-level booking-calendar page (month grid + day schedule side panel).
+
+    Owns the month navigation state (:attr:`current_year`/:attr:`current_month`),
+    a ``(year, month, day) -> [events]`` cache (:attr:`_db_cache`), and the
+    header actions (template download, import, PDF export, new booking). Month
+    data is loaded asynchronously and re-fetched whenever app-wide booking
+    signals fire (see :meth:`_mark_dirty`). A ``_dirty`` flag defers reloads
+    until the page is actually shown.
+    """
+
     def __init__(self, parent=None):
+        """Build the header, calendar grid, and schedule side panel, then wire
+        data-refresh signals and trigger the initial render.
+
+        :param parent: Optional Qt parent widget.
+        """
         super().__init__(parent)
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(40, 40, 40, 40)
         main_layout.setSpacing(32)
 
-        # Determine current real-world date
+        # Determine current real-world date to seed the visible month.
         today = datetime.now()
         self.current_year = today.year
         self.current_month = today.month
@@ -530,6 +678,7 @@ class CalendarPage(QWidget):
             lbl.setStyleSheet("font-weight: 800; color: #64748B; font-size: 12px; padding: 10px 0px;")
             self.grid.addWidget(lbl, 0, col)
 
+        # Maps (year, month, day) -> list of event dicts for the loaded month.
         self._db_cache: dict = {}
 
         cal_layout.addLayout(self.grid)
@@ -618,12 +767,14 @@ class CalendarPage(QWidget):
         split_layout.addWidget(self.side_panel, 3) 
         main_layout.addLayout(split_layout)
 
-        self._selected_day = None
+        self._selected_day = None  # day-of-month currently shown in side panel
 
-        self.cells = []
-        self._dirty = True
+        self.cells = []       # DayCell widgets for the current month grid
+        self._dirty = True    # forces a data reload on first showEvent
         self.render_calendar()
 
+        # Any booking/payment/sync change elsewhere marks the calendar stale
+        # and triggers a reload so the grid stays in sync app-wide.
         try:
             from utils.signals import app_events
             app_events().booking_saved.connect(self._mark_dirty)
@@ -639,22 +790,34 @@ class CalendarPage(QWidget):
         self._loader = LoadingOverlay(self, "Loading calendar schedule & events...")
 
     def _mark_dirty(self):
+        """Signal slot: flag stale data and reload the visible month."""
         self._dirty = True
         self.reload()
 
     def refresh_permissions(self):
+        """Show/hide the 'Manage Day Schedule' button per the user's rights.
+
+        Visible only when the current user may create or edit bookings.
+        """
         from utils.auth import SessionManager
         can_manage = SessionManager.has_permission("bookings", "create") or SessionManager.has_permission("bookings", "edit")
         if hasattr(self, "_btn_manage"):
             self._btn_manage.setVisible(can_manage)
 
     def showEvent(self, event):
+        """On show, re-check permissions and reload data if marked dirty."""
         super().showEvent(event)
         self.refresh_permissions()
         if getattr(self, "_dirty", True):
             self.reload()
 
     def reload(self, sync: bool = False):
+        """Refresh the current month's events from the repository.
+
+        :param sync: When True, fetch on the calling (UI) thread and render
+            immediately; otherwise fetch off-thread via ``run_async`` so the UI
+            stays responsive. Clears the dirty flag and shows the loading overlay.
+        """
         self._dirty = False
         self.refresh_permissions()
         year = self.current_year
@@ -662,14 +825,24 @@ class CalendarPage(QWidget):
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading calendar schedule & events...")
         if sync:
+            # Blocking path (used when caller needs the data settled at once).
             month_events = repo.get_calendar_events_for_month(year, month)
             self._on_month_data_loaded(month_events)
             return
         run_async(self, lambda: repo.get_calendar_events_for_month(year, month), self._on_month_data_loaded)
 
     def _on_month_data_loaded(self, month_events):
+        """Completion callback: swap in fetched month data and re-render.
+
+        Guards against the widget having been destroyed mid-fetch, repopulates
+        :attr:`_db_cache`, redraws the grid, re-opens the previously selected
+        day (if any), and always hides the loading overlay.
+
+        :param month_events: ``{(y, m, d): [events]}`` mapping (or falsy).
+        """
         try:
             from shiboken6 import isValid
+            # Async result may arrive after the page is torn down — bail safely.
             if not isValid(self):
                 return
             self._db_cache.clear()
@@ -685,6 +858,7 @@ class CalendarPage(QWidget):
     # CALENDAR LOGIC
     # ==========================================
     def go_prev_month(self):
+        """Step back one month (wrapping year at January) and reload."""
         self.current_month -= 1
         if self.current_month < 1:
             self.current_month = 12
@@ -692,6 +866,7 @@ class CalendarPage(QWidget):
         self.reload()
 
     def go_next_month(self):
+        """Step forward one month (wrapping year at December) and reload."""
         self.current_month += 1
         if self.current_month > 12:
             self.current_month = 1
@@ -699,17 +874,26 @@ class CalendarPage(QWidget):
         self.reload()
 
     def go_today(self):
+        """Jump the view back to the real-world current month and reload."""
         today = datetime.now()
         self.current_year = today.year
         self.current_month = today.month
         self.reload()
 
     def render_calendar(self):
+        """Rebuild the month grid from :attr:`_db_cache`.
+
+        Updates the month label and totals badge, clears old cells, then lays
+        out a Sunday-first grid of :class:`DayCell` widgets — attaching events
+        and the click handler for in-month days — and sets row/column stretch
+        so the grid fills the container evenly.
+        """
         # Update Header Label & Stats
         month_name = calendar.month_name[self.current_month]
         self.month_lbl.setText(f"{month_name} {self.current_year}")
 
-        # Compute total bookings and pax for this month
+        # Compute total bookings and pax for this month by summing cache entries
+        # whose key matches the visible year/month.
         total_m_bookings = 0
         total_m_pax = 0
         for (y, m, d), ev_list in self._db_cache.items():
@@ -724,21 +908,22 @@ class CalendarPage(QWidget):
         # Hide side panel on month change
         self.side_panel.setVisible(False)
 
-        # Clear existing cells (skip row 0 headers)
+        # Clear existing cells (row 0 holds the SUN..SAT headers, left intact).
         for cell in self.cells:
             self.grid.removeWidget(cell)
             cell.deleteLater()
         self.cells.clear()
 
-        # Generate new month grid
+        # Generate new month grid (Sunday-first to match the day headers).
         calendar.setfirstweekday(calendar.SUNDAY)
         month_days = calendar.monthcalendar(self.current_year, self.current_month)
 
-        row = 1
+        row = 1  # row 0 is the weekday header row
         for week in month_days:
             for col, day_num in enumerate(week):
+                # day_num == 0 marks padding days -> inert filler cell.
                 cell = DayCell(day_num, is_current_month=(day_num != 0))
-                
+
                 db_key = (self.current_year, self.current_month, day_num)
                 if db_key in self._db_cache:
                     events = self._db_cache[db_key]
@@ -750,14 +935,22 @@ class CalendarPage(QWidget):
             self.grid.setRowStretch(row, 1)
             row += 1
 
+        # Equal column stretch keeps all seven weekday columns the same width.
         for c_idx in range(7):
             self.grid.setColumnStretch(c_idx, 1)
 
     def _open_booking_modal(self):
+        """Open the full booking-creation modal dialog."""
         modal = BookingModal(self)
         modal.exec()
 
     def _open_manage_schedule(self):
+        """Open :class:`ManageScheduleDialog` for the selected day and persist edits.
+
+        Passes the day's current events, and on accept saves only the manual
+        entries (repository-sourced bookings are managed elsewhere), then
+        reloads the month. No-op if no day is selected.
+        """
         if self._selected_day is None:
             return
         month_name = calendar.month_name[self.current_month]
@@ -769,6 +962,7 @@ class CalendarPage(QWidget):
             updated = dlg.get_result()
             if updated is not None:
                 event_date = date_type(self.current_year, self.current_month, self._selected_day)
+                # Persist only manual events; booking-sourced rows come from the DB.
                 manual_only = [e for e in updated if e.get("source", "manual") == "manual"]
                 try:
                     repo.save_calendar_day(event_date, manual_only)
@@ -778,7 +972,16 @@ class CalendarPage(QWidget):
                 success(self, message=f"Schedule for {date_str} updated successfully.")
 
     def on_day_clicked(self, day_num):
-        # Reset visual states
+        """Select ``day_num``: highlight its cell and fill the schedule side panel.
+
+        Resets the active highlight across all cells, marks the clicked one
+        active, updates the panel date/capacity readout, rebuilds the schedule
+        cards (or an empty-state label), toggles the manage button by
+        permission, and reveals the side panel.
+
+        :param day_num: Day-of-month that was clicked.
+        """
+        # Reset visual states (clear the previous selection highlight).
         for cell in self.cells:
             if cell.day_num != 0:
                 cell.setProperty("active", False)
@@ -808,7 +1011,7 @@ class CalendarPage(QWidget):
             if item and item.widget():
                 item.widget().deleteLater()
 
-        # Load events
+        # Load events for the clicked day from the month cache.
         db_key = (self.current_year, self.current_month, day_num)
         if db_key in self._db_cache:
             events = self._db_cache[db_key]
@@ -839,11 +1042,12 @@ class CalendarPage(QWidget):
         self.side_panel.setVisible(True)
 
     def _download_template(self):
+        """Prompt for a path and write a blank bookings import template (xlsx/csv)."""
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Booking Template", "jayraldines_booking_template.xlsx", "Excel Spreadsheet (*.xlsx);;CSV Files (*.csv)"
         )
         if not path:
-            return
+            return  # user cancelled the save dialog
         err = _importer.generate_sample_csv("bookings", path)
         if not err:
             prompt_file_saved(self, path, title="Template Saved", message="Booking template saved successfully. Fill in your bookings and import them anytime.")
@@ -851,12 +1055,14 @@ class CalendarPage(QWidget):
             QMessageBox.warning(self, "Save Failed", f"Could not generate booking template: {err}")
 
     def _open_import_dialog(self):
+        """Launch the bookings import wizard; reload the month if it completes."""
         from components.import_dialog import ImportWizardDialog
         dlg = ImportWizardDialog(parent=self, default_entity="bookings")
         if dlg.exec():
             self.reload()
 
     def _export_pdf(self):
+        """Open the calendar PDF export dialog seeded with the current month/business."""
         from components.calendar_export_dialog import CalendarExportDialog
         biz = repo.get_business_info()
         biz_name = biz.get("name", "Jayraldine's Catering")
