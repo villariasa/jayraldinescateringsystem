@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
 from components.dialogs import confirm, success
 import utils.repository as repo
+from utils.text_highlight import highlight_html
 
 _UNITS = ['kg', 'g', 'L', 'mL', 'pcs', 'packs', 'trays', 'boxes']
 
@@ -219,6 +220,7 @@ class InventoryPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._items = repo.get_all_inventory()
+        self._search_query = ""
         self._build_ui()
         self._populate_table()
 
@@ -300,7 +302,8 @@ class InventoryPage(QWidget):
         # Col 1: Ingredient & Unit
         c1 = QVBoxLayout()
         c1.setSpacing(2)
-        name_lbl = QLabel(item["ingredient"])
+        name_lbl = QLabel(highlight_html(item.get("ingredient", ""), getattr(self, "_search_query", "")))
+        name_lbl.setTextFormat(Qt.RichText)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
         unit_lbl = QLabel(f"Unit: {item['unit']}")
         unit_lbl.setObjectName("subtitle")
@@ -410,6 +413,7 @@ class InventoryPage(QWidget):
         success(self, message="Inventory item deleted successfully.")
 
     def filter_search(self, text):
-        q = text.lower()
+        self._search_query = (text or "").strip()
+        q = self._search_query.lower()
         filtered = [i for i in self._items if q in i["ingredient"].lower() or q in i["unit"].lower()]
         self._populate_table(filtered)
