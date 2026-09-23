@@ -1,3 +1,39 @@
+"""
+ui/menu_page.py — Menu & Packages management screen for the Jayraldine's
+Catering desktop app (PySide6/Qt).
+
+This module provides the "Menu" page and all the modal dialogs used to
+maintain the catering menu. It has two top-level responsibilities:
+
+1. Dialogs (QDialog subclasses) for creating/editing data:
+   - MenuItemDialog        : add/edit a single dish (with photo upload).
+   - AddMenuItemDialog     : a slimmer add-only dish dialog (no image).
+   - QuickAddDishDialog    : create a dish on the fly and persist it immediately.
+   - PackageDialog         : add/edit a catering package (photo, price/pax,
+                             min pax, included menu items, and "selection
+                             buckets" that cap how many items a customer can
+                             pick per category).
+   - PackageItemsPickerDialog : modal dish picker used inside PackageDialog.
+   - AddMultipleMenuItemsDialog / AddMultiplePackagesDialog : spreadsheet-style
+                             bulk entry grids.
+
+2. MenuPage (QWidget) — the page itself, with a "Menu Items" tab and a
+   "Packages" tab. Key concerns handled here:
+   - Lazy, paginated, batched card rendering (to keep the UI responsive with
+     large lists), mirroring the approach in billing_page.py.
+   - Coalescing of overlapping reloads and deferral of reloads while the user
+     is actively searching.
+   - Role/permission-aware UI (create/edit/delete gated via SessionManager).
+   - Multi-select + batch delete for both items and packages.
+   - CSV export / import and Excel template download.
+
+Image handling: uploaded images are copied under assets/images/<subfolder>/
+and stored as relative paths in the shared DB. Because the DB is shared across
+LAN clients, an image saved on one machine may not exist locally on another;
+helpers here transparently fetch such images from the LAN sync server and
+cache them to disk (see _fetch_and_cache_remote_image / load_item_pixmap).
+"""
+
 import os
 import shutil
 import time
@@ -21,6 +57,9 @@ import utils.menu_store as menu_store
 import utils.repository as repo
 from utils.data_loader import run_async
 
+# Fixed choice lists used to populate combo boxes across the dialogs. Unlike
+# menu categories (which are user-editable via Settings, see _get_categories),
+# these package tiers and availability statuses are hardcoded.
 _PACKAGES   = ["Budget", "Standard", "Premium", "Custom"]
 _STATUSES   = ["Available", "Unavailable", "Out of Stock", "Seasonal"]
 
@@ -38,16 +77,32 @@ def _get_categories() -> list[str]:
 
 
 def save_uploaded_image(file_path: str, subfolder: str = "menu") -> str:
-    """Copies an image into assets/images/<subfolder>/ and returns the relative path."""
+    """Copies an image into assets/images/<subfolder>/ and returns the relative path.
+
+    Params:
+        file_path: absolute (or already-relative) path to the source image the
+            user picked. An empty string or a non-existent path is returned
+            unchanged (nothing to copy).
+        subfolder: bucket under assets/images/ to copy into (e.g. "menu",
+            "packages"); also used as the copied file's name prefix.
+
+    Returns the project-relative, forward-slash path to store in the DB, or the
+    original path on failure. Relative (forward-slash) paths keep the DB
+    portable across machines/OSes.
+    """
     if not file_path:
         return ""
     if not os.path.exists(file_path):
         return file_path
 
+    # Resolve the project root (this file lives in ui/, so go up two levels).
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     target_dir = os.path.join(base_dir, "assets", "images", subfolder)
     os.makedirs(target_dir, exist_ok=True)
 
+    # If the file already lives inside the project tree, don't re-copy it —
+    # just store its existing relative path. (rel starting with ".." means the
+    # file is outside the project and does need to be copied in.)
     try:
         rel = os.path.relpath(file_path, base_dir)
         if not rel.startswith(".."):
@@ -55,6 +110,8 @@ def save_uploaded_image(file_path: str, subfolder: str = "menu") -> str:
     except Exception:
         pass
 
+    # Generate a collision-proof filename using a millisecond timestamp so two
+    # uploads in the same second don't overwrite each other.
     ext = os.path.splitext(file_path)[1].lower() or ".png"
     clean_name = f"{subfolder}_{int(time.time() * 1000)}{ext}"
     target_path = os.path.join(target_dir, clean_name)
@@ -71,7 +128,15 @@ def _fetch_and_cache_remote_image(rel_path: str, local_target: str) -> bytes | N
     uploaded/saved on a different machine (e.g. tablet or another desktop
     client) and therefore doesn't exist on this machine's disk yet, even
     though the shared DB already has its relative path. Caches the bytes
-    locally so future loads don't need the network."""
+    locally so future loads don't need the network.
+
+    Params:
+        rel_path: project-relative image path stored in the DB.
+        local_target: absolute path where the fetched bytes should be cached.
+
+    Returns the raw image bytes, or None if there's no sync server configured
+    or the download failed. Caching failures are swallowed (best-effort).
+    """
     try:
         from utils.client_sync import get_server_url
         server_url = get_server_url()
@@ -101,7 +166,14 @@ def _fetch_and_cache_remote_image(rel_path: str, local_target: str) -> bytes | N
 
 
 def load_item_pixmap(image_path: str, size: int = 48) -> QPixmap:
-    """Loads a QPixmap from relative or absolute image path, scaled nicely."""
+    """Loads a QPixmap from a relative or absolute image path, scaled to `size`.
+
+    Resolves relative paths against the project root, and if the file isn't on
+    this machine's disk falls back to fetching it from the LAN sync server
+    (see _fetch_and_cache_remote_image). Returns an empty QPixmap if the image
+    can't be found or decoded. Scaling uses KeepAspectRatioByExpanding so the
+    thumbnail fully fills the target square.
+    """
     if not image_path:
         return QPixmap()
     full_path = image_path
@@ -114,6 +186,8 @@ def load_item_pixmap(image_path: str, size: int = 48) -> QPixmap:
             return pm.scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
         return QPixmap()
 
+    # File not present locally — try the LAN server (another client may have
+    # uploaded it) and decode the returned bytes in memory.
     data = _fetch_and_cache_remote_image(image_path, full_path)
     if data:
         pm = QPixmap()
@@ -123,20 +197,32 @@ def load_item_pixmap(image_path: str, size: int = 48) -> QPixmap:
 
 
 class MenuItemDialog(QDialog):
+    """Add/Edit dialog for a single menu item (dish), including photo upload.
+
+    Passing `item_data` (a dict) switches the dialog into edit mode and
+    pre-fills every field; passing None makes it an add dialog. The dialog does
+    NOT persist anything itself — on save it stashes a result dict retrievable
+    via get_result(); the caller performs the repo write.
+    """
     def __init__(self, parent=None, item_data=None):
         super().__init__(parent)
+        # Edit vs. add is inferred purely from whether existing data was passed.
         self._edit_mode = item_data is not None
         self._item_data = item_data or {}
         self._image_path = self._item_data.get("image", "") or ""
         self.setWindowTitle("Edit Menu Item" if self._edit_mode else "Add Menu Item")
+        # Frameless + translucent so the custom rounded "card" frame provides
+        # the entire visible chrome (the OS title bar is hidden).
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(440)
         self.setModal(True)
-        self._result = None
+        self._result = None   # populated on successful _save()
         self._build_ui()
 
     def _build_ui(self):
+        """Constructs the dialog's card layout: header, form fields, image
+        upload row, error label, and Cancel/Save buttons."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
@@ -278,6 +364,9 @@ class MenuItemDialog(QDialog):
         outer.addWidget(container)
 
     def _update_preview(self):
+        """Refreshes the small image thumbnail. Shows the picked/loaded image
+        (with the remove button) if one resolves, otherwise a dashed
+        'No Image' placeholder."""
         if self._image_path:
             pm = load_item_pixmap(self._image_path, size=54)
             if not pm.isNull():
@@ -292,6 +381,8 @@ class MenuItemDialog(QDialog):
             self.remove_img_btn.hide()
 
     def _browse_image(self):
+        """Opens a file picker and stores the chosen image path (not yet copied
+        into the project — that happens on save)."""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Dish Image",
@@ -303,16 +394,21 @@ class MenuItemDialog(QDialog):
             self._update_preview()
 
     def _remove_image(self):
+        """Clears the selected image and refreshes the preview to the placeholder."""
         self._image_path = ""
         self._update_preview()
 
     def _save(self):
+        """Validates the required name field, copies the image into the project,
+        and builds the result dict; rejects (with an inline error) if empty."""
         name = self.item_field.text().strip()
         if not name:
             self._err.setText("Item name is required.")
             self._err.show()
             self.item_field.setStyleSheet("border: 1px solid #E11D48;")
             return
+        # Only touch the filesystem at save time (so a cancelled edit copies
+        # nothing). Empty path -> empty stored value.
         saved_img = save_uploaded_image(self._image_path, "menu") if self._image_path else ""
         self._result = {
             "item":        name,
@@ -326,10 +422,16 @@ class MenuItemDialog(QDialog):
         self.accept()
 
     def get_result(self):
+        """Returns the collected item dict after Accept, or None if cancelled."""
         return self._result
 
 
 class AddMenuItemDialog(QDialog):
+    """Slimmer add-only dialog for a menu item (no image, no description).
+
+    Like MenuItemDialog, it only builds a result dict (get_result); the caller
+    persists it. Kept separate from MenuItemDialog as a lighter add form.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add Menu Item")
@@ -341,6 +443,7 @@ class AddMenuItemDialog(QDialog):
         self._build_ui()
 
     def _build_ui(self):
+        """Builds the add-item card: header, form fields, error label, buttons."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
@@ -428,6 +531,7 @@ class AddMenuItemDialog(QDialog):
         outer.addWidget(container)
 
     def _save(self):
+        """Validates the name and stores the result dict (no image field)."""
         name = self.item_field.text().strip()
         if not name:
             self._err.setText("Item name is required.")
@@ -444,10 +548,17 @@ class AddMenuItemDialog(QDialog):
         self.accept()
 
     def get_result(self):
+        """Returns the collected item dict after Accept, or None if cancelled."""
         return self._result
 
 
 class QuickAddDishDialog(QDialog):
+    """Compact dialog to create a brand-new dish and persist it immediately.
+
+    Unlike the other dialogs, this one writes to the DB itself (repo.add_menu_item)
+    inside _save so the newly created dish gets an id and can be selected right
+    away — it's launched from PackageItemsPickerDialog's "+ New Dish" button.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add New Dish to Menu")
@@ -522,6 +633,8 @@ class QuickAddDishDialog(QDialog):
         outer.addWidget(card)
 
     def _save(self):
+        """Validates, writes the dish to the DB immediately, and (on success)
+        stores the persisted dish dict — including its new `id` — as the result."""
         name = self.f_name.text().strip()
         if not name:
             self.err_lbl.setText("Dish name is required.")
@@ -537,6 +650,7 @@ class QuickAddDishDialog(QDialog):
         }
         item_id = repo.add_menu_item(data)
         if item_id:
+            # Attach the DB-assigned id so callers can pre-select this dish.
             data["id"] = item_id
             self._result = data
             self.accept()
@@ -545,10 +659,26 @@ class QuickAddDishDialog(QDialog):
             self.err_lbl.show()
 
     def get_result(self):
+        """Returns the newly-created (and already-persisted) dish dict, or None."""
         return self._result
 
 
 class PackageDialog(QDialog):
+    """Add/Edit dialog for a catering package.
+
+    Besides the basic fields (name, price/pax, min pax, description, photo) this
+    dialog manages two richer structures:
+      - Included menu items: a {menu_item_id: custom_price} map chosen via the
+        PackageItemsPickerDialog modal (get_result returns them as a list).
+      - Selection buckets: rows that group menu categories and cap how many
+        items a customer may pick from that group. A hard invariant is enforced
+        that no category belongs to more than one bucket (see
+        _on_bucket_categories_changed).
+
+    Passing `pkg_data` enables edit mode and seeds fields, selected items, and
+    buckets from the repo. Like the other dialogs, it only builds a result dict;
+    the caller persists items/buckets via repo.set_package_items/buckets.
+    """
     def __init__(self, parent=None, pkg_data=None):
         super().__init__(parent)
         self._edit_mode = pkg_data is not None
@@ -560,6 +690,8 @@ class PackageDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
 
+        # Size the (large, two-column) dialog relative to the available screen,
+        # clamped so it stays usable on both small and very large displays.
         from PySide6.QtWidgets import QApplication
         screen = QApplication.primaryScreen()
         if screen:
@@ -575,20 +707,24 @@ class PackageDialog(QDialog):
 
         self._result = None
         self._selected_items = {}      # {menu_item_id: custom_price}
-        self._bucket_rows = []
-        self._cat_cache = None
-        self._all_items = []
+        self._bucket_rows = []         # list of per-bucket widget/state dicts
+        self._cat_cache = None         # lazily-cached list of menu categories
+        self._all_items = []           # full menu catalog (for counts/picker)
         self._category_counts = {}     # {category_lower: available item count}
         self._excl_lock = False        # reentrancy guard for category exclusivity
-        self._load_catalog()
+        self._load_catalog()           # populate catalog + seed selections (edit)
         self._build_ui()
-        self._load_buckets()
+        self._load_buckets()           # seed bucket rows (edit mode only)
 
     def showEvent(self, event):
+        """Runs the open animation (fade/scale) and centers the dialog on first show."""
         super().showEvent(event)
         animate_dialog_open(self, duration=240, auto_center=True)
 
     def _build_ui(self):
+        """Builds the two-column package editor: left = photo preview + upload
+        strip; right = fields, the included-items picker launcher, and the
+        selection-buckets editor; plus the Cancel/Save footer."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(12, 12, 12, 12)
 
@@ -851,9 +987,13 @@ class PackageDialog(QDialog):
         return sum(self._category_counts.get(str(c).strip().lower(), 0) for c in categories)
 
     def _update_count_badge(self):
+        """Updates the 'N selected' badge next to the Included Menu Items header."""
         self._count_badge.setText(f"{len(self._selected_items)} selected")
 
     def _open_items_picker(self):
+        """Opens the modal dish picker; on accept, adopts its selection and
+        refreshes category counts/bucket caps (a new dish may have been created
+        inside the picker)."""
         dlg = PackageItemsPickerDialog(self, self._all_items, dict(self._selected_items))
         if dlg.exec() == QDialog.Accepted:
             self._selected_items = dlg.get_selection()
@@ -863,6 +1003,9 @@ class PackageDialog(QDialog):
             self._refresh_bucket_limits()
 
     def _load_catalog_counts_only(self):
+        """Re-fetches the full menu and recomputes per-category counts, WITHOUT
+        touching the current selection (used after the picker may have added a
+        dish)."""
         try:
             self._all_items = repo.get_all_menu_items() or []
         except Exception:
@@ -874,9 +1017,12 @@ class PackageDialog(QDialog):
         self._category_counts = counts
 
     def _refresh_bucket_limits(self):
+        """Re-run bucket coordination so each bucket's max-qty cap reflects the
+        latest category counts."""
         self._on_bucket_categories_changed()
 
     def _menu_categories(self):
+        """Returns the list of menu categories, cached after the first DB read."""
         if self._cat_cache is None:
             try:
                 self._cat_cache = repo.get_all_menu_categories() or []
@@ -885,6 +1031,9 @@ class PackageDialog(QDialog):
         return self._cat_cache
 
     def _update_bucket_cat_label(self, btn, menu):
+        """Refreshes a bucket's category-dropdown button text/tooltip to reflect
+        which categories are currently checked (collapses to a count when the
+        joined names would be too long)."""
         checked = [a.text() for a in menu.actions() if a.isChecked()]
         if checked:
             btn.setText(f"{', '.join(checked)}  ▾" if len(", ".join(checked)) <= 32 else f"Categories ({len(checked)}) ▾")
@@ -894,6 +1043,15 @@ class PackageDialog(QDialog):
             btn.setToolTip("Pick which menu categories this limit applies to")
 
     def _add_bucket_row(self, name="", limit=1, categories=None):
+        """Adds one selection-bucket row to the buckets area.
+
+        A row = a multi-select category dropdown + a max-qty spinner + an
+        'of N available' label + a delete button. `name` is accepted for
+        signature symmetry with stored buckets but is not shown (bucket names
+        are auto-derived from their categories on save). `limit` seeds the max
+        qty; `categories` pre-checks categories in edit mode. Category toggles
+        are routed through the coordinator so exclusivity across buckets holds.
+        """
         from PySide6.QtWidgets import QToolButton, QMenu
         categories = categories or []
 
@@ -942,6 +1100,8 @@ class PackageDialog(QDialog):
         )
         rl.addWidget(del_btn)
 
+        # Bundle every widget/state this row needs so the coordinator can
+        # inspect and update it later without walking the layout tree.
         entry = {"widget": row, "limit": limit_spin, "menu": menu, "cat_btn": cat_btn, "avail": avail_lbl}
 
         def _sync():
@@ -1016,6 +1176,8 @@ class PackageDialog(QDialog):
                 sync()
 
     def _load_buckets(self):
+        """Edit mode: recreate a bucket row for each stored bucket, then run the
+        coordinator once so exclusivity/caps are correct from the start."""
         if self._edit_mode and self._pkg_id:
             try:
                 for b in repo.get_package_buckets(self._pkg_id):
@@ -1025,6 +1187,10 @@ class PackageDialog(QDialog):
             self._on_bucket_categories_changed()
 
     def _collect_buckets(self):
+        """Serializes the current bucket rows into a list of
+        {name, limit, categories} dicts for saving. Skips empty buckets, dedupes
+        categories across buckets (first wins), and auto-derives each bucket's
+        name from its category list (truncated if very long)."""
         out = []
         seen = set()   # categories already claimed by an earlier bucket
         for e in self._bucket_rows:
@@ -1068,6 +1234,10 @@ class PackageDialog(QDialog):
         return QPixmap()
 
     def _update_preview(self):
+        """Rescales and shows the package photo across the big holder and the
+        small thumbnail, or shows an empty-state prompt; also toggles the Remove
+        button. The big preview is fitted to the holder's current size so it
+        re-fits on resize (see resizeEvent)."""
         pm = self._raw_pixmap()
         has_img = not pm.isNull()
 
@@ -1098,6 +1268,8 @@ class PackageDialog(QDialog):
             self._img_chip.raise_()
 
     def resizeEvent(self, event):
+        """Re-fit the package preview whenever the dialog (and thus the image
+        holder) is resized."""
         super().resizeEvent(event)
         # Re-scale the big preview to the holder's new size.
         try:
@@ -1106,6 +1278,8 @@ class PackageDialog(QDialog):
             pass
 
     def _browse_image(self):
+        """Opens a file picker for the package photo (copied into the project on
+        save, not now)."""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Package Image",
@@ -1117,16 +1291,21 @@ class PackageDialog(QDialog):
             self._update_preview()
 
     def _remove_image(self):
+        """Clears the package photo and refreshes the preview."""
         self._image_path = ""
         self._update_preview()
 
     def _save(self):
+        """Validates the name, copies the photo, and builds the result dict —
+        including the selected items (as a list) and the collected buckets.
+        The caller persists items/buckets separately via repo.set_package_*."""
         name = self.name_field.text().strip()
         if not name:
             self._err.setText("Package name is required.")
             self._err.show()
             self.name_field.setStyleSheet("border: 1px solid #E11D48;")
             return
+        # Flatten the {id: price} selection map into the list shape the repo expects.
         selected_items = [
             {"menu_item_id": mid, "custom_price": price}
             for mid, price in self._selected_items.items()
@@ -1144,6 +1323,7 @@ class PackageDialog(QDialog):
         self.accept()
 
     def get_result(self):
+        """Returns the assembled package dict after Accept, or None if cancelled."""
         return self._result
 
 
@@ -1152,9 +1332,14 @@ class PackageItemsPickerDialog(QDialog):
     with checkboxes + per-package custom prices. Returns {menu_item_id: price}."""
 
     def __init__(self, parent=None, all_items=None, selected=None):
+        """Params:
+            all_items: pre-fetched menu list to avoid a redundant DB read; if
+                None, the full menu is loaded here.
+            selected: initial {item_id: custom_price} selection to pre-check.
+        """
         super().__init__(parent)
         self._all_items = all_items if all_items is not None else (repo.get_all_menu_items() or [])
-        self._selected = dict(selected or {})   # {item_id: custom_price}
+        self._selected = dict(selected or {})   # {item_id: custom_price}; copied so caller's map is untouched
         self._item_rows = []
         self.setWindowTitle("Add Menu Items")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
@@ -1172,10 +1357,13 @@ class PackageItemsPickerDialog(QDialog):
         self._reload_list()
 
     def showEvent(self, event):
+        """Runs the open animation and centers the picker on show."""
         super().showEvent(event)
         animate_dialog_open(self, duration=200, auto_center=True)
 
     def _build_ui(self):
+        """Builds the picker: header + count, a search box and '+ New Dish'
+        button, the scrollable grouped dish list, and Cancel/Done buttons."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(12, 12, 12, 12)
         container = QFrame()
@@ -1260,14 +1448,19 @@ class PackageItemsPickerDialog(QDialog):
         outer.addWidget(container)
 
     def _update_count(self):
+        """Updates the header's 'N selected' label."""
         self._count_lbl.setText(f"{len(self._selected)} selected")
 
     def _filter_items(self, query: str):
+        """Client-side filter: show only rows whose dish name or category
+        contains the query (case-insensitive)."""
         q = (query or "").strip().lower()
         for r in self._item_rows:
             r["widget"].setVisible((q in r["name"].lower()) or (q in r["category"].lower()))
 
     def _quick_add_dish(self):
+        """Launches QuickAddDishDialog; on success auto-selects the new dish
+        (at its base price) and rebuilds the list so it appears immediately."""
         dlg = QuickAddDishDialog(self)
         if dlg.exec() == QDialog.Accepted:
             new_dish = dlg.get_result()
@@ -1277,6 +1470,10 @@ class PackageItemsPickerDialog(QDialog):
                 self._reload_list()
 
     def _reload_list(self):
+        """Rebuilds the grouped-by-category dish list from _all_items, wiring a
+        checkbox + per-package custom-price spinner per row and keeping
+        _selected in sync as the user toggles/edits. Existing rows are disposed
+        first to avoid leaks/duplicates."""
         while self._items_layout.count():
             it = self._items_layout.takeAt(0)
             if it.widget():
@@ -1328,6 +1525,8 @@ class PackageItemsPickerDialog(QDialog):
                 custom_price.setEnabled(is_checked)
                 row_lay.addWidget(custom_price)
 
+                # iid/spin/box are bound as default args to capture THIS row's
+                # values (avoids the classic late-binding closure bug in a loop).
                 def _on_toggle(checked, iid=item_id, spin=custom_price):
                     spin.setEnabled(checked)
                     if checked:
@@ -1353,10 +1552,17 @@ class PackageItemsPickerDialog(QDialog):
         self._update_count()
 
     def get_selection(self):
+        """Returns the final {menu_item_id: custom_price} selection map."""
         return self._selected
 
 
 class AddMultipleMenuItemsDialog(QDialog):
+    """Spreadsheet-style grid for bulk-adding many menu items at once.
+
+    Each grid row maps to one dish; _save_all persists every non-empty row via
+    repo.add_menu_item and records how many succeeded in _added_count (read by
+    the caller after exec()).
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add Multiple Menu Items")
@@ -1364,10 +1570,12 @@ class AddMultipleMenuItemsDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMinimumSize(940, 540)
         self.setModal(True)
-        self._added_count = 0
+        self._added_count = 0   # number of rows successfully saved (read by caller)
         self._build_ui()
 
     def _build_ui(self):
+        """Builds the editable table (6 columns) pre-seeded with 5 blank rows,
+        the add/remove-row actions, and the Cancel/Save-all footer."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
         container = QFrame()
@@ -1447,6 +1655,8 @@ class AddMultipleMenuItemsDialog(QDialog):
         outer.addWidget(container)
 
     def _add_row(self):
+        """Appends one blank editable row (name/category/package/price/status/
+        description cell widgets) to the items grid."""
         r = self.table.rowCount()
         self.table.insertRow(r)
 
@@ -1487,11 +1697,15 @@ class AddMultipleMenuItemsDialog(QDialog):
         self.table.setCellWidget(r, 5, desc_edit)
 
     def _delete_selected_row(self):
+        """Removes the currently-selected grid row (no-op if nothing selected)."""
         curr = self.table.currentRow()
         if curr >= 0:
             self.table.removeRow(curr)
 
     def _save_all(self):
+        """Reads every grid row, skips rows with a blank name, persists the rest
+        via repo.add_menu_item, and records the success count. Shows an inline
+        error and stays open if no valid row was entered."""
         rows_to_save = []
         for r in range(self.table.rowCount()):
             name_w = self.table.cellWidget(r, 0)
@@ -1536,6 +1750,12 @@ class AddMultipleMenuItemsDialog(QDialog):
 
 
 class AddMultiplePackagesDialog(QDialog):
+    """Spreadsheet-style grid for bulk-adding many catering packages at once.
+
+    Each grid row maps to one package (name/price-per-pax/min-pax/description,
+    no items); _save_all persists non-empty rows via repo.add_package and stores
+    the success count in _added_count for the caller.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add Multiple Packages")
@@ -1543,10 +1763,12 @@ class AddMultiplePackagesDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMinimumSize(880, 520)
         self.setModal(True)
-        self._added_count = 0
+        self._added_count = 0   # number of rows successfully saved (read by caller)
         self._build_ui()
 
     def _build_ui(self):
+        """Builds the editable packages table (4 columns) pre-seeded with 5 blank
+        rows, the add/remove-row actions, and the Cancel/Save-all footer."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
         container = QFrame()
@@ -1624,6 +1846,8 @@ class AddMultiplePackagesDialog(QDialog):
         outer.addWidget(container)
 
     def _add_row(self):
+        """Appends one blank editable row (name/price-per-pax/min-pax/description
+        cell widgets) to the packages grid."""
         r = self.table.rowCount()
         self.table.insertRow(r)
 
@@ -1653,11 +1877,15 @@ class AddMultiplePackagesDialog(QDialog):
         self.table.setCellWidget(r, 3, desc_edit)
 
     def _delete_selected_row(self):
+        """Removes the currently-selected grid row (no-op if nothing selected)."""
         curr = self.table.currentRow()
         if curr >= 0:
             self.table.removeRow(curr)
 
     def _save_all(self):
+        """Reads every grid row, skips rows with a blank name, persists the rest
+        via repo.add_package, and records the success count. Shows an inline
+        error and stays open if no valid row was entered."""
         rows_to_save = []
         for r in range(self.table.rowCount()):
             name_w = self.table.cellWidget(r, 0)
@@ -1697,9 +1925,23 @@ class AddMultiplePackagesDialog(QDialog):
 
 
 class MenuPage(QWidget):
+    """The Menu screen: a tabbed page for managing menu items and packages.
+
+    Rendering is deliberately lazy and batched. Rather than building all cards
+    up front (which froze the UI on large lists), each of the two pipelines
+    (items, packages) fetches a page on a background thread and renders cards in
+    small time-sliced batches, then quietly pre-fetches the next page. A number
+    of instance flags coordinate this so overlapping reloads, scroll-triggered
+    "load more", and permission-driven rebuilds never mutate a layout that a
+    batch chain is still touching (which previously caused native Qt crashes).
+
+    It also handles permission gating (create/edit/delete via SessionManager),
+    multi-select batch delete, CSV import/export, and reacts to app-wide
+    data-changed/sync signals by marking itself dirty and reloading when visible.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._dirty = True
+        self._dirty = True   # needs a reload before/at next show
         self._reload_in_flight = False
         self._reload_pending = False
         # Lazy-loading pagination state - one independent set per pipeline
@@ -1725,6 +1967,10 @@ class MenuPage(QWidget):
         self._build_ui()
         self._do_reload()
 
+        # React to cross-page/cross-client data changes: refresh when another
+        # part of the app saves menu data, a LAN sync completes, or any generic
+        # data-changed event fires. Wrapped in try/except so a missing signals
+        # module never breaks page construction.
         try:
             from utils.signals import app_events
             app_events().menu_saved.connect(self._mark_dirty_and_reload)
@@ -1734,12 +1980,17 @@ class MenuPage(QWidget):
             pass
 
     def _mark_dirty(self):
+        """Flag that the cached data is stale and should be reloaded on next show."""
         self._dirty = True
 
     def _has_active_search(self) -> bool:
+        """True while the user has a non-empty search filter applied."""
         return bool(getattr(self, "_filter_q", "").strip())
 
     def _mark_dirty_and_reload(self):
+        """Signal handler: mark dirty and reload if visible — but defer the
+        reload while a search is active so it doesn't yank results out from
+        under the user (the deferred reload runs when the search clears)."""
         self._dirty = True
         # Defer background rebuilds while the user is actively searching.
         if self._has_active_search():
@@ -1749,18 +2000,26 @@ class MenuPage(QWidget):
             self._do_reload()
 
     def showEvent(self, event):
+        """On becoming visible, re-apply permissions and reload if data is stale."""
         super().showEvent(event)
         self.refresh_permissions()
         if self._dirty:
             self._do_reload()
 
     def reload(self):
+        """Public entry point to force a refresh: mark dirty, re-apply
+        permissions, and reload immediately if the page is currently visible."""
         self._mark_dirty()
         self.refresh_permissions()
         if self.isVisible():
             self._do_reload()
 
     def refresh_permissions(self):
+        """Show/enable toolbars and per-card actions according to the current
+        user's menu create/edit/delete permissions. If the effective permission
+        set changed since last time, rebuild both card lists so already-rendered
+        cards (whose Edit/Delete buttons are baked in at render time) reflect the
+        new role."""
         from utils.auth import SessionManager
         can_create = SessionManager.has_permission("menu", "create")
         can_delete = SessionManager.has_permission("menu", "delete")
@@ -1814,6 +2073,14 @@ class MenuPage(QWidget):
                 self._populate_packages_table()
 
     def _do_reload(self):
+        """Kick off a full refresh of both pipelines (items + packages).
+
+        Coalesces concurrent reloads (only one runs; one more is queued if asked
+        mid-flight), resets pagination, and either renders instantly from the
+        preloaded DataCache (slicing off just the first page and keeping the rest
+        in memory for scroll) or fetches page 0 of each list on background
+        threads. The loading overlay is hidden by _maybe_finish_reload once BOTH
+        render pipelines drain."""
         self._reload_deferred = False
         # Coalesce overlapping reloads: if a reload (fetch + batch-render of
         # either the items or packages pipeline) is already running, don't start
@@ -1877,9 +2144,12 @@ class MenuPage(QWidget):
 
     @staticmethod
     def _fetch_items_first_page(page_size):
+        """Background-thread worker: fetch page 0 of menu items."""
         return repo.get_menu_items_page(0, page_size)
 
     def _on_items_first_page_loaded(self, page):
+        """UI callback for the first items page: if it's short, there's no more
+        to page in; then render it."""
         page = page or []
         if len(page) < self._items_page_size:
             self._items_has_more = False
@@ -1887,15 +2157,22 @@ class MenuPage(QWidget):
 
     @staticmethod
     def _fetch_pkgs_first_page(page_size):
+        """Background-thread worker: fetch page 0 of packages."""
         return repo.get_packages_page(0, page_size)
 
     def _on_pkgs_first_page_loaded(self, page):
+        """UI callback for the first packages page: mark end-of-list if short,
+        then render it."""
         page = page or []
         if len(page) < self._pkgs_page_size:
             self._pkgs_has_more = False
         self._on_packages_loaded(page)
 
     def _on_menu_items_loaded(self, data):
+        """Store the first page of items (falling back to menu_store if empty)
+        and start batch rendering. Guards against the widget having been
+        destroyed while the async fetch was in flight (shiboken isValid), and
+        decrements the pending-loads counter in finally."""
         try:
             from shiboken6 import isValid
             if not isValid(self):
@@ -1909,6 +2186,9 @@ class MenuPage(QWidget):
             self._pending_loads = getattr(self, "_pending_loads", 1) - 1
 
     def _on_packages_loaded(self, data):
+        """Store the first page of packages and start batch rendering. Same
+        destroyed-widget guard and pending-loads bookkeeping as
+        _on_menu_items_loaded."""
         try:
             from shiboken6 import isValid
             if not isValid(self):
@@ -1922,6 +2202,8 @@ class MenuPage(QWidget):
             self._pending_loads = getattr(self, "_pending_loads", 1) - 1
 
     def _reload_finished(self):
+        """Clear the in-flight guard and, if a reload was requested while one was
+        running, run exactly one more pass on the next event-loop tick."""
         self._reload_in_flight = False
         if self._reload_pending:
             self._reload_pending = False
@@ -1940,6 +2222,8 @@ class MenuPage(QWidget):
     # Lazy pagination - MENU ITEMS pipeline
     # ------------------------------------------------------------------
     def _on_items_scroll_near_bottom(self, value):
+        """Scrollbar handler: trigger loading the next items page when the user
+        scrolls within 200px of the bottom."""
         if not hasattr(self, "menu_scroll"):
             return
         sb = self.menu_scroll.verticalScrollBar()
@@ -1947,6 +2231,11 @@ class MenuPage(QWidget):
             self._load_more_items()
 
     def _load_more_items(self):
+        """Append the next page of menu items. Serves from the in-memory cached
+        remainder when available (no DB hit), otherwise fetches the next page on
+        a background thread. Guarded against re-entrancy, end-of-list, active
+        search (client filter only matches loaded rows), and rendering-in-progress
+        to avoid corrupting the layout mid-batch."""
         if self._items_loading_more or not self._items_has_more:
             return
         # A client-side search filter only matches already-loaded rows, so we
@@ -1971,6 +2260,9 @@ class MenuPage(QWidget):
                   None, len(getattr(self, "_menu_items_data", []) or []), self._items_page_size)
 
     def _on_more_items_loaded(self, data):
+        """Handle a fetched/cached next items page: mark end-of-list if a DB page
+        came up short, extend the in-memory data list, and batch-render the new
+        cards. No-op (releasing the load-more guard) when nothing came back."""
         from shiboken6 import isValid
         if not isValid(self):
             return
@@ -1986,6 +2278,9 @@ class MenuPage(QWidget):
         self._append_item_cards(new_rows)
 
     def _append_item_cards(self, new_rows):
+        """Set up and start a batch-render chain that appends cards for `new_rows`
+        (permissions hoisted once), bumping the render token so any stale chain
+        cancels itself."""
         # The batch renderer inserts new cards before the trailing stretch
         # (see _insert_card_before_stretch); the stretch is never taken out of
         # the layout, so there's nothing to strip here.
@@ -2004,6 +2299,8 @@ class MenuPage(QWidget):
     # Lazy pagination - PACKAGES pipeline
     # ------------------------------------------------------------------
     def _on_pkgs_scroll_near_bottom(self, value):
+        """Scrollbar handler: trigger loading the next packages page when the
+        user scrolls within 200px of the bottom."""
         if not hasattr(self, "pkg_scroll"):
             return
         sb = self.pkg_scroll.verticalScrollBar()
@@ -2011,6 +2308,9 @@ class MenuPage(QWidget):
             self._load_more_pkgs()
 
     def _load_more_pkgs(self):
+        """Append the next page of packages — cached-remainder slice or
+        background fetch — with the same re-entrancy/end-of-list/rendering
+        guards as _load_more_items."""
         if self._pkgs_loading_more or not self._pkgs_has_more:
             return
         # Don't start appending to pkg_cards_layout while the initial page's own
@@ -2030,6 +2330,9 @@ class MenuPage(QWidget):
                   None, len(getattr(self, "_packages_data", []) or []), self._pkgs_page_size)
 
     def _on_more_pkgs_loaded(self, data):
+        """Handle a fetched/cached next packages page: mark end-of-list if short,
+        extend the data list, keep _packages_cache pointed at it (so len()-based
+        offsets stay correct), and batch-render the new cards."""
         from shiboken6 import isValid
         if not isValid(self):
             return
@@ -2047,6 +2350,8 @@ class MenuPage(QWidget):
         self._append_pkg_cards(new_rows)
 
     def _append_pkg_cards(self, new_rows):
+        """Set up and start a batch-render chain that appends package cards for
+        `new_rows` (permissions hoisted once, render token bumped)."""
         # The batch renderer inserts new cards before the trailing stretch
         # (see _insert_card_before_stretch); the stretch is never taken out of
         # the layout, so there's nothing to strip here.
@@ -2062,6 +2367,8 @@ class MenuPage(QWidget):
         self._render_next_pkgs_batch(self._pkgs_render_token)
 
     def _build_ui(self):
+        """Build the page shell: title header, a QTabWidget holding the Menu
+        Items and Packages tabs, and the shared loading overlay."""
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
         root.setSpacing(20)
@@ -2081,6 +2388,9 @@ class MenuPage(QWidget):
         self._loader = LoadingOverlay(self, "Loading menu items & packages...")
 
     def _build_menu_items_tab(self):
+        """Build the Menu Items tab: toolbar (add/multi-add/import/export), the
+        batch-select toolbar (select-all + delete-selected), and the scrollable
+        card list wired to lazy pagination on scroll."""
         tab = QWidget()
         lay = QVBoxLayout(tab)
         lay.setContentsMargins(0, 12, 0, 0)
@@ -2185,6 +2495,9 @@ class MenuPage(QWidget):
         self._tabs.addTab(tab, "Menu Items")
 
     def _build_packages_tab(self):
+        """Build the Packages tab: toolbar (add/multi-add/import/template/export),
+        the batch-select toolbar, and the scrollable card list wired to lazy
+        pagination on scroll."""
         tab = QWidget()
         lay = QVBoxLayout(tab)
         lay.setContentsMargins(0, 12, 0, 0)
@@ -2298,14 +2611,19 @@ class MenuPage(QWidget):
         self._tabs.addTab(tab, "Packages")
 
     def _toggle_select_all_items(self, state):
+        """Select-all checkbox handler for menu items: add every loaded item id
+        to the selection (checked) or clear it, then sync all row checkboxes and
+        the selection UI. Note: only currently-loaded rows are affected."""
         items = getattr(self, "_menu_items_data", []) or []
-        if state == 2:  # Checked
+        if state == 2:  # Qt.Checked
             for item in items:
                 if item.get("id"):
                     self._selected_item_ids.add(item["id"])
         else:
             self._selected_item_ids.clear()
 
+        # Sync each row checkbox with signals blocked so this doesn't fire a
+        # storm of per-row _on_item_checked callbacks.
         for cid, cb in self._item_checkboxes.items():
             cb.blockSignals(True)
             cb.setChecked(cid in self._selected_item_ids)
@@ -2314,6 +2632,7 @@ class MenuPage(QWidget):
         self._update_items_selection_ui()
 
     def _toggle_select_all_packages(self, state):
+        """Select-all checkbox handler for packages (mirror of the items version)."""
         pkgs = getattr(self, "_packages_data", []) or []
         if state == 2:
             for p in pkgs:
@@ -2330,6 +2649,8 @@ class MenuPage(QWidget):
         self._update_pkgs_selection_ui()
 
     def _update_items_selection_ui(self):
+        """Refresh the items 'N selected' label and enable/label/visibility of the
+        Delete Selected button (respecting delete permission)."""
         from utils.auth import SessionManager
         can_delete = SessionManager.has_permission("menu", "delete")
         count = len(self._selected_item_ids)
@@ -2342,6 +2663,8 @@ class MenuPage(QWidget):
             self._btn_delete_selected_items.setText("  Delete Selected")
 
     def _update_pkgs_selection_ui(self):
+        """Refresh the packages 'N selected' label and Delete Selected button
+        state (mirror of _update_items_selection_ui)."""
         from utils.auth import SessionManager
         can_delete = SessionManager.has_permission("menu", "delete")
         count = len(self._selected_pkg_ids)
@@ -2354,6 +2677,11 @@ class MenuPage(QWidget):
             self._btn_delete_selected_pkgs.setText("  Delete Selected")
 
     def _populate_table(self):
+        """(Re)build the menu-items card list from _menu_items_data. Clears
+        existing cards, applies the active search filter, bumps the render token
+        (so a stale in-flight batch cancels itself), and either shows an empty
+        state or kicks off the batched renderer. Updates are suspended during the
+        teardown/setup to avoid flicker."""
         self.menu_container.setUpdatesEnabled(False)
         self._item_checkboxes.clear()
         try:
@@ -2401,6 +2729,10 @@ class MenuPage(QWidget):
 
     @staticmethod
     def _insert_card_before_stretch(layout, card):
+        """Append `card` to a vertical card layout, keeping any trailing stretch
+        spacer at the very bottom (insert before it) instead of ever removing
+        the spacer — repeatedly take()-ing/discarding the spacer was the
+        suspected trigger for a native Qt memory-reuse crash."""
         # Insert just before a trailing stretch spacer if one exists, rather
         # than ever taking the spacer out of the layout - repeatedly
         # take()-ing and discarding a QLayoutItem/QSpacerItem was the suspected
@@ -2412,6 +2744,12 @@ class MenuPage(QWidget):
             layout.addWidget(card)
 
     def _render_next_items_batch(self, token, batch_size=15):
+        """Render one batch of up to `batch_size` menu-item cards, then reschedule
+        itself via a 0ms timer to yield to the event loop (keeps the UI
+        responsive on large lists). `token` guards against stale chains: a batch
+        whose token no longer matches the current render token aborts. When the
+        queue drains it finalizes the stretch, marks the pipeline done, and
+        pre-fetches the next page in the background."""
         # Cancel stale batches scheduled before a newer populate.
         if token != getattr(self, "_items_render_token", None):
             return
@@ -2456,6 +2794,12 @@ class MenuPage(QWidget):
                 QTimer.singleShot(150, self._load_more_items)
 
     def _create_menu_item_card(self, item: dict, perms=None) -> QFrame:
+        """Build one menu-item row card: select checkbox, thumbnail (or emoji
+        fallback), name/category/package, price, colored status pill, and
+        (permission-gated) Edit/Delete buttons. `perms` is an optional
+        (can_edit, can_delete) tuple hoisted by the caller to avoid a permission
+        lookup per card; if None it's resolved here. Double-click edits when
+        allowed. Returns the assembled QFrame."""
         card = QFrame()
         card.setObjectName("entryCard")
         lay = QHBoxLayout(card)
@@ -2564,6 +2908,8 @@ class MenuPage(QWidget):
         return card
 
     def _on_item_checked(self, item_id: int, state: int):
+        """Per-row checkbox handler: add/remove the id from the selection set and
+        refresh the selection UI (state == 2 is Qt.Checked)."""
         if not item_id:
             return
         if state == 2:
@@ -2573,6 +2919,9 @@ class MenuPage(QWidget):
         self._update_items_selection_ui()
 
     def _edit_item_dict(self, item: dict):
+        """Open MenuItemDialog to edit `item`; on accept, persist via repo, reload
+        the list, and broadcast data_changed. Permission-gated (shows Access
+        Denied otherwise)."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "edit"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to edit menu items.")
@@ -2592,6 +2941,8 @@ class MenuPage(QWidget):
                 success(self, message="Menu item updated successfully.")
 
     def _delete_item_dict(self, item: dict):
+        """Delete a single menu item after a confirm prompt; reload and broadcast
+        data_changed on success. Permission-gated."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "delete"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete menu items.")
@@ -2613,6 +2964,8 @@ class MenuPage(QWidget):
         success(self, message="Menu item deleted successfully.")
 
     def _delete_selected_menu_items(self):
+        """Batch-delete all checked menu items after a confirm prompt, clear the
+        selection, reload, and broadcast data_changed. Permission-gated."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "delete"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete menu items.")
@@ -2636,6 +2989,8 @@ class MenuPage(QWidget):
         success(self, message=f"Successfully deleted {deleted} menu item(s).")
 
     def _open_add_dialog(self):
+        """Open MenuItemDialog to add a new item; persist, reload, and broadcast
+        on accept. Permission-gated (create)."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add menu items.")
@@ -2655,6 +3010,8 @@ class MenuPage(QWidget):
                 success(self, message="Menu item added successfully.")
 
     def _open_multi_add_items_dialog(self):
+        """Open the bulk-add grid for menu items; reload and report the count on
+        accept. Permission-gated (create)."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add menu items.")
@@ -2670,6 +3027,8 @@ class MenuPage(QWidget):
             success(self, message=f"Added {dlg._added_count} menu item(s) successfully.")
 
     def _open_import_items_dialog(self):
+        """Launch the import wizard scoped to menu items; reload on completion.
+        Permission-gated (create)."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to import menu items.")
@@ -2685,6 +3044,8 @@ class MenuPage(QWidget):
                 pass
 
     def _export_menu_items(self):
+        """Export the currently-loaded menu items to a user-chosen CSV file
+        (UTF-8 with BOM so Excel reads accents/₱ correctly)."""
         import csv
         from PySide6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getSaveFileName(self, "Export Menu Items", "menu_items.csv", "CSV Files (*.csv)")
@@ -2699,6 +3060,9 @@ class MenuPage(QWidget):
         prompt_file_saved(self, path, title="Menu Items Exported", message="Menu items list exported successfully.")
 
     def _populate_packages_table(self):
+        """(Re)build the packages card list from _packages_cache — packages
+        counterpart of _populate_table. Clears existing cards, bumps the render
+        token, and either shows an empty state or starts the batched renderer."""
         if hasattr(self, "pkg_container"):
             self.pkg_container.setUpdatesEnabled(False)
         self._pkg_checkboxes.clear()
@@ -2745,6 +3109,10 @@ class MenuPage(QWidget):
                 self.pkg_container.setUpdatesEnabled(True)
 
     def _render_next_pkgs_batch(self, token, batch_size=15):
+        """Render one batch of package cards then yield to the event loop, exactly
+        like _render_next_items_batch but for the packages pipeline (same
+        token-based stale-chain guard, stretch finalization, and background
+        pre-fetch of the next page)."""
         # Cancel stale batches scheduled before a newer populate.
         if token != getattr(self, "_pkgs_render_token", None):
             return
@@ -2790,6 +3158,12 @@ class MenuPage(QWidget):
                 QTimer.singleShot(150, self._load_more_pkgs)
 
     def _create_package_card(self, pkg: dict, perms=None) -> QFrame:
+        """Build one package row card: select checkbox, image thumbnail (or 📦
+        fallback), name/description, an items summary (first few dish names +
+        overflow count), price/pax and min pax, and permission-gated Edit/Delete
+        buttons. If the package's items weren't preloaded they're fetched lazily
+        here. `perms` is an optional hoisted (can_edit, can_delete) tuple.
+        Returns the assembled QFrame."""
         card = QFrame()
         card.setObjectName("entryCard")
         lay = QHBoxLayout(card)
@@ -2916,6 +3290,7 @@ class MenuPage(QWidget):
         return card
 
     def _on_pkg_checked(self, pkg_id: int, state: int):
+        """Per-row checkbox handler for packages (mirror of _on_item_checked)."""
         if not pkg_id:
             return
         if state == 2:
@@ -2925,6 +3300,9 @@ class MenuPage(QWidget):
         self._update_pkgs_selection_ui()
 
     def _open_add_package_dialog(self):
+        """Open PackageDialog to add a package; on accept persist the package and
+        (separately) its items and buckets, then reload. Warns if the DB rejects
+        the insert (e.g. duplicate name). Permission-gated (create)."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add packages.")
@@ -2935,6 +3313,8 @@ class MenuPage(QWidget):
             if result:
                 pkg_id = repo.add_package(result)
                 if pkg_id:
+                    # Items/buckets are stored in separate join tables keyed by
+                    # the newly-created package id.
                     repo.set_package_items(pkg_id, result.get("items", []))
                     repo.set_package_buckets(pkg_id, result.get("buckets", []))
                     self._packages_cache = repo.get_all_packages()
@@ -2949,6 +3329,8 @@ class MenuPage(QWidget):
                     QMessageBox.warning(self, "Error", "Failed to add package. Name may already exist.")
 
     def _open_multi_add_packages_dialog(self):
+        """Open the bulk-add grid for packages; reload and report the count on
+        accept. Permission-gated (create)."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add packages.")
@@ -2964,6 +3346,8 @@ class MenuPage(QWidget):
             success(self, message=f"Added {dlg._added_count} package(s) successfully.")
 
     def _open_import_packages_dialog(self):
+        """Launch the import wizard scoped to packages; reload on completion.
+        Permission-gated (create)."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to import packages.")
@@ -2979,6 +3363,8 @@ class MenuPage(QWidget):
                 pass
 
     def _download_packages_template(self):
+        """Save a sample Excel/CSV import template for packages to a user-chosen
+        path (delegates generation to utils.importer)."""
         from PySide6.QtWidgets import QFileDialog
         from utils import importer
         path, _ = QFileDialog.getSaveFileName(
@@ -3001,6 +3387,8 @@ class MenuPage(QWidget):
             QMessageBox.warning(self, "Save Failed", f"Could not generate template: {err}")
 
     def _export_packages(self):
+        """Export the currently-loaded packages to a user-chosen CSV file
+        (UTF-8-with-BOM for Excel compatibility)."""
         import csv
         from PySide6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getSaveFileName(self, "Export Packages", "packages.csv", "CSV Files (*.csv)")
@@ -3015,6 +3403,8 @@ class MenuPage(QWidget):
         prompt_file_saved(self, path, title="Packages Exported", message="Packages list exported successfully.")
 
     def _edit_package_dict(self, pkg: dict):
+        """Open PackageDialog to edit `pkg`; on accept update the package row and
+        re-set its items and buckets, then reload. Permission-gated (edit)."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "edit"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to edit packages.")
@@ -3039,6 +3429,9 @@ class MenuPage(QWidget):
                     QMessageBox.warning(self, "Error", "Failed to update package.")
 
     def _delete_package_dict(self, pkg: dict):
+        """Delete a single package after confirmation. The repo refuses to delete
+        packages still linked to bookings; in that case a 'Cannot Delete' warning
+        is shown instead. Reloads and broadcasts on success. Permission-gated."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "delete"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete packages.")
@@ -3063,6 +3456,9 @@ class MenuPage(QWidget):
                                 "This package is linked to existing bookings and cannot be deleted.")
 
     def _delete_selected_packages(self):
+        """Batch-delete all checked packages after confirmation (packages linked
+        to bookings are skipped by the repo), clear the selection, reload, and
+        broadcast. Permission-gated. `deleted` reflects how many actually went."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("menu", "delete"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete packages.")
@@ -3086,6 +3482,11 @@ class MenuPage(QWidget):
         success(self, message=f"Successfully deleted {deleted} package(s).")
 
     def filter_search(self, text):
+        """Apply a client-side search filter (matches name/category/package on
+        loaded rows). If the search just cleared and a background refresh was
+        deferred while searching, do a full reload for fresh data; otherwise just
+        re-render the current data through the filter. Note: filtering only
+        matches already-loaded rows (pagination is paused while a filter is on)."""
         q = text.lower()
         self._filter_q = q
         # If the search just cleared and a background refresh was deferred while
