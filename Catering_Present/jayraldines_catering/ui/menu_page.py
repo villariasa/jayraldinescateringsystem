@@ -1485,7 +1485,10 @@ class PackageItemsPickerDialog(QDialog):
         for item in self._all_items:
             categories.setdefault(item.get("category", "Other"), []).append(item)
 
-        for cat, items in sorted(categories.items()):
+        # Admin-defined order (Settings > Menu Categories), not alphabetical.
+        _cat_sort = repo.get_category_sort_map()
+        ordered_cats = sorted(categories.items(), key=lambda kv: _cat_sort.get(str(kv[0]).strip().lower(), 999))
+        for cat, items in ordered_cats:
             cat_lbl = QLabel(str(cat).upper())
             cat_lbl.setStyleSheet("color: #94A3B8; font-size: 10px; font-weight: 700; padding: 6px 4px 2px 4px; letter-spacing: 0.5px;")
             self._items_layout.addWidget(cat_lbl)
