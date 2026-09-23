@@ -17,6 +17,7 @@ from utils.theme import ThemeManager
 from utils.icons import btn_icon_secondary, btn_icon_red, get_icon
 from components.loading_overlay import LoadingOverlay
 import utils.repository as repo
+from utils.text_highlight import highlight_html
 from components.dialogs import confirm, success, error
 from utils.session import SessionManager
 from utils.data_loader import run_async
@@ -71,6 +72,7 @@ class ExpensesPage(QWidget):
         self.setObjectName("mainBackground")
         self._reload_in_flight = False
         self._reload_pending = False
+        self._reload_deferred = False
         # Lazy-loading pagination state (mirrors billing_page pattern).
         self._page_size = 50
         self._has_more = True
@@ -325,8 +327,18 @@ class ExpensesPage(QWidget):
     def _mark_dirty(self):
         self._dirty = True
 
+    def _has_active_search(self) -> bool:
+        try:
+            return bool(self._search_input.text().strip())
+        except Exception:
+            return False
+
     def _mark_dirty_and_reload(self):
         self._dirty = True
+        # Don't rebuild the list while the user is actively searching.
+        if self._has_active_search():
+            self._reload_deferred = True
+            return
         if self.isVisible():
             self.reload()
 
@@ -342,6 +354,12 @@ class ExpensesPage(QWidget):
         self._search_debounce.start(500)
 
     def _run_search_filter(self):
+        # Search just cleared while a background refresh was deferred -> reload once.
+        if not self._has_active_search() and getattr(self, "_reload_deferred", False):
+            self._reload_deferred = False
+            if self.isVisible():
+                self.reload()
+                return
         self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
         self._load_table()
 
@@ -563,6 +581,7 @@ class ExpensesPage(QWidget):
             return
         self._reload_in_flight = True
         self._reload_pending = False
+        self._reload_deferred = False
 
         self._dirty = False
         self.refresh_permissions()
@@ -871,7 +890,9 @@ class ExpensesPage(QWidget):
         # Col 2: Description
         c2 = QVBoxLayout()
         c2.setSpacing(2)
-        desc_lbl = QLabel(exp["description"])
+        _exp_q = self._search_input.text() if hasattr(self, "_search_input") else ""
+        desc_lbl = QLabel(highlight_html(exp.get("description", ""), _exp_q))
+        desc_lbl.setTextFormat(Qt.RichText)
         desc_lbl.setStyleSheet("font-size: 13px;")
         desc_lbl.setWordWrap(True)
         c2.addWidget(desc_lbl)
