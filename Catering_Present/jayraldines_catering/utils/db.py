@@ -876,6 +876,22 @@ def _ensure_pg_places_and_auth(conn) -> None:
             log.warning(f"[db.py] Package / menu item auto-seed note: {e_seed}")
             conn.rollback()
 
+        # 14b. Admin-controlled menu category display order (drag-and-drop in
+        # Settings > Menu Categories). Backfill existing rows with their current
+        # mc_id order so nothing shuffles until an admin actually reorders them.
+        try:
+            with conn.cursor() as cur:
+                cur.execute("ALTER TABLE menu_categories ADD COLUMN IF NOT EXISTS mc_sort INT DEFAULT 0;")
+                cur.execute("""
+                    UPDATE menu_categories SET mc_sort = sub.rn
+                    FROM (SELECT mc_id, ROW_NUMBER() OVER (ORDER BY mc_id) AS rn FROM menu_categories) sub
+                    WHERE menu_categories.mc_id = sub.mc_id AND menu_categories.mc_sort = 0;
+                """)
+            conn.commit()
+        except Exception as e_mcsort:
+            log.warning(f"[db.py] menu_categories.mc_sort migration note: {e_mcsort}")
+            conn.rollback()
+
         # 15. Package selection buckets (dish/dessert quotas) + one-time backfill
         # ------------------------------------------------------------------
         # A bucket = a named selection limit on a package (e.g. "Dishes" max 4,
