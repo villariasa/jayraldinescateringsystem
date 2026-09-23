@@ -223,8 +223,10 @@ class PackageMenuSelectionDialog(QDialog):
         else:
             self._bucket_summary = None
 
-        cat_order = ["Main Course", "Appetizer", "Soup", "Salad", "Dessert", "Beverage", "Drinks", "Other"]
-        sorted_cats = sorted(by_cat.keys(), key=lambda c: cat_order.index(c) if c in cat_order else 99)
+        # Category display order follows the admin-defined order (Settings >
+        # Menu Categories, drag-and-drop); unknown categories sink to the end.
+        _cat_sort = repo.get_category_sort_map()
+        sorted_cats = sorted(by_cat.keys(), key=lambda c: _cat_sort.get(str(c).strip().lower(), 999))
 
         for cat in sorted_cats:
             b_id = self._cat_to_bucket.get(str(cat).strip().lower()) if buckets_active else None
