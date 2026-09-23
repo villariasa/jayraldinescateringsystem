@@ -65,7 +65,17 @@ CREATE TABLE IF NOT EXISTS package_items (
     pi_item_name TEXT,
     pi_category TEXT,
     pi_custom_price REAL DEFAULT 0.0,
-    pi_quantity INTEGER DEFAULT 1
+    pi_quantity INTEGER DEFAULT 1,
+    pi_bucket_id INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS package_buckets (
+    pb_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pb_package_id INTEGER NOT NULL REFERENCES packages(pkg_id) ON DELETE CASCADE,
+    pb_name TEXT NOT NULL,
+    pb_limit INTEGER NOT NULL DEFAULT 1,
+    pb_categories TEXT NOT NULL DEFAULT '[]',
+    pb_sort INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS bookings (
@@ -386,6 +396,19 @@ export async function initDb() {
   try { db.run("ALTER TABLE menu_items ADD COLUMN mi_image TEXT DEFAULT '';"); } catch (_) {}
   try { db.run("ALTER TABLE menu_items ADD COLUMN image TEXT DEFAULT '';"); } catch (_) {}
   try { db.run("ALTER TABLE occasions ADD COLUMN occ_is_active INTEGER DEFAULT 1;"); } catch (_) {}
+  try { db.run("ALTER TABLE package_items ADD COLUMN pi_bucket_id INTEGER;"); } catch (_) {}
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS package_buckets (
+        pb_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pb_package_id INTEGER NOT NULL REFERENCES packages(pkg_id) ON DELETE CASCADE,
+        pb_name TEXT NOT NULL,
+        pb_limit INTEGER NOT NULL DEFAULT 1,
+        pb_categories TEXT NOT NULL DEFAULT '[]',
+        pb_sort INTEGER DEFAULT 0
+      );
+    `);
+  } catch (_) {}
   try {
     db.run(`
       CREATE TABLE IF NOT EXISTS pending_package_images (
@@ -464,11 +487,12 @@ export function exportDbBytes() {
  * historical orders because bookings snapshot their own prices at the time
  * they were placed (booking_menu_items/bk_base_total/booking_additional_
  * charges never reference packages/menu_items live). */
-export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], packageItems = [], customers = [] }) {
-  const stats = { packages: 0, menu_items: 0, package_items: 0, customers: 0 };
+export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], packageItems = [], packageBuckets = [], customers = [] }) {
+  const stats = { packages: 0, menu_items: 0, package_items: 0, package_buckets: 0, customers: 0 };
   db.run("PRAGMA foreign_keys = OFF;");
   try {
     if (packages && packages.length > 0) {
+      db.run("DELETE FROM package_buckets");
       db.run("DELETE FROM package_items");
       db.run("DELETE FROM packages");
       for (const p of packages) {
@@ -527,9 +551,36 @@ export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], pa
         const pkgId = pi.pi_package_id || pi.package_id;
         const itmName = (pi.pi_item_name || pi.item_name || "").trim();
         if (!pkgId || !itmName) continue;
-        db.run("INSERT INTO package_items (pi_package_id, pi_menu_item_id, pi_item_name, pi_category, pi_custom_price, pi_quantity) VALUES (?, ?, ?, ?, ?, ?)",
-          [pkgId, pi.pi_menu_item_id || null, itmName, pi.pi_category || "", Number(pi.pi_custom_price || 0), Number(pi.pi_quantity || 1)]);
+        const bucketId = (pi.pi_bucket_id ?? pi.bucket_id);
+        db.run("INSERT INTO package_items (pi_package_id, pi_menu_item_id, pi_item_name, pi_category, pi_custom_price, pi_quantity, pi_bucket_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          [pkgId, pi.pi_menu_item_id || null, itmName, pi.pi_category || "", Number(pi.pi_custom_price || 0), Number(pi.pi_quantity || 1), (bucketId === undefined || bucketId === null || bucketId === "") ? null : Number(bucketId)]);
         stats.package_items++;
+      }
+    }
+
+    if (packageBuckets && packageBuckets.length > 0) {
+      for (const pb of packageBuckets) {
+        const pkgId = pb.pb_package_id || pb.package_id;
+        const name = (pb.pb_name || pb.name || "").trim();
+        if (!pkgId || !name) continue;
+        // pb_categories arrives as a JSON string from the server; normalize to a JSON string.
+        let catsJson = "[]";
+        const rawCats = (pb.pb_categories !== undefined ? pb.pb_categories : pb.categories);
+        try {
+          if (Array.isArray(rawCats)) catsJson = JSON.stringify(rawCats.map((c) => String(c)));
+          else if (typeof rawCats === "string" && rawCats.trim()) catsJson = JSON.stringify(JSON.parse(rawCats).map((c) => String(c)));
+        } catch (_) { catsJson = "[]"; }
+        const limit = Number(pb.pb_limit ?? pb.limit) || 1;
+        const sort = Number(pb.pb_sort ?? pb.sort) || 0;
+        const id = pb.pb_id || pb.id;
+        if (id) {
+          db.run("INSERT INTO package_buckets (pb_id, pb_package_id, pb_name, pb_limit, pb_categories, pb_sort) VALUES (?, ?, ?, ?, ?, ?)",
+            [id, pkgId, name, limit, catsJson, sort]);
+        } else {
+          db.run("INSERT INTO package_buckets (pb_package_id, pb_name, pb_limit, pb_categories, pb_sort) VALUES (?, ?, ?, ?, ?)",
+            [pkgId, name, limit, catsJson, sort]);
+        }
+        stats.package_buckets++;
       }
     }
 
