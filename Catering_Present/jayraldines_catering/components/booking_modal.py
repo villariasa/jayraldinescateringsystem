@@ -1409,9 +1409,11 @@ class BookingModal(QDialog):
         else:
             self._pkg_bucket_summary = None
 
-        # Show categories in a sensible course order; unknown categories sink to the end.
-        cat_order = ["Main Course", "Appetizer", "Soup", "Salad", "Dessert", "Drinks", "Other"]
-        sorted_cats = sorted(by_cat.keys(), key=lambda c: cat_order.index(c) if c in cat_order else 99)
+        # Category display order follows the admin-defined order (Settings >
+        # Menu Categories, drag-and-drop); a category not in that list (e.g.
+        # renamed/deleted since) sinks to the end instead of erroring.
+        _cat_sort = repo.get_category_sort_map()
+        sorted_cats = sorted(by_cat.keys(), key=lambda c: _cat_sort.get(str(c).strip().lower(), 999))
 
         for cat in sorted_cats:
             b_id = self._cat_to_bucket.get(str(cat).strip().lower()) if buckets_active else None
