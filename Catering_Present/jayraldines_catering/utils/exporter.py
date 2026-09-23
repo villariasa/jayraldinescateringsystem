@@ -941,7 +941,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         ]
         c1_tbl = Table(c1_rows, colWidths=[2.2 * cm, half_w - 2.2 * cm])
         c1_tbl.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
+            ("BOX", (0, 0), (-1, -1), 1.1, colors.HexColor("#94A3B8")),
             ("SPAN", (0, 0), (1, 0)),
             ("LINEBELOW", (0, 0), (1, 0), 0.5, colors.HexColor("#E2E8F0")),
             ("TOPPADDING", (0, 0), (-1, -1), 2.5),
@@ -969,7 +969,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         ]
         c2_tbl = Table(c2_rows, colWidths=[3.7 * cm, half_w - 3.7 * cm])
         c2_tbl.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
+            ("BOX", (0, 0), (-1, -1), 1.1, colors.HexColor("#94A3B8")),
             ("SPAN", (0, 0), (1, 0)),
             ("LINEBELOW", (0, 0), (1, 0), 0.5, colors.HexColor("#E2E8F0")),
             ("TOPPADDING", (0, 0), (-1, -1), 2.5),
@@ -991,7 +991,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         ]
         c3_tbl = Table(c3_rows, colWidths=[2.6 * cm, half_w - 2.6 * cm])
         c3_tbl.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
+            ("BOX", (0, 0), (-1, -1), 1.1, colors.HexColor("#94A3B8")),
             ("SPAN", (0, 0), (1, 0)),
             ("LINEBELOW", (0, 0), (1, 0), 0.5, colors.HexColor("#E2E8F0")),
             ("TOPPADDING", (0, 0), (-1, -1), 2.5),
@@ -1106,7 +1106,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         # Wrap the whole right-column content list in a single bordered cell.
         c4_tbl = Table([[c4_content]], colWidths=[half_w])
         c4_tbl.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
+            ("BOX", (0, 0), (-1, -1), 1.1, colors.HexColor("#94A3B8")),
             ("TOPPADDING", (0, 0), (-1, -1), 3),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ("LEFTPADDING", (0, 0), (-1, -1), 4),
@@ -1164,7 +1164,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
 
         tc_tbl = Table([[tc_items]], colWidths=[content_w])
         tc_tbl.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#CBD5E1")),
+            ("BOX", (0, 0), (-1, -1), 1.1, colors.HexColor("#94A3B8")),
             ("TOPPADDING", (0, 0), (-1, -1), 8),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
             ("LEFTPADDING", (0, 0), (-1, -1), 8),
@@ -1172,10 +1172,14 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         ]))
         story.append(tc_tbl)
 
-        # ── 4. FOOTER BANNER (Pinned to bottom of A4 page) ────────────────
-        # FillBottomSpacer pushes this banner to the page bottom; without
-        # ReportLab's Flowable it degrades to a fixed small spacer.
-        story.append(FillBottomSpacer(footer_height=2.8 * cm) if FillBottomSpacer else Spacer(1, 0.12 * cm))
+        # ── 4. FOOTER BANNER ───────────────────────────────────────────────
+        # Flows immediately after Terms and Conditions, same as the tablet's
+        # canonical receipt layout — NOT pinned to the page bottom. Pinning
+        # it there (via FillBottomSpacer, previously) forced ReportLab to
+        # insert a spacer consuming ALL remaining page height whenever the
+        # card content above was short, producing exactly the giant blank
+        # gap + content-stranded-at-the-top look this was fixed to remove.
+        story.append(Spacer(1, 0.3 * cm))
         story.append(HRFlowable(width="100%", thickness=1.2, color=colors.HexColor("#DC2626"), spaceAfter=0.12 * cm))
 
         # Megaphone line (Centered) — icon prefixed only if the asset exists.
