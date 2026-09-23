@@ -170,7 +170,20 @@ CREATE TABLE IF NOT EXISTS package_items (
     pi_item_name TEXT,
     pi_category TEXT,
     pi_custom_price REAL DEFAULT 0.0,
-    pi_quantity INTEGER DEFAULT 1
+    pi_quantity INTEGER DEFAULT 1,
+    pi_bucket_id INTEGER
+);
+
+-- Package selection buckets: named per-package quotas (e.g. "Dishes" max 4,
+-- "Dessert" max 1) scoped to a set of menu categories. A package with no
+-- bucket rows behaves as unlimited (legacy behavior).
+CREATE TABLE IF NOT EXISTS package_buckets (
+    pb_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pb_package_id INTEGER NOT NULL REFERENCES packages(pkg_id) ON DELETE CASCADE,
+    pb_name TEXT NOT NULL,
+    pb_limit INTEGER NOT NULL DEFAULT 1,
+    pb_categories TEXT NOT NULL DEFAULT '[]',
+    pb_sort INTEGER DEFAULT 0
 );
 
 -- Bookings & Orders
@@ -660,6 +673,7 @@ def _ensure_columns(conn: sqlite3.Connection):
         ("menu_items", "mi_image", "TEXT DEFAULT ''"),
         ("menu_items", "image", "TEXT DEFAULT ''"),
         ("packages", "pkg_image", "TEXT DEFAULT ''"),
+        ("package_items", "pi_bucket_id", "INTEGER"),
     ]
     for table, col, col_def in cols_to_add:
         try:

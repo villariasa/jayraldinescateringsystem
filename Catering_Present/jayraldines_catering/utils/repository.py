@@ -837,6 +837,8 @@ def get_all_packages() -> list[dict]:
                 "custom_price": float(item["custom_price"]),
             })
 
+    buckets_by_pkg = _fetch_buckets_by_package([r["id"] for r in pkg_rows])
+
     result = []
     for r in pkg_rows:
         p_id = r["id"]
@@ -848,8 +850,46 @@ def get_all_packages() -> list[dict]:
             "description":   r["description"] or "",
             "image":         r.get("image", "") or "",
             "items":         items_by_pkg.get(p_id, []),
+            "buckets":       buckets_by_pkg.get(p_id, []),
         })
     return result
+
+
+def _fetch_buckets_by_package(pkg_ids: list[int]) -> dict[int, list[dict]]:
+    """Batch-fetch selection buckets for a set of packages, grouped by package id."""
+    import json
+    if not pkg_ids:
+        return {}
+    placeholders = ",".join(["%s"] * len(pkg_ids))
+    try:
+        rows = db.fetchall(f"""
+            SELECT pb_package_id AS package_id,
+                   pb_id AS id,
+                   pb_name AS name,
+                   pb_limit AS max_limit,
+                   COALESCE(pb_categories, '[]') AS categories,
+                   COALESCE(pb_sort, 0) AS sort
+            FROM package_buckets
+            WHERE pb_package_id IN ({placeholders})
+            ORDER BY pb_package_id, pb_sort, pb_id
+        """, tuple(pkg_ids))
+    except Exception:
+        return {}
+    out: dict[int, list[dict]] = {}
+    for r in rows or []:
+        raw = r.get("categories") or "[]"
+        try:
+            cat_list = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        except Exception:
+            cat_list = []
+        out.setdefault(r["package_id"], []).append({
+            "id":         r["id"],
+            "name":       r["name"],
+            "limit":      int(r["max_limit"] or 0),
+            "categories": [str(c) for c in cat_list],
+            "sort":       int(r["sort"] or 0),
+        })
+    return out
 
 
 def get_packages_page(offset: int = 0, limit: int = 50) -> list[dict]:
@@ -896,6 +936,8 @@ def get_packages_page(offset: int = 0, limit: int = 50) -> list[dict]:
                 "custom_price": float(item["custom_price"]),
             })
 
+    buckets_by_pkg = _fetch_buckets_by_package(pkg_ids)
+
     result = []
     for r in pkg_rows:
         p_id = r["id"]
@@ -907,6 +949,7 @@ def get_packages_page(offset: int = 0, limit: int = 50) -> list[dict]:
             "description":   r["description"] or "",
             "image":         r.get("image", "") or "",
             "items":         items_by_pkg.get(p_id, []),
+            "buckets":       buckets_by_pkg.get(p_id, []),
         })
     return result
 
@@ -918,7 +961,8 @@ def get_package_items(package_id: int) -> list[dict]:
                pi.pi_menu_item_id    AS menu_item_id,
                COALESCE(NULLIF(pi.pi_item_name, ''), mi.mi_name, '') AS item_name,
                COALESCE(NULLIF(pi.pi_category, ''), mi.mi_category, 'General') AS category,
-               COALESCE(pi.pi_custom_price, 0.0) AS custom_price
+               COALESCE(pi.pi_custom_price, 0.0) AS custom_price,
+               pi.pi_bucket_id       AS bucket_id
         FROM package_items pi
         LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
         WHERE pi.pi_package_id = %s
@@ -935,6 +979,7 @@ def get_package_items(package_id: int) -> list[dict]:
             "item_name":    r["item_name"],
             "category":     r["category"],
             "custom_price": float(r["custom_price"]),
+            "bucket_id":    r.get("bucket_id"),
         }
         for r in rows
     ]
@@ -986,9 +1031,123 @@ def set_package_items(package_id: int, items: list[dict]) -> bool:
                     )
                 except Exception:
                     pass
+        # Keep each default dish tagged with the bucket its category belongs to.
+        try:
+            _retag_package_item_buckets(package_id)
+        except Exception:
+            pass
         return True
     except Exception as exc:
         print(f"[repository] set_package_items failed: {exc}")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# PACKAGE SELECTION BUCKETS (dish/dessert quotas)
+# ---------------------------------------------------------------------------
+
+def get_package_buckets(package_id: int) -> list[dict]:
+    """Returns a package's selection buckets. Each bucket is a named quota
+    (e.g. 'Dishes' limit 4) scoped to a list of menu category names. A package
+    with no buckets means unlimited selection (legacy behavior)."""
+    import json
+    rows = db.fetchall(
+        """
+        SELECT pb_id AS id,
+               pb_name AS name,
+               pb_limit AS max_limit,
+               COALESCE(pb_categories, '[]') AS categories,
+               COALESCE(pb_sort, 0) AS sort
+        FROM package_buckets
+        WHERE pb_package_id = %s
+        ORDER BY pb_sort, pb_id
+        """,
+        (package_id,),
+    )
+    result = []
+    for r in rows or []:
+        raw = r.get("categories") or "[]"
+        try:
+            cat_list = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        except Exception:
+            cat_list = []
+        result.append({
+            "id":         r["id"],
+            "name":       r["name"],
+            "limit":      int(r["max_limit"] or 0),
+            "categories": [str(c) for c in cat_list],
+            "sort":       int(r["sort"] or 0),
+        })
+    return result
+
+
+def _retag_package_item_buckets(package_id: int) -> None:
+    """Sets pi_bucket_id on each of the package's default dishes based on which
+    bucket's category list contains that dish's category."""
+    buckets = get_package_buckets(package_id)
+    cat_to_bucket: dict[str, int] = {}
+    for b in buckets:
+        for c in b["categories"]:
+            cat_to_bucket[str(c).strip().lower()] = b["id"]
+    items = db.fetchall(
+        """
+        SELECT pi.pi_id AS id,
+               COALESCE(NULLIF(pi.pi_category, ''), mi.mi_category::text, 'General') AS category
+        FROM package_items pi
+        LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
+        WHERE pi.pi_package_id = %s
+        """,
+        (package_id,),
+    )
+    for it in items or []:
+        cat = str(it.get("category") or "").strip().lower()
+        bid = cat_to_bucket.get(cat)
+        try:
+            db.execute("UPDATE package_items SET pi_bucket_id = %s WHERE pi_id = %s", (bid, it["id"]))
+        except Exception:
+            pass
+
+
+def set_package_buckets(package_id: int, buckets: list[dict]) -> bool:
+    """Replaces a package's buckets. Each bucket dict: {name, limit, categories[]}.
+    Call this AFTER set_package_items so default dishes get retagged correctly."""
+    import json
+    try:
+        pkg_row = db.fetchone("SELECT pkg_id FROM packages WHERE pkg_id = %s", (package_id,))
+        if not pkg_row:
+            return False
+        db.execute("DELETE FROM package_buckets WHERE pb_package_id = %s", (package_id,))
+        for idx, b in enumerate(buckets or []):
+            name = str(b.get("name") or "").strip()
+            if not name:
+                continue
+            try:
+                limit = int(b.get("limit", 1))
+            except Exception:
+                limit = 1
+            if limit < 0:
+                limit = 0
+            cats = b.get("categories") or []
+            if isinstance(cats, str):
+                try:
+                    cats = json.loads(cats)
+                except Exception:
+                    cats = [c.strip() for c in cats.split(",") if c.strip()]
+            cats_json = json.dumps([str(c) for c in cats])
+            try:
+                sort = int(b.get("sort", idx))
+            except Exception:
+                sort = idx
+            db.execute(
+                "INSERT INTO package_buckets (pb_package_id, pb_name, pb_limit, pb_categories, pb_sort) VALUES (%s, %s, %s, %s, %s)",
+                (package_id, name, limit, cats_json, sort),
+            )
+        _retag_package_item_buckets(package_id)
+        write_audit_log(action="UPDATE", table_name="package_buckets", record_id=package_id,
+                        new_value={"buckets": len(buckets or [])})
+        return True
+    except Exception as exc:
+        print(f"[repository] set_package_buckets failed: {exc}")
         return False
 
 
@@ -1906,11 +2065,13 @@ _INVOICE_ROW_SQL = """
                i.inv_total_amount   AS total_amount,
                i.inv_amount_paid    AS amount_paid,
                COALESCE(i.inv_down_payment, 0.0) AS down_payment,
-               CASE WHEN i.inv_balance IS NOT NULL AND (i.inv_balance > 0 OR (i.inv_total_amount - i.inv_amount_paid) <= 0)
-                    THEN i.inv_balance
-                    WHEN (i.inv_total_amount - i.inv_amount_paid) > 0
-                    THEN ROUND(i.inv_total_amount - i.inv_amount_paid, 2)
-                    ELSE 0.0 END AS balance_due,
+               -- Balance = total minus what was actually PAID (inv_amount_paid).
+               -- The stored inv_balance column went stale, and inv_down_payment
+               -- can be garbage, so neither is trusted here.
+               CASE WHEN (i.inv_total_amount - COALESCE(i.inv_amount_paid, 0)) < 0
+                    THEN 0.0
+                    ELSE ROUND(i.inv_total_amount - COALESCE(i.inv_amount_paid, 0), 2)
+                    END AS balance_due,
                i.inv_status         AS status,
                i.inv_payment_verified AS payment_verified,
                COALESCE(c.cus_email, '') AS customer_email
@@ -2053,11 +2214,8 @@ def get_invoices_summary(date_start: str = None, date_end: str = None,
             COALESCE(SUM(i.inv_amount_paid), 0.0) AS total_received,
             COALESCE(SUM(
                 CASE WHEN CAST(i.inv_status AS TEXT) != 'Paid'
-                     THEN MAX(
-                        CASE WHEN i.inv_balance IS NOT NULL AND (i.inv_balance > 0 OR (i.inv_total_amount - i.inv_amount_paid) <= 0)
-                             THEN i.inv_balance
-                             ELSE ROUND(i.inv_total_amount - i.inv_amount_paid, 2) END,
-                        0.0)
+                          AND (i.inv_total_amount - COALESCE(i.inv_amount_paid, 0)) > 0
+                     THEN ROUND(i.inv_total_amount - COALESCE(i.inv_amount_paid, 0), 2)
                      ELSE 0.0 END
             ), 0.0) AS total_pending,
             COUNT(*) AS events_count

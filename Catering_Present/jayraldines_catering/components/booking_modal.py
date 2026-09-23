@@ -1122,21 +1122,50 @@ class BookingModal(QDialog):
         if pkg_id not in self._pkg_selected_dishes:
             self._pkg_selected_dishes[pkg_id] = [p["item_name"] for p in default_items if p.get("item_name")]
 
+        # Load this package's selection buckets (dish/dessert quotas). With no
+        # buckets the picker stays unlimited (legacy behavior).
+        self._pkg_buckets = repo.get_package_buckets(pkg_id) or []
+        self._cat_to_bucket = {}
+        self._bucket_limit_by_id = {}
+        self._bucket_name_by_id = {}
+        for b in self._pkg_buckets:
+            self._bucket_limit_by_id[b["id"]] = int(b.get("limit") or 0)
+            self._bucket_name_by_id[b["id"]] = b.get("name", "")
+            for c in b.get("categories", []):
+                self._cat_to_bucket[str(c).strip().lower()] = b["id"]
+        buckets_active = len(self._pkg_buckets) > 0
+
         all_items = repo.get_available_menu_items()
         if not all_items:
             all_items = default_items
 
-        # Group items by category
+        # Group items by category. When buckets are active, only show categories
+        # that belong to some bucket (others are not selectable for this package).
         by_cat = {}
         for itm in all_items:
             cat = itm.get("category") or "Main Course"
+            if buckets_active and str(cat).strip().lower() not in self._cat_to_bucket:
+                continue
             by_cat.setdefault(cat, []).append(itm)
+
+        # Live per-bucket counter summary (e.g. "Dishes 3/4  •  Dessert 1/1").
+        if buckets_active:
+            self._pkg_bucket_summary = QLabel("")
+            self._pkg_bucket_summary.setWordWrap(True)
+            self._pkg_bucket_summary.setStyleSheet("font-size: 11px; font-weight: 700; color: #38BDF8; padding: 2px 4px;")
+            self._pkg_dishes_list_lay.addWidget(self._pkg_bucket_summary)
+        else:
+            self._pkg_bucket_summary = None
 
         cat_order = ["Main Course", "Appetizer", "Soup", "Salad", "Dessert", "Drinks", "Other"]
         sorted_cats = sorted(by_cat.keys(), key=lambda c: cat_order.index(c) if c in cat_order else 99)
 
         for cat in sorted_cats:
-            cat_hdr = QLabel(f"● {cat.upper()}")
+            b_id = self._cat_to_bucket.get(str(cat).strip().lower()) if buckets_active else None
+            hdr_txt = f"● {cat.upper()}"
+            if b_id is not None:
+                hdr_txt += f"  —  {self._bucket_name_by_id.get(b_id, '')} (max {self._bucket_limit_by_id.get(b_id, 0)})"
+            cat_hdr = QLabel(hdr_txt)
             cat_hdr.setStyleSheet("font-size: 11px; font-weight: 700; color: #E11D48; margin-top: 8px; margin-bottom: 2px; letter-spacing: 0.5px;")
             self._pkg_dishes_list_lay.addWidget(cat_hdr)
 
@@ -1153,7 +1182,10 @@ class BookingModal(QDialog):
                 if i_name.strip().lower() in prechecked:
                     chk.setChecked(True)
 
-                chk.toggled.connect(self._on_pkg_dish_toggled)
+                if buckets_active:
+                    chk.toggled.connect(self._make_dish_toggle_handler(chk, item))
+                else:
+                    chk.toggled.connect(self._on_pkg_dish_toggled)
 
                 is_default_badge = QLabel("Package Default" if i_name.strip().lower() in default_names else "")
                 is_default_badge.setStyleSheet("font-size: 10px; font-weight: 600; color: #10B981; background: rgba(16, 185, 129, 0.1); border-radius: 4px; padding: 1px 6px;")
@@ -1187,6 +1219,54 @@ class BookingModal(QDialog):
             ]
             self._sync_custom_checks_from_package(pkg_id)
             self._update_pkg_card_badges()
+        self._update_bucket_counters()
+
+    # ---- Selection bucket enforcement (dish/dessert quotas) ----
+    def _bucket_for_item(self, item):
+        cat = (item.get("category") or "").strip().lower()
+        return getattr(self, "_cat_to_bucket", {}).get(cat)
+
+    def _count_checked_in_bucket(self, bid):
+        n = 0
+        for chk, itm in getattr(self, "_pkg_dish_checks", []):
+            if chk.isChecked() and self._bucket_for_item(itm) == bid:
+                n += 1
+        return n
+
+    def _update_bucket_counters(self):
+        lbl = getattr(self, "_pkg_bucket_summary", None)
+        if not lbl:
+            return
+        parts = []
+        for b in getattr(self, "_pkg_buckets", []) or []:
+            used = self._count_checked_in_bucket(b["id"])
+            parts.append(f"{b.get('name', '')} {used}/{b.get('limit', 0)}")
+        lbl.setText("   •   ".join(parts))
+        lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #38BDF8; padding: 2px 4px;")
+
+    def _flash_bucket_limit(self, bid, limit):
+        name = getattr(self, "_bucket_name_by_id", {}).get(bid, "This group")
+        lbl = getattr(self, "_pkg_bucket_summary", None)
+        if lbl:
+            lbl.setText(f"⚠️ {name}: max {limit} — remove one to pick another.")
+            lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #F59E0B; padding: 2px 4px;")
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(1800, self._update_bucket_counters)
+
+    def _make_dish_toggle_handler(self, chk, item):
+        def _handler(checked=False):
+            if checked:
+                bid = self._bucket_for_item(item)
+                if bid is not None:
+                    limit = getattr(self, "_bucket_limit_by_id", {}).get(bid, 0)
+                    if self._count_checked_in_bucket(bid) > limit:
+                        chk.blockSignals(True)
+                        chk.setChecked(False)
+                        chk.blockSignals(False)
+                        self._flash_bucket_limit(bid, limit)
+                        return
+            self._on_pkg_dish_toggled()
+        return _handler
 
     def _reset_pkg_dishes_to_default(self):
         pkg_idx = getattr(self, "_selected_pkg", 0)
@@ -1198,7 +1278,9 @@ class BookingModal(QDialog):
         default_names = {p["item_name"].strip().lower() for p in default_items if p.get("item_name")}
         for chk, itm in getattr(self, "_pkg_dish_checks", []):
             name = (itm.get("item") or itm.get("name") or itm.get("item_name", "")).strip().lower()
+            chk.blockSignals(True)
             chk.setChecked(name in default_names)
+            chk.blockSignals(False)
         if not hasattr(self, "_pkg_selected_dishes"):
             self._pkg_selected_dishes = {}
         self._pkg_selected_dishes[pkg_id] = [p["item_name"] for p in default_items if p.get("item_name")]
@@ -1206,6 +1288,25 @@ class BookingModal(QDialog):
         self._on_pkg_dish_toggled()
 
     def _select_all_pkg_dishes(self):
+        # Respect bucket caps: never select more than each bucket's limit.
+        if getattr(self, "_pkg_buckets", None):
+            counts = {}
+            for chk, itm in getattr(self, "_pkg_dish_checks", []):
+                bid = self._bucket_for_item(itm)
+                chk.blockSignals(True)
+                if bid is None:
+                    chk.setChecked(False)
+                else:
+                    limit = getattr(self, "_bucket_limit_by_id", {}).get(bid, 0)
+                    used = counts.get(bid, 0)
+                    if used < limit:
+                        chk.setChecked(True)
+                        counts[bid] = used + 1
+                    else:
+                        chk.setChecked(False)
+                chk.blockSignals(False)
+            self._on_pkg_dish_toggled()
+            return
         for chk, _ in getattr(self, "_pkg_dish_checks", []):
             chk.setChecked(True)
         self._on_pkg_dish_toggled()

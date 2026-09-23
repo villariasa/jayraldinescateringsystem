@@ -87,7 +87,17 @@ CREATE TABLE IF NOT EXISTS package_items (
     pi_item_name TEXT,
     pi_category TEXT,
     pi_custom_price REAL DEFAULT 0.0,
-    pi_quantity INTEGER DEFAULT 1
+    pi_quantity INTEGER DEFAULT 1,
+    pi_bucket_id INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS package_buckets (
+    pb_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pb_package_id INTEGER NOT NULL REFERENCES packages(pkg_id) ON DELETE CASCADE,
+    pb_name TEXT NOT NULL,
+    pb_limit INTEGER NOT NULL DEFAULT 1,
+    pb_categories TEXT NOT NULL DEFAULT '[]',
+    pb_sort INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS bookings (
@@ -281,6 +291,11 @@ def init_db(conn: sqlite3.Connection) -> None:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN sync_status TEXT DEFAULT 'pending'")
         except sqlite3.OperationalError:
             pass
+
+    try:
+        cur.execute("ALTER TABLE package_items ADD COLUMN pi_bucket_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
 
     cur.execute("SELECT COUNT(*) FROM address_provinces")
     if cur.fetchone()[0] == 0:

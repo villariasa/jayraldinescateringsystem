@@ -1400,8 +1400,14 @@ class CustomersPage(QWidget):
         # Col 1: Customer Name, Contact, Email
         c1 = QVBoxLayout()
         c1.setSpacing(2)
-        name_lbl = QLabel(c["name"])
+        _q = self._search.text() if hasattr(self, "_search") else ""
+        name_lbl = QLabel(highlight_html(c.get("name", ""), _q))
+        name_lbl.setTextFormat(Qt.RichText)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
+        # Keep a handle so the search filter can re-highlight the name live
+        # (the list is filtered client-side without re-rendering the cards).
+        card._name_lbl = name_lbl
+        card._cust_name = c.get("name", "")
         info_lbl = QLabel(f"📞 {c['contact']}  |  ✉ {c['email']}")
         info_lbl.setObjectName("subtitle")
         c1.addWidget(name_lbl)
@@ -1825,10 +1831,27 @@ class CustomersPage(QWidget):
         else:
             self._filter_table_now()
 
+    def _has_active_search(self) -> bool:
+        try:
+            return bool(self._search.text().strip())
+        except Exception:
+            return False
+
     def _filter_table_now(self):
-        q = self._search.text().strip().lower() if hasattr(self, "_search") else ""
+        raw_q = self._search.text() if hasattr(self, "_search") else ""
+        q = raw_q.strip().lower()
+        # Search just cleared while a background refresh was deferred -> reload once.
+        if not q and getattr(self, "_reload_deferred", False):
+            self._reload_deferred = False
+            if self.isVisible():
+                self._do_reload()
+                return
         visible_count = 0
         for c, card_w in getattr(self, "_customer_cards", []):
+            # Live-highlight the name to match what's typed.
+            lbl = getattr(card_w, "_name_lbl", None)
+            if lbl is not None:
+                lbl.setText(highlight_html(getattr(card_w, "_cust_name", c.get("name", "")), raw_q))
             if not q:
                 card_w.show()
                 visible_count += 1

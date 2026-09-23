@@ -65,6 +65,40 @@ def save_uploaded_image(file_path: str, subfolder: str = "menu") -> str:
         return file_path
 
 
+def _fetch_and_cache_remote_image(rel_path: str, local_target: str) -> bytes | None:
+    """Fetches image bytes from the LAN sync server for an image that was
+    uploaded/saved on a different machine (e.g. tablet or another desktop
+    client) and therefore doesn't exist on this machine's disk yet, even
+    though the shared DB already has its relative path. Caches the bytes
+    locally so future loads don't need the network."""
+    try:
+        from utils.client_sync import get_server_url
+        server_url = get_server_url()
+    except Exception:
+        server_url = None
+    if not server_url:
+        return None
+
+    try:
+        import urllib.request
+        import urllib.parse
+        url = f"{server_url}/api/images/download?path={urllib.parse.quote(rel_path)}"
+        with urllib.request.urlopen(url, timeout=4) as resp:
+            data = resp.read()
+    except Exception as exc:
+        print(f"[menu_page] Failed to fetch remote image {rel_path}: {exc}")
+        return None
+
+    if data:
+        try:
+            os.makedirs(os.path.dirname(local_target), exist_ok=True)
+            with open(local_target, "wb") as f:
+                f.write(data)
+        except Exception:
+            pass
+    return data
+
+
 def load_item_pixmap(image_path: str, size: int = 48) -> QPixmap:
     """Loads a QPixmap from relative or absolute image path, scaled nicely."""
     if not image_path:
@@ -76,6 +110,13 @@ def load_item_pixmap(image_path: str, size: int = 48) -> QPixmap:
     if os.path.exists(full_path):
         pm = QPixmap(full_path)
         if not pm.isNull():
+            return pm.scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        return QPixmap()
+
+    data = _fetch_and_cache_remote_image(image_path, full_path)
+    if data:
+        pm = QPixmap()
+        if pm.loadFromData(data):
             return pm.scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
     return QPixmap()
 
@@ -522,20 +563,25 @@ class PackageDialog(QDialog):
         screen = QApplication.primaryScreen()
         if screen:
             avail = screen.availableGeometry()
-            target_w = min(760, max(540, int(avail.width() * 0.90)))
-            target_h = min(680, max(460, int(avail.height() * 0.88)))
+            target_w = min(1120, max(820, int(avail.width() * 0.92)))
+            target_h = min(880, max(560, int(avail.height() * 0.90)))
             self.resize(target_w, target_h)
-            self.setMinimumSize(min(520, target_w), min(420, target_h))
+            self.setMinimumSize(min(800, target_w), min(540, target_h))
             self.setMaximumSize(avail.width(), avail.height())
         else:
-            self.resize(720, 580)
-            self.setMinimumSize(540, 420)
+            self.resize(1080, 820)
+            self.setMinimumSize(800, 540)
 
         self._result = None
-        self._item_rows = []
-        self._existing_item_ids = {}
+        self._selected_items = {}      # {menu_item_id: custom_price}
+        self._bucket_rows = []
+        self._cat_cache = None
+        self._all_items = []
+        self._category_counts = {}     # {category_lower: available item count}
+        self._excl_lock = False        # reentrancy guard for category exclusivity
+        self._load_catalog()
         self._build_ui()
-        self._load_menu_items()
+        self._load_buckets()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -571,80 +617,137 @@ class PackageDialog(QDialog):
         div.setFixedHeight(1)
         lay.addWidget(div)
 
-        form = QFormLayout()
-        form.setSpacing(10)
-        form.setLabelAlignment(Qt.AlignRight)
-        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        _is_light = not ThemeManager().is_dark()
+        _fld_lbl = "color: #374151; font-size: 12px; font-weight: 700;" if _is_light \
+                   else "color: #E5E7EB; font-size: 12px; font-weight: 700;"
 
+        # ================= Two-column content ==================
+        content = QHBoxLayout()
+        content.setSpacing(22)
+
+        # ---------- LEFT: big package photo + thumbnail strip ----------
+        left_w = QWidget()
+        left_w.setFixedWidth(460)
+        left = QVBoxLayout(left_w)
+        left.setContentsMargins(0, 0, 0, 0)
+        left.setSpacing(10)
+
+        _ph_border = "#E2E8F0" if _is_light else "#334155"
+        self._img_holder = QFrame()
+        self._img_holder.setObjectName("card")
+        self._img_holder.setStyleSheet(
+            f"#card {{ border: 1px solid {_ph_border}; border-radius: 12px; "
+            f"background: {'#F1F5F9' if _is_light else '#0B1220'}; }}"
+        )
+        self._img_holder.setMinimumHeight(430)
+        self._img_holder.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        holder_lay = QVBoxLayout(self._img_holder)
+        holder_lay.setContentsMargins(0, 0, 0, 0)
+        self.img_preview = QLabel()
+        self.img_preview.setAlignment(Qt.AlignCenter)
+        self.img_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.img_preview.setStyleSheet("border: none; background: transparent; color: #64748B; font-size: 13px;")
+        holder_lay.addWidget(self.img_preview)
+
+        # Floating "Package Photo" chip overlaid on the image (top-left)
+        self._img_chip = QLabel("🖼  Package Photo", self._img_holder)
+        self._img_chip.setStyleSheet(
+            "background: rgba(15,23,42,0.78); color: #F8FAFC; font-size: 12px; "
+            "font-weight: 600; padding: 6px 12px; border-radius: 8px;"
+        )
+        self._img_chip.move(14, 14)
+        self._img_chip.adjustSize()
+        self._img_chip.raise_()
+
+        left.addWidget(self._img_holder, 1)
+
+        # Thumbnail strip: current photo + an Upload tile
+        thumb_row = QHBoxLayout()
+        thumb_row.setSpacing(8)
+        self._thumb_lbl = QLabel()
+        self._thumb_lbl.setFixedSize(96, 72)
+        self._thumb_lbl.setAlignment(Qt.AlignCenter)
+        self._thumb_lbl.setStyleSheet(
+            f"border: 2px solid #2563EB; border-radius: 8px; background: {'#F1F5F9' if _is_light else '#0B1220'};"
+        )
+        thumb_row.addWidget(self._thumb_lbl)
+
+        upload_tile = QPushButton("＋\nUpload\nImage")
+        upload_tile.setFixedSize(96, 72)
+        upload_tile.setCursor(Qt.PointingHandCursor)
+        upload_tile.setStyleSheet(
+            f"QPushButton {{ border: 1.5px dashed {'#94A3B8' if _is_light else '#475569'}; "
+            f"border-radius: 8px; color: {'#475569' if _is_light else '#94A3B8'}; font-size: 11px; "
+            f"background: transparent; }} QPushButton:hover {{ border-color: #2563EB; color: #2563EB; }}"
+        )
+        upload_tile.clicked.connect(self._browse_image)
+        thumb_row.addWidget(upload_tile)
+
+        self.remove_img_btn = QPushButton("Remove")
+        self.remove_img_btn.setCursor(Qt.PointingHandCursor)
+        self.remove_img_btn.setStyleSheet("background: transparent; border: none; color: #EF4444; font-size: 11px;")
+        self.remove_img_btn.clicked.connect(self._remove_image)
+        thumb_row.addWidget(self.remove_img_btn)
+        thumb_row.addStretch()
+        left.addLayout(thumb_row)
+
+        content.addWidget(left_w)
+
+        # ---------- RIGHT: fields ----------
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(12)
+
+        _nm_lbl = QLabel("Package Name *"); _nm_lbl.setStyleSheet(_fld_lbl)
+        right.addWidget(_nm_lbl)
         self.name_field = QLineEdit()
         self.name_field.setPlaceholderText("e.g. Standard Package")
+        self.name_field.setMinimumHeight(38)
         if self._edit_mode:
             self.name_field.setText(self._pkg_data.get("name", ""))
+        right.addWidget(self.name_field)
 
-        price_min_row = QHBoxLayout()
+        pm_row = QHBoxLayout()
+        pm_row.setSpacing(14)
+        price_col = QVBoxLayout(); price_col.setSpacing(4)
+        _pr_lbl = QLabel("Price / Pax *"); _pr_lbl.setStyleSheet(_fld_lbl)
+        price_col.addWidget(_pr_lbl)
         self.price_field = QDoubleSpinBox()
         self.price_field.setPrefix("₱ ")
         self.price_field.setRange(0.00, 9999999)
         self.price_field.setDecimals(2)
         self.price_field.setSingleStep(100)
+        self.price_field.setMinimumHeight(38)
         if self._edit_mode:
             self.price_field.setValue(float(self._pkg_data.get("price_per_pax", 0)))
+        price_col.addWidget(self.price_field)
+        pm_row.addLayout(price_col, 1)
 
-        min_pax_lbl = QLabel("  Min Pax:")
-        min_pax_lbl.setStyleSheet("color: #9CA3AF; font-size: 13px;")
+        min_col = QVBoxLayout(); min_col.setSpacing(4)
+        _mp_lbl = QLabel("Min Pax:"); _mp_lbl.setStyleSheet(_fld_lbl)
+        min_col.addWidget(_mp_lbl)
         self.min_pax_field = QSpinBox()
         self.min_pax_field.setRange(1, 9999)
         self.min_pax_field.setSuffix(" pax")
+        self.min_pax_field.setMinimumHeight(38)
+        self.min_pax_field.setMinimumWidth(140)
         self.min_pax_field.setValue(int(self._pkg_data.get("min_pax", 1)) if self._edit_mode else 1)
-        price_min_row.addWidget(self.price_field)
-        price_min_row.addWidget(min_pax_lbl)
-        price_min_row.addWidget(self.min_pax_field)
-        price_min_row.addStretch()
+        min_col.addWidget(self.min_pax_field)
+        pm_row.addLayout(min_col)
+        right.addLayout(pm_row)
 
+        _ds_lbl = QLabel("Description"); _ds_lbl.setStyleSheet(_fld_lbl)
+        right.addWidget(_ds_lbl)
         self.desc_field = QTextEdit()
         self.desc_field.setPlaceholderText("Describe what's included in this package...")
-        self.desc_field.setFixedHeight(60)
+        self.desc_field.setMinimumHeight(120)
         if self._edit_mode:
             self.desc_field.setPlainText(self._pkg_data.get("description", ""))
-
-        # Image Upload Row for Package
-        pkg_img_row = QHBoxLayout()
-        pkg_img_row.setSpacing(12)
-
-        self.img_preview = QLabel()
-        self.img_preview.setFixedSize(54, 54)
-        self.img_preview.setAlignment(Qt.AlignCenter)
-        pkg_img_row.addWidget(self.img_preview)
-
-        pkg_img_btns = QVBoxLayout()
-        pkg_img_btns.setSpacing(4)
-
-        browse_btn = QPushButton("📷 Upload Image")
-        browse_btn.setObjectName("secondaryButton")
-        browse_btn.setFixedHeight(28)
-        browse_btn.setCursor(Qt.PointingHandCursor)
-        browse_btn.clicked.connect(self._browse_image)
-        pkg_img_btns.addWidget(browse_btn)
-
-        self.remove_img_btn = QPushButton("Remove Image")
-        self.remove_img_btn.setFixedHeight(22)
-        self.remove_img_btn.setStyleSheet("background: transparent; border: none; color: #EF4444; font-size: 11px; text-align: left;")
-        self.remove_img_btn.setCursor(Qt.PointingHandCursor)
-        self.remove_img_btn.clicked.connect(self._remove_image)
-        pkg_img_btns.addWidget(self.remove_img_btn)
-
-        pkg_img_row.addLayout(pkg_img_btns)
-        pkg_img_row.addStretch()
+        right.addWidget(self.desc_field)
 
         self._update_preview()
 
-        form.addRow(QLabel("Package Name *"), self.name_field)
-        form.addRow(QLabel("Price / Pax *"), price_min_row)
-        form.addRow(QLabel("Description"), self.desc_field)
-        form.addRow(QLabel("Package Photo"), pkg_img_row)
-        lay.addLayout(form)
-
-        # Header for Items section with counter & quick-add
+        # ---- Included Menu Items (dish list lives in its own modal) ----
         items_hdr_row = QHBoxLayout()
         items_lbl = QLabel("Included Menu Items")
         items_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
@@ -655,48 +758,52 @@ class PackageDialog(QDialog):
         items_hdr_row.addWidget(self._count_badge)
         items_hdr_row.addStretch()
 
-        self.search_dishes = QLineEdit()
-        self.search_dishes.setPlaceholderText("Filter dishes...")
-        self.search_dishes.setFixedWidth(160)
-        self.search_dishes.textChanged.connect(self._filter_items)
-        items_hdr_row.addWidget(self.search_dishes)
+        pick_items_btn = QPushButton("＋ Add Menu Items")
+        pick_items_btn.setObjectName("secondaryButton")
+        pick_items_btn.setCursor(Qt.PointingHandCursor)
+        pick_items_btn.setToolTip("Choose which dishes are included in this package")
+        pick_items_btn.clicked.connect(self._open_items_picker)
+        items_hdr_row.addWidget(pick_items_btn)
+        right.addLayout(items_hdr_row)
 
-        add_dish_btn = QPushButton("+ New Dish")
-        add_dish_btn.setObjectName("secondaryButton")
-        add_dish_btn.setCursor(Qt.PointingHandCursor)
-        add_dish_btn.setToolTip("Add a brand new dish to the menu and include it in this package")
-        add_dish_btn.clicked.connect(self._quick_add_dish)
-        items_hdr_row.addWidget(add_dish_btn)
-        lay.addLayout(items_hdr_row)
+        # ---- Selection Buckets section ----
+        buckets_hdr = QHBoxLayout()
+        b_titlecol = QVBoxLayout(); b_titlecol.setSpacing(1)
+        b_lbl = QLabel("Selection Buckets")
+        b_lbl.setStyleSheet("font-weight: 700; font-size: 13px;")
+        b_titlecol.addWidget(b_lbl)
+        b_hint = QLabel("Limit how many items a customer may pick per group (none = unlimited)")
+        b_hint.setStyleSheet("color: #9CA3AF; font-size: 10px;")
+        b_titlecol.addWidget(b_hint)
+        buckets_hdr.addLayout(b_titlecol)
+        buckets_hdr.addStretch()
+        add_bucket_btn = QPushButton("+ Add Bucket")
+        add_bucket_btn.setObjectName("secondaryButton")
+        add_bucket_btn.setCursor(Qt.PointingHandCursor)
+        add_bucket_btn.clicked.connect(lambda: self._add_bucket_row())
+        buckets_hdr.addWidget(add_bucket_btn)
+        right.addLayout(buckets_hdr)
 
-        _is_light = not ThemeManager().is_dark()
-        _sf_border = "#E2E8F0" if _is_light else "#374151"
-        self._row_hover = "#F1F5F9" if _is_light else "#1F2937"
-
-        scroll_frame = QFrame()
-        scroll_frame.setObjectName("card")
-        scroll_frame.setStyleSheet(f"#card {{ border: 1px solid {_sf_border}; border-radius: 8px; }}")
-        scroll_frame_lay = QVBoxLayout(scroll_frame)
-        scroll_frame_lay.setContentsMargins(0, 0, 0, 0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-        self._items_container = QWidget()
-        self._items_layout = QVBoxLayout(self._items_container)
-        self._items_layout.setContentsMargins(10, 6, 10, 6)
-        self._items_layout.setSpacing(2)
-
-        scroll.setWidget(self._items_container)
-        scroll_frame_lay.addWidget(scroll)
-        lay.addWidget(scroll_frame, 1)
+        b_scroll = QScrollArea()
+        b_scroll.setWidgetResizable(True)
+        b_scroll.setFrameShape(QFrame.NoFrame)
+        b_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        b_scroll.setMinimumHeight(200)
+        self._buckets_container = QWidget()
+        self._buckets_layout = QVBoxLayout(self._buckets_container)
+        self._buckets_layout.setContentsMargins(4, 4, 4, 4)
+        self._buckets_layout.setSpacing(6)
+        self._buckets_layout.addStretch()
+        b_scroll.setWidget(self._buckets_container)
+        right.addWidget(b_scroll, 1)
 
         self._err = QLabel("")
         self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
         self._err.hide()
-        lay.addWidget(self._err)
+        right.addWidget(self._err)
+
+        content.addLayout(right, 1)
+        lay.addLayout(content, 1)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -717,119 +824,285 @@ class PackageDialog(QDialog):
 
         outer.addWidget(container)
 
+    def _load_catalog(self):
+        """Load the full menu once, compute per-category counts, and (edit mode)
+        seed the selected-items map from the package's existing dishes."""
+        try:
+            self._all_items = repo.get_all_menu_items() or []
+        except Exception:
+            self._all_items = []
+        counts: dict[str, int] = {}
+        for it in self._all_items:
+            cat = str(it.get("category", "Other") or "Other").strip().lower()
+            counts[cat] = counts.get(cat, 0) + 1
+        self._category_counts = counts
+        if self._edit_mode and self._pkg_id and not self._selected_items:
+            try:
+                for row in repo.get_package_items(self._pkg_id):
+                    mid = row.get("menu_item_id")
+                    if mid:
+                        self._selected_items[mid] = float(row.get("custom_price") or 0)
+            except Exception:
+                pass
+
+    def _available_count_for(self, categories) -> int:
+        """How many menu items exist across the given categories (case-insensitive)."""
+        return sum(self._category_counts.get(str(c).strip().lower(), 0) for c in categories)
+
     def _update_count_badge(self):
-        cnt = sum(1 for r in self._item_rows if r["chk"].isChecked())
-        self._count_badge.setText(f"{cnt} selected")
+        self._count_badge.setText(f"{len(self._selected_items)} selected")
 
-    def _filter_items(self, query: str):
-        q = (query or "").strip().lower()
-        for r in self._item_rows:
-            visible = (q in r["name"].lower()) or (q in r["category"].lower())
-            r["widget"].setVisible(visible)
-
-    def _quick_add_dish(self):
-        dlg = QuickAddDishDialog(self)
+    def _open_items_picker(self):
+        dlg = PackageItemsPickerDialog(self, self._all_items, dict(self._selected_items))
         if dlg.exec() == QDialog.Accepted:
-            new_dish = dlg.get_result()
-            if new_dish:
-                # Add to existing item rows and check it
-                self._existing_item_ids[new_dish["id"]] = float(new_dish.get("price", 0))
-                self._load_menu_items()
+            self._selected_items = dlg.get_selection()
+            # A new dish may have been created inside the picker — refresh counts.
+            self._load_catalog_counts_only()
+            self._update_count_badge()
+            self._refresh_bucket_limits()
 
-    def _load_menu_items(self):
-        # Clear existing layout
-        while self._items_layout.count():
-            it = self._items_layout.takeAt(0)
-            if it.widget():
-                it.widget().hide()
-                it.widget().deleteLater()
+    def _load_catalog_counts_only(self):
+        try:
+            self._all_items = repo.get_all_menu_items() or []
+        except Exception:
+            pass
+        counts: dict[str, int] = {}
+        for it in self._all_items:
+            cat = str(it.get("category", "Other") or "Other").strip().lower()
+            counts[cat] = counts.get(cat, 0) + 1
+        self._category_counts = counts
 
-        self._item_rows = []
-        all_items = repo.get_all_menu_items() or []
-        
-        if self._edit_mode and self._pkg_id and not self._existing_item_ids:
-            for row in repo.get_package_items(self._pkg_id):
-                self._existing_item_ids[row["menu_item_id"]] = float(row["custom_price"])
+    def _refresh_bucket_limits(self):
+        self._on_bucket_categories_changed()
 
-        categories = {}
-        for item in all_items:
-            cat = item.get("category", "Other")
-            categories.setdefault(cat, []).append(item)
+    def _menu_categories(self):
+        if self._cat_cache is None:
+            try:
+                self._cat_cache = repo.get_all_menu_categories() or []
+            except Exception:
+                self._cat_cache = []
+        return self._cat_cache
 
-        for cat, items in sorted(categories.items()):
-            cat_lbl = QLabel(cat.upper())
-            cat_lbl.setStyleSheet("color: #94A3B8; font-size: 10px; font-weight: 700; padding: 6px 4px 2px 4px; letter-spacing: 0.5px;")
-            self._items_layout.addWidget(cat_lbl)
+    def _update_bucket_cat_label(self, btn, menu):
+        checked = [a.text() for a in menu.actions() if a.isChecked()]
+        if checked:
+            btn.setText(f"{', '.join(checked)}  ▾" if len(", ".join(checked)) <= 32 else f"Categories ({len(checked)}) ▾")
+            btn.setToolTip(", ".join(checked))
+        else:
+            btn.setText("Select categories ▾")
+            btn.setToolTip("Pick which menu categories this limit applies to")
 
-            for item in items:
-                item_id = item.get("id")
-                item_name = item.get("item", "")
-                base_price = float(item.get("price", 0))
-                is_checked = item_id in self._existing_item_ids
+    def _add_bucket_row(self, name="", limit=1, categories=None):
+        from PySide6.QtWidgets import QToolButton, QMenu
+        categories = categories or []
 
-                row_widget = QFrame()
-                row_widget.setCursor(Qt.PointingHandCursor)
-                row_widget.setStyleSheet(f"QFrame {{ border-radius: 4px; background: transparent; }} QFrame:hover {{ background: {self._row_hover}; }}")
-                row_lay = QHBoxLayout(row_widget)
-                row_lay.setContentsMargins(6, 4, 6, 4)
-                row_lay.setSpacing(10)
+        row = QFrame()
+        row.setStyleSheet("QFrame { border: 1px solid #374151; border-radius: 6px; }")
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(8, 6, 8, 6)
+        rl.setSpacing(8)
 
-                chk = QCheckBox()
-                chk.setChecked(is_checked)
-                row_lay.addWidget(chk)
+        cat_btn = QToolButton()
+        cat_btn.setPopupMode(QToolButton.InstantPopup)
+        cat_btn.setCursor(Qt.PointingHandCursor)
+        cat_btn.setStyleSheet("QToolButton { padding: 4px 8px; border: 1px solid #374151; border-radius: 4px; }")
+        menu = QMenu(cat_btn)
+        sel_lower = {str(c).strip().lower() for c in categories}
+        for c in self._menu_categories():
+            act = menu.addAction(str(c))
+            act.setCheckable(True)
+            act.setChecked(str(c).strip().lower() in sel_lower)
+        cat_btn.setMenu(menu)
+        rl.addWidget(cat_btn, 1)
 
-                name_lbl = QLabel(item_name)
-                name_lbl.setStyleSheet("font-weight: 600; font-size: 13px;")
-                name_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-                row_lay.addWidget(name_lbl)
+        lim_lbl = QLabel("Max qty:")
+        lim_lbl.setStyleSheet("color: #9CA3AF; font-size: 12px;")
+        rl.addWidget(lim_lbl)
+        limit_spin = QSpinBox()
+        limit_spin.setRange(0, 999)
+        limit_spin.setValue(int(limit) if limit else 1)
+        limit_spin.setFixedWidth(64)
+        rl.addWidget(limit_spin)
 
-                orig_price_lbl = QLabel(f"(Base: ₱{base_price:,.2f})")
-                orig_price_lbl.setStyleSheet("color: #6B7280; font-size: 11px;")
-                row_lay.addWidget(orig_price_lbl)
+        avail_lbl = QLabel("")
+        avail_lbl.setStyleSheet("color: #6B7280; font-size: 10px;")
+        avail_lbl.setMinimumWidth(84)
+        rl.addWidget(avail_lbl)
 
-                custom_price = QDoubleSpinBox()
-                custom_price.setPrefix("₱ ")
-                custom_price.setRange(0, 9999999)
-                custom_price.setDecimals(2)
-                custom_price.setSingleStep(50)
-                custom_price.setFixedWidth(120)
-                custom_price.setToolTip("Custom price for this item in this package")
-                
-                saved_price = self._existing_item_ids.get(item_id, base_price)
-                custom_price.setValue(saved_price)
-                custom_price.setEnabled(is_checked)
+        del_btn = QPushButton()
+        del_btn.setIcon(get_icon("trash", color="#EF4444", size=QSize(18, 18)))
+        del_btn.setIconSize(QSize(18, 18))
+        del_btn.setFixedSize(30, 30)
+        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.setToolTip("Remove this bucket")
+        del_btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none; } "
+            "QPushButton:hover { background: rgba(239,68,68,0.15); border-radius: 6px; }"
+        )
+        rl.addWidget(del_btn)
 
-                chk.toggled.connect(custom_price.setEnabled)
-                chk.toggled.connect(self._update_count_badge)
+        entry = {"widget": row, "limit": limit_spin, "menu": menu, "cat_btn": cat_btn, "avail": avail_lbl}
 
-                row_lay.addWidget(custom_price)
-                self._items_layout.addWidget(row_widget)
+        def _sync():
+            # Cap the max qty by how many dishes actually exist in the chosen
+            # categories, so an admin can't require more than are available.
+            cats = [a.text() for a in menu.actions() if a.isChecked()]
+            avail = self._available_count_for(cats)
+            if cats and avail > 0:
+                limit_spin.setMaximum(avail)
+                if limit_spin.value() > avail:
+                    limit_spin.setValue(avail)
+                avail_lbl.setText(f"of {avail} available")
+            elif cats:
+                limit_spin.setMaximum(0)
+                limit_spin.setValue(0)
+                avail_lbl.setText("no items yet")
+            else:
+                limit_spin.setMaximum(999)
+                avail_lbl.setText("")
+            self._update_bucket_cat_label(cat_btn, menu)
 
-                self._item_rows.append({
-                    "item_id":    item_id,
-                    "name":       item_name,
-                    "category":   cat,
-                    "chk":        chk,
-                    "price_spin": custom_price,
-                    "widget":     row_widget,
-                })
+        for act in menu.actions():
+            # Route through the coordinator so a category picked here is disabled
+            # in every other bucket (no category can belong to two buckets).
+            act.toggled.connect(lambda _c: self._on_bucket_categories_changed())
+        entry["sync"] = _sync
 
-        self._items_layout.addStretch()
-        self._update_count_badge()
+        def _remove():
+            try:
+                self._bucket_rows.remove(entry)
+            except ValueError:
+                pass
+            row.hide()
+            row.deleteLater()
+            # Free that bucket's categories for the remaining buckets.
+            self._on_bucket_categories_changed()
+
+        del_btn.clicked.connect(_remove)
+
+        # Insert before the trailing stretch item
+        self._buckets_layout.insertWidget(self._buckets_layout.count() - 1, row)
+        self._bucket_rows.append(entry)
+        self._on_bucket_categories_changed()
+
+    def _on_bucket_categories_changed(self):
+        """Enforce that each menu category belongs to at most one bucket: the
+        first bucket to claim a category owns it; the same category is unchecked
+        if duplicated and disabled (greyed out) in every other bucket's menu."""
+        if getattr(self, "_excl_lock", False):
+            return
+        self._excl_lock = True
+        try:
+            owner = {}  # category(lower) -> owning entry
+            for e in self._bucket_rows:
+                for a in e["menu"].actions():
+                    if a.isChecked():
+                        k = a.text().strip().lower()
+                        if k in owner:
+                            a.setChecked(False)   # duplicate — drop it here
+                        else:
+                            owner[k] = e
+            for e in self._bucket_rows:
+                for a in e["menu"].actions():
+                    o = owner.get(a.text().strip().lower())
+                    a.setEnabled(o is None or o is e)
+        finally:
+            self._excl_lock = False
+        # Refresh each row's limit cap + labels now that selections are settled.
+        for e in self._bucket_rows:
+            sync = e.get("sync")
+            if sync:
+                sync()
+
+    def _load_buckets(self):
+        if self._edit_mode and self._pkg_id:
+            try:
+                for b in repo.get_package_buckets(self._pkg_id):
+                    self._add_bucket_row(b.get("name", ""), b.get("limit", 1), b.get("categories", []))
+            except Exception:
+                pass
+            self._on_bucket_categories_changed()
+
+    def _collect_buckets(self):
+        out = []
+        seen = set()   # categories already claimed by an earlier bucket
+        for e in self._bucket_rows:
+            cats = []
+            for a in e["menu"].actions():
+                if not a.isChecked():
+                    continue
+                key = a.text().strip().lower()
+                if key in seen:     # never let a category appear in two buckets
+                    continue
+                seen.add(key)
+                cats.append(a.text())
+            if not cats:
+                continue
+            # Name is auto-derived from the categories (the UI no longer asks for one).
+            name = ", ".join(cats)
+            if len(name) > 90:
+                name = name[:87] + "..."
+            out.append({"name": name, "limit": int(e["limit"].value()), "categories": cats})
+        return out
+
+    def _raw_pixmap(self) -> QPixmap:
+        """Loads the package image at full resolution (resolving local path or
+        fetching from the LAN server if the file isn't on this machine)."""
+        p = self._image_path
+        if not p:
+            return QPixmap()
+        full = p
+        if not os.path.isabs(full):
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            full = os.path.join(base, p)
+        if os.path.exists(full):
+            pm = QPixmap(full)
+            if not pm.isNull():
+                return pm
+        data = _fetch_and_cache_remote_image(p, full)
+        if data:
+            pm = QPixmap()
+            if pm.loadFromData(data):
+                return pm
+        return QPixmap()
 
     def _update_preview(self):
-        if self._image_path:
-            pm = load_item_pixmap(self._image_path, size=54)
-            if not pm.isNull():
-                self.img_preview.setPixmap(pm)
-                self.img_preview.setStyleSheet("border: 1.5px solid #E11D48; border-radius: 8px; background: transparent;")
-                if hasattr(self, "remove_img_btn"):
-                    self.remove_img_btn.show()
-                return
-        self.img_preview.setText("No Image")
-        self.img_preview.setStyleSheet("border: 1.5px dashed #4B5563; border-radius: 8px; color: #6B7280; font-size: 10px; background: rgba(255,255,255,0.03);")
+        pm = self._raw_pixmap()
+        has_img = not pm.isNull()
+
+        # Big preview scaled to fully fit the holder (whole image visible).
+        holder = getattr(self, "_img_holder", None)
+        tw = holder.width() - 4 if holder and holder.width() > 20 else 440
+        th = holder.height() - 4 if holder and holder.height() > 20 else 430
+        if has_img:
+            self.img_preview.setPixmap(pm.scaled(max(tw, 40), max(th, 40),
+                                                 Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.img_preview.setText("")
+        else:
+            self.img_preview.setPixmap(QPixmap())
+            self.img_preview.setText("No image yet\nClick “Upload Image” below")
+
+        # Thumbnail + remove button state
+        if hasattr(self, "_thumb_lbl"):
+            if has_img:
+                self._thumb_lbl.setPixmap(pm.scaled(96, 72, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
+                self._thumb_lbl.setText("")
+                self._thumb_lbl.show()
+            else:
+                self._thumb_lbl.setPixmap(QPixmap())
+                self._thumb_lbl.hide()
         if hasattr(self, "remove_img_btn"):
-            self.remove_img_btn.hide()
+            self.remove_img_btn.setVisible(has_img)
+        if hasattr(self, "_img_chip"):
+            self._img_chip.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Re-scale the big preview to the holder's new size.
+        try:
+            self._update_preview()
+        except Exception:
+            pass
 
     def _browse_image(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -854,9 +1127,8 @@ class PackageDialog(QDialog):
             self.name_field.setStyleSheet("border: 1px solid #E11D48;")
             return
         selected_items = [
-            {"menu_item_id": r["item_id"], "custom_price": r["price_spin"].value()}
-            for r in self._item_rows
-            if r["chk"].isChecked()
+            {"menu_item_id": mid, "custom_price": price}
+            for mid, price in self._selected_items.items()
         ]
         saved_img = save_uploaded_image(self._image_path, "packages") if self._image_path else ""
         self._result = {
@@ -866,11 +1138,221 @@ class PackageDialog(QDialog):
             "description":   self.desc_field.toPlainText().strip(),
             "image":         saved_img,
             "items":         selected_items,
+            "buckets":       self._collect_buckets(),
         }
         self.accept()
 
     def get_result(self):
         return self._result
+
+
+class PackageItemsPickerDialog(QDialog):
+    """Modal dish picker for a package. Shows the full menu grouped by category
+    with checkboxes + per-package custom prices. Returns {menu_item_id: price}."""
+
+    def __init__(self, parent=None, all_items=None, selected=None):
+        super().__init__(parent)
+        self._all_items = all_items if all_items is not None else (repo.get_all_menu_items() or [])
+        self._selected = dict(selected or {})   # {item_id: custom_price}
+        self._item_rows = []
+        self.setWindowTitle("Add Menu Items")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setModal(True)
+        from PySide6.QtWidgets import QApplication
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            self.resize(min(680, max(520, int(avail.width() * 0.6))),
+                        min(720, max(480, int(avail.height() * 0.85))))
+        else:
+            self.resize(620, 620)
+        self._build_ui()
+        self._reload_list()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        animate_dialog_open(self, duration=200, auto_center=True)
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 12, 12, 12)
+        container = QFrame()
+        container.setObjectName("card")
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(22, 18, 22, 16)
+        lay.setSpacing(12)
+
+        header = QHBoxLayout()
+        title = QLabel("Add Menu Items")
+        title.setObjectName("h3")
+        header.addWidget(title)
+        self._count_lbl = QLabel("")
+        self._count_lbl.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 600;")
+        header.addWidget(self._count_lbl)
+        header.addStretch()
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.reject)
+        header.addWidget(close_btn)
+        lay.addLayout(header)
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        lay.addWidget(div)
+
+        tools = QHBoxLayout()
+        self.search_dishes = QLineEdit()
+        self.search_dishes.setPlaceholderText("Filter dishes...")
+        self.search_dishes.textChanged.connect(self._filter_items)
+        tools.addWidget(self.search_dishes, 1)
+        add_dish_btn = QPushButton("+ New Dish")
+        add_dish_btn.setObjectName("secondaryButton")
+        add_dish_btn.setCursor(Qt.PointingHandCursor)
+        add_dish_btn.setToolTip("Create a brand new dish and include it")
+        add_dish_btn.clicked.connect(self._quick_add_dish)
+        tools.addWidget(add_dish_btn)
+        lay.addLayout(tools)
+
+        _is_light = not ThemeManager().is_dark()
+        _sf_border = "#E2E8F0" if _is_light else "#374151"
+        self._row_hover = "#F1F5F9" if _is_light else "#1F2937"
+
+        scroll_frame = QFrame()
+        scroll_frame.setObjectName("card")
+        scroll_frame.setStyleSheet(f"#card {{ border: 1px solid {_sf_border}; border-radius: 8px; }}")
+        scroll_frame_lay = QVBoxLayout(scroll_frame)
+        scroll_frame_lay.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._items_container = QWidget()
+        self._items_layout = QVBoxLayout(self._items_container)
+        self._items_layout.setContentsMargins(10, 6, 10, 6)
+        self._items_layout.setSpacing(2)
+        scroll.setWidget(self._items_container)
+        scroll_frame_lay.addWidget(scroll)
+        lay.addWidget(scroll_frame, 1)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("secondaryButton")
+        cancel.setCursor(Qt.PointingHandCursor)
+        cancel.clicked.connect(self.reject)
+        done = QPushButton("  Done")
+        done.setObjectName("primaryButton")
+        done.setIcon(btn_icon_primary("check"))
+        done.setIconSize(QSize(15, 15))
+        done.setCursor(Qt.PointingHandCursor)
+        done.clicked.connect(self.accept)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(done)
+        lay.addLayout(btn_row)
+
+        outer.addWidget(container)
+
+    def _update_count(self):
+        self._count_lbl.setText(f"{len(self._selected)} selected")
+
+    def _filter_items(self, query: str):
+        q = (query or "").strip().lower()
+        for r in self._item_rows:
+            r["widget"].setVisible((q in r["name"].lower()) or (q in r["category"].lower()))
+
+    def _quick_add_dish(self):
+        dlg = QuickAddDishDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            new_dish = dlg.get_result()
+            if new_dish:
+                self._selected[new_dish["id"]] = float(new_dish.get("price", 0))
+                self._all_items = repo.get_all_menu_items() or []
+                self._reload_list()
+
+    def _reload_list(self):
+        while self._items_layout.count():
+            it = self._items_layout.takeAt(0)
+            if it.widget():
+                it.widget().hide()
+                it.widget().deleteLater()
+        self._item_rows = []
+
+        categories = {}
+        for item in self._all_items:
+            categories.setdefault(item.get("category", "Other"), []).append(item)
+
+        for cat, items in sorted(categories.items()):
+            cat_lbl = QLabel(str(cat).upper())
+            cat_lbl.setStyleSheet("color: #94A3B8; font-size: 10px; font-weight: 700; padding: 6px 4px 2px 4px; letter-spacing: 0.5px;")
+            self._items_layout.addWidget(cat_lbl)
+
+            for item in items:
+                item_id = item.get("id")
+                item_name = item.get("item", "")
+                base_price = float(item.get("price", 0))
+                is_checked = item_id in self._selected
+
+                row_widget = QFrame()
+                row_widget.setStyleSheet(f"QFrame {{ border-radius: 4px; background: transparent; }} QFrame:hover {{ background: {self._row_hover}; }}")
+                row_lay = QHBoxLayout(row_widget)
+                row_lay.setContentsMargins(6, 4, 6, 4)
+                row_lay.setSpacing(10)
+
+                chk = QCheckBox()
+                chk.setChecked(is_checked)
+                row_lay.addWidget(chk)
+
+                name_lbl = QLabel(item_name)
+                name_lbl.setStyleSheet("font-weight: 600; font-size: 13px;")
+                name_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+                row_lay.addWidget(name_lbl)
+
+                orig_price_lbl = QLabel(f"(Base: ₱{base_price:,.2f})")
+                orig_price_lbl.setStyleSheet("color: #6B7280; font-size: 11px;")
+                row_lay.addWidget(orig_price_lbl)
+
+                custom_price = QDoubleSpinBox()
+                custom_price.setPrefix("₱ ")
+                custom_price.setRange(0, 9999999)
+                custom_price.setDecimals(2)
+                custom_price.setSingleStep(50)
+                custom_price.setFixedWidth(120)
+                custom_price.setValue(self._selected.get(item_id, base_price))
+                custom_price.setEnabled(is_checked)
+                row_lay.addWidget(custom_price)
+
+                def _on_toggle(checked, iid=item_id, spin=custom_price):
+                    spin.setEnabled(checked)
+                    if checked:
+                        self._selected[iid] = spin.value()
+                    else:
+                        self._selected.pop(iid, None)
+                    self._update_count()
+
+                def _on_price(val, iid=item_id, box=chk):
+                    if box.isChecked():
+                        self._selected[iid] = val
+
+                chk.toggled.connect(_on_toggle)
+                custom_price.valueChanged.connect(_on_price)
+
+                self._items_layout.addWidget(row_widget)
+                self._item_rows.append({
+                    "item_id": item_id, "name": item_name, "category": str(cat),
+                    "chk": chk, "widget": row_widget,
+                })
+
+        self._items_layout.addStretch()
+        self._update_count()
+
+    def get_selection(self):
+        return self._selected
 
 
 class AddMultipleMenuItemsDialog(QDialog):
@@ -2443,6 +2925,7 @@ class MenuPage(QWidget):
                 pkg_id = repo.add_package(result)
                 if pkg_id:
                     repo.set_package_items(pkg_id, result.get("items", []))
+                    repo.set_package_buckets(pkg_id, result.get("buckets", []))
                     self._packages_cache = repo.get_all_packages()
                     self._populate_packages_table()
                     try:
@@ -2532,6 +3015,7 @@ class MenuPage(QWidget):
                 ok = repo.update_package(pkg["id"], result)
                 if ok:
                     repo.set_package_items(pkg["id"], result.get("items", []))
+                    repo.set_package_buckets(pkg["id"], result.get("buckets", []))
                     self._packages_cache = repo.get_all_packages()
                     self._populate_packages_table()
                     try:

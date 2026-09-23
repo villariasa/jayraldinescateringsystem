@@ -875,6 +875,107 @@ def _ensure_pg_places_and_auth(conn) -> None:
         except Exception as e_seed:
             log.warning(f"[db.py] Package / menu item auto-seed note: {e_seed}")
             conn.rollback()
+
+        # 15. Package selection buckets (dish/dessert quotas) + one-time backfill
+        # ------------------------------------------------------------------
+        # A bucket = a named selection limit on a package (e.g. "Dishes" max 4,
+        # "Dessert" max 1) scoped to a set of menu categories. This is purely
+        # additive: a package with no buckets keeps the old unlimited behavior,
+        # so existing data and orders are unaffected.
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS package_buckets (
+                        pb_id         SERIAL PRIMARY KEY,
+                        pb_package_id INT NOT NULL REFERENCES packages(pkg_id) ON DELETE CASCADE,
+                        pb_name       VARCHAR(100) NOT NULL,
+                        pb_limit      INT NOT NULL DEFAULT 1,
+                        pb_categories TEXT NOT NULL DEFAULT '[]',
+                        pb_sort       INT DEFAULT 0
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_package_buckets_pkg ON package_buckets(pb_package_id);
+                    ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_bucket_id INT;
+                """)
+            conn.commit()
+        except Exception as e_pb:
+            log.warning(f"[db.py] package_buckets schema note: {e_pb}")
+            conn.rollback()
+
+        # One-time auto-backfill so the client never re-enters package data.
+        # For every package that has NO buckets yet, we derive buckets from the
+        # dishes it already has: categories that look like desserts become a
+        # "Dessert" bucket, everything else a "Dishes" bucket, each with its
+        # limit defaulted to the current default-dish count. Guarded per bucket
+        # name so re-running on later startups is a no-op (idempotent). If this
+        # fails for any reason, packages simply stay unlimited (safe fallback).
+        try:
+            with conn.cursor() as cur:
+                # -- Dishes buckets --------------------------------------------
+                cur.execute("""
+                    INSERT INTO package_buckets (pb_package_id, pb_name, pb_limit, pb_categories, pb_sort)
+                    SELECT q.pkg_id, 'Dishes', COUNT(*), COALESCE(to_jsonb(array_agg(DISTINCT q.cat))::text, '[]'), 0
+                    FROM (
+                        SELECT pi.pi_package_id AS pkg_id,
+                               COALESCE(NULLIF(pi.pi_category, ''), mi.mi_category::text, 'General') AS cat,
+                               (COALESCE(NULLIF(pi.pi_category, ''), mi.mi_category::text, '') ILIKE '%dessert%'
+                                OR COALESCE(NULLIF(pi.pi_category, ''), mi.mi_category::text, '') ILIKE '%sweet%'
+                                OR COALESCE(NULLIF(pi.pi_category, ''), mi.mi_category::text, '') ILIKE '%panghimagas%') AS is_dessert
+                        FROM package_items pi
+                        LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
+                    ) q
+                    WHERE q.is_dessert = FALSE
+                      AND NOT EXISTS (SELECT 1 FROM package_buckets b
+                                      WHERE b.pb_package_id = q.pkg_id AND b.pb_name = 'Dishes')
+                    GROUP BY q.pkg_id;
+                """)
+                # -- Dessert buckets -------------------------------------------
+                cur.execute("""
+                    INSERT INTO package_buckets (pb_package_id, pb_name, pb_limit, pb_categories, pb_sort)
+                    SELECT q.pkg_id, 'Dessert', COUNT(*), COALESCE(to_jsonb(array_agg(DISTINCT q.cat))::text, '[]'), 1
+                    FROM (
+                        SELECT pi.pi_package_id AS pkg_id,
+                               COALESCE(NULLIF(pi.pi_category, ''), mi.mi_category::text, 'General') AS cat,
+                               (COALESCE(NULLIF(pi.pi_category, ''), mi.mi_category::text, '') ILIKE '%dessert%'
+                                OR COALESCE(NULLIF(pi.pi_category, ''), mi.mi_category::text, '') ILIKE '%sweet%'
+                                OR COALESCE(NULLIF(pi.pi_category, ''), mi.mi_category::text, '') ILIKE '%panghimagas%') AS is_dessert
+                        FROM package_items pi
+                        LEFT JOIN menu_items mi ON mi.mi_id = pi.pi_menu_item_id
+                    ) q
+                    WHERE q.is_dessert = TRUE
+                      AND NOT EXISTS (SELECT 1 FROM package_buckets b
+                                      WHERE b.pb_package_id = q.pkg_id AND b.pb_name = 'Dessert')
+                    GROUP BY q.pkg_id;
+                """)
+                # -- Tag each default dish with the bucket it belongs to -------
+                cur.execute("""
+                    UPDATE package_items pi
+                    SET pi_bucket_id = (SELECT b.pb_id FROM package_buckets b
+                                        WHERE b.pb_package_id = pi.pi_package_id AND b.pb_name = 'Dessert')
+                    WHERE pi.pi_bucket_id IS NULL
+                      AND EXISTS (SELECT 1 FROM package_buckets b
+                                  WHERE b.pb_package_id = pi.pi_package_id AND b.pb_name = 'Dessert')
+                      AND (COALESCE(NULLIF(pi.pi_category, ''),
+                                    (SELECT mi.mi_category::text FROM menu_items mi WHERE mi.mi_id = pi.pi_menu_item_id),
+                                    '') ILIKE '%dessert%'
+                           OR COALESCE(NULLIF(pi.pi_category, ''),
+                                    (SELECT mi.mi_category::text FROM menu_items mi WHERE mi.mi_id = pi.pi_menu_item_id),
+                                    '') ILIKE '%sweet%'
+                           OR COALESCE(NULLIF(pi.pi_category, ''),
+                                    (SELECT mi.mi_category::text FROM menu_items mi WHERE mi.mi_id = pi.pi_menu_item_id),
+                                    '') ILIKE '%panghimagas%');
+                """)
+                cur.execute("""
+                    UPDATE package_items pi
+                    SET pi_bucket_id = (SELECT b.pb_id FROM package_buckets b
+                                        WHERE b.pb_package_id = pi.pi_package_id AND b.pb_name = 'Dishes')
+                    WHERE pi.pi_bucket_id IS NULL
+                      AND EXISTS (SELECT 1 FROM package_buckets b
+                                  WHERE b.pb_package_id = pi.pi_package_id AND b.pb_name = 'Dishes');
+                """)
+            conn.commit()
+        except Exception as e_bf:
+            log.warning(f"[db.py] package_buckets backfill note: {e_bf}")
+            conn.rollback()
     except Exception as exc:
         try:
             conn.rollback()

@@ -397,6 +397,10 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self._handle_db_snapshot()
             return
 
+        if path == "/api/images/download":
+            self._handle_image_download(query_params=query_params)
+            return
+
         self._set_cors_headers(404)
         self.wfile.write(json.dumps({"error": "Not Found"}).encode("utf-8"))
 
@@ -689,6 +693,54 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         except Exception:
             return False
 
+    def _handle_image_download(self, query_params=None):
+        """Serves the raw bytes of a package/menu image saved on this machine's
+        disk, so other desktop clients on the LAN (which only see the relative
+        path via the shared DB, not the file itself) can fetch and cache it."""
+        qp = query_params or {}
+        rel = (qp.get("path", [""])[0] or "").strip()
+        if not rel:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": "Missing path"}).encode("utf-8"))
+            return
+
+        this_dir = Path(__file__).resolve().parent
+        allowed_root = (this_dir.parent / "assets").resolve()
+        candidate_paths = [
+            Path(rel),
+            this_dir.parent / rel,
+            this_dir.parent.parent / rel,
+        ]
+
+        target = None
+        for p in candidate_paths:
+            try:
+                resolved = p.resolve()
+                resolved.relative_to(allowed_root)
+            except Exception:
+                continue
+            if resolved.is_file():
+                target = resolved
+                break
+
+        if not target:
+            self._set_cors_headers(404)
+            self.wfile.write(json.dumps({"error": "Image not found"}).encode("utf-8"))
+            return
+
+        mime, _ = mimetypes.guess_type(str(target))
+        if not mime or not mime.startswith("image/"):
+            mime = "image/jpeg"
+        try:
+            with open(target, "rb") as f:
+                data = f.read()
+            self._set_cors_headers(200, mime)
+            self.wfile.write(data)
+        except Exception as exc:
+            logger.warning(f"[SyncServer] Error serving image {target}: {exc}")
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": "Failed to read image"}).encode("utf-8"))
+
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -711,6 +763,10 @@ class SyncServerHandler(BaseHTTPRequestHandler):
 
         if path == "/api/db/query":
             self._handle_db_query()
+            return
+
+        if path in ("/api/packages/define", "/api/packages/save"):
+            self._handle_package_define()
             return
 
         if path in ("/api/packages/image-upload", "/api/sync/package-image"):
@@ -835,6 +891,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 ("menu_items",                 "SELECT * FROM menu_items ORDER BY mi_id"),
                 ("packages",                   "SELECT * FROM packages ORDER BY pkg_id"),
                 ("package_items",              "SELECT * FROM package_items ORDER BY pi_id"),
+                ("package_buckets",            "SELECT * FROM package_buckets ORDER BY pb_id"),
                 ("customer_loyalty_tiers",     "SELECT * FROM customer_loyalty_tiers ORDER BY cl_id"),
                 ("customers",                  "SELECT * FROM customers ORDER BY cus_id"),
                 ("customer_addresses",         "SELECT * FROM customer_addresses ORDER BY ca_id"),
@@ -983,6 +1040,96 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": True, "result": clean, "version": get_db_version()}).encode("utf-8"))
         except Exception as exc:
             logger.error(f"[SyncServer] /api/db/callproc error ({proc}): {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_package_define(self):
+        """
+        POST /api/packages/define
+        Body: {
+            "package": {"id"?, "name", "description", "price_per_pax", "min_pax", "image"?},
+            "items":   [{"menu_item_id"?, "item_name"?, "category"?, "custom_price"?}, ...],
+            "buckets": [{"name", "limit", "categories": [...]}, ...]
+        }
+        Creates or updates a package together with its default dishes and its
+        selection buckets. This is what lets the tablet author full package
+        definitions (dishes + buckets), which it previously could not do.
+        """
+        try:
+            payload = self._read_json_body()
+        except Exception as e:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": f"Bad JSON: {e}"}).encode("utf-8"))
+            return
+
+        pkg = payload.get("package") or {}
+        name = (pkg.get("name") or pkg.get("pkg_name") or "").strip()
+        if not name:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": "A package name is required."}).encode("utf-8"))
+            return
+
+        try:
+            data = {
+                "name": name,
+                "description": pkg.get("description", "") or "",
+                "price_per_pax": float(pkg.get("price_per_pax") or pkg.get("pkg_price_per_pax") or 0.0),
+                "min_pax": int(pkg.get("min_pax") or pkg.get("pkg_min_pax") or 1),
+                "image": "",
+            }
+
+            raw_id = pkg.get("id") or pkg.get("pkg_id")
+            pkg_id = None
+            if raw_id:
+                try:
+                    pkg_id = int(raw_id)
+                    repo.update_package(pkg_id, data)
+                except Exception:
+                    pkg_id = None
+            if not pkg_id:
+                pkg_id = repo.add_package(data)
+            if not pkg_id:
+                self._set_cors_headers(500)
+                self.wfile.write(json.dumps({"error": "Failed to create or update the package."}).encode("utf-8"))
+                return
+
+            # Optional package photo as a base64 data URI (same storage as image-upload)
+            img = pkg.get("image") or ""
+            if img and str(img).startswith("data:"):
+                try:
+                    bdata, _mime, ext = _decode_image_data_uri(img)
+                    target_dir = _desktop_package_image_dir()
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    filename = f"packages_tablet_{pkg_id}_{int(time.time() * 1000)}{ext}"
+                    target_path = (target_dir / filename).resolve()
+                    if str(target_path).startswith(str(target_dir.resolve())):
+                        target_path.write_bytes(bdata)
+                        rel = f"assets/images/packages/{filename}"
+                        upd = "UPDATE packages SET pkg_image = %s WHERE pkg_id = %s" if db.get_engine_type() == "postgres" else "UPDATE packages SET pkg_image = ? WHERE pkg_id = ?"
+                        db.execute(upd, (rel, pkg_id))
+                except Exception as ie:
+                    logger.warning(f"[SyncServer] package define image save note: {ie}")
+
+            # Items first, then buckets — set_package_buckets retags the items.
+            items = payload.get("items")
+            if items is not None:
+                repo.set_package_items(pkg_id, items)
+            buckets = payload.get("buckets")
+            if buckets is not None:
+                repo.set_package_buckets(pkg_id, buckets)
+
+            bump_db_version()
+
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({
+                "ok": True,
+                "pkg_id": pkg_id,
+                "buckets": repo.get_package_buckets(pkg_id),
+                "items": repo.get_package_items(pkg_id),
+                "version": get_db_version(),
+            }, default=str).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] Package define error: {exc}", exc_info=True)
             self._set_cors_headers(500)
             self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
 
@@ -1629,7 +1776,8 @@ def perform_server_sync(payload: dict) -> dict:
                    COALESCE(pi_item_name, '') AS pi_item_name,
                    COALESCE(pi_category, '') AS pi_category,
                    COALESCE(pi_custom_price, 0.0) AS pi_custom_price,
-                   COALESCE(pi_quantity, 1) AS pi_quantity
+                   COALESCE(pi_quantity, 1) AS pi_quantity,
+                   pi_bucket_id
             FROM package_items
             ORDER BY pi_id
         """) or []
@@ -1641,13 +1789,41 @@ def perform_server_sync(payload: dict) -> dict:
                 "pi_item_name": r.get("pi_item_name", ""),
                 "pi_category": r.get("pi_category", ""),
                 "pi_custom_price": float(r.get("pi_custom_price") or 0.0),
-                "pi_quantity": int(r.get("pi_quantity") or 1)
+                "pi_quantity": int(r.get("pi_quantity") or 1),
+                "pi_bucket_id": r.get("pi_bucket_id")
             }
             for r in pi_raw
         ]
     except Exception as e:
         logger.warning(f"[SyncServer] Failed to fetch package_items: {e}")
         package_items = []
+
+    # Pull package selection buckets (dish/dessert quotas)
+    package_buckets = []
+    try:
+        pb_raw = db.fetchall("""
+            SELECT pb_id, pb_package_id,
+                   COALESCE(pb_name, '') AS pb_name,
+                   COALESCE(pb_limit, 1) AS pb_limit,
+                   COALESCE(pb_categories, '[]') AS pb_categories,
+                   COALESCE(pb_sort, 0) AS pb_sort
+            FROM package_buckets
+            ORDER BY pb_package_id, pb_sort, pb_id
+        """) or []
+        package_buckets = [
+            {
+                "pb_id": r["pb_id"],
+                "pb_package_id": r["pb_package_id"],
+                "pb_name": r.get("pb_name", ""),
+                "pb_limit": int(r.get("pb_limit") or 1),
+                "pb_categories": r.get("pb_categories", "[]"),
+                "pb_sort": int(r.get("pb_sort") or 0)
+            }
+            for r in pb_raw
+        ]
+    except Exception as e:
+        logger.warning(f"[SyncServer] Failed to fetch package_buckets: {e}")
+        package_buckets = []
 
     # Pull latest customers
     customers = []
@@ -1712,6 +1888,7 @@ def perform_server_sync(payload: dict) -> dict:
         "packages": pkgs,
         "menu_items": menu_items,
         "package_items": package_items,
+        "package_buckets": package_buckets,
         "customers": customers,
         "occasions": occasions,
         "synced_booking_refs": synced_booking_refs,

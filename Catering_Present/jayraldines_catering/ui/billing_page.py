@@ -20,6 +20,7 @@ from utils.session import get_actor
 from utils.signals import app_events
 from utils.data_loader import run_async
 from utils.theme import ThemeManager
+from utils.text_highlight import highlight_html
 
 
 _STATUS_COLORS = {"Paid": "#22C55E", "Partial": "#F59E0B", "Unpaid": "#EF4444"}
@@ -686,6 +687,11 @@ class BillingPage(QWidget):
         self._filter_date_end = None
         self._filter_customer = None
         self._filter_paid_status = "unpaid"
+        # Active search term (kept so background reloads re-apply it instead of
+        # reverting to the default filter) + a flag marking a reload that was
+        # deferred because the user is actively searching.
+        self._search_query = ""
+        self._reload_deferred = False
         # Header KPI cards default to All Time (self._summary); this tracks
         # an OPTIONAL separate period filter (Today/This Week/This Month/
         # This Year) scoping just the 4 header cards, independent of the
@@ -704,8 +710,19 @@ class BillingPage(QWidget):
     def _mark_dirty(self):
         self._dirty = True
 
+    def _has_active_search(self) -> bool:
+        try:
+            return bool(self._search.text().strip())
+        except Exception:
+            return bool(getattr(self, "_search_query", ""))
+
     def _mark_dirty_and_reload(self):
         self._dirty = True
+        # Don't rebuild the list out from under an active search - it would wipe
+        # the user's results/scroll. Defer; we refresh once the search clears.
+        if self._has_active_search():
+            self._reload_deferred = True
+            return
         if self.isVisible():
             self.reload(silent=True)
 
@@ -736,8 +753,22 @@ class BillingPage(QWidget):
         gen = self._data_gen
 
         self._dirty = False
+        self._reload_deferred = False
         self.refresh_permissions()
         self._populate_customer_filter()
+
+        # If a search is active, a reload must re-run the SEARCH (not the default
+        # filter) so a refresh never silently drops the user's results.
+        if getattr(self, "_search_query", ""):
+            self._has_more = False
+            self._loading_more = False
+            self._cached_remainder = None
+            if hasattr(self, "_loader") and not silent:
+                self._loader.show_overlay("Searching invoices...")
+            run_async(self, repo.search_invoices,
+                      lambda results, g=gen: self._on_search_results(results, g), None,
+                      self._search_query)
+            return
 
         # Pagination resets on every full reload - we always re-fetch page 0.
         self._has_more = True
@@ -1398,7 +1429,8 @@ class BillingPage(QWidget):
         c1.setSpacing(2)
         inv_lbl = QLabel(inv.get("invoice", ""))
         inv_lbl.setStyleSheet("font-weight: 800; font-size: 13px; color: #E11D48;")
-        cust_lbl = QLabel(inv.get("customer", ""))
+        cust_lbl = QLabel(highlight_html(inv.get("customer", ""), getattr(self, "_search_query", "")))
+        cust_lbl.setTextFormat(Qt.RichText)
         cust_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
         date_lbl = QLabel(f"Event: {_fmt_date(inv.get('event_date', ''))}")
         date_lbl.setObjectName("subtitle")
@@ -1409,8 +1441,10 @@ class BillingPage(QWidget):
 
         # Col 2: Total, Down Payment, Paid, Balance
         total = float(inv.get("amount", 0))
-        paid  = float(inv.get("paid", 0))
-        down  = float(inv.get("down_payment") or 0.0)
+        paid  = float(inv.get("paid", 0))       # inv_amount_paid = money actually received
+        # Balance is simply total minus what has actually been paid. We do NOT
+        # trust inv_down_payment here: in the data it can be garbage (e.g. set
+        # equal to the total) even when only a fraction was really paid.
         bal   = max(0.0, total - paid)
         is_verified = bool(inv.get("payment_verified", True))
 
@@ -1427,16 +1461,17 @@ class BillingPage(QWidget):
         t_box.addWidget(t_val)
         c2.addLayout(t_box)
 
-        if down > 0:
-            dp_box = QVBoxLayout()
-            dp_box.setSpacing(2)
-            dp_title = QLabel("DOWN PAYMENT")
-            dp_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #38BDF8;")
-            dp_val = QLabel(f"₱{down:,.2f}")
-            dp_val.setStyleSheet("font-weight: 700; font-size: 13px; color: #38BDF8;")
-            dp_box.addWidget(dp_title)
-            dp_box.addWidget(dp_val)
-            c2.addLayout(dp_box)
+        # Show the amount actually PAID (reliable) rather than the unreliable
+        # down-payment field, so Total / Paid / Balance always reconcile.
+        dp_box = QVBoxLayout()
+        dp_box.setSpacing(2)
+        dp_title = QLabel("PAID")
+        dp_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #38BDF8;")
+        dp_val = QLabel(f"₱{paid:,.2f}")
+        dp_val.setStyleSheet("font-weight: 700; font-size: 13px; color: #38BDF8;")
+        dp_box.addWidget(dp_title)
+        dp_box.addWidget(dp_val)
+        c2.addLayout(dp_box)
 
         b_box = QVBoxLayout()
         b_box.setSpacing(2)
@@ -1738,7 +1773,11 @@ class BillingPage(QWidget):
         # (Default)" is active would silently miss that customer's already-
         # paid invoices, looking like the record had disappeared.
         q = (text or "").strip()
+        self._search_query = q
         if not q:
+            # Search cleared: run one fresh reload (also picks up anything a
+            # background sync deferred while the user was searching).
+            self._reload_deferred = False
             self.reload()
             return
         self._has_more = False
@@ -1758,6 +1797,10 @@ class BillingPage(QWidget):
             return  # A newer search/reload has since started - discard.
         self._invoices = results or []
         self._populate_table()
+        # If this search ran as part of a reload() it left the in-flight guard
+        # set; release it here (a no-op for a plain filter_search call).
+        if getattr(self, "_reload_in_flight", False):
+            self._reload_finished()
 
     def export_csv(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export Invoices", "invoices.csv", "CSV Files (*.csv)")

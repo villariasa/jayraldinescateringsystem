@@ -20,6 +20,8 @@ import utils.db as db
 from utils.auth import authenticate, SessionManager
 from utils.db_config import get_db_config, save_db_config, test_postgres_connection
 from utils.paths import resource_path
+from utils.icons import get_icon
+from PySide6.QtCore import QSize
 
 
 class ServerConfigDialog(QDialog):
@@ -53,15 +55,23 @@ class ServerConfigDialog(QDialog):
         f_lay.setSpacing(10)
 
         t_row = QHBoxLayout()
-        title = QLabel("⚙️ Server Connection Settings")
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(get_icon("settings", color="#F8FAFC", size=QSize(18, 18)).pixmap(18, 18))
+        t_row.addWidget(icon_lbl)
+        title = QLabel("Server Connection Settings")
         title.setStyleSheet("color: #F8FAFC; font-size: 14px; font-weight: 700;")
         t_row.addWidget(title)
         t_row.addStretch()
 
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#94A3B8", size=QSize(16, 16)))
+        close_btn.setIconSize(QSize(16, 16))
         close_btn.setFixedSize(24, 24)
         close_btn.setCursor(Qt.PointingHandCursor)
-        close_btn.setStyleSheet("color: #94A3B8; background: transparent; border: none; font-weight: bold;")
+        close_btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none; border-radius: 5px; } "
+            "QPushButton:hover { background: rgba(239, 68, 68, 0.2); }"
+        )
         close_btn.clicked.connect(self.reject)
         t_row.addWidget(close_btn)
         f_lay.addLayout(t_row)
@@ -172,12 +182,14 @@ class LoginDialog(QDialog):
         top_bar = QHBoxLayout()
         top_bar.setContentsMargins(0, 0, 0, 0)
 
-        gear_btn = QPushButton("⚙️")
+        gear_btn = QPushButton()
+        gear_btn.setIcon(get_icon("settings", color="#CBD5E1", size=QSize(16, 16)))
+        gear_btn.setIconSize(QSize(16, 16))
         gear_btn.setFixedSize(26, 26)
         gear_btn.setCursor(Qt.PointingHandCursor)
         gear_btn.setToolTip("Configure Database Server Connection")
         gear_btn.setStyleSheet("""
-            QPushButton { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px; font-size: 13px; }
+            QPushButton { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px; }
             QPushButton:hover { background: rgba(255,255,255,0.15); }
         """)
         gear_btn.clicked.connect(self._open_server_settings)
@@ -185,12 +197,14 @@ class LoginDialog(QDialog):
 
         top_bar.addStretch()
 
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#94A3B8", size=QSize(16, 16)))
+        close_btn.setIconSize(QSize(16, 16))
         close_btn.setFixedSize(26, 26)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: none; color: #94A3B8; font-size: 13px; font-weight: bold; border-radius: 5px; }
-            QPushButton:hover { background: rgba(239, 68, 68, 0.2); color: #EF4444; }
+            QPushButton { background: transparent; border: none; border-radius: 5px; }
+            QPushButton:hover { background: rgba(239, 68, 68, 0.2); }
         """)
         close_btn.clicked.connect(self._on_close_clicked)
         top_bar.addWidget(close_btn)
@@ -338,7 +352,7 @@ class LoginDialog(QDialog):
         port = cfg.get("port", 5432)
 
         if engine == "postgres" and db.is_available():
-            self.server_status_lbl.setText(f"🟢 Connected to Central Server: {host}:{port}")
+            self.server_status_lbl.setText(f"<span style='color:#22C55E'>●</span> Connected to Central Server: {host}:{port}")
             self.server_status_lbl.setStyleSheet("""
                 QLabel {
                     color: #10B981;
@@ -351,7 +365,7 @@ class LoginDialog(QDialog):
                 }
             """)
         elif engine == "sqlite":
-            self.server_status_lbl.setText("🟡 Running in Standalone / Offline Mode")
+            self.server_status_lbl.setText("<span style='color:#EAB308'>●</span> Running in Standalone / Offline Mode")
             self.server_status_lbl.setStyleSheet("""
                 QLabel {
                     color: #F59E0B;
@@ -364,7 +378,7 @@ class LoginDialog(QDialog):
                 }
             """)
         else:
-            self.server_status_lbl.setText(f"🔴 Central Server Offline ({host}:{port})")
+            self.server_status_lbl.setText(f"<span style='color:#EF4444'>●</span> Central Server Offline ({host}:{port})")
             self.server_status_lbl.setStyleSheet("""
                 QLabel {
                     color: #EF4444;

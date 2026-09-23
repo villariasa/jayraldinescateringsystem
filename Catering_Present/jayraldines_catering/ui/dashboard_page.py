@@ -985,7 +985,20 @@ class DashboardPage(QWidget):
         self._ev_lay.addWidget(ev_div)
         self._ev_lay.addSpacing(4)
 
-        self._ev_items_start = self._ev_lay.count()
+        # Event rows live in a capped scroll area so a long list scrolls inside
+        # the card (~10 rows visible) instead of stretching the whole page and
+        # pushing Recent Activity / Follow-ups below the fold.
+        self._ev_scroll = QScrollArea()
+        self._ev_scroll.setWidgetResizable(True)
+        self._ev_scroll.setFrameShape(QFrame.NoFrame)
+        self._ev_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._ev_scroll.setMaximumHeight(470)
+        self._ev_items_container = QWidget()
+        self._ev_items_lay = QVBoxLayout(self._ev_items_container)
+        self._ev_items_lay.setContentsMargins(0, 0, 6, 0)
+        self._ev_items_lay.setSpacing(0)
+        self._ev_scroll.setWidget(self._ev_items_container)
+        self._ev_lay.addWidget(self._ev_scroll)
 
         mid_row.addWidget(self.cap_card, 1)
         mid_row.addWidget(self.events_card, 1)
@@ -1503,7 +1516,7 @@ class DashboardPage(QWidget):
         self._rebuild_activity(activity)
 
     def _rebuild_events(self, events=None):
-        self._clear_layout_from(self._ev_lay, self._ev_items_start)
+        self._clear_layout_from(self._ev_items_lay, 0)
         if events is None:
             events = getattr(self, "_cached_events", None)
         if events is None:
@@ -1512,7 +1525,7 @@ class DashboardPage(QWidget):
             empty = QLabel("No upcoming events.")
             empty.setObjectName("subtitle")
             empty.setContentsMargins(0, 8, 0, 8)
-            self._ev_lay.addWidget(empty)
+            self._ev_items_lay.addWidget(empty)
         else:
             for ev in events:
                 raw_date = ev.get("event_date")
@@ -1540,7 +1553,7 @@ class DashboardPage(QWidget):
                 stype_map = {"CONFIRMED": "success", "PENDING": "warning", "CANCELLED": "danger"}
                 stype = stype_map.get(status_raw.upper(), "warning")
 
-                self._ev_lay.addWidget(EventItem(
+                self._ev_items_lay.addWidget(EventItem(
                     ev.get("customer_name", ""),
                     date_str,
                     str(ev.get("pax", 0)),
@@ -1552,8 +1565,8 @@ class DashboardPage(QWidget):
                 ))
                 sep = QFrame()
                 sep.setObjectName("divider")
-                self._ev_lay.addWidget(sep)
-        self._ev_lay.addStretch()
+                self._ev_items_lay.addWidget(sep)
+        self._ev_items_lay.addStretch()
 
     def _rebuild_activity(self, activities=None):
         self._clear_layout_from(self._act_lay, self._act_items_start)

@@ -71,9 +71,11 @@ class Sidebar(QFrame):
         self.logo_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.logo_layout.addWidget(self.logo_text)
 
-        self.collapse_btn = QPushButton("◀", self.logo_frame)
+        self.collapse_btn = QPushButton(self.logo_frame)
         self.collapse_btn.setObjectName("collapseBtn")
-        self.collapse_btn.setFixedSize(20, 20)
+        self.collapse_btn.setText("")
+        self.collapse_btn.setFixedSize(30, 30)
+        self.collapse_btn.setIconSize(QSize(18, 18))
         self.collapse_btn.setCursor(Qt.PointingHandCursor)
         self.collapse_btn.clicked.connect(self.toggle_collapse)
         self.logo_layout.addWidget(self.collapse_btn)
@@ -134,18 +136,20 @@ class Sidebar(QFrame):
         self.user_layout.addLayout(self.user_info)
         self.user_layout.addStretch()
 
+        # Caret indicator — the whole row opens an account menu (Change Password / Log Out)
         self.logout_lbl = QLabel(self.user_frame)
         self.logout_lbl.setCursor(Qt.PointingHandCursor)
-        self.logout_lbl.setToolTip("Sign Out / Switch User")
+        self.logout_lbl.setToolTip("Account options")
         self.logout_lbl.setPixmap(
-            get_icon("log-out", color="#F43F5E", size=QSize(16, 16)).pixmap(QSize(16, 16))
+            get_icon("chevron-right", color="#94A3B8", size=QSize(16, 16)).pixmap(QSize(16, 16))
         )
-        def _handle_logout_click(event):
-            event.accept()
-            self.logout_requested.emit()
 
-        self.logout_lbl.mousePressEvent = _handle_logout_click
-        self.user_frame.mousePressEvent = lambda e: self._on_profile_clicked()
+        def _open_menu(event):
+            event.accept()
+            self._show_user_menu()
+
+        self.logout_lbl.mousePressEvent = _open_menu
+        self.user_frame.mousePressEvent = _open_menu
         self.user_layout.addWidget(self.logout_lbl)
 
         self.root_layout.addWidget(self.user_frame)
@@ -208,12 +212,12 @@ class Sidebar(QFrame):
             """)
             btn_icon_col = "#0284C7" if self._collapsed else "#334155"
 
-        icon_name = "sidebar-expand" if self._collapsed else "sidebar-collapse"
-        self.collapse_btn.setIcon(get_icon(icon_name, color=btn_icon_col, size=QSize(15, 15)))
+        self.collapse_btn.setIcon(get_icon("menu-collapse", color=btn_icon_col, size=QSize(18, 18)))
+        self.collapse_btn.setIconSize(QSize(18, 18))
 
         muted = "#6B7280" if dark else "#7A879E"
         self.logout_lbl.setPixmap(
-            get_icon("log-out", color=muted, size=QSize(15, 15)).pixmap(QSize(15, 15))
+            get_icon("chevron-right", color=muted, size=QSize(16, 16)).pixmap(QSize(16, 16))
         )
 
     def _mark_ready(self):
@@ -250,7 +254,7 @@ class Sidebar(QFrame):
             self.logout_lbl.hide()
             self.collapse_btn.setToolTip("Expand Sidebar")
             btn_icon_col = "#38BDF8" if dark else "#0284C7"
-            self.collapse_btn.setIcon(get_icon("sidebar-expand", color=btn_icon_col, size=QSize(15, 15)))
+            self.collapse_btn.setIcon(get_icon("menu-collapse", color=btn_icon_col, size=QSize(18, 18)))
             self.user_layout.setContentsMargins(0, 12, 0, 12)
             self.user_layout.setAlignment(self.avatar, Qt.AlignCenter)
             for w in (self.user_info.itemAt(i).widget() for i in range(self.user_info.count())):
@@ -266,7 +270,7 @@ class Sidebar(QFrame):
             self.logout_lbl.show()
             self.collapse_btn.setToolTip("Collapse Sidebar")
             btn_icon_col = "#F9FAFB" if dark else "#334155"
-            self.collapse_btn.setIcon(get_icon("sidebar-collapse", color=btn_icon_col, size=QSize(15, 15)))
+            self.collapse_btn.setIcon(get_icon("menu-collapse", color=btn_icon_col, size=QSize(18, 18)))
             self.user_layout.setContentsMargins(14, 12, 14, 12)
             self.user_layout.setAlignment(self.avatar, Qt.AlignLeft | Qt.AlignVCenter)
             for w in (self.user_info.itemAt(i).widget() for i in range(self.user_info.count())):
@@ -298,7 +302,42 @@ class Sidebar(QFrame):
                 btn.setVisible(True)
         self.update_user_display()
 
-    def _on_profile_clicked(self):
+    def _show_user_menu(self):
+        """Popup account menu with clear Change Password / Log Out choices,
+        anchored to the user footer (opens upward automatically at the bottom)."""
+        from PySide6.QtWidgets import QMenu
+        from PySide6.QtCore import QPoint
+        dark = ThemeManager().is_dark()
+        menu = QMenu(self)
+        if dark:
+            menu.setStyleSheet(
+                "QMenu { background:#0F172A; color:#F8FAFC; border:1px solid rgba(255,255,255,0.14); "
+                "border-radius:8px; padding:6px; } "
+                "QMenu::item { padding:8px 16px; border-radius:6px; } "
+                "QMenu::item:selected { background:rgba(56,189,248,0.18); } "
+                "QMenu::separator { height:1px; background:rgba(255,255,255,0.10); margin:4px 8px; }"
+            )
+        else:
+            menu.setStyleSheet(
+                "QMenu { background:#FFFFFF; color:#101828; border:1px solid rgba(0,0,0,0.12); "
+                "border-radius:8px; padding:6px; } "
+                "QMenu::item { padding:8px 16px; border-radius:6px; } "
+                "QMenu::item:selected { background:rgba(2,132,199,0.12); } "
+                "QMenu::separator { height:1px; background:rgba(0,0,0,0.08); margin:4px 8px; }"
+            )
+        act_pass = menu.addAction(get_icon("settings", color="#94A3B8", size=QSize(15, 15)), "Change Password")
+        menu.addSeparator()
+        act_out = menu.addAction(get_icon("log-out", color="#F43F5E", size=QSize(15, 15)), "Log Out")
+
+        # Anchor at the top-right of the footer; Qt flips it upward if there's no room below.
+        anchor = self.user_frame.mapToGlobal(QPoint(self.user_frame.width() - 6, 0))
+        chosen = menu.exec(anchor)
+        if chosen == act_pass:
+            self._open_change_password()
+        elif chosen == act_out:
+            self.logout_requested.emit()
+
+    def _open_change_password(self):
         from components.user_management_panel import ChangeOwnPasswordDialog
         dlg = ChangeOwnPasswordDialog(self)
         dlg.exec()

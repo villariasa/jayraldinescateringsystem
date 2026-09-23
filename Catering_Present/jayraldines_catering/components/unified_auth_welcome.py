@@ -15,8 +15,9 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect, QApplication, QMessageBox, QStackedLayout,
     QProgressBar
 )
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, Signal, QThread
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, Signal, QThread, QSize
 from PySide6.QtGui import QPixmap, QColor, QIcon
+from utils.icons import get_icon
 
 import utils.db as db
 from utils.auth import authenticate, SessionManager
@@ -157,12 +158,14 @@ class UnifiedAuthWelcome(QWidget):
 
         # Top Bar (Gear config + Close)
         top_bar = QHBoxLayout()
-        gear_btn = QPushButton("⚙️")
+        gear_btn = QPushButton()
+        gear_btn.setIcon(get_icon("settings", color="#CBD5E1", size=QSize(17, 17)))
+        gear_btn.setIconSize(QSize(17, 17))
         gear_btn.setFixedSize(30, 30)
         gear_btn.setCursor(Qt.PointingHandCursor)
         gear_btn.setToolTip("Configure Database Server Connection")
         gear_btn.setStyleSheet("""
-            QPushButton { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; font-size: 13px; }
+            QPushButton { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; }
             QPushButton:hover { background: rgba(255,255,255,0.15); }
         """)
         gear_btn.clicked.connect(self._open_server_settings)
@@ -170,13 +173,15 @@ class UnifiedAuthWelcome(QWidget):
 
         top_bar.addStretch()
 
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
+        close_btn.setIcon(get_icon("close", color="#94A3B8", size=QSize(17, 17)))
+        close_btn.setIconSize(QSize(17, 17))
         close_btn.setFixedSize(30, 30)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setToolTip("Close Application")
         close_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: none; color: #94A3B8; font-size: 14px; font-weight: bold; border-radius: 6px; }
-            QPushButton:hover { background: rgba(239, 68, 68, 0.25); color: #EF4444; }
+            QPushButton { background: transparent; border: none; border-radius: 6px; }
+            QPushButton:hover { background: rgba(239, 68, 68, 0.25); }
         """)
         close_btn.clicked.connect(self._on_close_app)
         top_bar.addWidget(close_btn)
@@ -368,6 +373,7 @@ class UnifiedAuthWelcome(QWidget):
         # Welcome Greeting Text
         self.welcome_title = QLabel("Welcome back!")
         self.welcome_title.setAlignment(Qt.AlignCenter)
+        self.welcome_title.setWordWrap(True)   # long names wrap instead of being clipped
         self.welcome_title.setStyleSheet("color: #F8FAFC; font-size: 24px; font-weight: 800; border: none; background: transparent;")
         c_lay.addWidget(self.welcome_title)
 
