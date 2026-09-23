@@ -936,24 +936,6 @@ class OrderPrintDialog(QDialog):
                         {client_info_card}
                         {event_details_card}
                         {payment_details_card}
-
-                        <!-- Signatures -->
-                        <div style="margin-top:12px;">
-                            <table width="100%" style="width:100%; border-collapse:collapse;">
-                                <tr>
-                                    <td style="font-weight:800; font-size:10px; color:#0F172A; width:75px;">CONFORME:</td>
-                                    <td style="border-bottom:1px solid #64748B; width:130px;">&nbsp;</td>
-                                    <td style="font-weight:800; font-size:10px; color:#0F172A; width:40px; text-align:right; padding-right:4px;">Date:</td>
-                                    <td style="border-bottom:1px solid #64748B; width:65px;">&nbsp;</td>
-                                </tr>
-                                <tr>
-                                    <td style="font-weight:800; font-size:10px; color:#0F172A; padding-top:18px;">NOTED BY:</td>
-                                    <td style="border-bottom:1px solid #64748B; padding-top:18px;">&nbsp;</td>
-                                    <td style="font-weight:800; font-size:10px; color:#0F172A; text-align:right; padding-right:4px; padding-top:18px;">Date:</td>
-                                    <td style="border-bottom:1px solid #64748B; padding-top:18px;">&nbsp;</td>
-                                </tr>
-                            </table>
-                        </div>
                     </td>
 
                     <!-- Right Sub-Column: Package & Menu card -->
@@ -962,6 +944,26 @@ class OrderPrintDialog(QDialog):
                     </td>
                 </tr>
             </table>
+
+            <!-- Signatures (spanning full width below both columns) -->
+            <div style="margin:14px 0 12px 0;">
+                <table width="100%" style="width:100%; border-collapse:collapse;">
+                    <tr>
+                        <td style="font-weight:800; font-size:10px; color:#0F172A; width:75px;">CONFORME:</td>
+                        <td style="border-bottom:1px solid #94A3B8; width:280px;">&nbsp;</td>
+                        <td style="width:20px;">&nbsp;</td>
+                        <td style="font-weight:800; font-size:10px; color:#0F172A; width:40px; text-align:right; padding-right:4px;">Date:</td>
+                        <td style="border-bottom:1px solid #94A3B8;">&nbsp;</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight:800; font-size:10px; color:#0F172A; padding-top:20px;">NOTED BY:</td>
+                        <td style="border-bottom:1px solid #94A3B8; padding-top:20px;">&nbsp;</td>
+                        <td style="padding-top:20px;">&nbsp;</td>
+                        <td style="font-weight:800; font-size:10px; color:#0F172A; text-align:right; padding-right:4px; padding-top:20px;">Date:</td>
+                        <td style="border-bottom:1px solid #94A3B8; padding-top:20px;">&nbsp;</td>
+                    </tr>
+                </table>
+            </div>
 
             <!-- LOWER SECTION (TERMS AND CONDITIONS CARD) -->
             {_card_open("doc", "TERMS AND CONDITIONS")}
