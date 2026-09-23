@@ -1,5 +1,14 @@
+"""Standalone prototype of the Reports & Analytics page (SaaS-styled mockup).
+
+A self-contained PySide6 demo that renders the Reports dashboard design in
+isolation: a global light "SaaS" stylesheet, animated hover cards, an area
+chart, a donut chart, KPI cards, and a statistics table populated with hard-coded
+sample data. Run directly (``python ui/test_report.py``) to preview the layout
+without booting the full app. This is a design/reference mockup, not wired to
+real data.
+"""
 import sys
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QHBoxLayout, QFrame, QLabel, QPushButton, QTableWidget, 
                                QTableWidgetItem, QHeaderView, QScrollArea, 
                                QGraphicsOpacityEffect, QGraphicsDropShadowEffect)
@@ -90,6 +99,7 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 # 2. ANIMATION & UX UTILITIES
 # ==========================================
 def create_soft_shadow(widget, radius=15, y_offset=4, opacity=15):
+    """Attach and return a soft drop-shadow effect to ``widget`` (for card elevation)."""
     shadow = QGraphicsDropShadowEffect(widget)
     shadow.setBlurRadius(radius)
     shadow.setColor(QColor(0, 0, 0, opacity))
@@ -98,7 +108,9 @@ def create_soft_shadow(widget, radius=15, y_offset=4, opacity=15):
     return shadow
 
 def apply_fade_in(widget, duration=800):
-    # Attached to widget to prevent Segfaults
+    """Fade ``widget`` in from transparent to opaque over ``duration`` ms."""
+    # Store the effect/animation on the widget so Python keeps a reference and Qt
+    # doesn't delete them mid-animation (which would segfault).
     widget._opacity_effect = QGraphicsOpacityEffect(widget)
     widget.setGraphicsEffect(widget._opacity_effect)
     
@@ -113,17 +125,21 @@ def apply_fade_in(widget, duration=800):
 # 3. COMPONENTS
 # ==========================================
 class HoverCard(QFrame):
+    """A rounded card whose drop shadow animates (lifts) on mouse hover."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("saasCard")
         self.shadow = create_soft_shadow(self, radius=15, y_offset=3, opacity=10)
 
+        # Drives the shadow's blur/offset between resting and hovered states.
         self.anim = QVariantAnimation(self)
         self.anim.setDuration(300)
         self.anim.setEasingCurve(QEasingCurve.OutQuad)
         self.anim.valueChanged.connect(self._animate_shadow)
 
     def _animate_shadow(self, value):
+        """Update shadow blur/offset/opacity for the current animation ``value``."""
         # Prevent crash if shadow not ready
         if not hasattr(self, "shadow") or self.shadow is None:
             return
@@ -136,6 +152,7 @@ class HoverCard(QFrame):
             # Handles cases where Qt internally deleted the effect
             return
     def enterEvent(self, event):
+        # Mouse entered: animate the shadow up to the "lifted" state.
         self.anim.stop()
         self.anim.setStartValue(0)
         self.anim.setEndValue(10)
@@ -143,6 +160,7 @@ class HoverCard(QFrame):
         super().enterEvent(event)
 
     def leaveEvent(self, event):
+        # Mouse left: animate the shadow back down to resting.
         self.anim.stop()
         self.anim.setStartValue(10)
         self.anim.setEndValue(0)
@@ -150,6 +168,7 @@ class HoverCard(QFrame):
         super().leaveEvent(event)
 
 def create_pill_badge(text, variant="success"):
+    """Return a small colored pill label for a status (success/warning/danger)."""
     widget = QWidget()
     layout = QHBoxLayout(widget)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -173,10 +192,13 @@ def create_pill_badge(text, variant="success"):
 # 4. CHARTS (Segfault-proofed)
 # ==========================================
 class AreaChartCard(QVBoxLayout):
+    """Layout containing a titled gradient-filled area/line chart of sample income data."""
+
     def __init__(self, title):
         super().__init__()
         self.addWidget(QLabel(f"<span style='font-size:16px; font-weight:700; color:#0F172A;'>{title}</span>"))
-        
+
+        # Upper line = the values; a flat lower line at 0 forms the area's baseline.
         self.upper_series = QLineSeries()
         data = [45, 52, 38, 65, 58, 75, 82]
         for i, val in enumerate(data):
@@ -190,6 +212,7 @@ class AreaChartCard(QVBoxLayout):
         for i in range(len(data)):
             self.lower_series.append(i, 0)
 
+        # Fill between the two lines with a top-to-bottom fading red gradient.
         self.area = QAreaSeries(self.upper_series, self.lower_series)
         self.gradient = QLinearGradient(0, 0, 0, 300)
         self.gradient.setColorAt(0.0, QColor(229, 57, 53, 100)) 
@@ -229,12 +252,15 @@ class AreaChartCard(QVBoxLayout):
         self.addWidget(self.chart_view)
 
 class DonutChartCard(QVBoxLayout):
+    """Layout containing a titled donut (hollow pie) chart of payment-method shares."""
+
     def __init__(self, title):
         super().__init__()
         self.addWidget(QLabel(f"<span style='font-size:16px; font-weight:700; color:#0F172A;'>{title}</span>"))
-        
+
+        # setHoleSize > 0 turns the pie into a donut.
         self.series = QPieSeries()
-        self.series.setHoleSize(0.55) 
+        self.series.setHoleSize(0.55)
         
         self.series.append("Cash", 45).setColor(QColor("#E53935"))
         self.series.append("GCash", 30).setColor(QColor("#F87171"))
@@ -257,6 +283,7 @@ class DonutChartCard(QVBoxLayout):
         self.addWidget(self.chart_view)
 
     def _on_hover(self, slice, state):
+        """Pop the hovered slice slightly out of the donut for emphasis."""
         slice.setExploded(state)
         slice.setExplodeDistanceFactor(0.08)
 
@@ -265,6 +292,8 @@ class DonutChartCard(QVBoxLayout):
 # 5. MAIN REPORTS PAGE
 # ==========================================
 class ReportsPage(QWidget):
+    """The full scrollable Reports & Analytics page: header, KPIs, charts, and table."""
+
     def __init__(self):
         super().__init__()
         self.setObjectName("mainBackground")
@@ -342,6 +371,8 @@ class ReportsPage(QWidget):
             ("BKG-003\nOct 26", "Sarah's 18th", "Standard", 60, "Limit Reached"),
         ]
 
+        # Populate each row; the client name is bolded and the PAX/STATUS cells
+        # use colored pill badges depending on the row's status text.
         for row, data in enumerate(rows_data):
             self.table.setRowHeight(row, 65)
             self.table.setItem(row, 0, QTableWidgetItem(data[0]))
@@ -368,6 +399,7 @@ class ReportsPage(QWidget):
         layout.addWidget(scroll_area)
 
     def build_kpi_card(self, title, val, sub, sub_color="#64748B"):
+        """Build one KPI hover-card with a title, big value, and colored subtitle."""
         card = HoverCard()
         lay = QVBoxLayout(card)
         lay.setContentsMargins(24, 24, 24, 24)
@@ -380,9 +412,10 @@ class ReportsPage(QWidget):
 # 6. APPLICATION RUNNER
 # ==========================================
 if __name__ == "__main__":
+    # Boot a minimal Qt app hosting only the ReportsPage for standalone preview.
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
-    
+
     window = QMainWindow()
     window.setWindowTitle("SaaS Reports Dashboard")
     window.resize(1200, 800)
