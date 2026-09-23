@@ -15,6 +15,7 @@ from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_
 from components.dialogs import confirm, success, prompt_file_saved
 from utils.animations import animate_dialog_open
 from utils.theme import ThemeManager
+from utils.text_highlight import highlight_html
 from components.loading_overlay import LoadingOverlay
 import utils.menu_store as menu_store
 import utils.repository as repo
@@ -1735,8 +1736,15 @@ class MenuPage(QWidget):
     def _mark_dirty(self):
         self._dirty = True
 
+    def _has_active_search(self) -> bool:
+        return bool(getattr(self, "_filter_q", "").strip())
+
     def _mark_dirty_and_reload(self):
         self._dirty = True
+        # Defer background rebuilds while the user is actively searching.
+        if self._has_active_search():
+            self._reload_deferred = True
+            return
         if self.isVisible():
             self._do_reload()
 
@@ -1806,6 +1814,7 @@ class MenuPage(QWidget):
                 self._populate_packages_table()
 
     def _do_reload(self):
+        self._reload_deferred = False
         # Coalesce overlapping reloads: if a reload (fetch + batch-render of
         # either the items or packages pipeline) is already running, don't start
         # a second pipeline in parallel - just remember to run exactly one more
@@ -2483,7 +2492,8 @@ class MenuPage(QWidget):
 
         c1 = QVBoxLayout()
         c1.setSpacing(2)
-        name_lbl = QLabel(item["item"])
+        name_lbl = QLabel(highlight_html(item["item"], getattr(self, "_filter_q", "")))
+        name_lbl.setTextFormat(Qt.RichText)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
         cat_lbl = QLabel(f"Category: {item['category']}  |  Package: {item['package']}")
         cat_lbl.setObjectName("subtitle")
@@ -2816,7 +2826,8 @@ class MenuPage(QWidget):
 
         c1 = QVBoxLayout()
         c1.setSpacing(2)
-        name_lbl = QLabel(pkg["name"])
+        name_lbl = QLabel(highlight_html(pkg["name"], getattr(self, "_filter_q", "")))
+        name_lbl.setTextFormat(Qt.RichText)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
         desc_lbl = QLabel(pkg.get("description", "No description"))
         desc_lbl.setObjectName("subtitle")
@@ -3077,5 +3088,11 @@ class MenuPage(QWidget):
     def filter_search(self, text):
         q = text.lower()
         self._filter_q = q
+        # If the search just cleared and a background refresh was deferred while
+        # searching, do a full reload so the data is fresh; otherwise re-render.
+        if not q.strip() and getattr(self, "_reload_deferred", False):
+            self._reload_deferred = False
+            self._do_reload()
+            return
         self._populate_table()
 

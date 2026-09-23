@@ -75,6 +75,7 @@ _COUNTRY_CODES = [
 
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_red, get_icon
 from utils.theme import ThemeManager
+from utils.text_highlight import highlight_html
 from components.dialogs import confirm, success
 import utils.repository as repo
 
@@ -926,6 +927,11 @@ class CustomersPage(QWidget):
 
     def _mark_dirty_and_reload(self):
         self._dirty = True
+        # Don't rebuild the list while the user is actively searching - it would
+        # wipe their filtered view. Defer; refresh once the search is cleared.
+        if self._has_active_search():
+            self._reload_deferred = True
+            return
         if self.isVisible():
             self._do_reload()
 
@@ -984,6 +990,7 @@ class CustomersPage(QWidget):
             self._lbl_selected_count.setVisible(can_delete)
 
     def _do_reload(self):
+        self._reload_deferred = False
         if hasattr(self, "_reload_timer"):
             self._reload_timer.start(80)
         else:

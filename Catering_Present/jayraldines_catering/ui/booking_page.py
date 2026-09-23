@@ -13,6 +13,7 @@ import csv
 from utils.icons import btn_icon_primary, btn_icon_secondary, btn_icon_muted, btn_icon_red, get_icon
 from utils.animations import animate_dialog_open
 from utils.theme import ThemeManager
+from utils.text_highlight import highlight_html
 from components.booking_modal import BookingModal
 from components.dialogs import confirm, success, prompt_file_saved
 from components.filter_popover import FilterPopover
@@ -1032,8 +1033,15 @@ class BookingPage(QWidget):
     def _mark_dirty(self):
         self._dirty = True
 
+    def _has_active_search(self) -> bool:
+        return bool(getattr(self, "_search_query", "").strip())
+
     def _mark_dirty_and_reload(self):
         self._dirty = True
+        # Defer background rebuilds while the user is actively searching.
+        if self._has_active_search():
+            self._reload_deferred = True
+            return
         if self.isVisible():
             self._refresh_bookings(silent=True)
 
@@ -1114,6 +1122,7 @@ class BookingPage(QWidget):
             return
         self._reload_in_flight = True
         self._reload_pending = False
+        self._reload_deferred = False
         self._dirty = False
 
         # Pagination resets on every full reload - we always re-fetch page 0 for
@@ -1967,7 +1976,8 @@ class BookingPage(QWidget):
         # Col 2: Client Name & Pax
         c2 = QVBoxLayout()
         c2.setSpacing(2)
-        name_lbl = QLabel(b["name"])
+        name_lbl = QLabel(highlight_html(b["name"], getattr(self, "_search_query", "")))
+        name_lbl.setTextFormat(Qt.RichText)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
         pax_lbl = QLabel(f"{b['pax']} pax")
         pax_lbl.setObjectName("subtitle")
@@ -2674,6 +2684,12 @@ class BookingPage(QWidget):
 
     def filter_search(self, text):
         self._search_query = str(text or "")
+        # Search cleared while a background refresh was deferred -> reload once.
+        if not self._search_query.strip() and getattr(self, "_reload_deferred", False):
+            self._reload_deferred = False
+            if self.isVisible():
+                self._refresh_bookings(silent=True)
+                return
         if hasattr(self, "_search_timer"):
             self._search_timer.start(500)
         else:
