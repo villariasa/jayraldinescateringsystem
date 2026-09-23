@@ -1,9 +1,12 @@
 # components/badges.py
+"""Pill-shaped status badges (success/warning/danger/info) with theme-aware colours."""
+
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel
 from PySide6.QtCore import Qt
 
 from utils.theme import ThemeManager
 
+# Per-variant (background, border, foreground) colour triples for light theme.
 _LIGHT = {
     "success": ("rgba(22,163,74,0.10)",  "rgba(22,163,74,0.30)",  "#15803D"),
     "warning": ("rgba(217,119,6,0.10)",  "rgba(217,119,6,0.30)",  "#B45309"),
@@ -11,6 +14,7 @@ _LIGHT = {
     "info":    ("rgba(37,99,235,0.08)",  "rgba(37,99,235,0.30)",  "#1D4ED8"),
 }
 
+# Same variants tuned for dark theme (brighter fills/text for contrast).
 _DARK = {
     "success": ("rgba(34,197,94,0.15)",  "rgba(34,197,94,0.35)",  "#4ADE80"),
     "warning": ("rgba(245,158,11,0.15)", "rgba(245,158,11,0.35)", "#FBBF24"),
@@ -29,6 +33,7 @@ def create_pill_badge(text, variant="success"):
     lbl = QLabel(text)
     lbl.setAlignment(Qt.AlignCenter)
 
+    # Pick the theme palette, then fall back to "success" for unknown variants.
     palette = _DARK if ThemeManager().is_dark() else _LIGHT
     bg, border, fg = palette.get(variant, palette["success"])
     lbl.setStyleSheet(
