@@ -1,3 +1,40 @@
+"""Settings page for the Jayraldine's Catering desktop application (PySide6/Qt).
+
+This module renders the entire "Settings" screen and wires up all of its
+behaviour. The page is a single scrollable column of self-contained "cards",
+each covering one configuration area:
+
+    - Current user identity (the actor name stamped on every audited action)
+    - User management (admin only)
+    - Central PostgreSQL/SQLite database server status & maintenance (admin only)
+    - Session security / auto-lock
+    - Business information, monthly sales targets, booking & capacity policy
+    - Data import/export migration and tablet master-data export
+    - Occasion types and menu categories (CRUD backed by the repository layer)
+    - Email (SMTP) configuration
+    - Appearance / theme palettes and accent colours
+    - Database backup, restore, and safe cross-device merge
+    - Audit log viewer and daily activity report export
+    - System diagnostics
+    - Destructive data purge / factory reset (admin/delete permission only)
+
+Key cross-cutting responsibilities:
+
+    * Permission gating: nearly every card is built conditionally based on the
+      logged-in user's SessionManager permissions. `refresh_permissions()` lets a
+      single, reused page instance rebuild the permission-gated cards in place
+      when a different user logs in without recreating the whole page.
+    * Asynchronous loading: settings data and the audit log are fetched off the
+      UI thread via `utils.data_loader.run_async` and applied back on the UI
+      thread, guarded by `shiboken6.isValid` so a destroyed widget is never
+      touched.
+    * Long-running work (database restore, cross-device merge) runs in QThread
+      workers with a modal progress dialog so the UI stays responsive.
+
+Persistence and business logic live in `utils.repository` (imported as `repo`)
+and related utils; this module is purely the presentation/wiring layer.
+"""
+
 import subprocess
 from datetime import datetime, date
 from PySide6.QtWidgets import (
@@ -33,6 +70,9 @@ from utils.db_server_service import (
 from components.owner_auth_dialog import OwnerAuthDialog
 
 
+# Module-level cache of the business profile. Seeded with sensible defaults and
+# mutated in place (_apply_settings_data / _save_business) so any card that reads
+# from it after startup sees the persisted values, not the hard-coded defaults.
 _BUSINESS_INFO = {
     "name":    "Jayraldine's Catering",
     "contact": "+63 912 345 6789",
@@ -42,14 +82,36 @@ _BUSINESS_INFO = {
 
 
 class DatabaseRestoreWorker(QThread):
+    """Background worker that restores a database from a backup file.
+
+    Runs the potentially slow restore off the UI thread and reports progress
+    back to the caller via Qt signals.
+
+    Signals:
+        progress_update(str): Human-readable status message for the progress dialog.
+        restore_finished(bool, str): Emitted once on completion; the bool is
+            success/failure and the str is a summary or error message.
+
+    The worker auto-detects the backup format (raw SQLite binary vs. a plain
+    SQL text dump) and the currently configured engine (SQLite vs. PostgreSQL),
+    then dispatches to the appropriate restore path.
+    """
+
     progress_update = Signal(str)
     restore_finished = Signal(bool, str)
 
     def __init__(self, file_path: str, parent=None):
+        """Store the path of the backup file to restore. `parent` is the owning QObject."""
         super().__init__(parent)
         self.file_path = file_path
 
     def run(self):
+        """Perform the restore on the worker thread.
+
+        Emits progress_update() as it advances through inspection, copy/import,
+        schema upgrade and reconnect, then emits restore_finished() exactly once.
+        All exceptions are caught and reported as a failed restore_finished().
+        """
         try:
             import utils.db as db
             import shutil
@@ -71,9 +133,13 @@ class DatabaseRestoreWorker(QThread):
 
             if is_sqlite_binary:
                 if engine == "sqlite":
+                    # SQLite backup restored onto a SQLite install: overwrite the
+                    # live DB file directly (fastest, exact copy).
                     self.progress_update.emit("Closing active connections & cleaning cache...")
                     db.close()
                     dst = db.get_sqlite_db_path()
+                    # Remove stale WAL/shared-memory/journal sidecar files so they
+                    # don't get replayed against the freshly copied database.
                     for ext in ["-wal", "-shm", "-journal"]:
                         wal = Path(str(dst) + ext)
                         if wal.exists():
@@ -85,13 +151,16 @@ class DatabaseRestoreWorker(QThread):
                     self.progress_update.emit("Copying backup database files...")
                     shutil.copy2(path, dst)
 
+                    # An older backup may predate newer columns. Add any missing
+                    # columns so the restored DB matches the current app schema
+                    # (idempotent: only ALTERs columns that aren't already present).
                     self.progress_update.emit("Applying schema upgrades & missing columns...")
                     conn = sqlite3.connect(str(dst))
                     cur = conn.cursor()
 
-                    # 1. Bookings columns
+                    # 1. Bookings columns — backfill schema drift on the bookings table.
                     cur.execute("PRAGMA table_info(bookings)")
-                    bk_cols = [r[1] for r in cur.fetchall()]
+                    bk_cols = [r[1] for r in cur.fetchall()]  # column names at index 1
                     for col, defn in [
                         ("bk_contact", "TEXT DEFAULT ''"),
                         ("bk_email", "TEXT DEFAULT ''"),
@@ -104,7 +173,9 @@ class DatabaseRestoreWorker(QThread):
                         if col not in bk_cols:
                             cur.execute(f"ALTER TABLE bookings ADD COLUMN {col} {defn}")
 
-                    # Backfill contact and email from customer records if empty
+                    # Newly added contact/email columns start blank; populate them
+                    # from the linked customer record so denormalised booking rows
+                    # aren't left empty after the upgrade.
                     cur.execute("""
                         UPDATE bookings
                         SET bk_contact = (SELECT cus_contact FROM customers WHERE customers.cus_id = bookings.bk_customer_id)
@@ -116,7 +187,8 @@ class DatabaseRestoreWorker(QThread):
                         WHERE (bk_email IS NULL OR bk_email = '') AND bk_customer_id IS NOT NULL
                     """)
 
-                    # 2. Audit logs columns
+                    # 2. Audit logs columns — device tracking was added later, so
+                    # older backups lack al_device; default it to Desktop/Server.
                     cur.execute("PRAGMA table_info(audit_logs)")
                     al_cols = [r[1] for r in cur.fetchall()]
                     if "al_device" not in al_cols:
@@ -124,6 +196,7 @@ class DatabaseRestoreWorker(QThread):
 
                     conn.commit()
 
+                    # Read back headline counts to show the user what was restored.
                     self.progress_update.emit("Counting restored records...")
                     cur.execute("SELECT count(*) FROM bookings")
                     bk_cnt = cur.fetchone()[0]
@@ -133,6 +206,7 @@ class DatabaseRestoreWorker(QThread):
                     inv_cnt = cur.fetchone()[0]
                     conn.close()
 
+                    # Re-open the app's shared connection against the new file.
                     self.progress_update.emit("Reconnecting to restored database...")
                     db.connect()
 
@@ -145,6 +219,8 @@ class DatabaseRestoreWorker(QThread):
                         f"Please restart the application to refresh all views."
                     )
                 else:
+                    # SQLite backup but the app now runs on PostgreSQL: the file
+                    # can't be copied over, so migrate its tables row-by-row into PG.
                     self.progress_update.emit("Migrating SQLite backup tables into PostgreSQL...")
                     from utils.sqlite_to_postgres import migrate_sqlite_to_postgres
                     from utils.db_config import get_db_config
@@ -170,16 +246,20 @@ class DatabaseRestoreWorker(QThread):
                     else:
                         self.restore_finished.emit(False, f"Migration failed:\n\n{err}")
             else:
+                # Not a SQLite binary => treat the file as a plain-text SQL dump
+                # and execute it against whichever engine is configured.
                 self.progress_update.emit("Executing SQL script...")
                 if engine == "sqlite":
                     with open(path, "r", encoding="utf-8", errors="replace") as f:
                         sql_script = f.read()
                     conn = db.get_connection()
-                    conn.executescript(sql_script)
+                    conn.executescript(sql_script)  # multi-statement SQLite exec
                     self.restore_finished.emit(True, "SQL script restored into SQLite successfully. Please restart the application.")
                 else:
                     from utils.db_config import get_db_config
                     cfg = get_db_config()
+                    # Prefer executing the dump through psycopg2 in-process; fall
+                    # back to the psql CLI below if the driver import/connect fails.
                     try:
                         import psycopg2
                         pg = psycopg2.connect(
@@ -198,6 +278,8 @@ class DatabaseRestoreWorker(QThread):
                         pg.close()
                         self.restore_finished.emit(True, "SQL script restored into PostgreSQL successfully. Please restart the application.")
                     except Exception as p_err:
+                        # psycopg2 path failed (driver missing or dump uses psql
+                        # meta-commands); shell out to the psql client instead.
                         result = subprocess.run(
                             ["psql", "-U", cfg.get("user", "postgres"), "-d", cfg.get("dbname", "jayraldines_catering"), "-f", path],
                             capture_output=True, text=True, timeout=120
@@ -207,11 +289,20 @@ class DatabaseRestoreWorker(QThread):
                         else:
                             self.restore_finished.emit(False, f"psql error:\n{result.stderr or p_err}")
         except Exception as exc:
+            # Any unexpected failure is surfaced to the UI as a failed restore
+            # rather than crashing the worker thread.
             self.restore_finished.emit(False, f"An error occurred during restore:\n{exc}")
 
 
 class DatabaseRestoreProgressDialog(QDialog):
+    """Frameless, translucent modal dialog shown while a restore/merge runs.
+
+    Displays an animated spinner plus a live status line driven by the worker's
+    progress_update signal (via set_status). Purely presentational.
+    """
+
     def __init__(self, parent=None):
+        """Build the spinner card UI. `parent` is the owning widget for modality."""
         super().__init__(parent)
         self.setWindowTitle("Restoring Database")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
@@ -254,17 +345,31 @@ class DatabaseRestoreProgressDialog(QDialog):
         layout.addWidget(card)
 
     def set_status(self, text: str):
+        """Update the dialog's status line; wired to the worker's progress signal."""
         self.status_lbl.setText(text)
 
 
 class SettingsPage(QWidget):
+    """The full Settings screen — a scrollable stack of configuration cards.
+
+    Instantiated once and reused (a singleton page in the main window). Because
+    the same instance is shown for every user, permission-gated cards are built
+    conditionally and can be torn down/rebuilt in place via refresh_permissions()
+    when the logged-in user changes. Data is loaded lazily/asynchronously and
+    only refreshed while the page is actually visible.
+    """
+
     def __init__(self, parent=None):
+        """Construct the page, build all cards, and subscribe to app-wide data events."""
         super().__init__(parent)
         self._theme = ThemeManager()
         self._accent = AccentManager()
+        # Start dirty so the first showEvent triggers an initial data load.
         self._dirty = True
         self._build_ui()
 
+        # Subscribe to global data-change signals so the audit log / settings
+        # refresh when records change elsewhere in the app (even on other cards).
         try:
             from utils.signals import app_events
             ev = app_events()
@@ -279,25 +384,39 @@ class SettingsPage(QWidget):
             pass
 
     def _mark_dirty_and_reload(self):
+        """Slot for app-wide data-change signals.
+
+        Marks the page dirty and, only if it's currently visible, reloads
+        settings + audit log immediately. When hidden, the reload is deferred to
+        the next showEvent (avoids doing work for an off-screen page).
+        """
         self._dirty = True
         if self.isVisible():
             self._load_all_settings_async()
             self._load_audit_log()
 
     def showEvent(self, event):
+        """Qt hook: on becoming visible, do a one-shot reload if marked dirty."""
         super().showEvent(event)
         if getattr(self, "_dirty", True):
-            self._dirty = False
+            self._dirty = False  # clear before loading so we don't reload twice
             self._load_all_settings_async()
             self._load_audit_log()
 
     def reload(self):
+        """Force an immediate settings + audit-log reload regardless of dirty state."""
         self._dirty = False
         self._load_all_settings_async()
         self._load_audit_log()
 
     @staticmethod
     def _fetch_all_settings_data_worker():
+        """Fetch every settings blob from the repository (runs on a worker thread).
+
+        Each repo call is individually guarded so one failing/absent section
+        (e.g. no SMTP config yet) doesn't abort loading the rest. Returns a dict
+        of the raw data consumed by _apply_settings_data on the UI thread.
+        """
         cur_year = datetime.now().year
         try:
             biz = repo.get_business_info() or {}
@@ -328,13 +447,25 @@ class SettingsPage(QWidget):
         }
 
     def _load_all_settings_async(self):
+        """Kick off the off-thread settings fetch, showing the loading overlay.
+
+        The worker's result is delivered to _apply_settings_data on the UI thread.
+        """
         from utils.data_loader import run_async
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Loading system configuration...")
         run_async(self, self._fetch_all_settings_data_worker, self._apply_settings_data)
 
     def _apply_settings_data(self, data):
+        """Populate the form fields from fetched settings data (UI thread callback).
+
+        Guards against the page having been destroyed mid-fetch, then only
+        touches fields/cards that currently exist (they may be absent depending
+        on permissions). Always hides the loading overlay via finally.
+        """
         try:
+            # The async fetch may complete after the page was closed/deleted;
+            # bail out rather than poke a dangling C++ object.
             from shiboken6 import isValid
             if not isValid(self):
                 return
@@ -342,7 +473,7 @@ class SettingsPage(QWidget):
                 return
             if data.get("biz"):
                 b = data["biz"]
-                _BUSINESS_INFO.update(b)
+                _BUSINESS_INFO.update(b)  # refresh module cache with persisted values
                 if hasattr(self, "_name_f"):
                     self._name_f.setText(b.get("name", ""))
                 if hasattr(self, "_contact_f"):
@@ -375,13 +506,21 @@ class SettingsPage(QWidget):
                     self._occ_list.addItem(QListWidgetItem(name))
             if data.get("sales_targets") and hasattr(self, "_month_target_spins"):
                 st = data["sales_targets"]
+                # Map month number -> spin box; default missing months to ₱85,000.
                 for m, spin in self._month_target_spins.items():
                     spin.setValue(float(st.get(m, 85000.0)))
         finally:
+            # Always hide the overlay, even if a field update raised above.
             if hasattr(self, "_loader"):
                 self._loader.hide_overlay()
 
     def _build_ui(self):
+        """Assemble the scroll area and add every card in on-screen order.
+
+        Cards are stored as self._card_<slot> (or None when permission-gated off)
+        so refresh_permissions() can later remove/rebuild/reinsert them at the
+        right layout position. Also creates the shared loading overlay.
+        """
         root_lay = QVBoxLayout(self)
         root_lay.setContentsMargins(0, 0, 0, 0)
 
@@ -398,6 +537,7 @@ class SettingsPage(QWidget):
         title.setObjectName("pageTitle")
         lay.addWidget(title)
 
+        # Resolve the current user's capabilities once; drives which cards exist.
         can_edit = SessionManager.is_admin() or SessionManager.has_permission("settings", "edit")
         can_delete = SessionManager.is_admin() or SessionManager.has_permission("settings", "delete")
         is_admin = SessionManager.is_admin()
@@ -457,11 +597,12 @@ class SettingsPage(QWidget):
         if self._card_purge is not None:
             lay.addWidget(self._card_purge)
 
-        lay.addStretch()
+        lay.addStretch()  # push all cards to the top
 
         scroll.setWidget(content)
         root_lay.addWidget(scroll)
 
+        # Overlay spinner reused across async loads (see _load_all_settings_async).
         from components.loading_overlay import LoadingOverlay
         self._loader = LoadingOverlay(self, "Loading system configuration...")
 
@@ -481,6 +622,7 @@ class SettingsPage(QWidget):
     }
 
     def _build_view_only_banner(self):
+        """Build the amber "view-only access" banner shown to users lacking edit rights."""
         view_banner = QFrame()
         view_banner.setObjectName("viewBanner")
         view_banner.setStyleSheet("""
@@ -529,6 +671,9 @@ class SettingsPage(QWidget):
         can_delete = SessionManager.is_admin() or SessionManager.has_permission("settings", "delete")
         can_create = SessionManager.is_admin() or SessionManager.has_permission("settings", "create")
         is_admin = SessionManager.is_admin()
+        # Skip the (relatively expensive) rebuild if the permission set is
+        # unchanged since the last call - refresh_permissions() may fire on every
+        # login/switch even when nothing about access actually changed.
         sig = (can_edit, can_delete, can_create, is_admin)
         if sig == getattr(self, "_last_perm_sig", None):
             return
@@ -539,6 +684,13 @@ class SettingsPage(QWidget):
         self._rebuild_permission_gated_cards(can_edit, can_delete, can_create, is_admin)
 
     def _rebuild_permission_gated_cards(self, can_edit, can_delete, can_create, is_admin):
+        """Tear down and rebuild every permission-gated card to match new access.
+
+        For each gated slot: destroy the existing widget (deleteLater) and, if it
+        should exist for the new permission set, build a fresh one and insert it
+        at its correct layout index. Finally reloads persisted data into the
+        freshly built (default-valued) fields.
+        """
         # NOTE: _build_user_management_card() and _build_server_database_card()
         # only assign instance attributes / connect signals on the NEW widgets
         # they create (e.g. self.user_panel, self._connected_devices_panel),
@@ -566,8 +718,11 @@ class SettingsPage(QWidget):
         for slot, (should_exist, builder) in builders.items():
             attr = f"_card_{slot}"
             old = getattr(self, attr, None)
+            # Compute the target index BEFORE removing the old widget, while the
+            # layout still reflects the prior set of active cards.
             idx = self._insert_index_for_slot(slot)
             if old is not None:
+                # Fully detach and schedule destruction of the previous card.
                 self._content_lay.removeWidget(old)
                 old.setParent(None)
                 old.deleteLater()
@@ -584,6 +739,11 @@ class SettingsPage(QWidget):
         self._load_all_settings_async()
 
     def _build_current_user_card(self):
+        """Build the "Current User" card: edit the actor name and change own password.
+
+        The actor name is stamped onto every audited action, so it's editable
+        only with edit permission (read-only otherwise). Returns the card QFrame.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -609,6 +769,8 @@ class SettingsPage(QWidget):
             self._actor_f.setReadOnly(True)
 
         def _save_actor():
+            # Re-check permission at click time (defence in depth: the button is
+            # only shown when can_edit, but permissions could change at runtime).
             if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
                 QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot edit user information.")
                 return
@@ -638,6 +800,7 @@ class SettingsPage(QWidget):
         return card
 
     def _build_user_management_card(self):
+        """Admin-only card wrapping the embedded UserManagementPanel (create/edit users)."""
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -648,6 +811,14 @@ class SettingsPage(QWidget):
         return card
 
     def _build_server_database_card(self):
+        """Admin-only card: live DB server status, connection tools and maintenance.
+
+        Shows machine role (central host vs. client), a live status badge and
+        detailed connection info, plus buttons to edit connection settings, test
+        connectivity, and export credentials. On the central host it also renders
+        Owner-gated restart/remote-access controls and a connected-devices panel.
+        Returns the card QFrame.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -717,6 +888,9 @@ class SettingsPage(QWidget):
         lay.addWidget(details_box)
 
         def _refresh_server_and_db_info():
+            # Probe the local DB/server service and repaint the role label, the
+            # status badge, and the detail block. Branches on engine (sqlite vs
+            # postgres) and on whether this machine is the central server host.
             stat = get_local_db_server_status()
             is_central = stat.get("is_central_server", False)
             is_running = stat.get("is_running", False)
@@ -841,7 +1015,7 @@ class SettingsPage(QWidget):
                 )
 
         refresh_status_btn.clicked.connect(_refresh_server_and_db_info)
-        _refresh_server_and_db_info()
+        _refresh_server_and_db_info()  # populate immediately on first build
 
         # ── Buttons Row ────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
@@ -861,11 +1035,14 @@ class SettingsPage(QWidget):
         test_btn.setCursor(Qt.PointingHandCursor)
         test_btn.setStyleSheet("background-color: #0284C7; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
         def _test_conn():
+            # Verify DB reachability: for SQLite run a trivial query in-process;
+            # for PostgreSQL attempt a real connection with the saved credentials.
             c = get_db_config()
             if c.get("engine") == "sqlite":
                 import utils.db as db
                 try:
                     if db.is_available():
+                        # SELECT 1 confirms the connection; COUNT proves tables exist.
                         row = db.fetchone("SELECT 1 as alive, COUNT(*) as b_cnt FROM bookings")
                         b_cnt = row.get("b_cnt", 0) if row else 0
                         QMessageBox.information(
@@ -897,6 +1074,9 @@ class SettingsPage(QWidget):
         export_creds_btn.setCursor(Qt.PointingHandCursor)
         export_creds_btn.setStyleSheet("background-color: #10B981; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
         def _export_creds():
+            # Dump the current DB connection details to a plain-text file so the
+            # owner can re-point another workstation at this server. NOTE: this
+            # intentionally includes the DB password in cleartext.
             from pathlib import Path
             c = get_db_config()
             content = (
@@ -929,6 +1109,8 @@ class SettingsPage(QWidget):
         lay.addLayout(btn_row)
 
         # ── Central Server Host Controls (Restart / Start) ──────────────────
+        # These service-control actions only make sense on the machine that
+        # actually hosts the database, so gate the whole block on that.
         if is_central_db_server_machine():
             server_ctrl_box = QFrame()
             server_ctrl_box.setStyleSheet("background: #0B1329; border: 1px dashed #334155; border-radius: 8px; padding: 14px;")
@@ -942,12 +1124,15 @@ class SettingsPage(QWidget):
             sc_row = QHBoxLayout()
             sc_row.setSpacing(10)
 
+            # Owner/super-admin may restart directly; plain admins must clear an
+            # Owner-authorization passkey dialog first (see the else branch below).
             is_owner = SessionManager.is_owner_or_superadmin()
 
             restart_btn = QPushButton("🔄 Restart DB Server")
             restart_btn.setCursor(Qt.PointingHandCursor)
 
             def _do_restart():
+                # Confirm, then restart the service and refresh the status panel.
                 confirm_reply = QMessageBox.question(
                     self, "Confirm Server Restart",
                     "Are you sure you want to restart the Central PostgreSQL Database Server?\n\n"
@@ -976,6 +1161,7 @@ class SettingsPage(QWidget):
                 restart_btn.setStyleSheet("background-color: #334155; color: #94A3B8; font-weight: 700; padding: 8px 16px; border-radius: 6px; border: 1px solid #475569;")
 
                 def _handle_admin_restart():
+                    # Require a one-off Owner passkey for this single restart.
                     dlg = OwnerAuthDialog(self, operation_name="Restart Central Database Server")
                     if dlg.exec():
                         _do_restart()
@@ -987,10 +1173,13 @@ class SettingsPage(QWidget):
                 unlock_btn.setCursor(Qt.PointingHandCursor)
                 unlock_btn.setStyleSheet("background-color: #D97706; color: #FFFFFF; font-weight: 600; padding: 8px 14px; border-radius: 6px;")
                 def _unlock_owner():
+                    # Elevate for the whole session: after one passkey, swap the
+                    # restart button from "passkey each time" to direct restart.
                     dlg = OwnerAuthDialog(self, operation_name="Unlock Server Maintenance Controls")
                     if dlg.exec():
                         restart_btn.setText("🔄 Restart DB Server")
                         restart_btn.setStyleSheet("background-color: #DC2626; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
+                        # Drop the passkey wrapper and wire straight to restart.
                         restart_btn.clicked.disconnect()
                         restart_btn.clicked.connect(_do_restart)
                         unlock_btn.setVisible(False)
@@ -1001,6 +1190,7 @@ class SettingsPage(QWidget):
             remote_access_btn.setCursor(Qt.PointingHandCursor)
             remote_access_btn.setStyleSheet("background-color: #0284C7; color: #FFFFFF; font-weight: 700; padding: 8px 16px; border-radius: 6px;")
             def _do_config_remote():
+                # Open the server up to LAN clients (edits pg_hba.conf + firewall).
                 ok, msg = configure_server_remote_access()
                 if ok:
                     QMessageBox.information(
@@ -1027,6 +1217,8 @@ class SettingsPage(QWidget):
             lay.addWidget(server_ctrl_box)
 
         # ── Connected Devices & Server Activity Telemetry ──────────────────
+        # Parented to `card` so its internal refresh QTimer is destroyed together
+        # with the card when this permission-gated card is rebuilt (no leak).
         from components.connected_devices_panel import ConnectedDevicesPanel
         self._connected_devices_panel = ConnectedDevicesPanel(card)
         lay.addWidget(self._connected_devices_panel)
@@ -1034,6 +1226,7 @@ class SettingsPage(QWidget):
         return card
 
     def _build_session_security_card(self):
+        """Build the auto-lock timeout selector plus a "Lock Screen Now" button."""
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -1062,14 +1255,16 @@ class SettingsPage(QWidget):
             "120 minutes (2 Hours)",
             "Disabled (Never Auto-Lock)"
         ])
+        # Parallel array mapping combo index -> minutes (0 == never auto-lock).
         timeout_map = [60, 30, 120, 0]
         cur_mins = SessionManager.get_auto_lock_minutes()
         if cur_mins in timeout_map:
             self.timeout_combo.setCurrentIndex(timeout_map.index(cur_mins))
         else:
-            self.timeout_combo.setCurrentIndex(0)
+            self.timeout_combo.setCurrentIndex(0)  # unknown value -> default 60 min
 
         def _on_timeout_changed(idx: int):
+            # Persist the new timeout, but only if the user may edit settings.
             if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
                 return
             if 0 <= idx < len(timeout_map):
@@ -1095,6 +1290,11 @@ class SettingsPage(QWidget):
         return card
 
     def _build_business_card(self):
+        """Build the Business Information form (name/contact/email/address).
+
+        Fields are seeded from the _BUSINESS_INFO cache and made read-only for
+        users without edit permission; a Save button is added only when editable.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -1150,6 +1350,12 @@ class SettingsPage(QWidget):
         return card
 
     def _build_sales_targets_card(self):
+        """Build the monthly sales-target editor (per-year, 12 month spin boxes).
+
+        Includes a year selector, a "quick target" value that can be applied to
+        all 12 months at once, a grid of per-month targets, and a Save button
+        (only when editable). Changing the year reloads that year's saved targets.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -1211,6 +1417,7 @@ class SettingsPage(QWidget):
             "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December"
         ]
+        # Map month number (1-12) -> its QDoubleSpinBox for load/save/apply-all.
         self._month_target_spins = {}
         for m in range(1, 13):
             m_lbl = QLabel(f"<b>{month_names[m-1]}:</b>")
@@ -1223,6 +1430,8 @@ class SettingsPage(QWidget):
             if not can_edit:
                 m_spin.setEnabled(False)
             self._month_target_spins[m] = m_spin
+            # Lay months out 3-per-row; label and spin occupy two stacked grid
+            # rows (row*2 and row*2+1) within each visual row.
             row = (m - 1) // 3
             col = (m - 1) % 3
             grid.addWidget(m_lbl, row * 2, col)
@@ -1240,10 +1449,12 @@ class SettingsPage(QWidget):
             save_btn.clicked.connect(self._save_sales_targets)
             lay.addWidget(save_btn, alignment=Qt.AlignRight)
 
+        # Reload the grid whenever the selected target year changes.
         self._target_year_combo.currentIndexChanged.connect(self._load_sales_targets)
         return card
 
     def _load_sales_targets(self):
+        """Asynchronously load the selected year's monthly targets into the grid."""
         try:
             yr = int(self._target_year_combo.currentText())
             from utils.data_loader import run_async
@@ -1252,22 +1463,27 @@ class SettingsPage(QWidget):
             print(f"[SettingsPage] Error requesting sales targets: {e}")
 
     def _on_sales_targets_loaded(self, targets):
+        """UI-thread callback: push loaded {month: value} targets into the spin boxes."""
         try:
+            # Skip if the page was destroyed while the fetch was in flight.
             from shiboken6 import isValid
             if not isValid(self):
                 return
         except Exception:
             pass
         targets = targets or {}
+        # Default any month absent from storage to the ₱85,000 baseline.
         for m, spin in getattr(self, "_month_target_spins", {}).items():
             spin.setValue(float(targets.get(m, 85000.0)))
 
     def _apply_universal_target(self):
+        """Copy the "quick target" value into all 12 month spin boxes at once."""
         val = self._universal_target_spin.value()
         for spin in self._month_target_spins.values():
             spin.setValue(val)
 
     def _save_sales_targets(self):
+        """Persist every month's target for the selected year (edit-gated)."""
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot modify sales targets.")
             return
@@ -1280,6 +1496,12 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "Error", f"Failed to save targets: {e}")
 
     def _build_policy_card(self):
+        """Build the Booking & Capacity policy form.
+
+        Controls: minimum downpayment %, an override to allow zero-downpayment
+        confirmations, and max daily pax capacity. Values are seeded with
+        defaults here and later overwritten by _apply_settings_data.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -1334,6 +1556,12 @@ class SettingsPage(QWidget):
         return card
 
     def _build_smtp_card(self):
+        """Build the SMTP configuration form (host/port/user/password).
+
+        Used for sending receipts and booking confirmations. Includes a masked
+        password field with a show/hide toggle, plus Test Connection and Save
+        buttons (only when editable). Returns the card QFrame.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -1367,7 +1595,7 @@ class SettingsPage(QWidget):
         self._smtp_pass_f.setEchoMode(QLineEdit.Password)
         self._smtp_pass_f.setPlaceholderText("App password or SMTP password")
         from utils.password_field import add_show_password_toggle
-        add_show_password_toggle(self._smtp_pass_f)
+        add_show_password_toggle(self._smtp_pass_f)  # adds an eye icon to reveal the password
 
         if not can_edit:
             self._smtp_host_f.setReadOnly(True)
@@ -1412,6 +1640,12 @@ class SettingsPage(QWidget):
         return card
 
     def _build_theme_card(self):
+        """Build the Appearance card: dark/light toggle, palette gallery, accent colours.
+
+        Renders category filter pills, a scrollable grid of selectable palette
+        cards, and the accent-colour swatch picker (presets + user custom colours).
+        Always present regardless of permissions. Returns the card QFrame.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -1461,6 +1695,8 @@ class SettingsPage(QWidget):
             btn = QPushButton(cat)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setFixedHeight(32)
+            # Bind `cat` per-iteration (default arg) so every pill filters to its
+            # own category rather than the loop's final value.
             btn.clicked.connect(lambda _, c=cat: self._on_select_category(c))
             self._cat_row.addWidget(btn)
             self._cat_buttons.append((cat, btn))
@@ -1505,11 +1741,13 @@ class SettingsPage(QWidget):
     # ── Category & Palette Selection ────────────────────────────────────────
 
     def _on_select_category(self, cat: str):
+        """Set the active palette category filter and re-render pills + palette grid."""
         self._active_category = cat
         self._update_cat_buttons_style()
         self._rebuild_palette_cards()
 
     def _update_cat_buttons_style(self):
+        """Restyle category pills so the active one is highlighted (accent-filled)."""
         for cat, btn in self._cat_buttons:
             if cat == self._active_category:
                 btn.setStyleSheet(
@@ -1527,9 +1765,15 @@ class SettingsPage(QWidget):
                 )
 
     def _rebuild_palette_cards(self):
+        """Rebuild the palette grid for the active category filter.
+
+        When "All" is selected, palettes are grouped under per-category headings;
+        otherwise only the chosen category is shown. Cards are laid out 4 per row.
+        """
         self._clear_layout(self._palettes_container)
 
         by_cat = get_palettes_by_category()
+        # "All" expands to every category; a specific filter shows just that one.
         categories_to_show = [self._active_category] if self._active_category != "All" else THEME_CATEGORIES
 
         for cat in categories_to_show:
@@ -1538,6 +1782,7 @@ class SettingsPage(QWidget):
                 continue
 
             if self._active_category == "All":
+                # Only show category heading labels in the grouped "All" view.
                 cat_head = QLabel(cat)
                 cat_head.setStyleSheet("font-weight: 700; font-size: 12px; color: #94A3B8; margin-top: 4px; margin-bottom: 2px;")
                 self._palettes_container.addWidget(cat_head)
@@ -1552,16 +1797,24 @@ class SettingsPage(QWidget):
                 current_row.addWidget(card)
                 cards_in_row += 1
                 if cards_in_row == 4:
+                    # Row is full: commit it and start a fresh one.
                     self._palettes_container.addLayout(current_row)
                     current_row = QHBoxLayout()
                     current_row.setSpacing(8)
                     cards_in_row = 0
 
             if cards_in_row > 0:
+                # Flush a partial final row, padding it so cards stay left-aligned.
                 current_row.addStretch()
                 self._palettes_container.addLayout(current_row)
 
     def _create_palette_card(self, pal: dict) -> QFrame:
+        """Build one clickable palette preview card.
+
+        `pal` is a palette dict (id/name/mode plus colour keys). The card shows
+        the palette name, a light/dark mode badge, a check mark if it's active,
+        and a 4-swatch colour preview. Clicking it applies the palette.
+        """
         card = QFrame()
         card.setCursor(Qt.PointingHandCursor)
         card.setFixedHeight(54)
@@ -1615,10 +1868,16 @@ class SettingsPage(QWidget):
             swatch_row.addWidget(sw, 1)
         lay.addLayout(swatch_row)
 
+        # Whole-card click selects this palette (QFrame has no clicked signal).
         card.mousePressEvent = lambda _, pid=pal["id"]: self._on_select_palette(pid)
         return card
 
     def _on_select_palette(self, palette_id: str):
+        """Apply the chosen palette app-wide and refresh the theme UI.
+
+        The palette/swatch rebuilds are deferred ~120ms so the new theme's
+        stylesheet has propagated before the cards are redrawn with fresh colours.
+        """
         self._theme.apply_palette(palette_id)
         self._theme_lbl.setText(self._theme.palette.get("name", "Dark Mode"))
         self._theme_lbl.setStyleSheet(f"color: {AccentManager().current}; font-size: 13px; font-weight: 700;")
@@ -1630,15 +1889,26 @@ class SettingsPage(QWidget):
     # ── Color theme picker ──────────────────────────────────────────────
 
     def _clear_layout(self, layout):
+        """Recursively remove and delete every widget/sub-layout from `layout`.
+
+        Used to wipe the palette grid / swatch rows before rebuilding them.
+        """
         while layout.count():
             item = layout.takeAt(0)
             w = item.widget()
             if w:
                 w.deleteLater()
             elif item.layout():
+                # Nested layout: recurse so its children are freed too.
                 self._clear_layout(item.layout())
 
     def _make_swatch(self, hex_color: str, removable: bool = False) -> QPushButton:
+        """Create a round accent-colour swatch button.
+
+        Highlights the swatch with a ring if it's the current accent. When
+        `removable` (a user custom colour), right-click offers to remove it.
+        Left-click selects the colour as the active accent.
+        """
         btn = QPushButton()
         btn.setFixedSize(28, 28)
         btn.setCursor(Qt.PointingHandCursor)
@@ -1657,6 +1927,7 @@ class SettingsPage(QWidget):
         return btn
 
     def _rebuild_color_swatches(self):
+        """Rebuild the accent picker: a preset row and a custom-colour row with an add button."""
         self._clear_layout(self._swatch_container)
 
         preset_row = QHBoxLayout()
@@ -1689,14 +1960,16 @@ class SettingsPage(QWidget):
         self._swatch_container.addLayout(custom_row)
 
     def _select_accent(self, hex_color: str):
+        """Set the app accent colour and re-render swatches + palette cards to match."""
         self._accent.set_accent(hex_color)
         self._rebuild_color_swatches()
         self._rebuild_palette_cards()
 
     def _pick_custom_color(self):
+        """Prompt for a custom colour, store it, make it the active accent, and refresh."""
         color = QColorDialog.getColor(QColor(self._accent.current), self, "Choose a Custom Color")
         if not color.isValid():
-            return
+            return  # user cancelled the colour dialog
         hex_color = color.name().upper()
         self._accent.add_custom_color(hex_color)
         self._accent.set_accent(hex_color)
@@ -1704,10 +1977,17 @@ class SettingsPage(QWidget):
         self._rebuild_palette_cards()
 
     def _remove_custom_color(self, hex_color: str):
+        """Delete a user-added custom accent colour and rebuild the swatch row."""
         self._accent.remove_custom_color(hex_color)
         self._rebuild_color_swatches()
 
     def _build_backup_card(self):
+        """Build the Backup & Restore card.
+
+        Always offers a (non-destructive) Backup button. With edit permission it
+        also adds the DESTRUCTIVE full Restore and the safe cross-device Merge
+        actions. Returns the card QFrame.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -1775,6 +2055,13 @@ class SettingsPage(QWidget):
         return card
 
     def _merge_db(self):
+        """Safely merge another device's backup into this database (edit-gated).
+
+        Prompts for a backup file, confirms, then runs importer.merge_database_file
+        in a MergeWorker thread behind a progress dialog. The merge only adds new
+        records and never removes/downgrades existing payments or statuses. On
+        completion, shows a summary and broadcasts data-changed signals.
+        """
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot merge external database files.")
             return
@@ -1800,8 +2087,10 @@ class SettingsPage(QWidget):
         dlg.set_status("Analyzing and merging database records...")
 
         class MergeWorker(QThread):
+            """Runs the blocking merge off the UI thread; emits stats when done."""
             merge_finished = Signal(dict)
             def run(self):
+                # `path`/get_actor() are captured from the enclosing scope.
                 import utils.importer as importer
                 from utils.session import get_actor
                 stats = importer.merge_database_file(path, actor=get_actor())
@@ -1810,6 +2099,7 @@ class SettingsPage(QWidget):
         worker = MergeWorker(self)
 
         def _on_merge_done(stats):
+            # UI-thread callback: close the dialog and report the merge outcome.
             dlg.accept()
             if stats.get("errors"):
                 QMessageBox.warning(self, "Merge Completed With Warnings",
@@ -1825,6 +2115,7 @@ class SettingsPage(QWidget):
                 f"Invoices recalculated: {stats.get('invoices_recalculated', 0)}"
             )
             success(self, message=f"Database merge complete.\n\n{summary}")
+            # Tell the rest of the app that bookings/data changed so other pages refresh.
             try:
                 from utils.signals import app_events
                 app_events().data_changed.emit()
@@ -1835,9 +2126,10 @@ class SettingsPage(QWidget):
 
         worker.merge_finished.connect(_on_merge_done)
         worker.start()
-        dlg.exec()
+        dlg.exec()  # modal: blocks here until _on_merge_done calls dlg.accept()
 
     def _build_tablet_sync_card(self):
+        """Build the Tablet App Sync card (export packages/menu/prices for the tablet app)."""
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -1868,6 +2160,7 @@ class SettingsPage(QWidget):
         return card
 
     def _export_tablet_master_data(self):
+        """Export packages/menu items/prices to a .db file for import on the tablet app."""
         from datetime import datetime as _dt
         default_name = f"tablet_master_data_{_dt.now().strftime('%Y%m%d')}.db"
         path, _ = QFileDialog.getSaveFileName(self, "Export Tablet Master Data", default_name, "SQLite Database (*.db)")
@@ -1884,6 +2177,11 @@ class SettingsPage(QWidget):
         )
 
     def _build_import_card(self):
+        """Build the Data Import/Export card (opens the import/export wizards).
+
+        The Import wizard button appears only with create/edit permission; the
+        Export wizard is always available. Returns the card QFrame.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -1926,6 +2224,7 @@ class SettingsPage(QWidget):
         return card
 
     def _open_import_wizard(self):
+        """Open the data import wizard (requires create or edit permission)."""
         if not SessionManager.is_admin() and not (SessionManager.has_permission("settings", "create") or SessionManager.has_permission("settings", "edit")):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot import data.")
             return
@@ -1934,11 +2233,17 @@ class SettingsPage(QWidget):
         dlg.exec()
 
     def _open_export_wizard(self):
+        """Open the data export wizard (available to all users)."""
         from components.export_dialog import ExportWizardDialog
         dlg = ExportWizardDialog(parent=self)
         dlg.exec()
 
     def _build_occasions_card(self):
+        """Build the Occasion Types CRUD card (add/rename/delete), gated per permission.
+
+        The Add/Rename/Delete buttons appear only for users with the matching
+        create/edit/delete permission. The list is populated asynchronously.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -1988,11 +2293,14 @@ class SettingsPage(QWidget):
         return card
 
     def _load_occasions(self):
+        """Asynchronously fetch all occasion types and refresh the list widget."""
         from utils.data_loader import run_async
         run_async(self, repo.get_all_occasions, self._on_occasions_loaded)
 
     def _on_occasions_loaded(self, occasions):
+        """UI-thread callback: repopulate the occasions list from fetched names."""
         try:
+            # Ignore results arriving after the page was destroyed.
             from shiboken6 import isValid
             if not isValid(self):
                 return
@@ -2004,6 +2312,7 @@ class SettingsPage(QWidget):
                 self._occ_list.addItem(QListWidgetItem(name))
 
     def _add_occasion(self):
+        """Prompt for and add a new occasion type (requires create permission)."""
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "create"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot add occasion types.")
             return
@@ -2017,6 +2326,7 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, "Error", str(e))
 
     def _edit_occasion(self):
+        """Rename the selected occasion type in place (requires edit permission)."""
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot edit occasion types.")
             return
@@ -2035,6 +2345,7 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, "Error", str(e))
 
     def _delete_occasion(self):
+        """Delete the selected occasion type after confirmation (requires delete permission)."""
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "delete"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot delete occasion types.")
             return
@@ -2057,6 +2368,10 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, "Error", str(e))
 
     def _build_menu_categories_card(self):
+        """Build the Menu Categories CRUD card (add/rename/delete), gated per permission.
+
+        Mirrors _build_occasions_card but for the menu-item category list.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -2112,11 +2427,14 @@ class SettingsPage(QWidget):
         return card
 
     def _load_menu_categories(self):
+        """Asynchronously fetch all menu categories and refresh the list widget."""
         from utils.data_loader import run_async
         run_async(self, repo.get_all_menu_categories, self._on_menu_categories_loaded)
 
     def _on_menu_categories_loaded(self, categories):
+        """UI-thread callback: repopulate the menu-categories list from fetched names."""
         try:
+            # Ignore results arriving after the page was destroyed.
             from shiboken6 import isValid
             if not isValid(self):
                 return
@@ -2128,6 +2446,7 @@ class SettingsPage(QWidget):
                 self._mc_list.addItem(QListWidgetItem(name))
 
     def _add_menu_category(self):
+        """Prompt for and add a new menu category (requires create permission)."""
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "create"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot add menu categories.")
             return
@@ -2141,6 +2460,7 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, "Error", str(e))
 
     def _edit_menu_category(self):
+        """Rename the selected menu category in place (requires edit permission)."""
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot edit menu categories.")
             return
@@ -2159,6 +2479,7 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, "Error", str(e))
 
     def _delete_menu_category(self):
+        """Delete the selected menu category after confirmation (requires delete permission)."""
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "delete"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot delete menu categories.")
             return
@@ -2181,6 +2502,11 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, "Error", str(e))
 
     def _build_audit_card(self):
+        """Build the Audit Log viewer: device filter, refresh button, scrollable cards.
+
+        Entries are fetched and rendered asynchronously/incrementally (see
+        _load_audit_log / _render_next_audit_batch) to keep the UI responsive.
+        """
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -2231,6 +2557,12 @@ class SettingsPage(QWidget):
         return card
 
     def _load_audit_log(self):
+        """Fetch the latest audit entries for the selected device filter (async).
+
+        Reloads are coalesced (see the in-flight guard) so overlapping triggers
+        collapse into at most one queued follow-up pass. Results go to
+        _on_audit_logs_loaded on the UI thread.
+        """
         # Coalesce overlapping reloads: multiple data-changed signals (data_changed,
         # customer_saved, booking_saved, payment_saved), showEvent, reload(), the
         # filter and the refresh button can all fire in quick succession. If a
@@ -2243,6 +2575,8 @@ class SettingsPage(QWidget):
         self._audit_reload_pending = False
 
         from utils.data_loader import run_async
+        # Translate the combo choice into the repository's device filter token
+        # (None = all devices). Substring match tolerates the label's extra words.
         dev_choice = self.audit_device_filter.currentText() if hasattr(self, "audit_device_filter") else "All Logs & Devices"
         dev_filter = None
         if "Tablet" in dev_choice:
@@ -2252,12 +2586,22 @@ class SettingsPage(QWidget):
         run_async(self, lambda: repo.get_audit_log(50, device_filter=dev_filter), self._on_audit_logs_loaded)
 
     def _audit_reload_finished(self):
+        """Mark the current audit reload complete; run one queued pass if pending.
+
+        Called once the full fetch+render pipeline finishes. If another reload was
+        requested while this one ran, it's fired now (deferred via singleShot).
+        """
         self._audit_reload_in_flight = False
         if getattr(self, "_audit_reload_pending", False):
             self._audit_reload_pending = False
             QTimer.singleShot(0, self._load_audit_log)
 
     def _on_audit_logs_loaded(self, logs):
+        """UI-thread callback: clear the audit list and start incremental rendering.
+
+        Handles the empty case directly; otherwise queues the logs and renders
+        them in small batches so a large log never freezes the UI thread.
+        """
         try:
             from shiboken6 import isValid
             if not isValid(self):
@@ -2292,6 +2636,12 @@ class SettingsPage(QWidget):
         self._render_next_audit_batch(token)
 
     def _render_next_audit_batch(self, token, batch_size=15):
+        """Render one batch of audit entries, then reschedule itself for the rest.
+
+        `token` fences this render against newer ones: if a fresh reload bumped
+        the render token, this stale invocation aborts. Yields to the event loop
+        between batches via QTimer so the UI stays responsive on large logs.
+        """
         # Bail out if a newer render started or the page was destroyed.
         if token != getattr(self, "_audit_render_token", 0):
             return
@@ -2312,9 +2662,11 @@ class SettingsPage(QWidget):
             "ADJUST_STOCK": "#06B6D4", "MERGE_IMPORT": "#F59E0B", "REPLACE_IMPORT": "#EA580C",
         }
 
+        # Pop the next slice off the queue; the remainder is rendered later.
         batch = self._audit_render_queue[:batch_size]
         self._audit_render_queue = self._audit_render_queue[batch_size:]
 
+        # Suspend repaints while adding this batch's widgets to avoid flicker.
         self.audit_cards_container.setUpdatesEnabled(False)
         try:
             for log in batch:
@@ -2324,15 +2676,17 @@ class SettingsPage(QWidget):
                 cl.setContentsMargins(12, 10, 12, 10)
                 cl.setSpacing(14)
 
+                # Left column: action badge, actor, and device (tablet vs desktop).
                 c1 = QVBoxLayout()
                 c1.setSpacing(3)
                 act_str = log.get("action", "LOG")
-                act_color = action_colors.get(act_str, "#9CA3AF")
+                act_color = action_colors.get(act_str, "#9CA3AF")  # grey fallback for unknown actions
                 act_lbl = QLabel(act_str)
                 act_lbl.setStyleSheet(f"font-weight: 800; font-size: 11px; color: {act_color}; padding: 2px 6px; background: rgba(255,255,255,0.05); border-radius: 4px;")
                 actor_lbl = QLabel(f"By: {log.get('actor', 'User')}")
                 actor_lbl.setObjectName("subtitle")
 
+                # Classify the device by name to pick the icon/colour of its badge.
                 dev_val = str(log.get("device") or "Desktop / Server")
                 is_tablet = "tablet" in dev_val.lower() or "kiosk" in dev_val.lower()
                 dev_icon = "📱" if is_tablet else "💻"
@@ -2362,11 +2716,12 @@ class SettingsPage(QWidget):
             # Yield to the event loop before rendering the next batch.
             QTimer.singleShot(0, lambda: self._render_next_audit_batch(token, batch_size))
         else:
-            self.audit_cards_layout.addStretch()
+            self.audit_cards_layout.addStretch()  # top-align the finished list
             # Full pipeline (fetch + all batches) done - finish the reload cycle.
             self._audit_reload_finished()
 
     def _build_daily_report_card(self):
+        """Build the Daily Activity Report card (date range + PDF/CSV export buttons)."""
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -2416,6 +2771,11 @@ class SettingsPage(QWidget):
         return card
 
     def _gather_daily_report_entries(self):
+        """Fetch audit entries for the chosen date range and build a period label.
+
+        Returns (entries, period_label). The label is a single date when From==To,
+        otherwise a "start — end" range. Shared by the PDF and CSV exporters.
+        """
         start = self._report_from.date().toString("yyyy-MM-dd")
         end = self._report_to.date().toString("yyyy-MM-dd")
         entries = repo.get_audit_log(start_date=start, end_date=end)
@@ -2426,6 +2786,7 @@ class SettingsPage(QWidget):
         return entries, period_label
 
     def _export_daily_report_pdf(self):
+        """Export the daily activity report to a user-chosen PDF file (via reportlab)."""
         entries, period_label = self._gather_daily_report_entries()
         default_name = f"daily_activity_report_{self._report_from.date().toString('yyyyMMdd')}.pdf"
         path, _ = QFileDialog.getSaveFileName(self, "Save Daily Activity Report", default_name, "PDF Files (*.pdf)")
@@ -2440,12 +2801,14 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "Export Failed", "Could not generate PDF. Make sure reportlab is installed.")
 
     def _export_daily_report_csv(self):
+        """Export the daily activity report to a user-chosen CSV file."""
         entries, _ = self._gather_daily_report_entries()
         default_name = f"daily_activity_report_{self._report_from.date().toString('yyyyMMdd')}.csv"
         path, _ = QFileDialog.getSaveFileName(self, "Save Daily Activity Report", default_name, "CSV Files (*.csv)")
         if not path:
             return
         import csv
+        # utf-8-sig adds a BOM so Excel opens the file with correct encoding.
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
             writer.writerow(["Date", "Time", "User", "Action", "Details"])
@@ -2454,6 +2817,7 @@ class SettingsPage(QWidget):
         prompt_file_saved(self, path, title="Report Exported", message="Daily Activity Report exported successfully.")
 
     def _save_business(self):
+        """Persist the business info form to storage and update the module cache."""
         _BUSINESS_INFO["name"]    = self._name_f.text().strip()
         _BUSINESS_INFO["contact"] = self._contact_f.text().strip()
         _BUSINESS_INFO["email"]   = self._email_f.text().strip()
@@ -2464,6 +2828,7 @@ class SettingsPage(QWidget):
         success(self, message="Business information saved successfully.")
 
     def _save_policy(self):
+        """Persist the booking downpayment/override and daily capacity policy."""
         try:
             repo.save_booking_policy(self._min_dp_spin.value(), self._allow_zero_cb.isChecked())
             repo.save_capacity_policy(self._max_pax_spin.value())
@@ -2472,6 +2837,11 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "Error", str(exc))
 
     def _test_smtp(self):
+        """Attempt a live SMTP login with the entered settings and report the result.
+
+        Uses implicit TLS (SMTP_SSL) on port 465, otherwise STARTTLS. On common
+        Gmail auth failures it appends an App Password hint to the error message.
+        """
         host = self._smtp_host_f.text().strip()
         port = self._smtp_port_f.value()
         user = self._smtp_user_f.text().strip()
@@ -2486,9 +2856,11 @@ class SettingsPage(QWidget):
         try:
             context = ssl.create_default_context()
             if port == 465:
+                # Port 465 uses implicit SSL from the start of the connection.
                 with smtplib.SMTP_SSL(host, port, context=context, timeout=10) as server:
                     server.login(user, pwd)
             else:
+                # Other ports (e.g. 587) start plaintext then upgrade via STARTTLS.
                 with smtplib.SMTP(host, port, timeout=10) as server:
                     server.ehlo()
                     server.starttls(context=context)
@@ -2496,11 +2868,13 @@ class SettingsPage(QWidget):
             success(self, message=f"SMTP Connection Successful!\nConnected and authenticated with {host}:{port} as {user}.")
         except Exception as exc:
             err_msg = str(exc)
+            # Detect Gmail's "use an App Password" family of auth errors and add guidance.
             if "Application-specific password required" in err_msg or "BadCredentials" in err_msg or "Username and Password not accepted" in err_msg:
                 err_msg += "\n\nTip for Gmail: Google requires a 16-character 'App Password'.\nGo to Google Account -> Security -> 2-Step Verification -> App Passwords."
             QMessageBox.critical(self, "SMTP Connection Failed", f"Could not connect to SMTP server:\n\n{err_msg}")
 
     def _save_smtp(self):
+        """Persist the SMTP host/port/user/password to storage."""
         try:
             repo.save_smtp_config(
                 self._smtp_host_f.text().strip(),
@@ -2513,10 +2887,12 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "Error", str(exc))
 
     def _toggle_theme(self):
+        """Flip between dark and light mode and update the theme name label."""
         new_theme = self._theme.toggle()
         self._theme_lbl.setText("Dark Mode" if new_theme == "dark" else "Light Mode")
 
     def _build_diagnostics_card(self):
+        """Build the System Diagnostics card (engine/log info + export report / open log folder)."""
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
@@ -2578,6 +2954,7 @@ class SettingsPage(QWidget):
         return card
 
     def _export_diagnostics(self):
+        """Generate a troubleshooting report on the Desktop for the user to send to support."""
         try:
             from utils.logger import export_diagnostic_report
             report_path = export_diagnostic_report()
@@ -2586,10 +2963,12 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "Export Failed", f"Could not generate report: {exc}")
 
     def _open_log_folder(self):
+        """Open the app's log directory in the OS file explorer (Windows/Linux)."""
         import os
         from utils.logger import get_log_dir
         log_dir = get_log_dir()
         try:
+            # Use the platform-native opener: Explorer on Windows, xdg-open elsewhere.
             if os.name == "nt":
                 os.startfile(str(log_dir))
             else:
@@ -2598,6 +2977,11 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "Error", f"Could not open folder: {exc}")
 
     def _backup_db(self):
+        """Back up the database to a user-chosen file.
+
+        SQLite backups are a direct file copy (.db/.bak); PostgreSQL backups are
+        produced via the pg_dump CLI into a .sql file. Available to all users.
+        """
         import utils.db as db
         import shutil
         engine = db.get_engine_type()
@@ -2638,6 +3022,12 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, "Backup Error", str(exc))
 
     def _restore_db(self):
+        """Restore the database from a backup file (DESTRUCTIVE; edit-gated).
+
+        After confirmation, runs DatabaseRestoreWorker in the background behind a
+        progress dialog and, on success, broadcasts data-changed signals so the
+        rest of the app refreshes.
+        """
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot restore database backups.")
             return
@@ -2662,6 +3052,7 @@ class SettingsPage(QWidget):
         dlg = DatabaseRestoreProgressDialog(self)
 
         def _on_finished(ok, msg):
+            # UI-thread callback for the worker's restore_finished signal.
             dlg.accept()
             if ok:
                 success(self, message=msg)
@@ -2680,6 +3071,12 @@ class SettingsPage(QWidget):
         dlg.exec()
 
     def _build_purge_data_card(self):
+        """Build the destructive "Danger Zone" data purge card (edit+delete gated).
+
+        Offers per-category checkboxes with live record counts, select/deselect
+        helpers, "Delete Selected", and a full "Delete All (factory reset)" action.
+        Deletions are irreversible and confirmed with strong warnings.
+        """
         card = QFrame()
         card.setObjectName("card")
         card.setStyleSheet("QFrame#card { border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; }")
@@ -2719,6 +3116,7 @@ class SettingsPage(QWidget):
         chk_lay = QVBoxLayout(chk_box)
         chk_lay.setSpacing(10)
 
+        # Maps purge-category key -> (checkbox, count label) for select/count/delete.
         self._purge_cbs = {}
         items = [
             ("bookings",        "Bookings & Invoices",           "Deletes bookings, invoices, payments, and kitchen orders"),
@@ -2810,18 +3208,21 @@ class SettingsPage(QWidget):
         exec_row.addStretch()
         lay.addLayout(exec_row)
 
-        self._refresh_purge_counts()
+        self._refresh_purge_counts()  # show current record counts on first build
         return card
 
     def _select_all_purge(self):
+        """Tick every purge-category checkbox."""
         for cb, _ in self._purge_cbs.values():
             cb.setChecked(True)
 
     def _deselect_all_purge(self):
+        """Untick every purge-category checkbox."""
         for cb, _ in self._purge_cbs.values():
             cb.setChecked(False)
 
     def _refresh_purge_counts(self):
+        """Refresh the "(N records)" labels next to each purge category from the DB."""
         counts = repo.get_data_counts()
         label_map = {
             "bookings": f"({counts.get('bookings', 0)} bookings, {counts.get('invoices', 0)} invoices)",
@@ -2837,6 +3238,7 @@ class SettingsPage(QWidget):
                 lbl.setText(label_map[key])
 
     def _on_purge_selected(self):
+        """Permanently delete the checked data categories after confirmation (delete-gated)."""
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "delete"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot purge data.")
             return
@@ -2869,6 +3271,7 @@ class SettingsPage(QWidget):
             QMessageBox.critical(self, "Deletion Error", f"An error occurred during deletion:\n{exc}")
 
     def _on_purge_all(self):
+        """Wipe ALL data (factory reset) after a strong confirmation (delete-gated)."""
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "delete"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot purge data.")
             return
