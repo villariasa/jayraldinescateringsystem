@@ -401,6 +401,10 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self._handle_image_download(query_params=query_params)
             return
 
+        if path == "/api/bookings/by-month":
+            self._handle_bookings_by_month(query_params=query_params)
+            return
+
         self._set_cors_headers(404)
         self.wfile.write(json.dumps({"error": "Not Found"}).encode("utf-8"))
 
@@ -692,6 +696,60 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             return True
         except Exception:
             return False
+
+    def _handle_bookings_by_month(self, query_params=None):
+        """GET /api/bookings/by-month?year=YYYY&month=M — bookings for the tablet's
+        Calendar view. The tablet only ever syncs bookings it creates itself UP to
+        this server (never back down), so its calendar previously showed nothing
+        for bookings created/confirmed on the desktop. This mirrors the shape the
+        tablet's api.js already expects (Tablet_PWA/backend/app.py had the same
+        endpoint, but on the desktop's own LAN sync server it was simply missing,
+        which made the tablet's remote fetch silently 404 and fall back to
+        local-only data)."""
+        qp = query_params or {}
+        try:
+            year = int((qp.get("year", [""])[0] or "").strip())
+            month = int((qp.get("month", [""])[0] or "").strip())
+        except Exception:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": "year and month query params are required."}).encode("utf-8"))
+            return
+        if not (1 <= month <= 12):
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": "month must be between 1 and 12."}).encode("utf-8"))
+            return
+
+        try:
+            month_prefix = f"{year:04d}-{month:02d}-%"
+            rows = db.fetchall("""
+                SELECT bk_id, bk_booking_ref, bk_customer_name, bk_event_date, bk_event_time,
+                       bk_event_end_time, bk_venue, bk_occasion, bk_pax, bk_status
+                FROM bookings
+                WHERE CAST(bk_event_date AS TEXT) LIKE %s
+                  AND UPPER(CAST(bk_status AS TEXT)) != 'CANCELLED'
+                ORDER BY bk_event_date ASC, bk_event_time ASC
+            """, (month_prefix,)) or []
+            out = [
+                {
+                    "id": r.get("bk_id"),
+                    "ref": r.get("bk_booking_ref"),
+                    "customer": r.get("bk_customer_name") or "",
+                    "date": str(r.get("bk_event_date") or ""),
+                    "time": str(r.get("bk_event_time") or ""),
+                    "endTime": str(r.get("bk_event_end_time") or "") if r.get("bk_event_end_time") else "",
+                    "venue": r.get("bk_venue") or "",
+                    "occasion": r.get("bk_occasion") or "Event",
+                    "pax": int(r.get("bk_pax") or 0),
+                    "status": str(r.get("bk_status") or "PENDING").upper(),
+                }
+                for r in rows
+            ]
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps(out).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] /api/bookings/by-month error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
 
     def _handle_image_download(self, query_params=None):
         """Serves the raw bytes of a package/menu image saved on this machine's
