@@ -719,10 +719,14 @@ class OrderPrintDialog(QDialog):
 
     def _build_booking_agreement_page(self, booking: dict) -> str:
         biz = self._business or {}
-        biz_name = html.escape(str(biz.get("name") or "Jayraldine's Catering Services")).upper()
-        biz_name_title = html.escape(str(biz.get("name") or "Jayraldine's Catering Services"))
-        address_biz = html.escape(str(biz.get("address") or "—"))
-        contact_biz = html.escape(str(biz.get("contact") or "—"))
+        # Header business name is a fixed literal, NOT read from biz.get("name") -
+        # matching utils/exporter.py::export_receipt_pdf, whose header Paragraph
+        # hardcodes "JAYRALDINE'S CATERING SERVICES" regardless of the DB value
+        # (only address/contact are pulled from the business profile there).
+        biz_name = "JAYRALDINE'S CATERING SERVICES"
+        biz_name_title = "Jayraldine's Catering Services"
+        address_biz = html.escape(str(biz.get("address") or "518 Y Rama Ave., Cebu City"))
+        contact_biz = html.escape(str(biz.get("contact") or "+63 912 345 6789"))
         order_ref = html.escape(str(booking.get("id") or booking.get("booking_ref") or "ORD-SLIP"))
         cust_name = html.escape(str(booking.get("name") or booking.get("customer_name") or "Valued Client"))
         address = html.escape(str(booking.get("address") or booking.get("venue") or "—"))
@@ -855,7 +859,7 @@ class OrderPrintDialog(QDialog):
                 {_row("Occasion:", occasion)}
                 {_row("Motif:", motif)}
                 {_row(pax_label, pax_value, True)}
-                {_row("Special Instr:", special_instructions)}
+                {_row("Special Instructions:", special_instructions)}
             </table>
         """ + _card_close
 
@@ -870,13 +874,14 @@ class OrderPrintDialog(QDialog):
                     <td style="font-size:11px; color:#0F172A; text-align:right; padding:2.5px 0;">{down_str} ({pay_mode} - {status_str})</td>
                 </tr>
                 <tr>
-                    <td style="font-weight:800; color:#0F172A; font-size:11.5px; padding:3px 0 0 0; border-top:1px dashed #CBD5E1;">Balance Due:</td>
-                    <td style="font-size:12px; font-weight:900; color:#0F172A; text-align:right; padding:3px 0 0 0; border-top:1px dashed #CBD5E1;">{bal_str}</td>
+                    <td style="font-weight:700; color:#334155; font-size:11px; padding:2.5px 0;">Balance Due:</td>
+                    <td style="font-size:12px; font-weight:900; color:#0F172A; text-align:right; padding:2.5px 0;">{bal_str}</td>
                 </tr>
             </table>
         """ + _card_close
 
-        package_qty_line = (f"Quantity: <b>{pax}</b> Set(s)" if is_food_set else f"Quantity: <b>{pax}</b> Pax") + f" &middot; Base: <b>{total_str}</b>"
+        base_total_str = _peso(booking.get("base_total") or booking.get("bk_base_total") or booking.get("total_amount") or booking.get("total") or 0)
+        package_qty_line = (f"Quantity: <b>{pax}</b> Set(s)" if is_food_set else f"Good for <b>{pax}</b> person(s)") + f" &middot; Base: <b>{base_total_str}</b>"
         package_menu_card = _card_open("cloche", "PACKAGE &amp; MENU") + f"""
             <div style="font-size:11px; font-weight:900; color:#0F172A;">PACKAGE: {pkg_name.upper()}</div>
             <div style="font-size:10px; color:#334155; margin-top:1px; margin-bottom:8px;">{package_qty_line}</div>
@@ -960,31 +965,39 @@ class OrderPrintDialog(QDialog):
             <table width="100%" style="width:100%; border-collapse:collapse; font-size:10px; color:#334155; line-height:1.3;">
                 <tr>
                     <td style="width:14px; vertical-align:top; font-weight:800; color:#0F172A; padding:1.5px 0;">&bull;</td>
-                    <td style="vertical-align:top; padding:1.5px 0 6px 4px;">The client shall pay 50% downpayment upon reservation of booking and shall pay the full amount 3 days before the date of the event.</td>
+                    <td style="vertical-align:top; padding:1.5px 0 6px 4px;"><b>The client shall pay 50% downpayment upon reservation of booking</b> and shall pay the full amount 3 days before the date of the event.</td>
                 </tr>
                 <tr>
                     <td style="width:14px; vertical-align:top; font-weight:800; color:#0F172A; padding:1.5px 0;">&bull;</td>
-                    <td style="vertical-align:top; padding:1.5px 0 6px 4px;">Mode of payment. The client shall personally pay in Cash for the downpayment and full payment. If cash is not available, the client can also pay through Bank Transfer or Gcash.</td>
+                    <td style="vertical-align:top; padding:1.5px 0 6px 4px;"><b>Mode of payment.</b> The client shall personally pay in Cash for the downpayment and full payment. If cash is not available, the client can also pay through Bank Transfer or Gcash.</td>
                 </tr>
                 <tr>
                     <td style="width:14px; vertical-align:top; font-weight:800; color:#0F172A; padding:1.5px 0;">&bull;</td>
-                    <td style="vertical-align:top; padding:1.5px 0 6px 4px;">Failure to pay. A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply. (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%.</td>
+                    <td style="vertical-align:top; padding:1.5px 0 6px 4px;"><b>Failure to pay.</b> A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply. (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%.</td>
                 </tr>
                 <tr>
                     <td style="width:14px; vertical-align:top; font-weight:800; color:#0F172A; padding:1.5px 0;">&bull;</td>
-                    <td style="vertical-align:top; padding:1.5px 0 3px 4px;">Consider Food and Liabilities. Any Food and Drinks or any consumables that is NOT prepared by JAYRALDINE SERVICES brought by the client will FREE US ON ANY LIABILITIES due to food poisoning and spoilage. We charge Corkage Fee for bringing outside Food and Drinks. Precise time should be placed in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage.</td>
+                    <td style="vertical-align:top; padding:1.5px 0 3px 4px;"><b>Consider Food and Liabilities.</b> Any Food and Drinks or any consumables that is NOT prepared by JAYRALDINE SERVICES brought by the client will FREE US ON ANY LIABILITIES due to food poisoning and spoilage. We charge Corkage Fee for bringing outside Food and Drinks. Precise time should be placed in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage.</td>
                 </tr>
             </table>
             {_card_close}
 
-            <!-- FOOTER INVITATION BAR -->
+            <!-- FOOTER INVITATION BAR - centered lines, then a duplicate 3-column
+                 icon strip with red dividers, matching export_receipt_pdf exactly -->
             <hr style="border:none; border-top:2px solid #DC2626; margin:10px 0 8px 0;" />
             <div style="text-align:center;">
                 <div style="font-size:10px; font-weight:900; color:#DC2626; letter-spacing:0.2px;">{megaphone_img}WE INVITE YOU TO SEE HOW WE CAN HELP YOUR EVENT; THE BEST IT CAN POSSIBLY BE!!!</div>
-                <div style="font-size:9px; color:#1E293B; margin-top:5px;">{pin_img}Located at {address_biz}</div>
-                <div style="font-size:9px; color:#1E293B; margin-top:2px;">{phone_img}Please feel free to call us at {contact_biz}</div>
-                <div style="font-size:9px; color:#1E293B; margin-top:2px;">{fb_img}Find us on Facebook: {biz_name_title}</div>
+                <div style="font-size:9px; color:#0F172A; margin-top:5px;">Located at {address_biz}</div>
+                <div style="font-size:9px; color:#0F172A; margin-top:2px;">Please feel free to call us at {contact_biz}</div>
+                <div style="font-size:9px; color:#0F172A; margin-top:2px;">Find us on Facebook: <b>{biz_name_title}</b></div>
             </div>
+            <table width="100%" style="width:100%; border-collapse:collapse; margin-top:6px;">
+                <tr>
+                    <td style="width:33.33%; text-align:center; font-size:7.5px; color:#0F172A; padding:2px 4px;">{pin_img}Located at {address_biz}</td>
+                    <td style="width:33.33%; text-align:center; font-size:7.5px; color:#0F172A; border-left:1px solid #DC2626; padding:2px 4px;">{phone_img}Please feel free to call us at {contact_biz}</td>
+                    <td style="width:33.34%; text-align:center; font-size:7.5px; color:#0F172A; border-left:1px solid #DC2626; padding:2px 4px;">{fb_img}Find us on Facebook: <b>{biz_name_title}</b></td>
+                </tr>
+            </table>
         </div>
         """
 
@@ -1018,9 +1031,96 @@ class OrderPrintDialog(QDialog):
             i += 2
         return pages
 
+    def _render_exact_agreement_preview_html(self) -> Optional[str]:
+        """On-screen preview built by literally rendering the SAME PDF
+        Export PDF produces (exporter.export_receipt_pdf), rasterized page
+        images - not a hand-rebuilt HTML approximation of that layout.
+
+        This mirrors _print_agreement_via_pdf's existing rationale exactly
+        ("prints must be pixel-identical to Export PDF - same client
+        complaint every time they drifted apart"): the only way the preview
+        can never drift from the real PDF again is for it to BE the real
+        PDF, not a parallel reimplementation someone has to keep in sync by
+        hand. Returns None (caller falls back to _build_page_bodies()'s
+        hand-built HTML) if reportlab/QtPdf aren't available or anything
+        about the render fails - e.g. QtPdf is excluded from the frozen
+        PyInstaller build (see package_installer.py), so this always
+        degrades gracefully rather than breaking the dialog.
+        """
+        if not exporter.REPORTLAB_OK:
+            return None
+        try:
+            import tempfile
+            from PySide6.QtPdf import QPdfDocument
+            from PySide6.QtCore import QSize, QBuffer, QIODevice
+        except Exception:
+            return None
+
+        page_imgs = []
+        for booking in self._bookings:
+            tmp_path = None
+            try:
+                fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+                os.close(fd)
+                if not exporter.export_receipt_pdf(
+                    tmp_path, booking, business=self._business,
+                    additional_charges=booking.get("additional_charges", [])
+                ):
+                    return None
+
+                pdf_doc = QPdfDocument(self)
+                if pdf_doc.load(tmp_path) != QPdfDocument.Error.None_:
+                    return None
+                if pdf_doc.pageCount() <= 0:
+                    return None
+
+                # Render at a DPI that maps each PDF page (in points) to
+                # exactly _SLIP_LAYOUT_WIDTH CSS px, so it sits at the same
+                # width as everything else in this preview.
+                for page_idx in range(pdf_doc.pageCount()):
+                    pt_size = pdf_doc.pagePointSize(page_idx)
+                    if pt_size.width() <= 0 or pt_size.height() <= 0:
+                        return None
+                    scale = _SLIP_LAYOUT_WIDTH / pt_size.width()
+                    px_w = max(1, round(pt_size.width() * scale))
+                    px_h = max(1, round(pt_size.height() * scale))
+                    image = pdf_doc.render(page_idx, QSize(px_w, px_h))
+                    if image.isNull():
+                        return None
+
+                    buf = QBuffer()
+                    buf.open(QIODevice.OpenModeFlag.WriteOnly)
+                    if not image.save(buf, "PNG"):
+                        return None
+                    encoded = base64.b64encode(bytes(buf.data())).decode("ascii")
+                    page_imgs.append(
+                        f'<img src="data:image/png;base64,{encoded}" width="{px_w}" height="{px_h}" style="display:block;" />'
+                    )
+            except Exception:
+                return None
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
+
+        if not page_imgs:
+            return None
+        joined = '<div style="page-break-after: always;"></div>'.join(page_imgs)
+        return f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head><body>{joined}</body></html>"
+
     def _generate_slip_html(self) -> str:
         """Full HTML for the on-screen scrollable preview - all pages
-        concatenated with CSS page-break-after hints between them."""
+        concatenated with CSS page-break-after hints between them.
+
+        Agreement mode prefers the exact rendered-PDF preview (see
+        _render_exact_agreement_preview_html); only falls back to the
+        hand-built HTML approximation below when that isn't available."""
+        if self._current_mode == "agreement":
+            exact_html = self._render_exact_agreement_preview_html()
+            if exact_html:
+                return exact_html
         joined = '<div style="page-break-after: always;"></div>'.join(self._build_page_bodies())
         return f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head><body>{joined}</body></html>"
 
