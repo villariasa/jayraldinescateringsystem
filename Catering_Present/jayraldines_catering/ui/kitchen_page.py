@@ -11,6 +11,7 @@ import utils.repository as repo
 from utils.session import get_actor
 from utils.signals import app_events
 from utils.data_loader import DataLoader
+from utils.text_highlight import highlight_html
 
 
 _STATUSES    = ["Queued", "Preparing", "In Progress", "Ready", "Delivered", "Cancelled"]
@@ -87,6 +88,8 @@ class KitchenPage(QWidget):
         super().__init__(parent)
         self._dirty = True  # Async load on first show
         self._orders = []   # Will be populated by first reload()
+        self._search_query = ""
+        self._reload_deferred = False
         self._build_ui()
         self._refresh_columns()
         ThemeManager().theme_changed.connect(self._on_theme_changed)
@@ -104,13 +107,21 @@ class KitchenPage(QWidget):
     def _mark_dirty(self):
         self._dirty = True
 
+    def _has_active_search(self) -> bool:
+        return bool(getattr(self, "_search_query", "").strip())
+
     def _mark_dirty_and_reload(self):
         self._dirty = True
+        # Don't rebuild the board while the user is actively searching.
+        if self._has_active_search():
+            self._reload_deferred = True
+            return
         if self.isVisible():
             self.reload()
 
     def reload(self):
         self._dirty = False
+        self._reload_deferred = False
         prev = getattr(self, "_kitchen_loader", None)
         if prev is not None and prev.isRunning():
             return
@@ -293,7 +304,14 @@ class KitchenPage(QWidget):
                 if item.widget():
                     item.widget().deleteLater()
 
+        q = getattr(self, "_search_query", "").lower()
         for order in self._orders:
+            if q and not (
+                q in str(order.get("client", "")).lower()
+                or q in str(order.get("id", "")).lower()
+                or q in str(order.get("event", "")).lower()
+            ):
+                continue
             card = self._build_order_card(order)
             lay = self._col_inner.get(order["status"])
             if lay:
@@ -310,7 +328,8 @@ class KitchenPage(QWidget):
         id_lbl.setStyleSheet(f"font-weight: 700; color: {_id_color()}; font-size: 13px;")
         lay.addWidget(id_lbl)
 
-        client_lbl = QLabel(order["client"])
+        client_lbl = QLabel(highlight_html(order.get("client", ""), getattr(self, "_search_query", "")))
+        client_lbl.setTextFormat(Qt.RichText)
         client_lbl.setStyleSheet(f"color: {_client_color()}; font-size: 12px;")
         lay.addWidget(client_lbl)
 
@@ -521,8 +540,12 @@ class KitchenPage(QWidget):
             self._refresh_columns()
 
     def filter_search(self, text):
-        q = text.lower()
-        orig = self._orders
-        self._orders = [o for o in orig if q in o["client"].lower() or q in o["id"].lower() or q in o["event"].lower()]
+        self._search_query = (text or "").strip()
+        # Search just cleared while a background refresh was deferred -> reload once.
+        if not self._search_query and getattr(self, "_reload_deferred", False):
+            self._reload_deferred = False
+            if self.isVisible():
+                self.reload()
+                return
+        # _refresh_columns applies the stored query itself.
         self._refresh_columns()
-        self._orders = orig
