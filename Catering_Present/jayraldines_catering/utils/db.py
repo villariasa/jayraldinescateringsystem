@@ -1421,6 +1421,38 @@ def callproc_out(proc: str, in_params: tuple = (), out_names: list = None) -> Op
                 log.error(f"[SQLite] Procedure emulation failed for {proc}: {exc}")
                 return None
         _bump_server_version_if_applicable()
+
+        # ── Reconcile a client's locally-emulated id with the SERVER's ──
+        # The server is the single source of truth every client eventually
+        # syncs from. A client's local SQLite autoincrement sequence can
+        # drift from the server's (other clients/writes in between), so the
+        # id `_emulate_sqlite_procedure_out` just assigned here may not match
+        # what the server actually assigned for the "same" row. If any child
+        # rows get written using the WRONG (locally-diverged) id, the next
+        # server-snapshot pull sees no server row at that local id and
+        # deletes it as "stale" — the exact bug behind a freshly-added
+        # package vanishing on the next sync. When the proxy call to the
+        # server succeeded and returned a different id, adopt the server's
+        # id as canonical: repoint the just-inserted local row's primary key
+        # to match, and return the server's id so callers write any child
+        # rows (package_items, package_buckets, ...) against the correct id.
+        if result and proxy_result and proxy_result.get("ok"):
+            srv_result = proxy_result.get("result") or {}
+            patch = _RECONCILE_PK_MAP.get(proc)
+            if patch and srv_result:
+                table, pk_col, out_name = patch
+                local_id = result.get(out_name)
+                server_id = srv_result.get(out_name)
+                if local_id is not None and server_id is not None and local_id != server_id:
+                    try:
+                        with _db_lock:
+                            cur = _sqlite_conn.cursor()
+                            cur.execute(f"UPDATE {table} SET {pk_col} = ? WHERE {pk_col} = ?", (server_id, local_id))
+                            _sqlite_conn.commit()
+                        result[out_name] = server_id
+                        log.info(f"[db.callproc_out] Reconciled {proc} id {local_id} -> server id {server_id}")
+                    except Exception as exc:
+                        log.warning(f"[db.callproc_out] Failed to reconcile {proc} id {local_id}->{server_id}: {exc}")
         return result
 
     # PostgreSQL Execution
@@ -1602,6 +1634,17 @@ def _format_time_ampm(t_raw) -> str:
         except ValueError:
             continue
     return s
+
+
+# Which (table, primary-key column, out-param name) a client-mode id needs
+# reconciling against once the server's own id for the same insert is known
+# (see the reconciliation block in callproc_out). Only covers single-row
+# INSERT-and-return-id procs where a locally-diverged id can later cause
+# child rows (e.g. package_items/package_buckets) to be orphaned and the
+# parent row purged as "stale" by the next server-snapshot pull.
+_RECONCILE_PK_MAP = {
+    "sp_add_package": ("packages", "pkg_id", "p_package_id"),
+}
 
 
 def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) -> Optional[Dict[str, Any]]:
