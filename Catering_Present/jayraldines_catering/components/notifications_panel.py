@@ -1,3 +1,12 @@
+"""Notifications popover component.
+
+Renders an anchored, frameless popover listing unread notifications pulled from
+the database via ``utils.repository``. Notifications are held in a module-level
+cache (``_notifications``) so the panel and the header badge can share a single
+source of truth, grouped by type (Payments / Orders / System) for display.
+Supports dismissing single items and marking everything as read.
+"""
+
 from datetime import datetime, timezone
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -12,18 +21,22 @@ import utils.repository as repo
 
 
 def _is_light():
+    """Return True when the app is currently in light theme."""
     return not ThemeManager().is_dark()
 
 
 def _muted(size=11):
+    """Inline stylesheet for muted/tertiary text, theme-aware."""
+    # Pick a lighter grey for light theme so contrast stays subtle in both modes.
     return "font-size: %dpx; color: %s;" % (size, "#7A879E" if _is_light() else "#6B7280")
 
 
 def _secondary(size=12):
+    """Inline stylesheet for secondary body text, theme-aware."""
     return "font-size: %dpx; color: %s;" % (size, "#46536B" if _is_light() else "#9CA3AF")
 
 
-
+# Maps a notification's raw ``type`` to the section header it renders under.
 _TYPE_GROUPS = {
     "warning": "Payments",
     "success": "Orders",
@@ -33,10 +46,17 @@ _TYPE_GROUPS = {
 
 
 def _relative_time(created_at) -> str:
+    """Format a timestamp as a short relative string ("5m ago", "2h ago").
+
+    Falls back to "just now" on any error or missing value so the UI never
+    breaks over a bad/undefined timestamp.
+    """
     try:
         if created_at is None:
             return "just now"
         now = datetime.now(timezone.utc)
+        # Compare against an aware "now" only when the stamp is tz-aware;
+        # otherwise use naive local time to avoid subtracting mixed types.
         if hasattr(created_at, 'tzinfo') and created_at.tzinfo is not None:
             diff = now - created_at
         else:
@@ -54,6 +74,11 @@ def _relative_time(created_at) -> str:
 
 
 def _load_notifications():
+    """Fetch unread notifications from the DB and normalize them to UI dicts.
+
+    Returns an empty list if the query fails or there are no rows, keeping the
+    caller resilient to DB/connection errors.
+    """
     try:
         db_rows = repo.get_unread_notifications()
     except Exception:
@@ -70,10 +95,17 @@ def _load_notifications():
     } for r in db_rows]
 
 
+# Shared in-memory cache of unread notifications; the header badge and the
+# popover both read from this so they stay in sync without re-querying.
 _notifications: list = []
 
 
 def reload_notifications() -> int:
+    """Refresh the shared cache from the DB and return the unread count.
+
+    Mutates the existing list in place (clear + extend) rather than rebinding
+    so other references to ``_notifications`` keep pointing at live data.
+    """
     global _notifications
     fresh = _load_notifications()
     _notifications.clear()
@@ -82,11 +114,22 @@ def reload_notifications() -> int:
 
 
 class NotificationPopover(QFrame):
+    """Frameless popover that lists unread notifications, anchored to a button.
+
+    Emits ``all_read`` when the user marks everything read so the header badge
+    can update. Installs an event filter on its parent to dismiss itself on an
+    outside click.
+    """
+
     all_read = Signal()
 
     def __init__(self, parent=None):
+        # SubWindow + FramelessWindowHint gives a borderless floating panel that
+        # stays tied to the parent window rather than a separate OS window.
         super().__init__(parent, Qt.SubWindow | Qt.FramelessWindowHint)
 
+        # Transparent background so the inner rounded "card" (with shadow) shows
+        # through instead of a hard rectangular frame.
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WA_DeleteOnClose, False)
@@ -97,14 +140,19 @@ class NotificationPopover(QFrame):
         self.hide()
 
         # ===== FIX 1: safe event filter install =====
+        # Defer installing the outside-click filter to the next event loop tick
+        # so the parent is fully constructed/valid before we attach to it.
         if parent is not None:
             QTimer.singleShot(0, lambda: parent.installEventFilter(self))
 
     def _build_ui(self):
+        """Construct the popover: header (title, badge, actions) + scroll list."""
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
+        # Inner card carries the visible background + drop shadow; the outer
+        # frame is transparent (see __init__), so margins here create the shadow gap.
         inner = QFrame()
         inner.setObjectName("card")
         create_soft_shadow(inner, radius=28, y_offset=8, opacity=45)
@@ -139,6 +187,8 @@ class NotificationPopover(QFrame):
         close_btn.setCursor(Qt.PointingHandCursor)
 
         # ===== FIX 2: safe hide call =====
+        # Hide on the next tick rather than synchronously inside the click
+        # handler, avoiding re-entrancy issues while the click is still dispatching.
         close_btn.clicked.connect(lambda: QTimer.singleShot(0, self.hide))
 
         header.addWidget(close_btn)
@@ -170,6 +220,8 @@ class NotificationPopover(QFrame):
         self._refresh_list()
 
     def _refresh_list(self):
+        """Rebuild the notification list from the shared cache and update badge."""
+        # Tear down existing rows first so repeated refreshes don't stack widgets.
         while self._list_lay.count():
             item = self._list_lay.takeAt(0)
             if item.widget():
@@ -182,6 +234,7 @@ class NotificationPopover(QFrame):
             empty.setContentsMargins(0, 20, 0, 20)
             self._list_lay.addWidget(empty)
         else:
+            # Bucket notifications by their display section (Payments/Orders/System).
             grouped = {}
             for n in _notifications:
                 g = _TYPE_GROUPS.get(n["type"], "System")
@@ -201,11 +254,13 @@ class NotificationPopover(QFrame):
                     self._list_lay.addWidget(sep)
 
         self._list_lay.addStretch()
+        # Keep the count badge in sync and hide it entirely when at zero.
         self._badge.setText(str(len(_notifications)))
         self._badge.setVisible(len(_notifications) > 0)
         self.adjustSize()
 
     def _build_item(self, notif):
+        """Build a single notification row: colour dot, text column, dismiss X."""
         w = QWidget()
         w.setMinimumHeight(72)
         w.setStyleSheet("background: transparent;")
@@ -241,28 +296,36 @@ class NotificationPopover(QFrame):
         dismiss_btn.setFixedSize(20, 20)
         dismiss_btn.setStyleSheet("background: transparent; border: none;")
         dismiss_btn.setCursor(Qt.PointingHandCursor)
+        # Bind the current notif into the lambda default so each button dismisses its own row.
         dismiss_btn.clicked.connect(lambda _, n=notif: self._dismiss(n))
         lay.addWidget(dismiss_btn)
 
         return w
 
     def _dismiss(self, notif):
+        """Remove a single notification from the cache and DB, then refresh."""
         if notif in _notifications:
             _notifications.remove(notif)
+        # Only persist to the DB when the row originated there (has a db_id).
         if notif.get("db_id"):
             repo.dismiss_notification(notif["db_id"])
         self._refresh_list()
 
     def _mark_all_read(self):
+        """Clear all notifications locally + in the DB and notify listeners."""
         _notifications.clear()
         repo.mark_all_notifications_read()
         self._refresh_list()
         self.all_read.emit()
 
     def show_anchored(self, anchor_btn):
+        """Position the popover under/left of ``anchor_btn`` and show it."""
         self._refresh_list()
+        # Anchor to the button's bottom-right, then shift left by our own width so
+        # the popover's right edge aligns with the button (right-aligned dropdown).
         btn_br = anchor_btn.mapToGlobal(QPoint(anchor_btn.width(), anchor_btn.height() + 6))
         x = btn_br.x() - self.width()
+        # Clamp within the screen's available area so it never renders off-screen.
         screen = QApplication.screenAt(btn_br) or QApplication.primaryScreen()
         if screen:
             sg = screen.availableGeometry()
@@ -272,22 +335,28 @@ class NotificationPopover(QFrame):
         self.show()
 
     def toggle_anchored(self, anchor_btn):
+        """Show the popover if hidden, hide it if already visible."""
         if self.isVisible():
             self.hide()
         else:
             self.show_anchored(anchor_btn)
 
     def keyPressEvent(self, event):
+        """Close the popover on Escape."""
         if event.key() == Qt.Key_Escape:
             self.hide()
         super().keyPressEvent(event)
 
     def eventFilter(self, obj, event):
+        """Dismiss the popover when the user clicks anywhere outside it."""
+        # Guard against non-widget events whose type() isn't callable as expected.
         if not hasattr(event, 'type') or not callable(event.type):
             return False
         if event.type() == QEvent.MouseButtonPress and self.isVisible():
+            # globalPosition() is the Qt6 API; fall back to globalPos() defensively.
             pos = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
             local = self.mapFromGlobal(pos)
             if not self.rect().contains(local):
                 self.hide()
+        # Return False so the click still reaches its original target (don't consume it).
         return False
