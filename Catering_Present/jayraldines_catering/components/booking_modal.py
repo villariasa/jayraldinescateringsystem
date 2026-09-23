@@ -1001,8 +1001,15 @@ class BookingModal(QDialog):
             empty_lbl.setContentsMargins(0, 20, 0, 20)
             cus_lay.addWidget(empty_lbl)
         else:
+            # Each row is wrapped in its own QWidget (not a bare layout) so it can
+            # be hidden/shown later by _apply_custom_menu_filter without touching
+            # the checkbox/item data that other code (cost calc, save) reads from
+            # self._custom_checks.
+            self._custom_rows = []
             for item in custom_items:
-                row = QHBoxLayout()
+                row_w = QWidget()
+                row = QHBoxLayout(row_w)
+                row.setContentsMargins(0, 0, 0, 0)
                 row.setSpacing(12)
                 item_name = item.get("item") or item.get("name", "")
                 chk = QCheckBox(item_name)
@@ -1018,9 +1025,13 @@ class BookingModal(QDialog):
                 row.addStretch()
                 row.addWidget(p)
                 self._custom_checks.append((chk, item))
-                cus_lay.addLayout(row)
+                self._custom_rows.append((row_w, item))
+                cus_lay.addWidget(row_w)
         cus_lay.addStretch()
         self.menu_stack.addWidget(custom_w)
+        # No package selected yet at initial build -> show every category (a
+        # genuinely package-less custom order is unrestricted, same as before).
+        self._apply_custom_menu_filter(None)
 
         self.btn_pkg.clicked.connect(lambda: self._set_menu_mode(0))
         self.btn_custom.clicked.connect(lambda: self._set_menu_mode(1))
@@ -1067,8 +1078,18 @@ class BookingModal(QDialog):
             self.btn_custom.setChecked(True)
             self.btn_pkg.setStyleSheet(_segment_button_style(selected=False, left=True))
             self.btn_custom.setStyleSheet(_segment_button_style(selected=True, left=False))
+            # Capture which package (if any) was active BEFORE clearing it, so the
+            # Custom Menu tab can still be restricted to that package's bucket
+            # categories — otherwise it showed every category regardless of the
+            # package just chosen in the Packages tab.
+            ref_pkg_id = None
+            sel_idx = getattr(self, "_selected_pkg", None)
+            db_pkgs = getattr(self, "_db_packages", None)
+            if sel_idx is not None and db_pkgs and sel_idx < len(db_pkgs):
+                ref_pkg_id = db_pkgs[sel_idx].get("id")
             # when switching to custom menu, clear any selected package so cost uses custom items
             self._selected_pkg = None
+            self._apply_custom_menu_filter(ref_pkg_id)
 
         # Slide the incoming pane in from the side matching the travel direction.
         direction = 1 if index > self.menu_stack.currentIndex() else -1
@@ -1232,6 +1253,49 @@ class BookingModal(QDialog):
             chk.blockSignals(True)
             chk.setChecked(name in sel_lowers)
             chk.blockSignals(False)
+
+    def _apply_custom_menu_filter(self, pkg_id):
+        """Restrict the Custom Menu tab to the given package's bucket categories.
+
+        Mirrors the category restriction already applied to the inline package
+        dish customiser (``_update_package_dishes``): when ``pkg_id`` names a
+        package that defines selection buckets, only rows whose category
+        belongs to one of those buckets stay visible; any other row is hidden
+        AND unchecked (so a hidden item can never remain silently selected).
+        ``pkg_id`` of ``None`` — or a package with no buckets at all — means
+        unrestricted (every row visible), matching the legacy/no-bucket
+        behavior of a genuinely package-less custom order.
+        """
+        rows = getattr(self, "_custom_rows", None)
+        if not rows:
+            return
+
+        allowed = None  # None == unrestricted
+        if pkg_id is not None:
+            try:
+                buckets = repo.get_package_buckets(pkg_id) or []
+            except Exception:
+                buckets = []
+            if buckets:
+                allowed = set()
+                for b in buckets:
+                    for c in b.get("categories", []):
+                        allowed.add(str(c).strip().lower())
+
+        changed_any = False
+        for row_w, item in rows:
+            cat = (item.get("category") or "").strip().lower()
+            visible = allowed is None or cat in allowed
+            row_w.setVisible(visible)
+            if not visible:
+                chk = row_w.findChild(QCheckBox)
+                if chk is not None and chk.isChecked():
+                    chk.blockSignals(True)
+                    chk.setChecked(False)
+                    chk.blockSignals(False)
+                    changed_any = True
+        if changed_any:
+            self._update_cost()
 
     def _update_pkg_card_badges(self):
         """Refresh each package card's dish badge to show its selected-dish count.
