@@ -809,428 +809,403 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         charges = [c for c in additional_charges if float(c.get("amount", 0)) > 0]
         discounts = [c for c in additional_charges if float(c.get("amount", 0)) < 0]
 
-        doc = SimpleDocTemplate(
-            path, pagesize=A4,
-            leftMargin=1.0 * cm, rightMargin=1.0 * cm,
-            topMargin=0.7 * cm, bottomMargin=0.7 * cm,
-            title=f"Booking Agreement & Receipt — {inv.get('invoice', inv.get('id', ''))}",
-        )
-        # This receipt uses tighter 1cm margins than the standard reports.
-        content_w = A4[0] - 2.0 * cm  # ~19.0 cm
-        half_w = (content_w - 0.4 * cm) / 2  # ~9.3 cm per column (two-column body)
-
-        styles = _styles()
-        story = []
-
+        # ── Resolve monetary fields (kept from the desktop data logic) ────
         biz_name    = business.get("name", "JAYRALDINE'S CATERING")
         biz_address = business.get("address", "518 Y Rama Ave., Cebu City")
         biz_contact = business.get("contact", "+63 912 345 6789")
 
         def _val(x):
-            # Coerce any money-ish value (number, or "₱1,234.50" string) to float;
-            # returns 0.0 for None/unparseable input so arithmetic never fails.
-            if x is None: return 0.0
-            if isinstance(x, (int, float)): return float(x)
-            try: return float(str(x).replace("₱", "").replace(",", "").strip())
-            except Exception: return 0.0
+            if x is None:
+                return 0.0
+            if isinstance(x, (int, float)):
+                return float(x)
+            try:
+                return float(str(x).replace("₱", "").replace("PHP", "").replace(",", "").strip())
+            except Exception:
+                return 0.0
 
-        # Resolve monetary fields, tolerating the many key spellings across sources.
-        total   = _val(inv.get("total_amount") or inv.get("amount") or inv.get("total"))
-        paid    = _val(inv.get("amount_paid") or inv.get("paid"))
+        total = _val(inv.get("total_amount") or inv.get("amount") or inv.get("total"))
+        paid  = _val(inv.get("amount_paid") or inv.get("paid"))
         if down_payment is None:
-            # Fall back to invoice/booking down payment, else treat paid as the DP.
             down_payment = _val(inv.get("down_payment") or booking_detail.get("down_payment") or paid)
-        # Balance uses the larger of paid vs down_payment so neither under-counts.
         balance = max(0.0, total - max(paid, down_payment))
-        # Derive a status when none is stored: fully paid -> Confirmed, some paid
-        # -> Partial, otherwise Unpaid.
         status  = inv.get("status", "Confirmed" if paid >= total and total > 0 else ("Partial" if paid > 0 else "Unpaid"))
 
-        # Optional decorative icons live alongside the app assets.
-        icons_dir = os.path.join(os.path.dirname(__file__), "..", "assets", "receipt_icons")
-
-        def _card_header(icon_name: str, title: str):
-            # Build a bold card-title Paragraph, prefixing a small inline icon
-            # image only when that icon file actually exists on disk.
-            icon_file = os.path.join(icons_dir, f"icon_{icon_name}.png")
-            img_tag = f"<img src='{icon_file}' width='10' height='10' valign='bottom'/>  " if os.path.exists(icon_file) else ""
-            return Paragraph(f"<b>{img_tag}<font color='#0F172A'>{title}</font></b>", ParagraphStyle(
-                f"h_{icon_name}", fontName="Helvetica-Bold", fontSize=8.5, leading=11, textColor=_C_DARK))
-
-        # ── 1. HEADER (UPPER SECTION) ─────────────────────────────────────
-        logo_cell = ""  # empty string cell => header falls back to text-only layout
-        _lp = _logo_path()
-        if os.path.exists(_lp):
-            try:
-                # 1:1 strict square aspect ratio — logo will NEVER stretch!
-                logo_cell = Image(_lp, width=1.6 * cm, height=1.6 * cm)
-            except Exception:
-                logo_cell = ""
-
-        hdr_biz_p = [
-            Paragraph("<b><font color='#DC2626'>JAYRALDINE'S CATERING SERVICES</font></b>", ParagraphStyle(
-                "h_biz", fontName="Helvetica-Bold", fontSize=14, alignment=TA_LEFT, leading=18)),
-            Paragraph("<b><font color='#0F172A'>BOOKING AGREEMENT</font></b>", ParagraphStyle(
-                "h_agree", fontName="Helvetica-Bold", fontSize=11.5, textColor=_C_DARK, alignment=TA_LEFT, leading=14)),
-        ]
-
-        # Order reference: first available of several id keys, else a placeholder.
-        rcpt_no = inv.get("invoice") or inv.get("invoice_ref") or booking_detail.get("ref") or booking_detail.get("booking_ref") or "TB-00001-69215"
-        today_str = _dt_datetime.now().strftime("%B %d, %Y")  # issue date = today
-        hdr_meta_p = [
-            Paragraph(f"ORDER REF:  <b>{rcpt_no}</b>", ParagraphStyle(
-                "h_meta1", fontName="Helvetica", fontSize=8.5, textColor=_C_DARK, alignment=TA_RIGHT, leading=12)),
-            Paragraph(f"DATE ISSUED:  {today_str}", ParagraphStyle(
-                "h_meta2", fontName="Helvetica", fontSize=8, textColor=_C_DARK, alignment=TA_RIGHT, leading=12)),
-        ]
-
-        # Two header variants: with-logo uses a 4-column band and a red rule
-        # separating logo from the business block; without-logo is 2 columns.
-        if logo_cell:
-            hdr_table = Table([[logo_cell, "", hdr_biz_p, hdr_meta_p]], colWidths=[1.8 * cm, 0.15 * cm, content_w - 6.75 * cm, 4.8 * cm])
-            hdr_table.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LINEBEFORE", (2, 0), (2, 0), 1.5, colors.HexColor("#DC2626")),
-                ("LEFTPADDING", (2, 0), (2, 0), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ("LEFTPADDING", (0, 0), (0, 0), 0),
-                ("RIGHTPADDING", (-1, -1), (-1, -1), 0),
-            ]))
-            story.append(hdr_table)
-        else:
-            hdr_table = Table([[hdr_biz_p, hdr_meta_p]], colWidths=[content_w - 5.0 * cm, 5.0 * cm])
-            hdr_table.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ]))
-            story.append(hdr_table)
-
-        story.append(Spacer(1, 0.12 * cm))
-        story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#DC2626"), spaceAfter=0.22 * cm))
-
-        # ── 2. UPPER ORDER DETAILS (2 SUB-COLUMNS) ────────────────────────
-        # Gather every display field, each falling back across invoice ->
-        # booking_detail -> sensible default. left_sub accumulates the left column.
-        left_sub = []
-        cust_name = inv.get("customer") or booking_detail.get("name") or "aasdfasdf"  # NOTE: placeholder default is test data
+        # ── Resolve display fields (invoice -> booking_detail -> default) ──
+        cust_name  = inv.get("customer") or booking_detail.get("name") or "—"
         contact_no = booking_detail.get("contact") or inv.get("contact") or "—"
-        address = booking_detail.get("address") or inv.get("address") or "—"
-        event_dt = inv.get("event_date") or booking_detail.get("date") or "—"
-        raw_t = booking_detail.get("time") or booking_detail.get("event_time") or ""
-        # Format start time (and end time when present) into a display range.
-        time_disp = _repo.format_time_ampm(raw_t, default="To be followed") if raw_t else "To be followed"
+        address    = booking_detail.get("address") or inv.get("address") or "—"
+        event_dt   = inv.get("event_date") or booking_detail.get("date") or "—"
+        raw_t      = booking_detail.get("time") or booking_detail.get("event_time") or ""
+        time_disp  = _repo.format_time_ampm(raw_t, default="To be followed") if raw_t else "To be followed"
         if booking_detail.get("event_end_time"):
             time_disp += f" - {_repo.format_time_ampm(booking_detail['event_end_time'])}"
-        venue = booking_detail.get("venue") or address or "To be followed"
+        venue    = booking_detail.get("venue") or address or "To be followed"
         occasion = booking_detail.get("occasion") or "General Event"
-        motif = booking_detail.get("color_theme") or booking_detail.get("motif") or "Standard"
-        pax = str(booking_detail.get("pax") or "—")
-        notes = booking_detail.get("notes") or booking_detail.get("special_notes") or "Standard arrangement."
+        motif    = booking_detail.get("color_theme") or booking_detail.get("motif") or "Standard"
+        pax      = str(booking_detail.get("pax") or "—")
+        notes    = booking_detail.get("notes") or booking_detail.get("special_notes") or "Standard arrangement."
         pay_mode = inv.get("payment_method") or booking_detail.get("payment_mode") or "Cash"
 
-        # Card 1: CLIENT INFORMATION — bordered mini-table; first row is the
-        # card header spanning both columns (SPAN in the style below).
-        c1_head = _card_header("user", "CLIENT INFORMATION")
-        c1_rows = [
-            [c1_head, ""],
-            [Paragraph("<b>Name:</b>", styles["DetailLabel"]), Paragraph(str(cust_name), styles["DetailValue"])],
-            [Paragraph("<b>Address:</b>", styles["DetailLabel"]), Paragraph(str(address), styles["DetailValue"])],
-            [Paragraph("<b>Contact #:</b>", styles["DetailLabel"]), Paragraph(str(contact_no), styles["DetailValue"])],
-        ]
-        c1_tbl = Table(c1_rows, colWidths=[2.2 * cm, half_w - 2.2 * cm])
-        c1_tbl.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 1.1, colors.HexColor("#94A3B8")),
-            ("SPAN", (0, 0), (1, 0)),
-            ("LINEBELOW", (0, 0), (1, 0), 0.5, colors.HexColor("#E2E8F0")),
-            ("TOPPADDING", (0, 0), (-1, -1), 2.5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ]))
-        left_sub.append(c1_tbl)
-        left_sub.append(Spacer(1, 0.22 * cm))
-
-        # Card 2: EVENT DETAILS
-        c2_head = _card_header("calendar", "EVENT DETAILS")
-        c2_rows = [
-            [c2_head, ""],
-            [Paragraph("<b>Function Date:</b>", styles["DetailLabel"]), Paragraph(str(event_dt), styles["DetailValue"])],
-            [Paragraph("<b>Time:</b>", styles["DetailLabel"]), Paragraph(str(time_disp), styles["DetailValue"])],
-            [Paragraph("<b>Venue:</b>", styles["DetailLabel"]), Paragraph(str(venue), styles["DetailValue"])],
-            [Paragraph("<b>Occasion:</b>", styles["DetailLabel"]), Paragraph(str(occasion), styles["DetailValue"])],
-            [Paragraph("<b>Motif:</b>", styles["DetailLabel"]), Paragraph(str(motif), styles["DetailValue"])],
-            # NOTE: pax_lbl / pax_val_str are not defined in this scope; if this
-            # branch is reached it raises NameError, which the outer try/except
-            # turns into a soft (False) failure. Left as-is per comments-only edit.
-            [Paragraph(f"<b>{pax_lbl}</b>", styles["DetailLabel"]), Paragraph(pax_val_str, styles["DetailValue"])],
-            [Paragraph("<b>Special Instructions:</b>", styles["DetailLabel"]), Paragraph(str(notes), styles["DetailValue"])],
-        ]
-        c2_tbl = Table(c2_rows, colWidths=[3.7 * cm, half_w - 3.7 * cm])
-        c2_tbl.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 1.1, colors.HexColor("#94A3B8")),
-            ("SPAN", (0, 0), (1, 0)),
-            ("LINEBELOW", (0, 0), (1, 0), 0.5, colors.HexColor("#E2E8F0")),
-            ("TOPPADDING", (0, 0), (-1, -1), 2.5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ]))
-        left_sub.append(c2_tbl)
-        left_sub.append(Spacer(1, 0.22 * cm))
-
-        # Card 3: PAYMENT DETAILS — total, downpayment (with mode/status) and
-        # balance due, each right-aligned with its own inline paragraph style.
-        c3_head = _card_header("coins", "PAYMENT DETAILS")
-        c3_rows = [
-            [c3_head, ""],
-            [Paragraph("<b>Total Amount:</b>", styles["DetailLabel"]), Paragraph(f"<b>PHP {total:,.2f}</b>", ParagraphStyle("ft", fontName="Helvetica-Bold", fontSize=9, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
-            [Paragraph("<b>Downpayment:</b>", styles["DetailLabel"]), Paragraph(f"PHP {down_payment:,.2f} ({pay_mode} - {status})", ParagraphStyle("fd", fontName="Helvetica", fontSize=8.5, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
-            [Paragraph("<b>Balance Due:</b>", styles["DetailLabel"]), Paragraph(f"<b>PHP {balance:,.2f}</b>", ParagraphStyle("fb", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))],
-        ]
-        c3_tbl = Table(c3_rows, colWidths=[2.6 * cm, half_w - 2.6 * cm])
-        c3_tbl.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 1.1, colors.HexColor("#94A3B8")),
-            ("SPAN", (0, 0), (1, 0)),
-            ("LINEBELOW", (0, 0), (1, 0), 0.5, colors.HexColor("#E2E8F0")),
-            ("TOPPADDING", (0, 0), (-1, -1), 2.5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ]))
-        left_sub.append(c3_tbl)
-
-        # Right Sub-Column: Card 4 (PACKAGE & MENU)
-        right_sub = []
         pkg_name = booking_detail.get("package_name") or booking_detail.get("package") or "CUSTOM PACKAGE"
-        base_tot = _val(booking_detail.get("base_total") or total)  # pre-add-on package total
+        base_tot = _val(booking_detail.get("base_total") or total)
 
-        c4_head = _card_header("cloche", "PACKAGE &amp; MENU")
-        # Package inclusions text: prefer whatever the booking already carries,
-        # else fetch the package description from the DB (by id, else by name).
-        pkg_inclusions = (
-            booking_detail.get("package_inclusions")
-            or booking_detail.get("pkg_description")
-            or booking_detail.get("package_description")
-            or ""
-        )
+        # Food-set detection (mirrors the tablet; also defines the pax label so
+        # the old undefined-name bug can't occur).
+        def _is_food_set(name):
+            n = str(name or "").strip().lower()
+            return (any(k in n for k in ("food set", "food pack", "foodset", "foodpack", "set of dish"))
+                    or n.startswith("set ") or " set" in n)
+        is_set   = _is_food_set(pkg_name)
+        pax_lbl  = "No. of Sets:" if is_set else "No. of Pax:"
+        pax_val  = f"{pax} {'Set(s)' if is_set else 'Pax'}"
+
+        # Package inclusions: booking-carried text, else the package description.
+        pkg_inclusions = (booking_detail.get("package_inclusions")
+                          or booking_detail.get("pkg_description")
+                          or booking_detail.get("package_description") or "")
         if not pkg_inclusions:
             try:
-                pkg_id = booking_detail.get("package_id") or inv.get("package_id")
-                if pkg_id:
-                    _pr = _repo.db.fetchone("SELECT pkg_description FROM packages WHERE pkg_id = ?", (pkg_id,))
+                _pid = booking_detail.get("package_id") or inv.get("package_id")
+                if _pid:
+                    _pr = _repo.db.fetchone("SELECT pkg_description FROM packages WHERE pkg_id = ?", (_pid,))
                 else:
                     _pr = _repo.db.fetchone(
                         "SELECT pkg_description FROM packages WHERE LOWER(TRIM(pkg_name)) = LOWER(TRIM(?)) LIMIT 1",
-                        (pkg_name,)
-                    )
+                        (pkg_name,))
                 if _pr and _pr.get("pkg_description"):
                     pkg_inclusions = _pr["pkg_description"]
             except Exception:
                 pass
 
-        c4_content = [
-            c4_head,
-            HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=0.12 * cm),
-            Paragraph(f"<b>PACKAGE: {str(pkg_name).upper()}</b>", ParagraphStyle(
-                "r_pkg", fontName="Helvetica-Bold", fontSize=10, textColor=_C_DARK, leading=12)),
-            # NOTE: `is_food_set` is not defined in this scope (a food-set flag
-            # is computed only in export_order_slip_pdf). Reaching this line
-            # raises NameError -> soft failure. Left unchanged (comments only).
-            Paragraph(f"{'Quantity: ' + str(pax) + ' Set(s)' if is_food_set else 'Good for ' + str(pax) + ' person(s)'}  ·  Base: PHP {base_tot:,.2f}", ParagraphStyle(
-                "r_pkg_sub", fontName="Helvetica", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=3)),
-        ]
+        dishes  = booking_detail.get("selected_dishes") or booking_detail.get("dishes") or []
+        rcpt_no = (inv.get("invoice") or inv.get("invoice_ref") or booking_detail.get("ref")
+                   or booking_detail.get("booking_ref") or "—")
+        date_issued = _dt_datetime.now().strftime("%B %d, %Y")
 
-        # INCLUSIONS section (from package description) — only when present.
+        def _peso(n):
+            return f"PHP {float(n or 0):,.2f}"
+
+        # ══════════════════════════════════════════════════════════════════
+        #  CANVAS RENDER — 1:1 port of the tablet jsPDF Booking Agreement
+        #  (Tablet_PWA/frontend/js/exporter.js). Both use A4 in points; jsPDF
+        #  uses a top-left origin, ReportLab a bottom-left origin, so every Y is
+        #  converted with Y(). This makes the desktop PDF match the tablet's
+        #  two-column bordered-card layout exactly, instead of the old
+        #  flowable version that left a huge blank area.
+        # ══════════════════════════════════════════════════════════════════
+        from reportlab.pdfgen import canvas as _canvas
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+
+        PAGE_W, PAGE_H = A4
+        c = _canvas.Canvas(path, pagesize=A4)
+        c.setTitle(f"Booking Agreement — {rcpt_no}")
+
+        BLACK  = (15, 23, 42)
+        RED    = (220, 38, 38)
+        LABEL  = (51, 65, 85)
+        MUTED  = (100, 116, 139)
+        S300   = (203, 213, 225)
+        S200   = (226, 232, 240)
+        S400   = (148, 163, 184)
+        FOOT   = (30, 41, 59)
+        WHITE  = (255, 255, 255)
+
+        def Y(y):
+            return PAGE_H - y
+
+        def _fill(rgb):
+            c.setFillColorRGB(rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0)
+
+        def _stroke(rgb):
+            c.setStrokeColorRGB(rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0)
+
+        def T(x, y, s, size, bold=False, color=BLACK, align="left", italic=False):
+            font = "Helvetica-BoldOblique" if (bold and italic) else \
+                   "Helvetica-Bold" if bold else "Helvetica-Oblique" if italic else "Helvetica"
+            c.setFont(font, size)
+            _fill(color)
+            s = str(s)
+            if align == "right":
+                c.drawRightString(x, Y(y), s)
+            elif align == "center":
+                c.drawCentredString(x, Y(y), s)
+            else:
+                c.drawString(x, Y(y), s)
+
+        def LINE(x1, y1, x2, y2, w, rgb):
+            _stroke(rgb); c.setLineWidth(w); c.line(x1, Y(y1), x2, Y(y2))
+
+        # Icon primitives (top-origin coords, flipped per-primitive).
+        def _circ(cx, cy, r, rgb):
+            _fill(rgb); c.circle(cx, Y(cy), r, stroke=0, fill=1)
+        def _rect(x, y, w, h, rgb):
+            _fill(rgb); c.rect(x, Y(y + h), w, h, stroke=0, fill=1)
+        def _rrf(x, y, w, h, r, rgb):
+            r = min(r, w / 2.0, h / 2.0)   # clamp so tiny icons never over-round
+            _fill(rgb); c.roundedRect(x, Y(y + h), w, h, r, stroke=0, fill=1)
+        def _ell(cx, cy, rx, ry, rgb):
+            _fill(rgb); c.ellipse(cx - rx, Y(cy - ry), cx + rx, Y(cy + ry), stroke=0, fill=1)
+        def _tri(x1, y1, x2, y2, x3, y3, rgb):
+            _fill(rgb); p = c.beginPath()
+            p.moveTo(x1, Y(y1)); p.lineTo(x2, Y(y2)); p.lineTo(x3, Y(y3)); p.close()
+            c.drawPath(p, stroke=0, fill=1)
+
+        def ic_user(x, y):
+            _circ(x + 5, y + 4, 2.5, BLACK); _rrf(x + 1, y + 8, 8, 4, 2, BLACK)
+        def ic_calendar(x, y):
+            _rrf(x + 1, y + 2, 8, 9, 1.5, BLACK)
+            for rx, ry, rw, rh in [(2.5, 1, 1, 2.5), (6.5, 1, 1, 2.5), (2.5, 5.5, 1.5, 1.2),
+                                   (6, 5.5, 1.5, 1.2), (2.5, 8, 1.5, 1.2), (6, 8, 1.5, 1.2)]:
+                _rect(x + rx, y + ry, rw, rh, WHITE)
+        def ic_coins(x, y):
+            _ell(x + 5, y + 3.5, 4, 1.8, BLACK); _ell(x + 5, y + 6.5, 4, 1.8, BLACK); _ell(x + 5, y + 9.5, 4, 1.8, BLACK)
+        def ic_cloche(x, y):
+            _circ(x + 5, y + 2, 1, BLACK); _rrf(x + 1, y + 3.5, 8, 5, 3.5, BLACK); _rrf(x + 0.5, y + 8.5, 9, 1.5, 0.5, BLACK)
+        def ic_doc(x, y):
+            _rrf(x + 1, y + 1, 8, 10, 1, BLACK)
+            _rect(x + 2.5, y + 3.5, 5, 1, WHITE); _rect(x + 2.5, y + 5.5, 5, 1, WHITE); _rect(x + 2.5, y + 7.5, 3.5, 1, WHITE)
+        def ic_megaphone(x, y):
+            _tri(x + 1, y + 5.5, x + 7, y + 2, x + 7, y + 9, RED); _rect(x + 7, y + 1.5, 1.5, 8, RED); _rect(x + 3.5, y + 6.5, 1.5, 3, RED)
+        def ic_pin(x, y):
+            _circ(x + 3.5, y + 3.5, 2.5, RED); _tri(x + 1.5, y + 4.5, x + 5.5, y + 4.5, x + 3.5, y + 8, RED); _circ(x + 3.5, y + 3.5, 1, WHITE)
+        def ic_phone(x, y):
+            _rrf(x + 1, y + 1, 6, 9, 1.2, RED); _rect(x + 2, y + 2.5, 4, 5, WHITE); _circ(x + 4, y + 8.5, 0.6, WHITE)
+        def ic_fb(x, y):
+            _rrf(x + 1, y + 1, 8, 8, 1.5, RED); T(x + 4, y + 7, "f", 7, bold=True, color=WHITE)
+
+        def draw_card(x, y, w, h, icon_fn, title):
+            _fill(WHITE); _stroke(S300); c.setLineWidth(0.75)
+            c.roundedRect(x, Y(y + h), w, h, 4, stroke=1, fill=1)
+            if icon_fn:
+                icon_fn(x + 8, y + 5)
+            T(x + (22 if icon_fn else 8), y + 13.5, title, 8.5, bold=True, color=BLACK)
+            LINE(x, y + 18, x + w, y + 18, 0.6, S200)
+
+        def wrap(s, width, size, bold=False):
+            font = "Helvetica-Bold" if bold else "Helvetica"
+            words = str(s if s is not None else "").split()
+            if not words:
+                return [""]
+            lines, cur = [], ""
+            for w_ in words:
+                trial = (cur + " " + w_).strip()
+                if stringWidth(trial, font, size) <= width:
+                    cur = trial
+                else:
+                    if cur:
+                        lines.append(cur)
+                    cur = w_
+            if cur:
+                lines.append(cur)
+            return lines or [""]
+
+        marginX = 30
+        contentW = 535
+        rightX = marginX + contentW           # 565
+        centerX = PAGE_W / 2.0
+
+        # ── 1. HEADER ─────────────────────────────────────────────────────
+        headerTopY = 22
+        logoSize = 48
+        try:
+            _lp = _logo_path()
+            if os.path.exists(_lp):
+                c.drawImage(ImageReader(_lp), marginX, Y(headerTopY + logoSize),
+                            width=logoSize, height=logoSize, mask="auto", preserveAspectRatio=True)
+        except Exception:
+            pass
+
+        LINE(marginX + logoSize + 10, headerTopY + 2, marginX + logoSize + 10, headerTopY + logoSize - 2, 1.5, RED)
+
+        textLeftX = marginX + logoSize + 20
+        T(textLeftX, headerTopY + 20, "JAYRALDINE'S CATERING SERVICES", 18, bold=True, color=RED)
+        T(textLeftX, headerTopY + 38, "BOOKING AGREEMENT", 13, bold=True, color=BLACK)
+
+        T(rightX - 90, headerTopY + 18, "ORDER REF:", 8, bold=False, color=BLACK, align="right")
+        T(rightX, headerTopY + 18, rcpt_no, 8, bold=True, color=BLACK, align="right")
+        T(rightX - 90, headerTopY + 32, "DATE ISSUED:", 8, bold=False, color=BLACK, align="right")
+        T(rightX, headerTopY + 32, date_issued, 8, bold=False, color=BLACK, align="right")
+
+        LINE(marginX, headerTopY + logoSize + 8, rightX, headerTopY + logoSize + 8, 1.5, RED)
+
+        # ── 2. TWO-COLUMN MIDDLE ──────────────────────────────────────────
+        startY = headerTopY + logoSize + 16   # 86
+        colGap = 16
+        leftColW = 258
+        rightColX = marginX + leftColW + colGap   # 304
+        rightColW = rightX - rightColX            # 261
+
+        # Card 1: CLIENT INFORMATION
+        card1H = 74
+        draw_card(marginX, startY, leftColW, card1H, ic_user, "CLIENT INFORMATION")
+        c1y = startY + 31
+        for lbl, val in [("Name:", cust_name), ("Address:", address), ("Contact #:", contact_no)]:
+            T(marginX + 8, c1y, lbl, 8, bold=True, color=LABEL)
+            vlines = wrap(val, leftColW - 72, 8)
+            T(marginX + 65, c1y, vlines[0], 8, bold=False, color=BLACK)
+            c1y += 14
+
+        # Card 2: EVENT DETAILS
+        card2Y = startY + card1H + 8
+        card2H = 142
+        draw_card(marginX, card2Y, leftColW, card2H, ic_calendar, "EVENT DETAILS")
+        c2y = card2Y + 30
+        for lbl, val in [("Function Date:", event_dt), ("Time:", time_disp), ("Venue:", venue),
+                         ("Occasion:", occasion), ("Motif:", motif), (pax_lbl, pax_val),
+                         ("Special Instructions:", notes)]:
+            T(marginX + 8, c2y, lbl, 8, bold=True, color=LABEL)
+            vlines = wrap(val, leftColW - 104, 8)
+            T(marginX + 96, c2y, vlines[0], 8, bold=False, color=BLACK)
+            c2y += 14
+
+        # Card 3: PAYMENT DETAILS
+        card3Y = card2Y + card2H + 8
+        card3H = 86
+        draw_card(marginX, card3Y, leftColW, card3H, ic_coins, "PAYMENT DETAILS")
+        c3y = card3Y + 31
+        T(marginX + 8, c3y, "Total Amount:", 8, bold=True, color=BLACK)
+        T(marginX + leftColW - 8, c3y, _peso(total), 8, bold=True, color=BLACK, align="right")
+        c3y += 14
+        T(marginX + 8, c3y, "Downpayment:", 8, bold=True, color=BLACK)
+        T(marginX + leftColW - 8, c3y, f"{_peso(down_payment)} ({pay_mode} - {status})", 8, bold=False, color=BLACK, align="right")
+        c3y += 15
+        T(marginX + 8, c3y, "Balance Due:", 8.5, bold=True, color=BLACK)
+        T(marginX + leftColW - 8, c3y, _peso(balance), 9, bold=True, color=BLACK, align="right")
+
+        # Card 4: PACKAGE & MENU (right column)
+        card4H = 310
+        draw_card(rightColX, startY, rightColW, card4H, ic_cloche, "PACKAGE & MENU")
+        rY = startY + 31
+        T(rightColX + 8, rY, f"PACKAGE: {str(pkg_name).upper()}", 10, bold=True, color=BLACK)
+        rY += 13
+        _good = f"Quantity: {pax} Set(s)" if is_set else f"Good for {pax} person(s)"
+        T(rightColX + 8, rY, f"{_good}   ·   Base: {_peso(base_tot)}", 8.5, bold=False, color=BLACK)
+        rY += 12
+
         if pkg_inclusions and str(pkg_inclusions).strip():
-            c4_content.append(Paragraph("<b>INCLUSIONS:</b>", ParagraphStyle(
-                "r_inc_h", fontName="Helvetica-Bold", fontSize=8.5, textColor=_C_DARK, leading=11, spaceAfter=1)))
-            inc_lines = str(pkg_inclusions).strip().splitlines()
-            shown = "\n".join(inc_lines[:5])  # cap at 5 lines to fit the card
-            # Convert newlines to <br/> for ReportLab's mini-HTML paragraph markup.
-            c4_content.append(Paragraph(shown.replace("\n", "<br/>"), ParagraphStyle(
-                "r_inc_v", fontName="Helvetica", fontSize=7.8, textColor=colors.HexColor("#334155"), leading=10.5, spaceAfter=3)))
+            T(rightColX + 8, rY, "INCLUSIONS:", 8.5, bold=True, color=BLACK)
+            rY += 10
+            inc_lines = []
+            for chunk in str(pkg_inclusions).strip().splitlines():
+                inc_lines.extend(wrap(chunk, rightColW - 16, 7.8))
+            for ln in inc_lines[:4]:
+                T(rightColX + 8, rY, ln, 7.8, bold=False, color=LABEL)
+                rY += 9.5
+            rY += 4
 
-        c4_content.append(Paragraph("<b>MENU:</b>", ParagraphStyle(
-            "r_menu_h", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK, leading=12, spaceAfter=2)))
-
-        # MENU list: each dish may be a dict {name, category} or a bare string.
-        dishes = booking_detail.get("selected_dishes") or booking_detail.get("dishes") or []
+        rY += 2
+        T(rightColX + 8, rY, "MENU:", 9.5, bold=True, color=BLACK)
+        rY += 14
         if dishes:
-            d_lines = []
-            for i, d in enumerate(dishes, 1):
-                d_nm = d.get("name") if isinstance(d, dict) else str(d)
-                # Show the category in muted grey only when the dish carries one.
-                d_cat = f" <font color='#64748B'>({d.get('category', '')})</font>" if isinstance(d, dict) and d.get("category") else ""
-                d_lines.append(f"<b>{i}.</b> {d_nm}{d_cat}")
-            c4_content.append(Paragraph("<br/>".join(d_lines), ParagraphStyle(
-                "r_menu_l", fontName="Helvetica", fontSize=9, textColor=_C_DARK, leading=12.5)))
+            for i, d in enumerate(dishes[:9], 1):
+                if isinstance(d, dict):
+                    d_nm = d.get("name") or d.get("item_name") or ""
+                    d_cat = d.get("category") or d.get("mi_category") or ""
+                else:
+                    d_nm, d_cat = str(d), ""
+                full = f"{d_nm} ({d_cat})" if d_cat else str(d_nm)
+                T(rightColX + 8, rY, f"{i}.", 9, bold=False, color=BLACK)
+                fl = wrap(full, rightColW - 24, 9)
+                T(rightColX + 22, rY, fl[0], 9, bold=False, color=BLACK)
+                rY += 13
         else:
-            c4_content.append(Paragraph("<i>Standard package inclusions.</i>", ParagraphStyle(
-                "r_menu_none", fontName="Helvetica-Oblique", fontSize=8.5, textColor=_C_MUTED, leading=11)))
+            T(rightColX + 20, rY, "Standard package inclusions.", 8.5, bold=False, color=MUTED, italic=True)
+            rY += 13
 
-        # Add-ons & Inclusions. The leading spacer shrinks as the dish list
-        # grows so the add-ons block sits at a roughly consistent height in the
-        # card regardless of how many menu lines precede it.
-        num_dishes = len(dishes) if dishes else 0
+        # ADD-ONS & EXTRAS (pinned lower in the card, matching the tablet)
+        rY = max(rY + 4, startY + 265)
+        T(rightColX + 8, rY, "ADD-ONS & EXTRAS:", 9.5, bold=True, color=BLACK)
+        rY += 13
         if charges:
-            addon_spacer = max(0.15 * cm, 2.5 * cm - (num_dishes * 0.22 * cm))
-            c4_content.append(Spacer(1, addon_spacer))
-            c4_content.append(Paragraph("<b>ADD-ONS &amp; EXTRAS:</b>", ParagraphStyle(
-                "r_chg_h", fontName="Helvetica-Bold", fontSize=9.5, textColor=_C_DARK, leading=12, spaceAfter=2)))
-            addon_rows = []
-            for c in charges:
-                desc = c.get('description', 'Extra')
-                amt = float(c.get('amount', 0))
-                # Signed display: "+PHP" for extras, "-PHP" for negatives.
-                amt_str = f"+PHP {amt:,.2f}" if amt >= 0 else f"-PHP {abs(amt):,.2f}"
-                addon_rows.append([
-                    Paragraph(f"• {desc}:", ParagraphStyle("ad_lbl", fontName="Helvetica", fontSize=8.8, textColor=_C_DARK, leading=11)),
-                    Paragraph(f"<b>{amt_str}</b>", ParagraphStyle("ad_val", fontName="Helvetica-Bold", fontSize=8.8, textColor=_C_DARK, alignment=TA_RIGHT, leading=11))
-                ])
-            addon_tbl = Table(addon_rows, colWidths=[half_w - 3.2 * cm, 2.8 * cm])
-            addon_tbl.setStyle(TableStyle([
-                ("TOPPADDING", (0, 0), (-1, -1), 1),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ]))
-            c4_content.append(addon_tbl)
+            for ch in charges[:3]:
+                desc = ch.get("description", "Add-on Extra")
+                amt = float(ch.get("amount", 0) or 0)
+                amt_str = f"+{_peso(amt)}" if amt >= 0 else f"-{_peso(abs(amt))}"
+                T(rightColX + 8, rY, f"• {desc}:", 8.8, bold=False, color=BLACK)
+                T(rightColX + rightColW - 8, rY, amt_str, 8.8, bold=True, color=BLACK, align="right")
+                rY += 12
         else:
-            # No add-ons: still pad the card so its height matches the left column.
-            addon_spacer = max(0.3 * cm, 3.0 * cm - (num_dishes * 0.22 * cm))
-            c4_content.append(Spacer(1, addon_spacer))
+            T(rightColX + 8, rY, "• None specified.", 8, bold=False, color=MUTED)
 
-        # Wrap the whole right-column content list in a single bordered cell.
-        c4_tbl = Table([[c4_content]], colWidths=[half_w])
-        c4_tbl.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 1.1, colors.HexColor("#94A3B8")),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ]))
-        right_sub.append(c4_tbl)
+        # ── 3. SIGNATURES ─────────────────────────────────────────────────
+        sigY = startY + card4H + 28
+        sigCol1End = marginX + 310
+        dateLabelX = marginX + 335
+        dateLineEnd = rightX - 10
 
-        # Assemble Upper Two-Column Table: left cards (client/event/payment)
-        # beside the right package&menu card.
-        upper_table = Table([[left_sub, right_sub]], colWidths=[half_w, half_w])
-        upper_table.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        story.append(upper_table)
-        story.append(Spacer(1, 0.45 * cm))
+        T(marginX, sigY, "CONFORME:", 8, bold=True, color=BLACK)
+        LINE(marginX + 62, sigY, sigCol1End, sigY, 0.6, S400)
+        T(dateLabelX, sigY, "Date:", 8, bold=True, color=BLACK)
+        LINE(dateLabelX + 26, sigY, dateLineEnd, sigY, 0.6, S400)
 
-        # Signatures: two signing lines (CONFORME / NOTED BY) each with a Date.
-        sig_col1_w = content_w * 0.65
-        sig_col2_w = content_w * 0.35
-        sig_data = [
-            [Paragraph("<b>CONFORME:</b>  ___________________________________________", styles["DetailLabel"]),
-             Paragraph("<b>Date:</b>  ____________________", styles["DetailLabel"])],
-            [Paragraph("<b>NOTED BY:</b>   ___________________________________________", styles["DetailLabel"]),
-             Paragraph("<b>Date:</b>  ____________________", styles["DetailLabel"])],
+        sig2Y = sigY + 28
+        T(marginX, sig2Y, "NOTED BY:", 8, bold=True, color=BLACK)
+        LINE(marginX + 62, sig2Y, sigCol1End, sig2Y, 0.6, S400)
+        T(dateLabelX, sig2Y, "Date:", 8, bold=True, color=BLACK)
+        LINE(dateLabelX + 26, sig2Y, dateLineEnd, sig2Y, 0.6, S400)
+
+        # ── 4. TERMS AND CONDITIONS CARD ──────────────────────────────────
+        footerBottomY = PAGE_H - 32
+        idealFooterDividerY = footerBottomY - 66
+        termsY = sig2Y + 16
+        terms_list = [
+            "The client shall pay 50% downpayment upon reservation of booking and shall pay the full amount 3 days before the date of the event.",
+            "Mode of payment. The client shall personally pay in Cash for the downpayment and full payment. If cash is not available, the client can also pay through Bank Transfer or Gcash.",
+            "Failure to pay. A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply. (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%.",
+            "Consider Food and Liabilities. Any Food and Drinks or any consumables that is NOT prepared by JAYRALDINE SERVICES brought by the client will FREE US ON ANY LIABILITIES due to food poisoning and spoilage. We charge Corkage Fee for bringing outside Food and Drinks. Precise time should be placed in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage.",
         ]
-        sig_tbl = Table(sig_data, colWidths=[sig_col1_w, sig_col2_w])
-        sig_tbl.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
-            ("TOPPADDING", (0, 0), (-1, 0), 2),
-            ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
-            ("TOPPADDING", (0, 1), (-1, 1), 6),
-            ("BOTTOMPADDING", (0, 1), (-1, 1), 2),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        story.append(sig_tbl)
-        story.append(Spacer(1, 0.35 * cm))
+        term_fs = 9.8
+        term_lh = 13.8
+        split_terms = [wrap(t, contentW - 28, term_fs) for t in terms_list]
+        total_lines = sum(len(s) for s in split_terms)
+        available_h = idealFooterDividerY - termsY - 14
+        text_only_h = total_lines * term_lh
+        term_gap = min(18, max(8, (available_h - 32 - text_only_h) / 3.0))
+        terms_h = max(160, 32 + text_only_h + 3 * term_gap)
 
-        # ── 3. LOWER SECTION: TERMS AND CONDITIONS CARD ───────────────────
-        tc_head = _card_header("doc", "TERMS AND CONDITIONS")
-        tc_terms = [
-            "<b>The client shall pay 50% downpayment upon reservation of booking</b> and shall pay the full amount 3 days before the date of the event.",
-            "<b>Mode of payment.</b> The client shall personally pay in Cash for the downpayment and full payment. If cash is not available, the client can also pay through Bank Transfer or Gcash.",
-            "<b>Failure to pay.</b> A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply. (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%.",
-            "<b>Consider Food and Liabilities.</b> Any Food and Drinks or any consumables that is NOT prepared by JAYRALDINE SERVICES brought by the client will FREE US ON ANY LIABILITIES due to food poisoning and spoilage. We charge Corkage Fee for bringing outside Food and Drinks. Precise time should be placed in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage."
-        ]
-        tc_items = [tc_head, HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#E2E8F0"), spaceAfter=0.22 * cm)]
-        for term in tc_terms:
-            tc_items.append(Paragraph(f"• {term}", ParagraphStyle(
-                "tc_item", fontName="Helvetica", fontSize=9.2, textColor=colors.HexColor("#0F172A"), leading=13.0, spaceAfter=9)))
+        draw_card(marginX, termsY, contentW, terms_h, ic_doc, "TERMS AND CONDITIONS")
+        tY = termsY + 26
+        for i, lines in enumerate(split_terms):
+            T(marginX + 8, tY, "•", term_fs, bold=True, color=BLACK)
+            for ln in lines:
+                T(marginX + 18, tY, ln, term_fs, bold=False, color=BLACK)
+                tY += term_lh
+            if i < len(split_terms) - 1:
+                tY += term_gap
 
-        tc_tbl = Table([[tc_items]], colWidths=[content_w])
-        tc_tbl.setStyle(TableStyle([
-            ("BOX", (0, 0), (-1, -1), 1.1, colors.HexColor("#94A3B8")),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ]))
-        story.append(tc_tbl)
+        # ── 5. FOOTER (after terms, near the page bottom) ─────────────────
+        footerDividerY = max(termsY + terms_h + 14, idealFooterDividerY)
+        LINE(marginX, footerDividerY, rightX, footerDividerY, 1.2, RED)
 
-        # ── 4. FOOTER BANNER ───────────────────────────────────────────────
-        # Flows immediately after Terms and Conditions, same as the tablet's
-        # canonical receipt layout — NOT pinned to the page bottom. Pinning
-        # it there (via FillBottomSpacer, previously) forced ReportLab to
-        # insert a spacer consuming ALL remaining page height whenever the
-        # card content above was short, producing exactly the giant blank
-        # gap + content-stranded-at-the-top look this was fixed to remove.
-        story.append(Spacer(1, 0.3 * cm))
-        story.append(HRFlowable(width="100%", thickness=1.2, color=colors.HexColor("#DC2626"), spaceAfter=0.12 * cm))
+        fY = footerDividerY + 13
+        ic_megaphone(centerX - 188, fY - 7)
+        T(centerX + 6, fY, "WE INVITE YOU TO SEE HOW WE CAN HELP YOUR EVENT; THE BEST IT CAN POSSIBLY BE!!!", 8, bold=True, color=RED, align="center")
+        fY += 12
+        T(centerX, fY, f"Located at {biz_address}", 7.5, bold=False, color=FOOT, align="center")
+        fY += 11
+        T(centerX, fY, f"Please feel free to call us at {biz_contact}", 7.5, bold=False, color=FOOT, align="center")
+        fY += 11
+        T(centerX, fY, "Find us on Facebook: Jayraldine's Catering Services", 7.5, bold=False, color=FOOT, align="center")
 
-        # Megaphone line (Centered) — icon prefixed only if the asset exists.
-        mg_file = os.path.join(icons_dir, "icon_megaphone.png")
-        mg_tag = f"<img src='{mg_file}' width='11' height='11' valign='middle'/>  " if os.path.exists(mg_file) else ""
-        story.append(Paragraph(f"<b>{mg_tag}<font color='#DC2626'>WE INVITE YOU TO SEE HOW WE CAN HELP YOUR EVENT; THE BEST IT CAN POSSIBLY BE!!!</font></b>", ParagraphStyle(
-            "f_inv", fontName="Helvetica-Bold", fontSize=8, textColor=colors.HexColor("#DC2626"), alignment=TA_CENTER, leading=10.5)))
+        fY += 15
+        col1W = 165
+        col2W = 175
+        ic_pin(marginX + 2, fY - 7)
+        T(marginX + 13, fY, f"Located at {biz_address}", 6.8, bold=False, color=FOOT)
+        LINE(marginX + col1W, fY - 7, marginX + col1W, fY + 2, 1, RED)
+        ic_phone(marginX + col1W + 6, fY - 7)
+        T(marginX + col1W + 18, fY, f"Please feel free to call us at {biz_contact}", 6.8, bold=False, color=FOOT)
+        LINE(marginX + col1W + col2W, fY - 7, marginX + col1W + col2W, fY + 2, 1, RED)
+        ic_fb(marginX + col1W + col2W + 6, fY - 7)
+        T(marginX + col1W + col2W + 18, fY, "Find us on Facebook: Jayraldine's Catering Services", 6.8, bold=False, color=FOOT)
 
-        story.append(Paragraph(f"Located at {biz_address}", ParagraphStyle(
-            "f_loc", fontName="Helvetica", fontSize=7.2, textColor=_C_DARK, alignment=TA_CENTER, leading=9)))
-        story.append(Paragraph(f"Please feel free to call us at {biz_contact}", ParagraphStyle(
-            "f_tel", fontName="Helvetica", fontSize=7.2, textColor=_C_DARK, alignment=TA_CENTER, leading=9)))
-        story.append(Paragraph("Find us on Facebook: <b>Jayraldine's Catering Services</b>", ParagraphStyle(
-            "f_fb", fontName="Helvetica", fontSize=7.2, textColor=_C_DARK, alignment=TA_CENTER, leading=9)))
-
-        # 3-part bottom strip with icons (location | phone | Facebook), each a
-        # third of the width and divided by red vertical rules.
-        strip_w = content_w / 3.0
-        pin_file = os.path.join(icons_dir, "icon_pin.png")
-        phone_file = os.path.join(icons_dir, "icon_phone.png")
-        fb_file = os.path.join(icons_dir, "icon_fb.png")
-
-        pin_tag = f"<img src='{pin_file}' width='9' height='9' valign='middle'/>  " if os.path.exists(pin_file) else ""
-        phone_tag = f"<img src='{phone_file}' width='9' height='9' valign='middle'/>  " if os.path.exists(phone_file) else ""
-        fb_tag = f"<img src='{fb_file}' width='9' height='9' valign='middle'/>  " if os.path.exists(fb_file) else ""
-
-        p_loc = Paragraph(f"{pin_tag}Located at {biz_address}", ParagraphStyle("st1", fontName="Helvetica", fontSize=6.5, textColor=_C_DARK, alignment=TA_CENTER, leading=8.5))
-        p_tel = Paragraph(f"{phone_tag}Please feel free to call us at {biz_contact}", ParagraphStyle("st2", fontName="Helvetica", fontSize=6.5, textColor=_C_DARK, alignment=TA_CENTER, leading=8.5))
-        p_fb = Paragraph(f"{fb_tag}Find us on Facebook: <b>Jayraldine's Catering Services</b>", ParagraphStyle("st3", fontName="Helvetica", fontSize=6.5, textColor=_C_DARK, alignment=TA_CENTER, leading=8.5))
-
-        strip_tbl = Table([[p_loc, p_tel, p_fb]], colWidths=[strip_w, strip_w, strip_w])
-        strip_tbl.setStyle(TableStyle([
-            ("LINEBEFORE", (1, 0), (1, 0), 1.0, colors.HexColor("#DC2626")),
-            ("LINEBEFORE", (2, 0), (2, 0), 1.0, colors.HexColor("#DC2626")),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("TOPPADDING", (0, 0), (-1, -1), 2),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-            ("LEFTPADDING", (0, 0), (-1, -1), 2),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-        ]))
-        story.append(Spacer(1, 0.08 * cm))
-        story.append(strip_tbl)
-
-        doc.build(story)
+        c.showPage()
+        c.save()
         return True
     except Exception as exc:
-        # NOTE: `logger` is not imported/defined in this module; if the build
-        # raises, this handler itself raises NameError. The function still fails
-        # to produce a PDF either way. Left unchanged per comments-only scope.
-        logger.error(f"[exporter] export_receipt_pdf failed: {exc}", exc_info=True)
+        print(f"[exporter] export_receipt_pdf failed: {exc}")
         return False
 
 
