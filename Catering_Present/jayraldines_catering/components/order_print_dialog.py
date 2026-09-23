@@ -51,6 +51,11 @@ _SLIP_LAYOUT_WIDTH = 800
 # bottom border lands on the true vertical midpoint of the printed page,
 # not merely "however tall the content naturally is."
 _SLIP_HALF_HEIGHT = round(_SLIP_LAYOUT_WIDTH * (297 / 210) / 2)
+# Full A4 height at the same reference width - used to pin the Booking
+# Agreement's footer to the true bottom of the page (matching the Tablet
+# PWA's canonical PDF, whose footer sits near the physical page bottom
+# rather than immediately after the Terms card).
+_SLIP_FULL_HEIGHT = round(_SLIP_LAYOUT_WIDTH * (297 / 210))
 
 
 def is_food_set_pkg(pkg_name: str) -> bool:
@@ -773,9 +778,11 @@ class OrderPrintDialog(QDialog):
         dish_items_html = []
         for idx, d in enumerate(dishes[:10], 1):
             d_name = html.escape(d.get("name") or d.get("item_name") or str(d))
+            # Item number and name are both plain black, matching the Tablet
+            # PWA's exporter.js (no crimson accent on the numbering there).
             dish_items_html.append(f"""
                 <tr>
-                    <td style="width:20px; font-weight:800; color:#E11D48; font-size:11.5px; padding:2px 0; vertical-align:top;">{idx}.</td>
+                    <td style="width:20px; font-weight:normal; color:#0F172A; font-size:11.5px; padding:2px 0; vertical-align:top;">{idx}.</td>
                     <td style="font-size:11.5px; color:#0F172A; padding:2px 0; vertical-align:top;">{d_name}</td>
                 </tr>
             """)
@@ -788,10 +795,11 @@ class OrderPrintDialog(QDialog):
         for c in raw_charges[:5]:
             desc = html.escape(str(c.get("description") or "Add-on"))
             amt_str = _peso(c.get("amount") or 0)
+            # Plain black bold amount, matching exporter.js (no rose accent there).
             addons_html.append(f"""
                 <tr>
                     <td style="font-size:11px; color:#1E293B; padding:2px 0; vertical-align:top;">• {desc}</td>
-                    <td style="font-size:11px; font-weight:700; color:#BE123C; text-align:right; padding:2px 0; vertical-align:top;">{amt_str}</td>
+                    <td style="font-size:11px; font-weight:700; color:#0F172A; text-align:right; padding:2px 0; vertical-align:top;">{amt_str}</td>
                 </tr>
             """)
 
@@ -893,8 +901,8 @@ class OrderPrintDialog(QDialog):
             {addons_section if addons_html else '<div style="font-size:10.5px; color:#64748B; font-style:italic;">None specified.</div>'}
         """ + _card_close
 
-        return f"""
-        <div style="box-sizing:border-box; width:{_SLIP_LAYOUT_WIDTH}px; padding:16px 20px; background:#FFFFFF; color:#0F172A; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        main_html = f"""
+        <div style="box-sizing:border-box; width:{_SLIP_LAYOUT_WIDTH}px; padding:16px 20px 0 20px; background:#FFFFFF; color:#0F172A; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
             <!-- HEADER (Top) - logo | red divider | title block | ref/date, matching the
                  Tablet PWA's canonical exporter.js Booking Agreement PDF header -->
             <table width="100%" style="width:100%; border-collapse:collapse;">
@@ -981,9 +989,17 @@ class OrderPrintDialog(QDialog):
                 </tr>
             </table>
             {_card_close}
+        </div>
+        """
 
-            <!-- FOOTER INVITATION BAR - centered lines, then a duplicate 3-column
-                 icon strip with red dividers, matching export_receipt_pdf exactly -->
+        # FOOTER INVITATION BAR - centered lines, then a duplicate 3-column icon
+        # strip with red dividers, matching export_receipt_pdf exactly. Kept as
+        # its own block (same horizontal padding as main_html) so a measured
+        # spacer can be inserted between the Terms card and this footer,
+        # pinning it to the true bottom of the A4 page instead of letting it
+        # trail immediately after the terms on a short booking.
+        footer_html = f"""
+        <div style="box-sizing:border-box; width:{_SLIP_LAYOUT_WIDTH}px; padding:0 20px 16px 20px; background:#FFFFFF; color:#0F172A; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
             <hr style="border:none; border-top:2px solid #DC2626; margin:10px 0 8px 0;" />
             <div style="text-align:center;">
                 <div style="font-size:10px; font-weight:900; color:#DC2626; letter-spacing:0.2px;">{megaphone_img}WE INVITE YOU TO SEE HOW WE CAN HELP YOUR EVENT; THE BEST IT CAN POSSIBLY BE!!!</div>
@@ -1000,6 +1016,18 @@ class OrderPrintDialog(QDialog):
             </table>
         </div>
         """
+
+        # Pin the footer to the true bottom of the A4 page: measure how tall
+        # the main content + footer actually render, then top up the gap with
+        # a blank spacer so the footer's divider lands near the page bottom
+        # (mirroring export_receipt_pdf's idealFooterDividerY behavior)
+        # instead of trailing right after the Terms card on a short booking.
+        main_h = self._measure_height(main_html)
+        footer_h = self._measure_height(footer_html)
+        deficit = max(0, round(_SLIP_FULL_HEIGHT - main_h - footer_h))
+        spacer = f'<table height="{deficit}" style="height:{deficit}px;"><tr><td height="{deficit}" style="padding:0;"></td></tr></table>' if deficit > 0 else ""
+
+        return main_html + spacer + footer_html
 
     def _build_page_bodies(self) -> list[str]:
         """One entry per PHYSICAL A4 sheet.
