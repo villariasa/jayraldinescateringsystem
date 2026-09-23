@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QFrame, QLineEdit, QFormLayout, QMessageBox, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QDoubleSpinBox,
     QSpinBox, QCheckBox, QFileDialog, QListWidget, QListWidgetItem,
-    QInputDialog, QColorDialog, QComboBox, QDateEdit, QDialog
+    QInputDialog, QColorDialog, QComboBox, QDateEdit, QDialog, QAbstractItemView
 )
 from PySide6.QtCore import Qt, QSize, QDate, QTimer, QThread, Signal
 from PySide6.QtGui import QColor
@@ -2396,7 +2396,7 @@ class SettingsPage(QWidget):
             head.addWidget(add_btn)
         lay.addLayout(head)
 
-        hint = QLabel("Categories available when adding/editing a menu item (e.g. Main Course, Dessert).")
+        hint = QLabel("Categories available when adding/editing a menu item (e.g. Main Course, Dessert). Drag to reorder — this order is what customers/staff see first when picking dishes.")
         hint.setObjectName("subtitle")
         hint.setWordWrap(True)
         lay.addWidget(hint)
@@ -2404,6 +2404,13 @@ class SettingsPage(QWidget):
         self._mc_list = QListWidget()
         self._mc_list.setFixedHeight(200)
         self._mc_list.setFocusPolicy(Qt.NoFocus)
+        # Drag-and-drop reordering: persists the new order the moment a drag
+        # drop lands, so "first in this list" == "first shown everywhere
+        # dishes are grouped by category" (order-time pickers, bucket editor).
+        if can_edit:
+            self._mc_list.setDragDropMode(QAbstractItemView.InternalMove)
+            self._mc_list.setDefaultDropAction(Qt.MoveAction)
+            self._mc_list.model().rowsMoved.connect(self._on_menu_categories_reordered)
         lay.addWidget(self._mc_list)
         self._load_menu_categories()
 
@@ -2444,6 +2451,15 @@ class SettingsPage(QWidget):
             self._mc_list.clear()
             for name in (categories or []):
                 self._mc_list.addItem(QListWidgetItem(name))
+
+    def _on_menu_categories_reordered(self, *_args):
+        """Persist the list's current top-to-bottom order after a drag-drop
+        move. Qt has already reordered the QListWidgetItems by the time this
+        signal fires, so reading the list back out gives the new order."""
+        names = [self._mc_list.item(i).text() for i in range(self._mc_list.count())]
+        if names:
+            repo.reorder_menu_categories(names)
+            app_events().menu_saved.emit()
 
     def _add_menu_category(self):
         """Prompt for and add a new menu category (requires create permission)."""
