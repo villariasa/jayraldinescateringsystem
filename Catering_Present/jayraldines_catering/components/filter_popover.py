@@ -1,3 +1,11 @@
+"""Anchored filter popover with toggleable status/category chips.
+
+Displays a frameless card anchored to a trigger button, offering a mutually
+exclusive set of status chips and a multi-select set of category chips. Emits
+``filter_applied(dict)`` whenever the selection changes so the host view can
+re-filter its data. Dismisses on outside click or Escape.
+"""
+
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QWidget, QButtonGroup, QScrollArea
@@ -11,10 +19,12 @@ from utils.animations import create_soft_shadow
 
 
 def _is_light():
+    """Return True when the app is in light theme."""
     return not ThemeManager().is_dark()
 
 
 def _section_label_style():
+    """Inline QSS for the small uppercase section headers (STATUS/CATEGORY)."""
     return (
         "color: %s; font-size: 10px; font-weight: 700; letter-spacing: 1px;"
         % ("#7A879E" if _is_light() else "#6B7280")
@@ -22,16 +32,21 @@ def _section_label_style():
 
 
 class FilterChip(QPushButton):
+    """A small pill-shaped, checkable toggle button carrying a filter ``value``."""
+
     def __init__(self, label, value, parent=None):
         super().__init__(label, parent)
+        # ``value`` is the underlying filter key (label is only the display text).
         self.value = value
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
         self.setMinimumHeight(28)
         self._update_style()
+        # Restyle on every toggle so checked/unchecked appearance stays in sync.
         self.toggled.connect(lambda _: self._update_style())
 
     def _update_style(self):
+        """Repaint the chip based on checked state and current theme."""
         if self.isChecked():
             self.setStyleSheet(
                 "background: rgba(225,29,72,0.12); color: #D31647;"
@@ -68,6 +83,7 @@ class FilterPopover(QFrame):
     filter_applied = Signal(dict)
 
     def __init__(self, parent=None, statuses=None, categories=None):
+        # Frameless SubWindow so it floats over the parent as a borderless card.
         super().__init__(parent, Qt.SubWindow | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_DeleteOnClose, False)
@@ -77,10 +93,12 @@ class FilterPopover(QFrame):
         self._cat_chips    = []
         self._build_ui()
         self.hide()
+        # Watch the parent for clicks so we can auto-dismiss on outside click.
         if parent:
             parent.installEventFilter(self)
 
     def _build_ui(self):
+        """Build the card: header, divider, status chip grid and category row."""
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
 
@@ -120,15 +138,18 @@ class FilterPopover(QFrame):
             chips_grid.setSpacing(6)
             chips_grid.setAlignment(Qt.AlignLeft)
             self._status_chips = []
+            # Exclusive button group => only one status can be active at a time.
             self._status_group = QButtonGroup(self)
             self._status_group.setExclusive(True)
             for i, s in enumerate(self._statuses):
                 chip = FilterChip(s, s)
+                # Default to the "All" status being selected on open.
                 if s == "All":
                     chip.setChecked(True)
                 self._status_chips.append(chip)
                 self._status_group.addButton(chip)
                 chip.toggled.connect(lambda checked, c=chip: self._on_chip_toggled(c, checked))
+                # Two chips per row: row = i//2, column = i%2.
                 chips_grid.addWidget(chip, i // 2, i % 2)
             inner_lay.addLayout(chips_grid)
 
@@ -146,6 +167,7 @@ class FilterPopover(QFrame):
             for c in self._categories:
                 chip = FilterChip(c, c)
                 self._cat_chips.append(chip)
+                # Categories are multi-select: any toggle re-emits the filter set.
                 chip.toggled.connect(lambda _: self._emit())
                 cat_lay.addWidget(chip)
             cat_lay.addStretch()
@@ -154,15 +176,23 @@ class FilterPopover(QFrame):
         lay.addWidget(inner)
 
     def _on_chip_toggled(self, chip, checked):
+        """Emit only when a status chip becomes checked.
+
+        In an exclusive group each change fires two toggles (old off, new on);
+        gating on ``checked`` avoids emitting twice per selection.
+        """
         if checked:
             self._emit()
 
     def _emit(self):
+        """Emit the current filter selection as {"statuses": [...], "categories": [...]}"""
+        # Exactly one status is active (exclusive group); default to "All" defensively.
         checked = next((c.value for c in self._status_chips if c.isChecked()), "All")
         selected_cats = [c.value for c in self._cat_chips if c.isChecked()]
         self.filter_applied.emit({"statuses": [checked], "categories": selected_cats})
 
     def show_anchored(self, anchor_btn):
+        """Reposition under ``anchor_btn`` (theme-refreshed) and show the popover."""
         from PySide6.QtWidgets import QApplication
         # Re-apply theme-dependent styles in case the theme was toggled
         for chip in self._status_chips + self._cat_chips:
@@ -176,8 +206,10 @@ class FilterPopover(QFrame):
         # this it can display at whatever default/zero size Qt happened to
         # leave it at, clipping the chips out of view and looking blank.
         self.adjustSize()
+        # Anchor to just below the button's top-left corner (+6px gap).
         global_pos = anchor_btn.mapToGlobal(QPoint(0, anchor_btn.height() + 6))
         x = global_pos.x()
+        # Clamp horizontally so the card never spills off the current screen.
         screen = QApplication.screenAt(global_pos) or QApplication.primaryScreen()
         if screen:
             sg = screen.availableGeometry()
@@ -188,20 +220,25 @@ class FilterPopover(QFrame):
         self.raise_()
 
     def toggle_anchored(self, anchor_btn):
+        """Show the popover if hidden, otherwise hide it."""
         if self.isVisible():
             self.hide()
         else:
             self.show_anchored(anchor_btn)
 
     def keyPressEvent(self, event):
+        """Close the popover on Escape."""
         if event.key() == Qt.Key_Escape:
             self.hide()
         super().keyPressEvent(event)
 
     def eventFilter(self, obj, event):
+        """Auto-dismiss when the user clicks outside the popover's bounds."""
         if event.type() == QEvent.MouseButtonPress and self.isVisible():
+            # globalPosition() is Qt6; fall back to globalPos() for older event types.
             pos = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
             local = self.mapFromGlobal(pos)
             if not self.rect().contains(local):
                 self.hide()
+        # Never consume the event; let it reach its intended target.
         return False
