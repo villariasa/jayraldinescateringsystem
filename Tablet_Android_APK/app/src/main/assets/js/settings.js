@@ -723,10 +723,87 @@ async function renderPackagesTab(content) {
   }));
 }
 
-function openPackageForm(content, pkg) {
+function _isDessertCategory(name) {
+  return /dessert|sweet|panghimagas/i.test(String(name || ""));
+}
+
+async function openPackageForm(content, pkg) {
   const formId = "pkg-form-modal";
   let currentImage = pkg?.image || null;
   let imageChanged = false;
+
+  // Load the catalog + (in edit mode) the package's existing dishes & buckets.
+  let grouped = {};
+  let allCategories = [];
+  let existingItems = [];
+  let buckets = [];
+  try {
+    grouped = await api.getMenuItemsGrouped();
+    allCategories = await api.getMenuCategories();
+  } catch (_) { grouped = {}; allCategories = []; }
+
+  // Ensure every category that has dishes is offered even if not in the master list.
+  for (const c of Object.keys(grouped)) if (!allCategories.includes(c)) allCategories.push(c);
+
+  if (pkg) {
+    try { existingItems = await api.getPackageItems(pkg.id); } catch (_) { existingItems = []; }
+    try { buckets = await api.getPackageBuckets(pkg.id); } catch (_) { buckets = []; }
+  }
+
+  // Sensible starting buckets for a brand-new package: Dishes + Dessert.
+  if (!pkg && buckets.length === 0) {
+    const dessertCats = allCategories.filter(_isDessertCategory);
+    const dishCats = allCategories.filter((c) => !_isDessertCategory(c));
+    buckets = [
+      { name: "Dishes", limit: 4, categories: dishCats },
+      { name: "Dessert", limit: 1, categories: dessertCats },
+    ];
+  }
+
+  // Which menu items are default-selected (by id, else by name).
+  const selectedItemIds = new Set(existingItems.map((it) => Number(it.menu_item_id)).filter(Boolean));
+  const selectedItemNames = new Set(existingItems.map((it) => String(it.item_name || it.name || "").trim().toLowerCase()).filter(Boolean));
+
+  const catOptionsHtml = (selected) => allCategories
+    .map((c) => `<option value="${escapeHtml(c)}" ${selected && selected.map(String).includes(String(c)) ? "selected" : ""}>${escapeHtml(c)}</option>`)
+    .join("");
+
+  const bucketRowHtml = (b, idx) => `
+    <div class="pkg-bucket-row" data-bidx="${idx}" style="border:1px solid var(--border,#e2e8f0); border-radius:10px; padding:10px; margin-bottom:8px;">
+      <div class="grid-2" style="gap:8px;">
+        <div class="form-group" style="margin:0;">
+          <label>Bucket Name</label>
+          <input type="text" class="form-control b-name" value="${escapeHtml(b.name || "")}" placeholder="e.g. Dishes">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label>Max Selectable</label>
+          <input type="number" class="form-control b-limit" min="0" value="${Number(b.limit || 1)}">
+        </div>
+      </div>
+      <div class="form-group" style="margin:6px 0 0;">
+        <label>Categories in this bucket (Ctrl/Cmd-click for multiple)</label>
+        <select class="form-control b-cats" multiple size="4">${catOptionsHtml(b.categories || [])}</select>
+      </div>
+      <div style="text-align:right; margin-top:6px;">
+        <button type="button" class="btn btn-ghost b-remove">${icon("trash")} Remove Bucket</button>
+      </div>
+    </div>`;
+
+  const dishPickerHtml = () => {
+    const cats = Object.keys(grouped).sort();
+    if (cats.length === 0) return `<p style="color:var(--text-muted); font-size:13px;">No menu items available yet. Add menu items first.</p>`;
+    return cats.map((cat) => `
+      <div class="pkg-dish-cat" style="margin-bottom:8px;">
+        <div style="font-weight:700; font-size:13px; margin:6px 0;">${escapeHtml(cat)}</div>
+        ${grouped[cat].map((mi) => {
+          const isSel = selectedItemIds.has(Number(mi.menu_item_id)) || selectedItemNames.has(String(mi.name || "").trim().toLowerCase());
+          return `<label style="display:inline-flex; align-items:center; gap:6px; margin:2px 10px 2px 0; font-size:13px;">
+            <input type="checkbox" class="pkg-dish-cb" data-mid="${mi.menu_item_id}" data-name="${escapeHtml(mi.name)}" data-cat="${escapeHtml(mi.category || cat)}" data-price="${Number(mi.price || 0)}" ${isSel ? "checked" : ""}>
+            ${escapeHtml(mi.name)}
+          </label>`;
+        }).join("")}
+      </div>`).join("");
+  };
 
   openModal({
     id: formId,
@@ -763,6 +840,21 @@ function openPackageForm(content, pkg) {
           </div>
         </div>
       </div>
+
+      <hr style="border:none; border-top:1px solid var(--border,#e2e8f0); margin:14px 0;">
+      <div class="form-group" style="margin-bottom:6px;">
+        <label style="font-size:14px; font-weight:700;">Selection Limits (Buckets)</label>
+        <p style="color:var(--text-muted); font-size:12px; margin:2px 0 8px;">Each bucket limits how many dishes a customer may pick from its categories (e.g. Dishes = 4, Dessert = 1). Leave empty for no limits.</p>
+      </div>
+      <div id="pkg-buckets-list">${buckets.map((b, i) => bucketRowHtml(b, i)).join("")}</div>
+      <button type="button" class="btn btn-secondary" id="add-bucket-btn" style="margin-bottom:6px;">${icon("plus")} Add Bucket</button>
+
+      <hr style="border:none; border-top:1px solid var(--border,#e2e8f0); margin:14px 0;">
+      <div class="form-group" style="margin-bottom:6px;">
+        <label style="font-size:14px; font-weight:700;">Default Dishes</label>
+        <p style="color:var(--text-muted); font-size:12px; margin:2px 0 8px;">Pre-selected dishes for the customer (they can swap within the limits above).</p>
+      </div>
+      <div id="pkg-dish-picker" style="max-height:220px; overflow:auto; border:1px solid var(--border,#e2e8f0); border-radius:10px; padding:8px;">${dishPickerHtml()}</div>
     `,
     footerHtml: `
       <button class="btn btn-secondary" data-close>Cancel</button>
@@ -775,6 +867,20 @@ function openPackageForm(content, pkg) {
   const chooseBtn = modal.querySelector("#choose-pkg-img-btn");
   const removeBtn = modal.querySelector("#remove-pkg-img-btn");
   const previewWrap = modal.querySelector("#pkg-img-preview-wrap");
+  const bucketsList = modal.querySelector("#pkg-buckets-list");
+
+  // Bucket add/remove wiring (re-bound after each re-render).
+  const wireBucketRemovals = () => {
+    bucketsList.querySelectorAll(".b-remove").forEach((btn) => {
+      btn.onclick = () => { btn.closest(".pkg-bucket-row")?.remove(); };
+    });
+  };
+  wireBucketRemovals();
+  modal.querySelector("#add-bucket-btn").addEventListener("click", () => {
+    const idx = bucketsList.querySelectorAll(".pkg-bucket-row").length;
+    bucketsList.insertAdjacentHTML("beforeend", bucketRowHtml({ name: "", limit: 1, categories: [] }, idx));
+    wireBucketRemovals();
+  });
 
   chooseBtn.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", async (e) => {
@@ -801,23 +907,49 @@ function openPackageForm(content, pkg) {
   });
 
   modal.querySelector("#save-pkg").addEventListener("click", async () => {
-    const payload = {
-      name: modal.querySelector("#f-name").value.trim(),
+    const name = modal.querySelector("#f-name").value.trim();
+    if (!name) { toast("Package Name is required.", "error"); return; }
+
+    // Collect buckets
+    const outBuckets = [];
+    bucketsList.querySelectorAll(".pkg-bucket-row").forEach((row) => {
+      const bn = row.querySelector(".b-name").value.trim();
+      if (!bn) return;
+      const limit = Number(row.querySelector(".b-limit").value || 0);
+      const cats = Array.from(row.querySelector(".b-cats").selectedOptions).map((o) => o.value);
+      outBuckets.push({ name: bn, limit, categories: cats });
+    });
+
+    // Collect default dishes
+    const outItems = [];
+    modal.querySelectorAll(".pkg-dish-cb:checked").forEach((cb) => {
+      outItems.push({
+        menu_item_id: Number(cb.dataset.mid) || null,
+        item_name: cb.dataset.name,
+        category: cb.dataset.cat,
+        custom_price: 0,
+      });
+    });
+
+    const pkgPayload = {
+      id: pkg?.id,
+      name,
       description: modal.querySelector("#f-desc").value,
       price_per_pax: Number(modal.querySelector("#f-price").value || 0),
       min_pax: Number(modal.querySelector("#f-min").value || 30),
-      image: currentImage,
-      image_changed: imageChanged || (!pkg && !!currentImage),
     };
-    if (!payload.name) { toast("Package Name is required.", "error"); return; }
+    if (imageChanged || (!pkg && currentImage)) {
+      pkgPayload.image = currentImage || "";
+    }
+
     try {
-      const result = pkg ? await api.updatePackage(pkg.id, payload) : await api.createPackage(payload);
-      const pendingImage = result?.image_sync === "pending";
-      toast(pendingImage ? "Package saved. Image will sync with Central DB when connected." : "Package saved successfully!", "success");
+      await api.definePackage({ package: pkgPayload, items: outItems, buckets: outBuckets });
+      toast("Package saved and synced to Central DB.", "success");
       closeModal(formId);
       renderPackagesTab(content);
     } catch (err) {
-      toast(err.message, "error");
+      // Offline / server unreachable: same failure surface as other package edits.
+      toast(err.message || "Could not save package — connect to the Central Server and try again.", "error");
     }
   });
 }
