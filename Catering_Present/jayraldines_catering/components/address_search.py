@@ -1,3 +1,11 @@
+"""Cebu address search widget with an inline autocomplete dropdown.
+
+Provides a debounced type-ahead search over cached Cebu barangay/city addresses
+(via ``utils.repository``), an inline results dropdown, and a follow-up
+street/house-number field that appears only once an address is picked. Emits
+``address_selected``/``address_cleared`` so parent forms can react.
+"""
+
 from __future__ import annotations
 from typing import Optional
 
@@ -13,19 +21,29 @@ import utils.repository as repo
 
 
 class AddressSearchWidget(QWidget):
+    """Type-ahead Cebu address picker with an inline dropdown and street field.
+
+    Signals:
+        address_selected(dict): emitted with the chosen address row.
+        address_cleared(): emitted when the selection is reset.
+    """
+
     address_selected = Signal(dict)
     address_cleared  = Signal()
 
+    # Hard cap on dropdown height so long result lists scroll instead of growing.
     _DROPDOWN_MAX_H = 260
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._selected: Optional[dict] = None
+        # Single-shot timer used to debounce keystrokes before hitting search.
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._run_search)
         self._build_ui()
         # Warm up the in-memory address cache in background
+        # (first search then hits a primed cache instead of loading synchronously).
         QTimer.singleShot(50, lambda: repo.get_all_cebu_addresses())
 
     # ------------------------------------------------------------------
@@ -33,13 +51,17 @@ class AddressSearchWidget(QWidget):
     # ------------------------------------------------------------------
 
     def get_selection(self) -> Optional[dict]:
+        """Return the currently selected address dict, or None."""
         return self._selected
 
     def get_street(self) -> str:
+        """Return the trimmed street/house-number text."""
         return self._street.text().strip()
 
     def set_value(self, display_text: str, street: str = "",
                   data: Optional[dict] = None) -> None:
+        """Populate the widget programmatically (e.g. when editing a record)."""
+        # Block signals so setting the text doesn't trigger the search/clear logic.
         self._search.blockSignals(True)
         self._search.setText(display_text)
         self._search.blockSignals(False)
@@ -53,6 +75,7 @@ class AddressSearchWidget(QWidget):
         self._close_dropdown()
 
     def clear(self) -> None:
+        """Reset all inputs and selection back to the empty state."""
         self._search.clear()
         self._street.clear()
         self._selected = None
@@ -62,15 +85,18 @@ class AddressSearchWidget(QWidget):
         self.address_cleared.emit()
 
     def is_valid(self) -> bool:
+        """True only when an address is selected AND a street was entered."""
         return self._selected is not None and bool(self.get_street())
 
     def highlight_street_error(self) -> None:
+        """Outline the street field in red and focus it (validation feedback)."""
         self._street.setStyleSheet(
             "border: 1px solid #E11D48; border-radius: 6px; background: rgba(225,29,72,0.05);"
         )
         self._street.setFocus()
 
     def _clear_street_error(self) -> None:
+        """Remove the error outline once the user edits the street field."""
         self._street.setStyleSheet("")
 
     # ------------------------------------------------------------------
@@ -78,6 +104,7 @@ class AddressSearchWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _build_ui(self):
+        """Lay out the search row, inline dropdown, street field and hint label."""
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -102,6 +129,7 @@ class AddressSearchWidget(QWidget):
         self._clear_btn.setCursor(Qt.PointingHandCursor)
         self._clear_btn.setStyleSheet("color:#6B7280; font-size:12px; background:transparent;")
         self._clear_btn.setVisible(False)
+        # QLabel has no clicked signal, so override its mousePressEvent to clear.
         self._clear_btn.mousePressEvent = lambda _e: self.clear()
 
         search_row.addWidget(self._search)
@@ -152,27 +180,36 @@ class AddressSearchWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _show_widget(self, w, max_h: int):
+        """Reveal a collapsed widget by lifting its max-height cap."""
+        # Rows are hidden by pinning maxHeight to 0; restoring it "expands" them.
         w.setMaximumHeight(max_h)
 
     def _hide_widget(self, w):
+        """Collapse a widget by pinning its max-height to 0."""
         w.setMaximumHeight(0)
 
     def _open_dropdown(self, count: int):
+        """Size and show the results dropdown for ``count`` rows."""
         self._dropdown.setStyleSheet(self._dropdown_style())
+        # ~38px per row + a little padding, capped so it scrolls past the max.
         h = min(count * 38 + 10, self._DROPDOWN_MAX_H)
         self._dropdown.setFixedHeight(h)
 
     def _close_dropdown(self):
+        """Collapse and empty the results dropdown."""
         self._dropdown.setFixedHeight(0)
         self._dropdown.clear()
 
     def _on_text_changed(self, text: str):
+        """React to typing: invalidate stale selection and (de)schedule search."""
+        # Any edit invalidates a previously chosen address, hiding the street row.
         if self._selected:
             self._selected = None
             self._hide_widget(self._street_row)
             self._clear_btn.setVisible(False)
             self.address_cleared.emit()
 
+        # Require at least 2 chars before searching; show the hint at exactly 1.
         if len(text.strip()) < 2:
             self._close_dropdown()
             if len(text.strip()) == 1:
@@ -182,10 +219,14 @@ class AddressSearchWidget(QWidget):
             return
 
         self._hide_widget(self._hint)
+        # Debounce: restart the 120ms timer on each keystroke so we only query
+        # once the user pauses typing.
         self._debounce.start(120)
 
     def _run_search(self):
+        """Query the address cache and populate the dropdown with results."""
         query = self._search.text().strip()
+        # Guard again in case the text shrank below the threshold before the timer fired.
         if len(query) < 2:
             self._close_dropdown()
             return
@@ -194,6 +235,7 @@ class AddressSearchWidget(QWidget):
         self._dropdown.clear()
 
         if not results:
+            # Non-selectable placeholder row when nothing matches.
             item = QListWidgetItem("  No results found")
             item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
             item.setForeground(QColor("#6B7280"))
@@ -201,19 +243,23 @@ class AddressSearchWidget(QWidget):
             self._open_dropdown(1)
         else:
             for row in results:
+                # Prefer a precomputed display string; otherwise build "barangay, city, province".
                 display = row.get("display_text") or (
                     f"{row.get('barangay','')}, "
                     f"{row.get('city','')}, "
                     f"{row.get('province','')}"
                 )
                 item = QListWidgetItem(display)
+                # Stash the full row on the item so selection can recover it.
                 item.setData(Qt.UserRole, row)
                 self._dropdown.addItem(item)
             self._open_dropdown(len(results))
 
     def _on_item_clicked(self, item: QListWidgetItem):
+        """Handle a dropdown pick: store selection and reveal the street field."""
         data = item.data(Qt.UserRole)
         if not data:
+            # The "No results" placeholder carries no data — ignore clicks on it.
             return
         self._selected = data
         self._search.blockSignals(True)
@@ -230,13 +276,16 @@ class AddressSearchWidget(QWidget):
     # ------------------------------------------------------------------
 
     def eventFilter(self, obj, event):
+        """Close the dropdown when the search box loses focus (deferred)."""
         from PySide6.QtCore import QEvent
         if obj is self._search and event.type() == QEvent.FocusOut:
             # Delay close so itemClicked can fire first
+            # (clicking a result steals focus before the click is processed).
             QTimer.singleShot(200, self._on_search_focus_lost)
         return super().eventFilter(obj, event)
 
     def _on_search_focus_lost(self):
+        """Close the dropdown unless focus is still within the widget."""
         # Don't close if the dropdown itself has focus or is being interacted with
         fw = QApplication.focusWidget()
         if fw is self._search or fw is self._dropdown:
@@ -244,6 +293,7 @@ class AddressSearchWidget(QWidget):
         self._close_dropdown()
 
     def hideEvent(self, event):
+        """Ensure the floating dropdown is dismissed when the widget hides."""
         self._close_dropdown()
         super().hideEvent(event)
 
@@ -253,6 +303,7 @@ class AddressSearchWidget(QWidget):
 
     @staticmethod
     def _dropdown_style() -> str:
+        """Return the dropdown QSS, choosing colours for the active theme."""
         from utils.theme import ThemeManager
         if ThemeManager().is_dark():
             bg, border, text, hover = "#1F2937", "#374151", "#F9FAFB", "#374151"
