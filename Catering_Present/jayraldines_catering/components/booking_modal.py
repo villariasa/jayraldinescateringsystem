@@ -1,3 +1,24 @@
+"""Multi-step "New / Edit Booking" dialog for the catering system.
+
+This module implements ``BookingModal``, a frameless modal ``QDialog`` that walks
+the user through a 4-step reservation wizard: Customer -> Event -> Menu -> Payment.
+It also defines ``StepIndicator`` (the numbered progress header) and a family of
+theme-aware stylesheet helper functions (prefixed with ``_``) that return Qt style
+strings tuned for the current light/dark theme.
+
+Key responsibilities:
+    - Collect and validate customer, event, menu and pricing details across steps.
+    - Support both "package" menus (with per-package dish selection and optional
+      per-category selection "buckets"/quotas) and a free-form "custom" menu.
+    - Compute a live cost breakdown (base total + custom add-ons + required deposit).
+    - Pre-populate every field when editing an existing booking (``edit_mode``).
+    - Emit ``booking_saved`` with a flat dict describing the finished booking.
+
+Steps 2 and 3 are built lazily (only when first navigated to) so a tall hidden
+step never inflates the stacked widget's height for the other steps.
+Data is read through ``utils.repository`` (``repo``) and ``utils.menu_store``.
+"""
+
 from PySide6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QDateEdit, QTimeEdit, QSpinBox, QDoubleSpinBox,
@@ -16,26 +37,31 @@ from components.color_picker_widget import ColorThemeSelector
 
 
 def _is_light():
+    """Return True when the app is currently in light theme (inverse of dark)."""
     return not ThemeManager().is_dark()
 
 
 def _readonly_input_style():
+    """Qt stylesheet for a disabled / read-only input, theme-aware."""
     if _is_light():
         return "background:#F3F5F9;color:#5B6B84;border:1px solid #E4E9F1;border-radius:9px;padding:8px 14px;"
     return "background:#111827;color:#9CA3AF;border:1px solid #243244;border-radius:9px;padding:8px 14px;"
 
 
 def _muted_style(size=12):
+    """Qt stylesheet for muted/secondary text at the given point size."""
     return "color: %s; font-size: %dpx;" % ("#7A879E" if _is_light() else "#9CA3AF", size)
 
 
 def _price_style(size=13):
+    """Qt stylesheet for emphasised price text (amber/orange accent)."""
     return "font-weight: 700; color: %s; font-size: %dpx;" % (
         "#B45309" if _is_light() else "#F59E0B", size
     )
 
 
 def _package_card_style(selected=False):
+    """Qt stylesheet for a package card frame; ``selected`` uses the rose accent border."""
     if selected:
         if _is_light():
             return ("QFrame#packageCard { background: rgba(225,29,72,0.06); border-radius: 12px; border: 2px solid #E11D48; }"
@@ -52,14 +78,17 @@ def _package_card_style(selected=False):
 
 
 def _package_name_style():
+    """Qt stylesheet for a package card's title label."""
     return "font-weight: 700; color: %s; font-size: 13px;" % ("#101828" if _is_light() else "#F9FAFB")
 
 
 def _package_desc_style():
+    """Qt stylesheet for a package card's description label."""
     return "color: %s; font-size: 12px;" % ("#5B6B84" if _is_light() else "#9CA3AF")
 
 
 def _notes_style():
+    """Qt stylesheet for the multi-line notes/textarea input, theme-aware."""
     if _is_light():
         return ("background: #FFFFFF; color: #101828; border: 1px solid #D8DFEA; "
                 "border-radius: 9px; padding: 8px; font-size: 13px;")
@@ -68,24 +97,29 @@ def _notes_style():
 
 
 def _cost_breakdown_style():
+    """Qt stylesheet for the small uppercase "COST BREAKDOWN" heading."""
     return "color: %s; font-size: 11px; font-weight: 700; letter-spacing: 1px;" % (
         "#5B6B84" if _is_light() else "#6B7280"
     )
 
 
 def _cost_base_style():
+    """Qt stylesheet for the base-total line in the cost breakdown."""
     return "color: %s; font-size: 13px;" % ("#46536B" if _is_light() else "#9CA3AF")
 
 
 def _cost_total_style():
+    """Qt stylesheet for the emphasised grand-total line."""
     return "color: %s; font-size: 15px; font-weight: 800;" % ("#101828" if _is_light() else "#F9FAFB")
 
 
 def _checkbox_item_style():
+    """Qt stylesheet for a menu/dish checkbox label."""
     return "color: %s; font-size: 13px;" % ("#101828" if _is_light() else "#F9FAFB")
 
 
 def _combo_style():
+    """Qt stylesheet for the occasion combo box, including its popup item view."""
     if _is_light():
         return (
             "QComboBox { padding: 10px 14px; border: 1px solid #D8DFEA; border-radius: 9px;"
@@ -117,18 +151,22 @@ def _combo_style():
 
 
 def _step_inactive_fg():
+    """Foreground colour for an inactive step dot/label in the progress header."""
     return "#98A2B3" if _is_light() else "#6B7280"
 
 
 def _step_line_inactive():
+    """Qt stylesheet for the connector line between two inactive steps."""
     return "background: %s; margin-top: 13px;" % ("#E4E9F1" if _is_light() else "#243244")
 
 
+# Ordered wizard step titles; index into this drives the whole modal flow.
 _STEPS = ["Customer", "Event", "Menu", "Payment"]
 
 
 
 def _section_label(text):
+    """Build a QLabel styled (via objectName) as a step's section heading."""
     lbl = QLabel(text)
     lbl.setObjectName("sectionLabel")
     return lbl
@@ -138,6 +176,7 @@ def _segment_button_style(selected=False, left=True):
     """Return stylesheet for segment buttons (Packages / Custom Menu).
     left=True for the left segment, False for the right.
     """
+    # Round only the outer corners so the two segments meet flush in the middle.
     radius = ("border-top-left-radius: 9px; border-bottom-left-radius: 9px;"
               " border-top-right-radius: 0px; border-bottom-right-radius: 0px;") if left else \
              ("border-top-right-radius: 9px; border-bottom-right-radius: 9px;"
@@ -153,12 +192,14 @@ def _segment_button_style(selected=False, left=True):
 
 
 def _field_label(text):
+    """Build a QLabel styled (via objectName) as an individual field caption."""
     lbl = QLabel(text)
     lbl.setObjectName("fieldLabel")
     return lbl
 
 
 def _input(placeholder="", fixed_height=38):
+    """Create a QLineEdit with the given placeholder text and fixed height."""
     f = QLineEdit()
     f.setPlaceholderText(placeholder)
     f.setFixedHeight(fixed_height)
@@ -166,7 +207,17 @@ def _input(placeholder="", fixed_height=38):
 
 
 class StepIndicator(QWidget):
+    """Horizontal numbered progress header (dot + label per step, connector lines).
+
+    Renders one circular "dot" and caption for each step name, joined by lines.
+    ``set_step`` recolours dots/lines to reflect done / current / upcoming state.
+    """
+
     def __init__(self, steps, parent=None):
+        """Build the dots, labels and connector lines for ``steps`` (list of names).
+
+        All widgets start in the inactive style; call ``set_step`` to highlight.
+        """
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -212,18 +263,24 @@ class StepIndicator(QWidget):
                 self._lines.append(line)
 
     def set_step(self, index):
+        """Highlight the wizard at step ``index``.
+
+        Steps before ``index`` render as completed (green check), the step at
+        ``index`` renders active (rose), and later steps stay inactive/grey.
+        Connector lines before ``index`` also turn green. No return value.
+        """
         fg = _step_inactive_fg()
         done_fg = "#16A34A" if _is_light() else "#22C55E"
         for i, (dot, lbl) in enumerate(zip(self._dots, self._labels)):
-            if i < index:
+            if i < index:  # already-completed step -> green with a check mark
                 dot.setStyleSheet(f"border-radius: 14px; background: {done_fg}; color: #FFFFFF; font-weight: 700; font-size: 12px; border: 2px solid {done_fg};")
                 dot.setText("✓")
                 lbl.setStyleSheet(f"color: {done_fg}; font-size: 11px; font-weight: 600;")
-            elif i == index:
+            elif i == index:  # currently active step -> rose accent, keeps its number
                 dot.setStyleSheet("border-radius: 14px; background: #E11D48; color: #FFFFFF; font-weight: 700; font-size: 12px; border: 2px solid #E11D48;")
                 dot.setText(str(i + 1))
                 lbl.setStyleSheet("color: #E11D48; font-size: 11px; font-weight: 700;")
-            else:
+            else:  # upcoming step -> inactive/grey outline
                 dot.setStyleSheet(f"border-radius: 14px; background: transparent; color: {fg}; font-weight: 700; font-size: 12px; border: 2px solid {fg};")
                 dot.setText(str(i + 1))
                 lbl.setStyleSheet(f"color: {fg}; font-size: 11px; font-weight: 600;")
@@ -256,18 +313,37 @@ def _make_step_scroll(content_widget):
 
 
 class BookingModal(QDialog):
+    """Frameless 4-step modal dialog for creating or editing a booking.
+
+    Emits ``booking_saved`` (a dict) when the final step is confirmed. When
+    ``booking_data`` is provided the dialog runs in edit mode and pre-fills all
+    fields from it. Steps are held in a ``QStackedWidget``; steps 2 (Menu) and
+    3 (Payment) are built lazily the first time they are shown.
+    """
+
+    # Emitted on save with the flattened booking dict (see ``_save``).
     booking_saved = Signal(dict)
 
     def __init__(self, parent=None, booking_data=None):
+        """Set up window chrome, sizing and all eagerly-built widgets.
+
+        Args:
+            parent: Optional parent widget.
+            booking_data: Existing booking dict to edit; falsy => "new booking".
+
+        Side effects: reads customers/occasions via ``repo``, builds steps 0 & 1
+        immediately (2 & 3 are placeholders built on demand), and shows the first step.
+        """
         super().__init__(parent)
         self._booking_data = booking_data or {}
-        self._edit_mode = bool(booking_data)
+        self._edit_mode = bool(booking_data)  # truthy booking_data => editing existing
         self.setWindowTitle("Edit Booking" if self._edit_mode else "New Booking")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
 
         from PySide6.QtWidgets import QApplication
+        # Cap dialog height to 90% of the screen (or 920px) so it never overflows.
         screen = QApplication.primaryScreen()
         screen_h = screen.availableGeometry().height() if screen else 900
         max_h = min(int(screen_h * 0.90), 920)
@@ -275,18 +351,21 @@ class BookingModal(QDialog):
         self.setMinimumHeight(520)
         self.setMaximumHeight(max_h)
 
-        self._step = 0
+        self._step = 0                     # index into _STEPS of the visible step
         self._data = {}
-        self._addon_items = []
-        self._pkg_selected_dishes = {}
+        self._addon_items = []             # (row_widget, name_edit, amount_edit) tuples
+        self._pkg_selected_dishes = {}     # package_id -> list of chosen dish names
         self._occasions = repo.get_all_occasions()
         if self._edit_mode and self._booking_data:
+            # Seed the per-package dish cache from the booking being edited so the
+            # Menu step shows the previously chosen dishes pre-checked.
             b_pkg_id = self._booking_data.get("package_id")
             b_dishes = self._booking_data.get("dishes") or []
             if b_pkg_id and b_dishes:
                 self._pkg_selected_dishes[b_pkg_id] = [d.get("name") for d in b_dishes if d.get("name")]
 
 
+        # Inherit the app-wide stylesheet so the frameless card matches the theme.
         self.setStyleSheet(QApplication.instance().styleSheet() if QApplication.instance() else "")
 
         outer = QVBoxLayout(self)
@@ -334,8 +413,10 @@ class BookingModal(QDialog):
         # never affect other steps (e.g. Menu with many packages won't bleed into Customer tab).
         self._stack = QStackedWidget()
         self._stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # Parallel arrays: the content widget and its scroll wrapper per step.
         self._step_widgets = [None, None, None, None]
         self._step_scrolls = [None, None, None, None]
+        # Only steps 0 and 1 are built up front; 2 and 3 are built on first visit.
         self._step_widgets[0] = self._build_step0()
         self._step_widgets[1] = self._build_step1()
         self._step_scrolls[0] = _make_step_scroll(self._step_widgets[0])
@@ -383,15 +464,22 @@ class BookingModal(QDialog):
         self._refresh_step()
 
     def _ensure_step_built(self, idx: int):
+        """Lazily build step ``idx`` and swap it into the stack if not already built.
+
+        Returns the step's content widget (or None for an out-of-range index).
+        For steps 2/3 this replaces the placeholder QWidget inserted in __init__
+        with the real, scroll-wrapped step and deletes the placeholder.
+        """
         if idx < 0 or idx >= len(self._step_widgets):
             return None
         if self._step_widgets[idx] is not None:
-            return self._step_widgets[idx]
+            return self._step_widgets[idx]  # already built -> reuse
         builders = [self._build_step0, self._build_step1, self._build_step2, self._build_step3]
         w = builders[idx]()
         self._step_widgets[idx] = w
         sa = _make_step_scroll(w)
         self._step_scrolls[idx] = sa
+        # Replace the placeholder widget occupying this stack slot with the real one.
         old = self._stack.widget(idx)
         self._stack.removeWidget(old)
         self._stack.insertWidget(idx, sa)
@@ -400,6 +488,7 @@ class BookingModal(QDialog):
         return w
 
     def showEvent(self, event):
+        """Animate the dialog open (and auto-center) the first time it is shown."""
         super().showEvent(event)
         animate_dialog_open(self, duration=240, auto_center=True)
         # Do NOT pre-build steps 2/3 eagerly — lazy build on navigate prevents
@@ -408,6 +497,11 @@ class BookingModal(QDialog):
 
 
     def _build_step0(self):
+        """Build step 0 (Customer): customer search + contact/email/address fields.
+
+        Returns the step's content QWidget. In edit mode it pre-selects the
+        customer whose name matches the booking being edited.
+        """
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         lay = QVBoxLayout(w)
@@ -453,6 +547,7 @@ class BookingModal(QDialog):
         lay.addStretch()
 
         if self._edit_mode:
+            # Re-select the previously booked customer by matching their name.
             name = self._booking_data.get("name", "")
             match = next((c for c in self._customers if c.get("name") == name), None)
             if match:
@@ -462,6 +557,11 @@ class BookingModal(QDialog):
         return w
 
     def _on_customer_selected(self, data: dict):
+        """Populate contact/email/address from the chosen customer ``data`` dict.
+
+        Also seeds the venue with the customer's address only if the venue field
+        exists and is still empty. Clears any "no customer" validation error.
+        """
         if data.get("contact"):
             self.f_contact.setText(str(data.get("contact", "")))
         if data.get("email"):
@@ -473,11 +573,18 @@ class BookingModal(QDialog):
         self.f_customer_search.clear_error()
 
     def _on_customer_cleared(self):
+        """Reset contact/email/address fields when the customer selection is cleared."""
         self.f_contact.clear()
         self.f_email.clear()
         self.f_address.clear()
 
     def _build_step1(self):
+        """Build step 1 (Event): occasion, venue, date/time, pax, motif and notes.
+
+        Returns the step's content QWidget. In edit mode it parses and restores
+        the stored date/time strings, pax, occasion, venue, motif and notes,
+        then runs an initial date-availability check.
+        """
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         lay = QVBoxLayout(w)
@@ -541,7 +648,7 @@ class BookingModal(QDialog):
         self.f_end_time.setDisplayFormat("hh:mm AP")
         self.f_end_time.setFixedHeight(38)
         self.f_end_time.setMinimumWidth(105)
-        self.f_end_time.setEnabled(False)
+        self.f_end_time.setEnabled(False)  # end time is opt-in via the checkbox
         self.chk_end_time.toggled.connect(self.f_end_time.setEnabled)
         v4b.addWidget(self.f_end_time)
 
@@ -582,6 +689,7 @@ class BookingModal(QDialog):
         lay.addStretch()
 
         if self._edit_mode:
+            # Stored date may be in any of several formats; try each until one parses.
             raw_date = str(self._booking_data.get("date") or self._booking_data.get("event_date") or "")
             for fmt in ("MMM dd, yyyy", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss", "MM/dd/yyyy"):
                 d = QDate.fromString(raw_date, fmt)
@@ -606,6 +714,8 @@ class BookingModal(QDialog):
                 self.f_pax.setValue(int(self._booking_data.get("pax", 100)))
             except (ValueError, TypeError):
                 pass
+            # Strip the machine-appended "[Add-ons: ...]" block out of the notes so
+            # only the human-written notes show; add-ons are restored separately in step 3.
             notes_raw = str(self._booking_data.get("notes", "") or "")
             import re
             clean_notes = re.sub(r"\n?\[Add-ons:\s*.*?\]", "", notes_raw).strip()
@@ -621,6 +731,7 @@ class BookingModal(QDialog):
             if found_idx >= 0:
                 self.f_occasion.setCurrentIndex(found_idx)
             elif occasion_val:
+                # Occasion not in the predefined list -> inject it so it can be selected.
                 self.f_occasion.insertItem(0, occasion_val)
                 self.f_occasion.setCurrentIndex(0)
 
@@ -637,6 +748,12 @@ class BookingModal(QDialog):
         return w
 
     def _check_date_availability(self):
+        """Show/hide the amber schedule-conflict banner for the selected event date.
+
+        Queries ``repo.get_date_bookings_summary`` and, when other events already
+        exist on that date, displays a warning summarising up to 3 of them plus a
+        total-pax figure. Any error is swallowed and simply hides the banner.
+        """
         if not hasattr(self, "lbl_date_warning") or not hasattr(self, "f_date"):
             return
         try:
@@ -644,6 +761,7 @@ class BookingModal(QDialog):
             summary = repo.get_date_bookings_summary(d_val)
             if summary.get("count", 0) > 0:
                 bk_list = summary.get("bookings", [])
+                # Preview the first 3 conflicting events; collapse the rest into a count.
                 events_str = "; ".join([f"{b['occasion']} ({b['time']}, {b['pax']}p)" for b in bk_list[:3]])
                 if len(bk_list) > 3:
                     events_str += f" and {len(bk_list)-3} more"
@@ -662,6 +780,13 @@ class BookingModal(QDialog):
             self.lbl_date_warning.hide()
 
     def _build_step2(self):
+        """Build step 2 (Menu): a Packages/Custom Menu segmented switch.
+
+        The "Packages" pane lists selectable package cards plus an inline dish
+        customiser box; the "Custom Menu" pane lists priced menu items with
+        checkboxes. Returns the step's content QWidget and selects the first
+        package (if any) by default.
+        """
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         lay = QVBoxLayout(w)
@@ -744,6 +869,7 @@ class BookingModal(QDialog):
                 card_lay.addLayout(info, 1)
 
                 price_val = float(pkg.get("price_per_pax", 0))
+                # "Food set" packages are priced per set; everything else per head (pax).
                 p_unit = "set" if self._is_food_set(pkg.get("name", "")) else "pax"
                 p_lbl = QLabel(f"₱{price_val:,.2f}/{p_unit}")
                 p_lbl.setStyleSheet("font-size: 13.5px; font-weight: 700; color: #E11D48; margin-right: 6px;")
@@ -776,12 +902,13 @@ class BookingModal(QDialog):
                         background: rgba(225, 29, 72, 0.22);
                     }
                 """)
+                # idx=i / c=card bound as defaults to capture per-iteration values in the lambda.
                 menu_btn.clicked.connect(lambda _, idx=i, c=card: (self._select_package(idx, c, open_popup=False), self._open_package_menu_popup(idx)))
                 actions_layout.addWidget(menu_btn)
 
                 card_lay.addLayout(actions_layout)
 
-                # Clicking card also selects and opens popup
+                # Clicking anywhere on the card also selects it and opens the dish popup.
                 card.mousePressEvent = lambda e, idx=i, c=card: self._select_package(idx, c, open_popup=True)
 
                 self._pkg_btns.append((card, sel_btn))
@@ -859,6 +986,7 @@ class BookingModal(QDialog):
         self._custom_checks = []
 
         try:
+            # Prefer DB-backed items; fall back to the local menu_store if empty/errored.
             custom_items = repo.get_available_menu_items()
             if not custom_items:
                 custom_items = menu_store.get_available_items()
@@ -898,12 +1026,20 @@ class BookingModal(QDialog):
         self.btn_custom.clicked.connect(lambda: self._set_menu_mode(1))
 
         lay.addWidget(self.menu_stack, 1)
+        # Default to the first package when packages exist; None means custom mode.
         self._selected_pkg = 0 if self._db_packages else None
         if self._selected_pkg is not None:
             self._update_package_dishes(self._selected_pkg)
         return w
 
     def _set_menu_mode(self, index):
+        """Switch between the Packages (0) and Custom Menu (1) panes.
+
+        Updates segment-button checked state and styling, keeps ``_selected_pkg``
+        consistent (a package stays selected in mode 0, is cleared in mode 1 so
+        cost uses custom items), recomputes cost, and animates the transition.
+        No-op when already on ``index``.
+        """
         if self.menu_stack.currentIndex() == index:
             return
         # Update segment button checked state and styles
@@ -934,6 +1070,7 @@ class BookingModal(QDialog):
             # when switching to custom menu, clear any selected package so cost uses custom items
             self._selected_pkg = None
 
+        # Slide the incoming pane in from the side matching the travel direction.
         direction = 1 if index > self.menu_stack.currentIndex() else -1
         self.menu_stack.setCurrentIndex(index)
         self._update_cost()
@@ -944,12 +1081,23 @@ class BookingModal(QDialog):
         )
 
     def _is_food_set(self, pkg_name: str) -> bool:
+        """Heuristic: True if the package name implies "food set" (per-set) pricing.
+
+        Matches common keywords/substrings ("food set", "set of dish", " set", etc.)
+        so pax labels and units switch from "pax" to "sets" for these packages.
+        """
         if not pkg_name:
             return False
         name = str(pkg_name).strip().lower()
         return any(k in name for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or name.startswith("set ") or " set" in name
 
     def _update_pax_set_labels(self):
+        """Relabel the pax quantity fields as "Sets" or "Pax" per the selected package.
+
+        Reads the currently selected package (or the booking data in edit mode),
+        checks ``_is_food_set``, and updates the step-1 field caption and the
+        step-3 quantity title if those labels have been created.
+        """
         pkg_name = ""
         if hasattr(self, "_db_packages") and getattr(self, "_selected_pkg", None) is not None:
             if self._selected_pkg < len(self._db_packages):
@@ -965,6 +1113,14 @@ class BookingModal(QDialog):
             self.lbl_pax_title.setText("📦 Quantity (Sets):" if is_set else "👥 Quantity (Pax):")
 
     def _select_package(self, idx, clicked_card=None, open_popup=True):
+        """Select package ``idx``, update visuals/pricing, and optionally open the popup.
+
+        Switches to Packages mode, adjusts the pax spin box down to the package's
+        minimum when switching to a per-set package (a large per-head pax count
+        would be nonsensical), recomputes the base total, refreshes card
+        selection styling, dish list, cost, badges and pax labels. When
+        ``open_popup`` is True the dish-selection dialog is shown.
+        """
         # select a package and switch menu mode to Packages
         self._selected_pkg = idx
         # ensure we're in Packages mode
@@ -976,6 +1132,8 @@ class BookingModal(QDialog):
             pkg = self._db_packages[idx]
             pkg_name = pkg.get("name") or pkg.get("pkg_name") or ""
             if self._is_food_set(pkg_name):
+                # Switching to a per-set package: a leftover per-head count (>50)
+                # is meaningless as "sets", so reset it to the package minimum.
                 cur_val = self.f_pax.value() if hasattr(self, "f_pax") else 100
                 if cur_val > 50:
                     min_p = int(pkg.get("min_pax") or 1)
@@ -995,6 +1153,7 @@ class BookingModal(QDialog):
                 card.setStyleSheet(_package_card_style(selected=False))
                 btn.setObjectName("secondaryButton")
                 btn.setText("Select")
+            # objectName changed above -> force Qt to re-apply the matching stylesheet.
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 
@@ -1007,6 +1166,13 @@ class BookingModal(QDialog):
             self._open_package_menu_popup(idx)
 
     def _open_package_menu_popup(self, pkg_idx: int):
+        """Open the modal dish-selection dialog for package ``pkg_idx``.
+
+        Determines the currently selected dish names (cache -> edit-mode booking
+        dishes -> package defaults), shows ``PackageMenuSelectionDialog``, and on
+        acceptance stores the chosen dishes, syncs the inline and Custom Menu
+        checkboxes, and refreshes the card badges. No-op for an invalid index.
+        """
         db_pkgs = getattr(self, "_db_packages", [])
         if not db_pkgs or pkg_idx is None or pkg_idx >= len(db_pkgs):
             return
@@ -1016,6 +1182,7 @@ class BookingModal(QDialog):
         if not hasattr(self, "_pkg_selected_dishes"):
             self._pkg_selected_dishes = {}
 
+        # Resolve the pre-selected dishes: cached choice, else edit-mode booking, else defaults.
         current_selected = self._pkg_selected_dishes.get(pkg_id)
         if current_selected is None:
             if getattr(self, "_edit_mode", False) and self._booking_data and self._booking_data.get("dishes"):
@@ -1030,7 +1197,8 @@ class BookingModal(QDialog):
             chosen = dlg.get_selected_dishes()
             self._pkg_selected_dishes[pkg_id] = chosen
 
-            # Sync inline checkboxes
+            # Sync inline checkboxes to match the popup's result (signals blocked
+            # so this programmatic sync doesn't re-trigger toggle handlers).
             if hasattr(self, "_pkg_dish_checks"):
                 sel_lowers = {s.strip().lower() for s in chosen}
                 for chk, itm in self._pkg_dish_checks:
@@ -1050,7 +1218,11 @@ class BookingModal(QDialog):
 
     def _sync_custom_checks_from_package(self, pkg_id):
         """Check the Custom Menu tab's checkboxes to match the given package's
-        currently selected dishes (from self._pkg_selected_dishes)."""
+        currently selected dishes (from self._pkg_selected_dishes).
+
+        Signals are blocked during the update so it does not recurse into cost
+        recalculation. No-op if the Custom Menu checkboxes have not been built.
+        """
         if not hasattr(self, "_custom_checks"):
             return
         chosen = getattr(self, "_pkg_selected_dishes", {}).get(pkg_id) or []
@@ -1062,6 +1234,11 @@ class BookingModal(QDialog):
             chk.blockSignals(False)
 
     def _update_pkg_card_badges(self):
+        """Refresh each package card's dish badge to show its selected-dish count.
+
+        Cards with a stored selection show "N dishes selected" in green; cards
+        with none revert to the neutral "Click to customize menu" prompt.
+        """
         db_pkgs = getattr(self, "_db_packages", [])
         cards = getattr(self, "_pkg_cards", [])
         for i, card in enumerate(cards):
@@ -1078,6 +1255,15 @@ class BookingModal(QDialog):
                         card._dish_badge.setStyleSheet("font-size: 11px; font-weight: 600; color: #94A3B8; background: rgba(255, 255, 255, 0.05); border-radius: 4px; padding: 2px 6px;")
 
     def _update_package_dishes(self, pkg_idx: int):
+        """Rebuild the inline dish customiser list for package ``pkg_idx``.
+
+        Clears the previous rows, then renders every available menu item grouped
+        by category with a checkbox. Handles selection "buckets" (per-category
+        quotas): when a package defines buckets, only bucketed categories are
+        shown and a live "used/limit" counter summary is added. Pre-checks dishes
+        from the cache / edit-mode booking / package defaults, and seeds the cache
+        if unset. Hides the box entirely for an invalid package index.
+        """
         if not hasattr(self, "_pkg_dishes_box") or not hasattr(self, "_pkg_dishes_list_lay"):
             return
         # Clear existing dish items
@@ -1107,7 +1293,8 @@ class BookingModal(QDialog):
         default_items = repo.get_package_items(pkg_id)
         default_names = {p["item_name"].strip().lower() for p in default_items if p.get("item_name")}
 
-        # Check existing selected dishes cache first
+        # Decide which dishes start checked, in priority order:
+        # cached user selection -> dishes from the booking being edited -> package defaults.
         if hasattr(self, "_pkg_selected_dishes") and pkg_id in self._pkg_selected_dishes:
             prechecked = {s.strip().lower() for s in self._pkg_selected_dishes[pkg_id] if s}
         elif getattr(self, "_edit_mode", False) and self._booking_data and self._booking_data.get("dishes"):
@@ -1125,6 +1312,7 @@ class BookingModal(QDialog):
         # Load this package's selection buckets (dish/dessert quotas). With no
         # buckets the picker stays unlimited (legacy behavior).
         self._pkg_buckets = repo.get_package_buckets(pkg_id) or []
+        # Build lookup maps: category name -> bucket id, and bucket id -> limit/name.
         self._cat_to_bucket = {}
         self._bucket_limit_by_id = {}
         self._bucket_name_by_id = {}
@@ -1157,6 +1345,7 @@ class BookingModal(QDialog):
         else:
             self._pkg_bucket_summary = None
 
+        # Show categories in a sensible course order; unknown categories sink to the end.
         cat_order = ["Main Course", "Appetizer", "Soup", "Salad", "Dessert", "Drinks", "Other"]
         sorted_cats = sorted(by_cat.keys(), key=lambda c: cat_order.index(c) if c in cat_order else 99)
 
@@ -1182,6 +1371,7 @@ class BookingModal(QDialog):
                 if i_name.strip().lower() in prechecked:
                     chk.setChecked(True)
 
+                # With buckets, use a quota-enforcing handler; otherwise a plain toggle.
                 if buckets_active:
                     chk.toggled.connect(self._make_dish_toggle_handler(chk, item))
                 else:
@@ -1204,6 +1394,12 @@ class BookingModal(QDialog):
         self._update_pkg_card_badges()
 
     def _on_pkg_dish_toggled(self):
+        """React to any inline dish checkbox change for the current package.
+
+        Updates the "N dishes selected" label, writes the current selection back
+        into the ``_pkg_selected_dishes`` cache, mirrors it onto the Custom Menu
+        checkboxes and card badges, and refreshes the bucket counters.
+        """
         cnt = sum(1 for chk, _ in getattr(self, "_pkg_dish_checks", []) if chk.isChecked())
         if hasattr(self, "_pkg_dishes_count_lbl"):
             self._pkg_dishes_count_lbl.setText(f"✓ {cnt} dishes selected for this package order")
@@ -1223,10 +1419,12 @@ class BookingModal(QDialog):
 
     # ---- Selection bucket enforcement (dish/dessert quotas) ----
     def _bucket_for_item(self, item):
+        """Return the bucket id an ``item`` belongs to (via its category), or None."""
         cat = (item.get("category") or "").strip().lower()
         return getattr(self, "_cat_to_bucket", {}).get(cat)
 
     def _count_checked_in_bucket(self, bid):
+        """Count how many currently checked dishes fall into bucket ``bid``."""
         n = 0
         for chk, itm in getattr(self, "_pkg_dish_checks", []):
             if chk.isChecked() and self._bucket_for_item(itm) == bid:
@@ -1234,6 +1432,7 @@ class BookingModal(QDialog):
         return n
 
     def _update_bucket_counters(self):
+        """Refresh the "Dishes 3/4 - Dessert 1/1" per-bucket usage summary label."""
         lbl = getattr(self, "_pkg_bucket_summary", None)
         if not lbl:
             return
@@ -1245,6 +1444,10 @@ class BookingModal(QDialog):
         lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #38BDF8; padding: 2px 4px;")
 
     def _flash_bucket_limit(self, bid, limit):
+        """Briefly show an amber "max ``limit``" warning on the bucket summary label.
+
+        Reverts to the normal counter display after 1.8s via a one-shot timer.
+        """
         name = getattr(self, "_bucket_name_by_id", {}).get(bid, "This group")
         lbl = getattr(self, "_pkg_bucket_summary", None)
         if lbl:
@@ -1254,14 +1457,21 @@ class BookingModal(QDialog):
             QTimer.singleShot(1800, self._update_bucket_counters)
 
     def _make_dish_toggle_handler(self, chk, item):
+        """Build a toggle handler for ``chk`` that enforces its bucket's quota.
+
+        Returns a closure: on check, if accepting the item would exceed the
+        bucket limit it reverts the checkbox (signals blocked) and flashes a
+        warning; otherwise it delegates to the normal ``_on_pkg_dish_toggled``.
+        """
         def _handler(checked=False):
             if checked:
                 bid = self._bucket_for_item(item)
                 if bid is not None:
                     limit = getattr(self, "_bucket_limit_by_id", {}).get(bid, 0)
+                    # This check runs after the box is already checked, so ">" means over quota.
                     if self._count_checked_in_bucket(bid) > limit:
                         chk.blockSignals(True)
-                        chk.setChecked(False)
+                        chk.setChecked(False)  # undo the over-limit selection
                         chk.blockSignals(False)
                         self._flash_bucket_limit(bid, limit)
                         return
@@ -1269,6 +1479,11 @@ class BookingModal(QDialog):
         return _handler
 
     def _reset_pkg_dishes_to_default(self):
+        """Reset the current package's dish selection to its package defaults.
+
+        Re-checks only the default dishes, updates the cache and Custom Menu
+        mirror, and refreshes counts. No-op for an invalid package index.
+        """
         pkg_idx = getattr(self, "_selected_pkg", 0)
         db_pkgs = getattr(self, "_db_packages", [])
         if not db_pkgs or pkg_idx >= len(db_pkgs):
@@ -1288,9 +1503,14 @@ class BookingModal(QDialog):
         self._on_pkg_dish_toggled()
 
     def _select_all_pkg_dishes(self):
+        """Check every dish, respecting per-bucket quotas when buckets are active.
+
+        With buckets: fills each bucket only up to its limit (dishes with no
+        bucket are left unchecked). Without buckets: checks everything.
+        """
         # Respect bucket caps: never select more than each bucket's limit.
         if getattr(self, "_pkg_buckets", None):
-            counts = {}
+            counts = {}  # bucket id -> number already checked in this pass
             for chk, itm in getattr(self, "_pkg_dish_checks", []):
                 bid = self._bucket_for_item(itm)
                 chk.blockSignals(True)
@@ -1312,11 +1532,19 @@ class BookingModal(QDialog):
         self._on_pkg_dish_toggled()
 
     def _clear_all_pkg_dishes(self):
+        """Uncheck every inline package dish and refresh counts."""
         for chk, _ in getattr(self, "_pkg_dish_checks", []):
             chk.setChecked(False)
         self._on_pkg_dish_toggled()
 
     def _build_step3(self):
+        """Build step 3 (Payment): quantity/base-total controls, add-ons and cost box.
+
+        Provides a pax + editable base-total row, a dynamic list of custom
+        add-on/adjustment rows, and a live cost-breakdown card. In edit mode it
+        re-parses any "[Add-ons: ...]" block from the stored notes back into rows.
+        Returns the step's content QWidget.
+        """
         w = QWidget()
         w.setStyleSheet("background: transparent;")
         lay = QVBoxLayout(w)
@@ -1352,6 +1580,7 @@ class BookingModal(QDialog):
         self.f_pay_package_total.setFixedHeight(34)
         self.f_pay_package_total.setMinimumWidth(130)
         
+        # Seed the editable base total from pax x selected package rate.
         pax_val = self.f_pax.value()
         initial_base_total = 0.0
         if getattr(self, "_db_packages", None) and getattr(self, "_selected_pkg", 0) is not None:
@@ -1468,6 +1697,8 @@ class BookingModal(QDialog):
 
         # Pre-populate existing add-ons if in edit mode
         if self._edit_mode and self._booking_data:
+            # Add-ons were serialized into notes as "[Add-ons: name (₱amt), ...]".
+            # Parse each "name (±₱amount)" entry back into an editable add-on row.
             notes_str = str(self._booking_data.get("notes") or "")
             if "[Add-ons:" in notes_str:
                 import re
@@ -1481,7 +1712,7 @@ class BookingModal(QDialog):
                         amt_str = match.group(3).replace(",", "")
                         try:
                             val = float(amt_str)
-                            if sign == "-":
+                            if sign == "-":  # preserve discounts as negative amounts
                                 val = -val
                             self._add_addon_row(desc, val)
                         except ValueError:
@@ -1495,6 +1726,11 @@ class BookingModal(QDialog):
 
 
     def _on_pay_pax_changed(self, val: int):
+        """Mirror the step-3 pax spin box back to the step-1 pax field and recost.
+
+        Signals on the target are blocked to avoid a feedback loop between the
+        two synchronized pax controls.
+        """
         if hasattr(self, "f_pax") and self.f_pax.value() != val:
             self.f_pax.blockSignals(True)
             self.f_pax.setValue(val)
@@ -1502,12 +1738,18 @@ class BookingModal(QDialog):
             self._update_cost()
 
     def _sync_pay_pax(self, val: int):
+        """Mirror the step-1 pax field into the step-3 pax spin box (loop-safe)."""
         if hasattr(self, "f_pay_pax") and self.f_pay_pax.value() != val:
             self.f_pay_pax.blockSignals(True)
             self.f_pay_pax.setValue(val)
             self.f_pay_pax.blockSignals(False)
 
     def _add_addon_row(self, name: str = "", amount: float = 0.0):
+        """Append an editable custom add-on/adjustment row (description + amount + delete).
+
+        Optionally pre-filled with ``name``/``amount`` (negative = discount). Each
+        edit triggers a cost recalculation; the row is tracked in ``_addon_items``.
+        """
         row_w = QWidget()
         row_lay = QHBoxLayout(row_w)
         row_lay.setContentsMargins(0, 0, 0, 0)
@@ -1543,20 +1785,32 @@ class BookingModal(QDialog):
         self._update_cost()
 
     def _remove_addon_row(self, row_w: QWidget):
+        """Remove add-on row ``row_w`` from the list and layout, then recost."""
         self._addon_items = [(w, n, a) for w, n, a in self._addon_items if w != row_w]
         row_w.hide()
         row_w.deleteLater()
         self._update_cost()
 
     def _update_cost(self):
+        """Recompute the live cost breakdown (base + add-ons + deposit) and update labels.
+
+        Derives the base total from the editable base-total field when present,
+        otherwise from pax x rate (custom items sum or selected package rate).
+        Sums add-on rows (negatives allowed), rebuilds the itemized add-on
+        breakdown, computes the grand total (floored at 0) and the required
+        deposit from business policy. Safe to call before step 3 is built: it
+        returns early if the payment labels do not yet exist.
+        """
         pax = self.f_pay_pax.value() if hasattr(self, "f_pay_pax") else (self.f_pax.value() if hasattr(self, "f_pax") else 100)
-        
+
         if hasattr(self, "f_pay_package_total"):
             base_total = self.f_pay_package_total.value()
         else:
+            # Fallback path (step-3 field not built yet): derive base from pax x rate.
             pkg_idx = getattr(self, "_selected_pkg", None)
             db_pkgs = getattr(self, "_db_packages", [])
             if getattr(self, "btn_custom", None) and self.btn_custom.isChecked():
+                # Custom mode: rate is the sum of the checked custom items' prices.
                 rate = 0.0
                 for chk, item in getattr(self, "_custom_checks", []):
                     if chk.isChecked():
@@ -1617,9 +1871,11 @@ class BookingModal(QDialog):
             else:
                 self._addon_breakdown_box.setVisible(False)
 
+        # Grand total can never be negative even if discounts exceed the base.
         grand_total = max(0.0, base_total + addons_total)
         self._last_grand_total = grand_total
 
+        # Required deposit % comes from business policy; default 30% if unavailable.
         try:
             policy = repo.get_business_policy()
             pct = float(policy.get("min_downpayment_pct", 30))
@@ -1650,6 +1906,13 @@ class BookingModal(QDialog):
             self._lbl_deposit.setText(f"Required {pct:.0f}% Downpayment: ₱{deposit:,.2f}")
 
     def _refresh_step(self, direction=0):
+        """Show the current step and sync all step-dependent chrome.
+
+        Builds the step if needed, switches the stack, optionally slide-animates
+        in the given ``direction`` (1 forward, -1 back), updates the progress
+        indicator, subtitle, "x / N" hint, Back-button visibility and the
+        Next/Save button label & icon (Save on the last step).
+        """
         self._ensure_step_built(self._step)
         self._stack.setCurrentIndex(self._step)
         if direction:
@@ -1671,6 +1934,13 @@ class BookingModal(QDialog):
             self._btn_next.setIcon(get_icon("chevron-right", color="#F9FAFB", size=QSize(14, 14)))
 
     def _validate_current(self):
+        """Validate (and lightly normalize) the currently visible step.
+
+        Step 0 requires a selected customer (otherwise flags an error and returns
+        False) and copies the entered contact/email/address onto the selection.
+        Step 1 requires an occasion and defaults a blank venue to "To be followed".
+        Returns True when the step may be advanced, False to block navigation.
+        """
         if self._step == 0:
             sel = self.f_customer_search.get_selection()
             if not sel or not sel.get("name", "").strip():
@@ -1687,7 +1957,7 @@ class BookingModal(QDialog):
         if self._step == 1:
             if not self.f_occasion.currentText().strip():
                 self.f_occasion.setFocus()
-                self.f_occasion.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px;")
+                self.f_occasion.setStyleSheet("border: 1px solid #EF4444; border-radius: 8px;")  # red error border
                 return False
             self.f_occasion.setStyleSheet(_combo_style())
             # Venue is optional / TBA: if left blank, automatically set to 'To be followed'
@@ -1698,6 +1968,12 @@ class BookingModal(QDialog):
         return True
 
     def _go_next(self):
+        """Advance to the next step (or save on the last step) after validation.
+
+        Blocks if the current step fails validation. When entering step 3 it
+        recomputes the base package total from the current menu selection, then
+        animates the transition. On the final step it delegates to ``_save``.
+        """
         if not self._validate_current():
             return
         if self._step < len(_STEPS) - 1:
@@ -1719,12 +1995,23 @@ class BookingModal(QDialog):
             self._save()
 
     def _go_back(self):
+        """Return to the previous step (no-op on the first step)."""
         if self._step > 0:
             self._step -= 1
             self._refresh_step(direction=-1)
 
     def _save(self):
+        """Assemble the final booking dict, emit ``booking_saved`` and accept the dialog.
+
+        Normalizes the venue, shows the saving overlay and disables the nav
+        buttons, resolves the menu (package vs custom) with its selected dishes
+        and rate, folds custom add-ons into both the total and a "[Add-ons: ...]"
+        notes suffix, computes the base/grand total and recorded downpayment, and
+        preserves the original status/paid amount in edit mode. Emits a flat dict
+        consumed by the caller and closes via ``accept()``.
+        """
         venue_val = self.f_venue.text().strip() if hasattr(self, "f_venue") else ""
+        # Treat blank / placeholder venues as the canonical "To be followed".
         if not venue_val or venue_val.lower() in ("tbd", "tba", "client venue"):
             venue_val = "To be followed"
 
@@ -1741,6 +2028,7 @@ class BookingModal(QDialog):
         package_id = None
 
         if self.btn_custom.isChecked():
+            # Custom menu: menu_value is a comma-joined list of the checked items.
             menu_type = "custom"
             selected_items = [
                 item.get("item") or item.get("name", "")
@@ -1765,6 +2053,7 @@ class BookingModal(QDialog):
                 menu_value = "Standard Package"
                 rate = 0.0
 
+            # Prefer the cached per-package selection; else read the live checkboxes.
             if package_id and package_id in getattr(self, "_pkg_selected_dishes", {}):
                 selected_dishes = self._pkg_selected_dishes[package_id]
             else:
@@ -1773,13 +2062,15 @@ class BookingModal(QDialog):
                     for chk, dish in getattr(self, "_pkg_dish_checks", [])
                     if chk.isChecked() and (dish.get("item") or dish.get("name") or dish.get("item_name"))
                 ]
+            # As a last resort, fall back to the package's default dishes.
             if not selected_dishes and package_id:
                 default_items = repo.get_package_items(package_id)
                 selected_dishes = [p["item_name"] for p in default_items if p.get("item_name")]
 
         pax = self.f_pay_pax.value() if hasattr(self, "f_pay_pax") else self.f_pax.value()
         
-        # Collect custom add-ons and calculate total add-on amount
+        # Collect custom add-ons and calculate total add-on amount.
+        # (Iterates the checkbox-style add-on rows in _extra_addon_rows, if present.)
         addon_summary_list = []
         addons_total = 0.0
         for chk, spin, cat, name, price in getattr(self, "_extra_addon_rows", []):
@@ -1790,30 +2081,37 @@ class BookingModal(QDialog):
                 qty_str = f" x{qty}" if qty > 1 else ""
                 addon_summary_list.append(f"{name}{qty_str} (₱{amt:,.0f})")
 
-        # Package base total
+        # Package base total: prefer the manually-editable field, else pax x rate.
         if hasattr(self, "f_pay_package_total") and self.f_pay_package_total.value() > 0:
             base_total = self.f_pay_package_total.value()
         else:
             base_total = float(pax * rate)
 
-        grand_total = max(0.0, base_total + addons_total)
+        grand_total = max(0.0, base_total + addons_total)  # never negative
         total = grand_total
 
+        # Serialize add-ons into the notes as a "[Add-ons: ...]" suffix so they
+        # can be parsed back out when this booking is later edited (see _build_step3).
         notes_text = self.f_notes.toPlainText().strip()
         if addon_summary_list:
             addons_str = "Add-ons: " + ", ".join(addon_summary_list)
             notes_text = f"{notes_text}\n[{addons_str}]".strip() if notes_text else addons_str
 
         selected_customer = self.f_customer_search.get_selection() or {}
+        # Preserve the original status/paid amount when editing; new bookings start PENDING.
         orig_status = self._booking_data.get("status") if self._booking_data else "PENDING"
         orig_paid = float(self._booking_data.get("amount_paid") or 0.0) if self._booking_data else 0.0
         recorded_down = orig_paid if orig_paid > 0 else (getattr(self, "_last_deposit", 0.0) if hasattr(self, "_last_deposit") else 0.0)
 
+        # End time is only recorded when the user opted in via the checkbox.
         end_time_val = self.f_end_time.time().toString("hh:mm AP") if (hasattr(self, "chk_end_time") and self.chk_end_time.isChecked()) else ""
         motif_val = self.f_motif.text().strip() if hasattr(self, "f_motif") else ""
         if not motif_val:
-            motif_val = "Standard"
+            motif_val = "Standard"  # default theme/motif when left blank
 
+        # Flat booking payload emitted to the caller (several keys are duplicated
+        # under alternate names, e.g. time/event_time and color/motif, for
+        # compatibility with different consumers of this signal).
         data = {
             "db_id":           self._booking_data.get("db_id") if self._booking_data else None,
             "name":            selected_customer.get("name", ""),
