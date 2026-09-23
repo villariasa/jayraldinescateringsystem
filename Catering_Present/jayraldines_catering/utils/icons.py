@@ -1,18 +1,30 @@
+"""SVG icon loading, recoloring, and caching for the UI.
+
+Icons come from two sources: on-disk SVG files (mapped in ICON_MAP) and a set of
+inline "built-in" SVGs (_BUILTIN_SVGS). get_icon() recolors an SVG by swapping
+its `currentColor` stroke for a requested color, rasterizes it at 1x and 2x for
+HiDPI crispness, and caches the resulting QIcon. The nav_/btn_ helpers are thin
+presets that call get_icon() with standard sizes and semantic colors.
+"""
 import os
 from PySide6.QtGui import QIcon, QPixmap, QPainter
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtSvg import QSvgRenderer
 from utils.paths import resource_path
 
+# Lazily-resolved absolute path to the bundled SVG icon directory.
 _ICONS_DIR: str = ""
 
 
 def _icons_dir() -> str:
+    """Return the SVG icons directory, resolving and caching it on first use."""
     global _ICONS_DIR
+    # Resolved lazily so resource_path() runs after frozen/bundle setup.
     if not _ICONS_DIR:
         _ICONS_DIR = resource_path("assets", "icons", "svg")
     return _ICONS_DIR
 
+# Logical icon name -> SVG filename within the icons directory.
 ICON_MAP = {
     "dashboard":     "dashboard.svg",
     "orders":        "orders.svg",
@@ -46,6 +58,7 @@ ICON_MAP = {
     "x-circle":      "x-circle.svg",
 }
 
+# Default render size and the semantic stroke colors used across the app.
 DEFAULT_SIZE  = QSize(20, 20)
 COLOR_MUTED   = "#9CA3AF"
 COLOR_ACTIVE  = "#F9FAFB"
@@ -53,9 +66,12 @@ COLOR_PRIMARY = "#E11D48"
 COLOR_DARK    = "#0B1220"
 COLOR_GOLD    = "#F59E0B"
 
+# Caches: raw SVG text keyed by file path, and finished QIcons keyed by
+# (name, color, w, h) so repeated requests skip disk reads and rasterization.
 _SVG_RAW_CACHE: dict[str, str] = {}
 _ICON_CACHE: dict[tuple, QIcon] = {}
 
+# Inline SVGs for icons not shipped as files (window chrome, toggles, etc.).
 _BUILTIN_SVGS = {
     "palette": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>',
     "minimize": '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
@@ -76,7 +92,14 @@ _BUILTIN_SVGS = {
 
 
 def get_icon(name: str, color: str = COLOR_MUTED, size: QSize = DEFAULT_SIZE) -> QIcon:
+    """Return a recolored, cached QIcon for `name` at the given color and size.
+
+    Looks up built-in inline SVGs first, then on-disk SVG files; recolors the
+    stroke, rasterizes at 1x and 2x for HiDPI, and caches the result. Returns an
+    empty QIcon when the name is unknown or the file is missing.
+    """
     cache_key = (name, color, size.width(), size.height())
+    # Fast path: return the previously built icon for this exact request.
     if cache_key in _ICON_CACHE:
         return _ICON_CACHE[cache_key]
 
@@ -84,6 +107,7 @@ def get_icon(name: str, color: str = COLOR_MUTED, size: QSize = DEFAULT_SIZE) ->
     if name in _BUILTIN_SVGS:
         svg_data = _BUILTIN_SVGS[name]
     else:
+        # Fall back to a mapped on-disk SVG, caching its raw text once read.
         svg_file = ICON_MAP.get(name)
         if svg_file:
             svg_path = os.path.join(_icons_dir(), svg_file)
@@ -94,19 +118,22 @@ def get_icon(name: str, color: str = COLOR_MUTED, size: QSize = DEFAULT_SIZE) ->
                 svg_data = _SVG_RAW_CACHE[svg_path]
 
     if not svg_data:
-        return QIcon()
+        return QIcon()  # unknown name / missing file -> empty icon
 
+    # Recolor by swapping the SVG's themeable stroke for the requested color.
     svg_data = svg_data.replace('stroke="currentColor"', f'stroke="{color}"')
     svg_bytes = svg_data.encode("utf-8")
 
     icon = QIcon()
+    # Render at 1x and 2x so the icon stays crisp on HiDPI displays.
     for scale in (1, 2):
         px = QPixmap(QSize(size.width() * scale, size.height() * scale))
-        px.fill(Qt.transparent)
+        px.fill(Qt.transparent)  # transparent background behind the glyph
         painter = QPainter(px)
         painter.setRenderHint(QPainter.Antialiasing)
         QSvgRenderer(svg_bytes).render(painter)
         painter.end()
+        # Tag the pixmap's DPR so Qt picks the right variant per screen.
         px.setDevicePixelRatio(scale)
         icon.addPixmap(px, QIcon.Normal)
 
@@ -115,28 +142,35 @@ def get_icon(name: str, color: str = COLOR_MUTED, size: QSize = DEFAULT_SIZE) ->
 
 
 def nav_icon(name: str) -> QIcon:
+    """Sidebar nav icon in the muted (inactive) color at 18px."""
     return get_icon(name, color=COLOR_MUTED, size=QSize(18, 18))
 
 
 def nav_icon_active(name: str) -> QIcon:
+    """Sidebar nav icon in the active (highlighted) color at 18px."""
     return get_icon(name, color=COLOR_ACTIVE, size=QSize(18, 18))
 
 
 def btn_icon_primary(name: str) -> QIcon:
+    """15px white icon for primary (filled) buttons."""
     return get_icon(name, color="#FFFFFF", size=QSize(15, 15))
 
 
 def btn_icon_secondary(name: str) -> QIcon:
+    """15px icon in the active color for secondary buttons."""
     return get_icon(name, color=COLOR_ACTIVE, size=QSize(15, 15))
 
 
 def btn_icon_muted(name: str) -> QIcon:
+    """15px muted-color icon for low-emphasis buttons."""
     return get_icon(name, color=COLOR_MUTED, size=QSize(15, 15))
 
 
 def btn_icon_red(name: str) -> QIcon:
+    """15px brand-red icon for destructive/primary-accent buttons."""
     return get_icon(name, color=COLOR_PRIMARY, size=QSize(15, 15))
 
 
 def icon_sm(name: str, color: str = COLOR_MUTED) -> QIcon:
+    """Small 14px icon in the given color (muted by default)."""
     return get_icon(name, color=color, size=QSize(14, 14))
