@@ -1,3 +1,22 @@
+"""
+Main application window for the Jayraldine's Catering desktop app.
+
+This module defines :class:`MainWindow`, the top-level QMainWindow that hosts
+the entire UI shell. Responsibilities include:
+
+* A two-layer root stack: (0) the unified auth / welcome screen and
+  (1) the main application shell (sidebar + topbar + page stack).
+* Lazy construction of feature pages (see ``_PAGE_MODULES``) so that a single
+  failing/optional page (e.g. a missing Qt DLL) never crashes the whole app.
+* Permission-gated navigation between pages via the sidebar and topbar.
+* Idle-based auto-lock, background notification polling, periodic dashboard
+  refresh, theme switching, toasts, and the floating AI mascot.
+* Reacting to cross-app data-change signals (bookings, payments, expenses,
+  etc.) by marking pages "dirty" and reloading the visible one.
+
+Side effects: installs a global application event filter (for idle tracking),
+starts several QTimers, and connects to many app-wide signal buses.
+"""
 from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QApplication, QDialog
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtCore import Signal, QTimer, Qt, QEvent
@@ -41,17 +60,31 @@ from version import __version__, APP_NAME
 
 
 class MainWindow(QMainWindow):
+    """Top-level window and controller for the whole application.
+
+    Owns the sidebar, topbar, the stacked feature pages, and the global
+    services (notifications, toasts, idle auto-lock, theme overlay, floating
+    AI). Pages are created lazily on first navigation; on construction it
+    decides whether to show the auth/welcome screen or jump straight into the
+    app shell based on the existing login session.
+    """
     def __init__(self):
+        """Build the full UI shell, wire up signals/timers, and show the
+        correct initial screen (app shell if already logged in, otherwise the
+        auth/welcome screen)."""
         super().__init__()
 
         self.setWindowTitle(f"{APP_NAME} v{__version__}")
         self.setMinimumSize(1024, 600)
         self.resize(1280, 768)
 
+        # Global fullscreen toggles: F11 enters/exits, Esc leaves fullscreen.
         self.shortcut_f11 = QShortcut(QKeySequence("F11"), self)
         self.shortcut_f11.activated.connect(self._toggle_fullscreen)
         self.shortcut_esc = QShortcut(QKeySequence("Esc"), self)
         self.shortcut_esc.activated.connect(self._exit_fullscreen)
+        # root_stack swaps between the auth/welcome screen (layer 0) and the
+        # main app shell (layer 1); it is the window's central widget.
         self.root_stack = QStackedWidget(self)
         self.setCentralWidget(self.root_stack)
 
@@ -80,6 +113,8 @@ class MainWindow(QMainWindow):
         self.right_layout.addWidget(self.topbar)
 
         self.stack = QStackedWidget(self.right_widget)
+        # Parallel slot list to _PAGE_MODULES: each entry is None until that
+        # page is lazily instantiated by _get_page(); index == page id.
         self._pages = [None] * len(_PAGE_MODULES)
 
         from components.loading_overlay import LoadingOverlay
@@ -89,10 +124,13 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.right_widget)
         self.root_stack.addWidget(self.app_shell)
 
+        # Navigation requests can come from either the sidebar or the topbar.
         self.sidebar.page_changed.connect(self._navigate)
         self.sidebar.logout_requested.connect(self._handle_logout)
         self.topbar.tab_selected.connect(self._navigate)
 
+        # Idle auto-lock: the timer fires after the configured inactivity
+        # window; an app-wide event filter resets it on user input.
         self._idle_timer = QTimer(self)
         self._idle_timer.timeout.connect(self._trigger_auto_lock)
         self._reset_idle_timer()
@@ -111,6 +149,8 @@ class MainWindow(QMainWindow):
         self._scheduler = NotifScheduler(self)
         self._scheduler.new_notification.connect(self._on_new_notification)
 
+        # Notification state: track the highest-seen id so only genuinely new
+        # notifications raise toasts; the loader/busy fields guard concurrency.
         self._last_notif_id = None
         self._notif_loader = None  # active background loader reference
         self._notif_poll_busy = False  # debounce guard
@@ -124,6 +164,8 @@ class MainWindow(QMainWindow):
         self._dash_timer.timeout.connect(self._reload_dashboard)
         self._dash_timer.start(180_000)  # every 3 min
 
+        # Subscribe to the app-wide event bus so any part of the app that
+        # mutates data can trigger targeted page reloads here.
         from utils.signals import app_events
         _ev = app_events()
         _ev.booking_saved.connect(self._on_booking_saved)
@@ -156,6 +198,8 @@ class MainWindow(QMainWindow):
         self.sidebar.refresh_permissions()
         self.topbar.refresh_permissions()
 
+        # If a session is already active (e.g. app relaunch), skip the auth
+        # screen and go straight into the dashboard; otherwise show login.
         if SessionManager.is_logged_in():
             self.root_stack.setCurrentWidget(self.app_shell)
             can_view_ai = SessionManager.has_permission("ai_chef_jay", "view")
@@ -200,11 +244,16 @@ class MainWindow(QMainWindow):
 
 
     def _on_auth_and_welcome_finished(self):
+        """Swap from the auth/welcome layer to the app shell once login and the
+        welcome animation complete, then reload the session and open the
+        dashboard (index 0)."""
         self.root_stack.setCurrentWidget(self.app_shell)
         self._reload_user_session()
         self._navigate(0)
 
     def _show_welcome_greeting(self):
+        """Show a transient 'Welcome, <name>!' toast identifying the signed-in
+        user and their role label."""
         from utils.auth import SessionManager
         user = SessionManager.current_user() or {}
         name = user.get("display_name") or user.get("username", "Admin")
@@ -252,6 +301,19 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(150, lambda: _warm_step(0))
 
     def _get_page(self, index: int):
+        """Return the page widget for ``index``, importing and instantiating it
+        lazily on first request.
+
+        The target module/class comes from ``_PAGE_MODULES``. If import or
+        construction fails (commonly a missing Qt DLL on a target machine), a
+        self-contained error placeholder widget with the full traceback is
+        substituted so the rest of the app keeps working. The created widget is
+        cached in ``self._pages`` and added to the page stack.
+
+        Side effects: caches the page, adds it to ``self.stack``, logs failures,
+        and wires dashboard-specific signals when ``index == 0``.
+        """
+        # Return the cached instance if this page was already built.
         if self._pages[index] is not None:
             return self._pages[index]
 
@@ -345,9 +407,12 @@ class MainWindow(QMainWindow):
             err_lay.addWidget(hint_lbl)
             err_lay.addStretch()
 
+        # Cache the (real or placeholder) page and register it with the stack.
         self._pages[index] = page
         self.stack.addWidget(page)
 
+        # Dashboard (index 0) emits cross-page navigation requests; forward
+        # them to the matching page indices.
         if index == 0:
             if hasattr(page, "new_booking_requested"):
                 page.new_booking_requested.connect(lambda: self._navigate(1))
@@ -358,6 +423,8 @@ class MainWindow(QMainWindow):
 
         return page
 
+    # Maps a page index to the permission module key checked before allowing
+    # navigation to that page (see _navigate / _start_page_prewarming).
     PAGE_MODULE_PERM = {
         0: "dashboard",
         1: "bookings",
@@ -373,6 +440,15 @@ class MainWindow(QMainWindow):
     }
 
     def _navigate(self, index: int):
+        """Switch the visible page to ``index`` after a permission check.
+
+        Dashboard (0) is always allowed; any other page requires the logged-in
+        user to hold "view" on its permission key, otherwise an "Access Denied"
+        toast is shown and navigation is aborted. On first-ever open of a page
+        a loading overlay is displayed and the heavy construction is deferred a
+        few ms so the spinner animates smoothly; subsequent visits switch
+        instantly via :meth:`_do_navigate`.
+        """
         from utils.auth import SessionManager
         perm_key = self.PAGE_MODULE_PERM.get(index, "dashboard")
         # Dashboard (index 0) is always allowed for all logged in users
@@ -408,13 +484,21 @@ class MainWindow(QMainWindow):
         self._do_navigate(index, mod_name, first_time=False)
 
     def _do_navigate(self, index: int, mod_name: str, first_time: bool = False):
+        """Perform the actual page switch: build/fetch the page, make it current,
+        sync sidebar/topbar highlight, refresh its permissions, reload it if it
+        was flagged dirty, toggle the floating AI, reset scroll to top, and
+        report the active module for telemetry.
+
+        ``first_time`` indicates this is the page's first open (drives the
+        loading overlay lifecycle and skips the dirty-reload)."""
         PAGE_TITLES = {
             0: "Dashboard", 1: "Bookings", 2: "Customers", 3: "Menu Items",
             4: "Calendar", 5: "Kitchen Orders", 6: "Billing & Invoices",
             7: "Reports & Analytics", 8: "Expenses", 9: "AI Chef Jay", 10: "Settings"
         }
         page = self._get_page(index)
-        
+
+        # Freeze repaints while we reconfigure the stack to avoid flicker.
         self.stack.setUpdatesEnabled(False)
         try:
             self.stack.setCurrentWidget(page)
@@ -491,6 +575,10 @@ class MainWindow(QMainWindow):
             print(f"[MainWindow] _reset_page_scroll note: {exc}")
 
     def eventFilter(self, obj, event):
+        """Application-wide event filter that treats user input as activity and
+        resets the idle auto-lock timer. Discrete input (clicks, keys, wheel)
+        forces a reset; continuous mouse movement uses the throttled path.
+        Always defers to the base implementation afterwards."""
         if event.type() in (QEvent.MouseButtonPress, QEvent.KeyPress, QEvent.Wheel):
             self._reset_idle_timer(force=True)
         elif event.type() == QEvent.MouseMove:
@@ -498,6 +586,10 @@ class MainWindow(QMainWindow):
         return super().eventFilter(obj, event)
 
     def _reset_idle_timer(self, force: bool = False):
+        """(Re)start the idle auto-lock timer based on the configured lock
+        minutes. When ``force`` is False, resets are throttled to at most once
+        per 10s so mouse-move spam doesn't thrash the timer. A lock setting of
+        0 (or less) disables auto-lock and stops the timer."""
         now = time.monotonic()
         last = getattr(self, "_last_idle_reset_time", 0.0)
         # Avoid lock acquisition and timer restarts on every single mouse pixel movement
@@ -512,6 +604,9 @@ class MainWindow(QMainWindow):
             self._idle_timer.start(mins * 60 * 1000)
 
     def _trigger_auto_lock(self):
+        """Fired when the idle timer elapses: if a user is logged in, present a
+        modal lock screen requiring re-authentication, then restart idle
+        tracking once it is dismissed. No-op when nobody is logged in."""
         from utils.auth import SessionManager
         if not SessionManager.is_logged_in():
             return
@@ -522,6 +617,8 @@ class MainWindow(QMainWindow):
         self._reset_idle_timer()
 
     def _handle_logout(self):
+        """Confirm intent, then log the user out: clear the session, hide the
+        floating AI, and return to the login screen."""
         from components.dialogs import confirm
         from utils.auth import SessionManager
         if not confirm(self, "Sign Out", "Are you sure you want to sign out?"):
@@ -534,6 +631,10 @@ class MainWindow(QMainWindow):
             self.root_stack.setCurrentWidget(self._auth_welcome)
 
     def _reload_user_session(self):
+        """Re-apply the current user's context after login/session change:
+        refresh sidebar/topbar permissions, restart idle tracking, update the
+        floating AI visibility (and schedule its morning briefing), reload the
+        settings page if built, then open the dashboard and greet the user."""
         self.sidebar.refresh_permissions()
         self.topbar.refresh_permissions()
         self._reset_idle_timer()
@@ -551,6 +652,9 @@ class MainWindow(QMainWindow):
         self._show_welcome_greeting()
 
     def _on_search(self, text):
+        """Handle topbar search text changes with a 500ms debounce so the
+        current page's ``filter_search`` runs once the user pauses typing,
+        rather than on every keystroke."""
         # Debounce: without this, every page whose filter_search() does a
         # full clear-and-rebuild (e.g. Billing, Menu) reruns that on every
         # single keystroke - typing a short word could trigger it 5+ times
@@ -563,21 +667,28 @@ class MainWindow(QMainWindow):
         self._search_debounce_timer.start(500)
 
     def _dispatch_search(self):
+        """Debounce callback: forward the pending search text to the currently
+        visible page if it supports ``filter_search``."""
         page = self.stack.currentWidget()
         if hasattr(page, "filter_search"):
             page.filter_search(self._pending_search_text)
 
     def _toggle_fullscreen(self):
+        """F11 handler: leave fullscreen (back to maximized) if in it, else
+        enter fullscreen."""
         if self.isFullScreen():
             self.showMaximized()
         else:
             self.showFullScreen()
 
     def _exit_fullscreen(self):
+        """Esc handler: drop out of fullscreen to maximized (no-op otherwise)."""
         if self.isFullScreen():
             self.showMaximized()
 
     def _open_notif_popover(self):
+        """Toggle the notifications popover anchored to the topbar bell, showing
+        cached items instantly while a fresh fetch runs in the background."""
         # Open panel immediately with cached data; async refresh in background
         self._notif_popover.toggle_anchored(self.topbar.notif_btn)
         self._poll_notifications()
@@ -638,14 +749,19 @@ class MainWindow(QMainWindow):
         self._finish_notif_poll()
 
     def _finish_notif_poll(self):
+        """Release the notification poll busy-guard so the next poll can run."""
         self._notif_poll_busy = False
 
     def _on_new_notification(self, title: str, message: str, color: str):
+        """Handle a live notification pushed by the scheduler: pop a toast now
+        and schedule a background poll to refresh the badge/list."""
         # Schedule an async poll ΓÇö don't call synchronously
         QTimer.singleShot(500, self._poll_notifications)
         self._toast_manager.show(title, message, color, duration_ms=7000)
 
     def _on_all_read(self):
+        """Clear the topbar unread badge after the user marks all
+        notifications read."""
         self.topbar.notif_badge.setText("0")
         self.topbar.notif_badge.setVisible(False)
 
@@ -669,9 +785,14 @@ class MainWindow(QMainWindow):
                 print(f"[MainWindow] _smart_reload({index}) error: {exc}")
 
     def _reload_dashboard(self):
+        """Periodic-timer callback that refreshes the dashboard (page 0) via the
+        dirty/smart-reload mechanism."""
         self._smart_reload(0)
 
     def _on_booking_saved(self):
+        """React to booking create/update: mark all booking-affected pages
+        (bookings, calendar, kitchen, billing, dashboard, reports) dirty,
+        immediately reload whichever is visible, and refresh notifications."""
         # Reload booking page if visible; mark others dirty for lazy reload
         for idx in [1, 4, 5, 6, 0, 7]:
             p = self._pages[idx] if idx < len(self._pages) else None
@@ -691,22 +812,30 @@ class MainWindow(QMainWindow):
         self._poll_notifications()
 
     def _on_payment_recorded(self):
+        """React to a recorded payment by refreshing billing, dashboard, and
+        reports pages, then polling notifications."""
         self._smart_reload(6)   # BillingPage
         self._smart_reload(0)   # DashboardPage
         self._smart_reload(7)   # ReportsPage
         self._poll_notifications()
 
     def _on_kitchen_updated(self):
+        """React to a kitchen/order change by refreshing the dashboard (which
+        surfaces kitchen status) and polling notifications."""
         self._smart_reload(0)   # DashboardPage reflects kitchen changes
         self._poll_notifications()
 
     def _on_expense_saved(self):
+        """React to an expense save by refreshing expenses, dashboard, and
+        reports pages, then polling notifications."""
         self._smart_reload(8)   # ExpensesPage
         self._smart_reload(0)   # DashboardPage
         self._smart_reload(7)   # ReportsPage
         self._poll_notifications()
 
     def _on_customer_saved(self):
+        """React to a customer save: mark customers, bookings, and dashboard
+        pages dirty, reload the visible one, and poll notifications."""
         for idx in [2, 1, 0]:
             p = self._pages[idx] if idx < len(self._pages) else None
             if p is None:
@@ -724,10 +853,15 @@ class MainWindow(QMainWindow):
         self._poll_notifications()
 
     def _on_sync_started(self, msg: str = ""):
+        """Sync-start hook. Intentionally silent to avoid toast spam during
+        frequent background syncs."""
         # Silent background sync - no intrusive toast spam
         pass
 
     def _on_sync_completed(self):
+        """Sync-complete hook: invalidate the shared data cache and schedule a
+        debounced (400ms) reload of all pages to avoid stutter during rapid
+        successive syncs."""
         from utils.data_cache import DataCache
         DataCache.clear()
         # Debounce reloading to prevent screen stutter during rapid syncs
@@ -757,6 +891,8 @@ class MainWindow(QMainWindow):
         self._poll_notifications()
 
     def _on_theme_changing(self, palette_id: str):
+        """Theme-change start hook: show the full-window theme loading overlay
+        naming the palette being switched to."""
         if hasattr(self, "_theme_overlay") and self._theme_overlay:
             from utils.palette import THEME_PALETTES
             pal = THEME_PALETTES.get(palette_id, {})
@@ -764,6 +900,10 @@ class MainWindow(QMainWindow):
             self._theme_overlay.show_loading(f"Switching to {name}...", "Updating color palette & UI styles...")
 
     def _on_theme_changed(self, _theme: str):
+        """Theme-change complete hook: restyle the sidebar/topbar and notify
+        every already-built page via its theme hook (``_apply_theme_styles`` or
+        ``_on_theme_changed``) in place, keeping all page instances and their
+        data in memory, then dismiss the theme overlay with an animation."""
         # In-place dynamic styling: keep all page instances and data in memory
         if hasattr(self, "sidebar"):
             self.sidebar.refresh_permissions()
@@ -789,6 +929,9 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(80, lambda: self._theme_overlay.hide_loading(animated=True))
 
     def _on_alarm_fired(self, entry: dict):
+        """Handle a fired reminder/alarm: show a long-lived toast with the
+        message and time, and make the floating AI mascot react with a
+        'surprised' state and a speech bubble."""
         msg = entry.get("message", "Alarm")
         target_dt = entry.get("target_dt")
         time_str = target_dt.strftime("%I:%M %p").lstrip("0") if target_dt else datetime.now().strftime("%I:%M %p")
@@ -802,10 +945,14 @@ class MainWindow(QMainWindow):
                 m.speak(f"⏰ Alarm: {msg}!\n(Say 'snooze 5m' or 'dismiss')", 12000)
 
     def resizeEvent(self, event):
+        """Keep overlays and the floating AI positioned correctly on window
+        resize: stretch the theme overlay to fill the window and re-anchor the
+        mascot to the bottom-right corner unless the user has dragged it."""
         super().resizeEvent(event)
         if hasattr(self, "_theme_overlay") and self._theme_overlay and self._theme_overlay.isVisible():
             self._theme_overlay.resize(self.size())
         if hasattr(self, "_floating_ai") and self._floating_ai:
+            # Respect a user-dragged position; only auto-reposition otherwise.
             if not getattr(self._floating_ai, "_user_moved", False):
                 x = self.width() - self._floating_ai.width() - 24
                 y = self.height() - self._floating_ai.height() - 24
@@ -814,17 +961,24 @@ class MainWindow(QMainWindow):
 
     @property
     def dashboard_page(self):
+        """The Dashboard page instance (index 0), or None if not yet built."""
         return self._pages[0]
 
     @property
     def billing_page(self):
+        """The Billing page instance (index 6), or None if not yet built."""
         return self._pages[6]
 
     @property
     def kitchen_page(self):
+        """The Kitchen Orders page instance (index 5), or None if not yet
+        built."""
         return self._pages[5]
 
     def closeEvent(self, event):
+        """Clean up on window close: hide/stop the floating AI's background
+        thread and quit any per-page background data loaders so no threads are
+        left running, then defer to the base handler."""
         # Stop floating AI threads/timers
         if hasattr(self, "_floating_ai") and self._floating_ai:
             try:
