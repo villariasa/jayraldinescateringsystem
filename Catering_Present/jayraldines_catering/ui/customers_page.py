@@ -1,3 +1,23 @@
+"""
+Customers page for the Jayraldines catering desktop app.
+
+This module renders the "Customers" screen plus the modal dialogs used to
+create, edit, bulk-add, and inspect customers. It is built on PySide6 (Qt for
+Python). Key pieces:
+
+  - AddCustomerDialog / EditCustomerDialog: single-customer forms with a
+        country-code + auto-formatted phone field and a Cebu address search.
+  - AddMultipleCustomersDialog: a spreadsheet-style grid for bulk entry.
+  - CustomerLedgerDialog: read-only accounting view (charges, payments, balance).
+  - CustomersPage: the main list screen with search, an Active/Show-All filter,
+        batch selection/delete, and an incremental (batched, lazily paginated)
+        card renderer designed to keep the Qt UI thread responsive.
+
+Persistence and business logic live in ``utils.repository`` (aliased ``repo``);
+this module is the UI layer only. Several performance/correctness concerns are
+handled here and documented inline: reload coalescing, render generation tokens,
+lazy pagination with an optional in-memory cache, and permission-aware cards.
+"""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
@@ -12,7 +32,19 @@ from utils.data_loader import run_async
 
 
 def _format_phone_input(text: str) -> str:
+    """Normalize free-form phone input into a grouped 10-digit local number.
+
+    Strips all non-digits, caps at 10 digits, and inserts spaces as
+    ``XXX XXX XXXX`` (partial groupings for shorter input).
+
+    Args:
+        text: Raw phone text (may contain spaces, dashes, letters, etc.).
+
+    Returns:
+        The digits regrouped with spaces, e.g. ``"917 555 1234"``.
+    """
     digits = "".join(c for c in text if c.isdigit())[:10]
+    # Progressive grouping so the field reads sensibly while still being typed.
     if len(digits) <= 3:
         return digits
     elif len(digits) <= 6:
@@ -23,14 +55,31 @@ def _format_phone_input(text: str) -> str:
 
 
 def _format_contact_preserving_cursor(line_edit: QLineEdit):
+    """Reformat a phone QLineEdit in place while keeping the caret sensible.
+
+    Naively calling ``setText`` on every keystroke would jump the caret to the
+    end. This reformats via :func:`_format_phone_input` and then repositions the
+    caret so it sits after the same *digit* the user was on, not the same raw
+    character index (which shifts as spaces are inserted/removed).
+
+    Args:
+        line_edit: The contact QLineEdit to reformat; edited in place.
+
+    Side effects: mutates the widget's text and cursor position. Signals are
+    blocked during the edit to avoid re-triggering the textChanged handler.
+    """
     text = line_edit.text()
     cursor_pos = line_edit.cursorPosition()
+    # Count how many digits precede the caret - this is the anchor we preserve.
     digits_before = sum(1 for c in text[:cursor_pos] if c.isdigit())
-    
+
     formatted = _format_phone_input(text)
     if formatted != text:
+        # Block signals so setText doesn't recursively fire textChanged.
         line_edit.blockSignals(True)
         line_edit.setText(formatted)
+        # Walk the reformatted string to find the index just past the Nth digit,
+        # so the caret lands after the same digit the user had just typed.
         new_pos = 0
         counted_digits = 0
         for i, ch in enumerate(formatted):
@@ -40,11 +89,15 @@ def _format_contact_preserving_cursor(line_edit: QLineEdit):
                 new_pos = i + 1
                 break
         else:
+            # Fewer digits than expected (shouldn't normally happen): go to end.
             new_pos = len(formatted)
         line_edit.setCursorPosition(new_pos)
         line_edit.blockSignals(False)
 
 
+# Country dial codes offered in the contact combo box, as (dial_code, label)
+# pairs. PH (+63) is first so it is the default selection. The label is what the
+# user sees; the code is stored as the combo's item data.
 _COUNTRY_CODES = [
     ("+63", "PH  +63"),
     ("+1",  "US  +1"),
@@ -82,17 +135,36 @@ import utils.repository as repo
 
 
 class AddCustomerDialog(QDialog):
+    """Modal form for creating a single new customer.
+
+    Captures name, contact (country code + auto-formatted number), email,
+    status, and a Cebu address via :class:`AddressSearchWidget`. The validated
+    payload is exposed through :meth:`get_result`; the caller performs the DB
+    insert.
+    """
+
     def __init__(self, parent=None):
+        """Set up the frameless modal window and build the form.
+
+        Args:
+            parent: Optional parent widget.
+        """
         super().__init__(parent)
         self.setWindowTitle("Add Customer")
+        # Frameless + translucent: the styled "card" QFrame supplies the chrome.
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(480, 580)
         self.setModal(True)
-        self._result = None
+        self._result = None  # Populated by _save() on a valid submit.
         self._build_ui()
 
     def _build_ui(self):
+        """Build the header, form fields, address widget, and action buttons.
+
+        Side effects: stores the input widgets (name/contact/email/status,
+        country code combo, address widget, error label) as instance attributes.
+        """
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
@@ -136,12 +208,14 @@ class AddCustomerDialog(QDialog):
         self.country_code_combo = QComboBox()
         self.country_code_combo.setFixedHeight(38)
         self.country_code_combo.setFixedWidth(110)
+        # Store the dial code as item data (2nd arg) while showing the label.
         for code, label in _COUNTRY_CODES:
             self.country_code_combo.addItem(label, code)
-        self.country_code_combo.setCurrentIndex(0)
+        self.country_code_combo.setCurrentIndex(0)  # Default to PH (+63).
         self.contact_field = QLineEdit()
         self.contact_field.setPlaceholderText("9XX XXX XXXX")
         self.contact_field.setFixedHeight(38)
+        # Live-format the number as the user types (see _auto_format_contact).
         self.contact_field.textChanged.connect(self._auto_format_contact)
         contact_row.addWidget(self.country_code_combo)
         contact_row.addWidget(self.contact_field)
@@ -197,9 +271,17 @@ class AddCustomerDialog(QDialog):
         outer.addWidget(container)
 
     def _save(self):
+        """Validate the form, assemble ``self._result``, and accept on success.
+
+        Name and contact number are required. If an address was picked from the
+        search widget, a street/house number is also required. On any validation
+        failure the error label is shown and the dialog stays open. The final
+        contact string is the selected dial code prefixed to the local number.
+        """
         name   = self.name_field.text().strip()
         number = self.contact_field.text().strip()
         if not name or not number:
+            # Required-field guard for name/contact; red-border the offenders.
             self._err.setText("Name and Contact are required.")
             self._err.show()
             if not name:
@@ -208,39 +290,59 @@ class AddCustomerDialog(QDialog):
                 self.contact_field.setStyleSheet("border: 1px solid #E11D48;")
             return
         code    = self.country_code_combo.currentData()
-        contact = f"{code} {number}"
+        contact = f"{code} {number}"  # e.g. "+63 917 555 1234"
         sel    = self.address_widget.get_selection()
         street = self.address_widget.get_street()
         if sel and not street:
+            # A barangay/city was chosen but the specific street is missing.
             self._err.setText("Street / House No. is required after selecting an address.")
             self._err.show()
             self.address_widget.highlight_street_error()
             return
         if sel:
+            # Compose a human-readable address; strip trailing separators in case
+            # any component is blank.
             addr_str = f"{street}, {sel['barangay']}, {sel['city']}, Cebu".strip(", ")
         else:
+            # No structured selection: store whatever free-text street was typed.
             addr_str = street
         self._result = {
             "name":         name,
             "contact":      contact,
             "email":        self.email_field.text().strip(),
             "address":      addr_str,
-            "address_data": sel,
+            "address_data": sel,      # Structured ids for save_address(); may be None.
             "street":       street,
-            "events":       0,
+            "events":       0,        # New customers start with zero events.
             "status":       self.status_field.currentText(),
         }
         self.accept()
 
     def _auto_format_contact(self, _text):
+        """textChanged handler: reformat the contact field, preserving the caret."""
         _format_contact_preserving_cursor(self.contact_field)
 
     def get_result(self):
+        """Return the collected customer dict, or None if cancelled/invalid."""
         return self._result
 
 
 class EditCustomerDialog(QDialog):
+    """Modal form for editing an existing customer.
+
+    Pre-fills every field from the passed ``customer`` dict, including splitting
+    the stored contact string back into a country code + local number and
+    preselecting the matching status. Emits the updated payload via
+    :meth:`get_result`.
+    """
+
     def __init__(self, parent=None, customer=None):
+        """Store the customer being edited and build the pre-filled form.
+
+        Args:
+            parent: Optional parent widget.
+            customer: The existing customer dict to edit (defaults to empty).
+        """
         super().__init__(parent)
         self._customer = customer or {}
         self.setWindowTitle("Edit Customer")
@@ -252,6 +354,13 @@ class EditCustomerDialog(QDialog):
         self._build_ui()
 
     def _build_ui(self):
+        """Build the edit form, pre-populating every field from ``self._customer``.
+
+        Notable logic: the stored contact string is parsed back into a country
+        code and local number so the combo and field can be pre-selected; the
+        existing address is shown as a read-only "Current:" hint above the
+        address search widget.
+        """
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
@@ -289,6 +398,10 @@ class EditCustomerDialog(QDialog):
         self.name_field.setPlaceholderText("Full name / Company name")
         self.name_field.setFixedHeight(38)
 
+        # Split the stored "code number" contact back into its parts so the
+        # combo and number field can be pre-filled. Default to +63 if no known
+        # dial code prefix is found. The "code + space" case is checked first so
+        # a code like "+6" can't greedily match ahead of "+63".
         existing_contact = self._customer.get("contact", "")
         matched_code = "+63"
         number_part = existing_contact
@@ -309,8 +422,10 @@ class EditCustomerDialog(QDialog):
         self.country_code_combo.setFixedWidth(110)
         for code, label in _COUNTRY_CODES:
             self.country_code_combo.addItem(label, code)
+            # Select the item that matches the parsed dial code as it is added.
             if code == matched_code:
                 self.country_code_combo.setCurrentIndex(self.country_code_combo.count() - 1)
+        # Re-group the parsed local number for display consistency.
         self.contact_field = QLineEdit(_format_phone_input(number_part))
         self.contact_field.setPlaceholderText("9XX XXX XXXX")
         self.contact_field.setFixedHeight(38)
@@ -324,12 +439,15 @@ class EditCustomerDialog(QDialog):
         self.email_field.setPlaceholderText("email@example.com")
         self.email_field.setFixedHeight(38)
 
+        # Remember the current address so we can keep it if the user doesn't pick
+        # a new one, and show it as a read-only hint below.
         self._existing_addr = self._customer.get("address", "")
         self.address_widget = AddressSearchWidget()
 
         self.status_field = QComboBox()
         self.status_field.setFixedHeight(38)
         self.status_field.addItems(["Active", "Pending", "Inactive"])
+        # Preselect the customer's existing status if it's one of the options.
         idx = self.status_field.findText(self._customer.get("status", "Active"))
         if idx >= 0:
             self.status_field.setCurrentIndex(idx)
@@ -378,9 +496,16 @@ class EditCustomerDialog(QDialog):
         outer.addWidget(container)
 
     def _auto_format_contact(self, _text):
+        """textChanged handler: reformat the contact field, preserving the caret."""
         _format_contact_preserving_cursor(self.contact_field)
 
     def _save(self):
+        """Validate and assemble the edited payload into ``self._result``.
+
+        Same validation rules as :meth:`AddCustomerDialog._save`. The key
+        difference: when no new address is selected, the customer's *existing*
+        address is preserved rather than being blanked out.
+        """
         name   = self.name_field.text().strip()
         number = self.contact_field.text().strip()
         if not name or not number:
@@ -403,6 +528,7 @@ class EditCustomerDialog(QDialog):
         if sel:
             addr_str = f"{street}, {sel['barangay']}, {sel['city']}, Cebu".strip(", ")
         else:
+            # No new address chosen: keep the address the customer already had.
             addr_str = self._existing_addr
         self._result = {
             "name":         name,
@@ -416,9 +542,11 @@ class EditCustomerDialog(QDialog):
         self.accept()
 
     def get_result(self):
+        """Return the edited customer dict, or None if cancelled/invalid."""
         return self._result
 
 
+# Per-loyalty-tier colors as (text_color, background_color) used by _tier_badge.
 _TIER_COLORS = {
     "Bronze": ("#CD7F32", "rgba(205,127,50,.15)"),
     "Silver": ("#C0C0C0", "rgba(192,192,192,.15)"),
@@ -428,6 +556,15 @@ _TIER_COLORS = {
 
 
 def _tier_badge(tier: str) -> QLabel:
+    """Build a small colored pill label for a loyalty tier.
+
+    Args:
+        tier: Tier name (e.g. "Bronze", "Silver", "Gold", "VIP"). Unknown tiers
+            fall back to a neutral gray.
+
+    Returns:
+        QLabel: A styled, centered badge for the tier.
+    """
     color, bg = _TIER_COLORS.get(tier, ("#9CA3AF", "rgba(156,163,175,.15)"))
     lbl = QLabel(tier)
     lbl.setStyleSheet(
@@ -439,10 +576,24 @@ def _tier_badge(tier: str) -> QLabel:
 
 
 class CustomerLedgerDialog(QDialog):
+    """Read-only accounting/ledger view for a single customer.
+
+    Loads the customer's ledger entries via ``repo.get_customer_ledger`` and
+    renders per-entry cards (bookings, invoices, payments) plus summary totals
+    (total charged, total paid, balance due). Because the window is frameless,
+    it implements manual drag-to-move and Esc-to-close.
+    """
+
     def __init__(self, parent=None, customer=None):
+        """Set up the frameless ledger window for ``customer`` and build the UI.
+
+        Args:
+            parent: Optional parent widget.
+            customer: The customer dict whose ledger is shown (defaults to empty).
+        """
         super().__init__(parent)
         self._customer = customer or {}
-        self._drag_pos = None
+        self._drag_pos = None  # Offset captured on press for frameless dragging.
         name = str(self._customer.get("name") or "Customer")
         self.setWindowTitle(f"Ledger — {name}")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
@@ -454,25 +605,35 @@ class CustomerLedgerDialog(QDialog):
         self._build_ui()
 
     def mousePressEvent(self, event):
+        """Record the cursor-to-window offset so the frameless dialog can be dragged."""
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
     def mouseMoveEvent(self, event):
+        """Move the frameless window to follow the drag started in mousePressEvent."""
         if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
             self.move(event.globalPosition().toPoint() - self._drag_pos)
             event.accept()
 
     def mouseReleaseEvent(self, event):
+        """End the drag by clearing the stored offset."""
         self._drag_pos = None
 
     def keyPressEvent(self, event):
+        """Close on Escape; defer all other keys to the default handler."""
         if event.key() == Qt.Key_Escape:
             self.reject()
         else:
             super().keyPressEvent(event)
 
     def _build_ui(self):
+        """Fetch the ledger, compute totals, and render the info/summary/entries.
+
+        Side effects: queries ``repo.get_customer_ledger`` (failures are caught
+        and treated as an empty ledger), then builds the header, customer info
+        row, summary cards, and a scrollable list of entry cards.
+        """
         from utils.icons import get_icon
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -533,6 +694,8 @@ class CustomerLedgerDialog(QDialog):
         div.setFixedHeight(1)
         lay.addWidget(div)
 
+        # Load ledger rows; support either id key. Any failure degrades to an
+        # empty ledger rather than crashing the dialog.
         entries = []
         cid = cust.get("id") or cust.get("cus_id")
         if cid:
@@ -543,6 +706,8 @@ class CustomerLedgerDialog(QDialog):
                 print(f"[CustomerLedgerDialog] Error loading ledger for customer {cid}: {e}")
                 entries = []
 
+        # Sum debits (charges) and credits (payments) defensively - a single
+        # malformed row must not abort the whole total.
         total_debit = 0.0
         total_credit = 0.0
         for e in entries:
@@ -555,13 +720,14 @@ class CustomerLedgerDialog(QDialog):
             except Exception:
                 pass
 
-        balance = total_debit - total_credit
+        balance = total_debit - total_credit  # Positive = customer still owes.
 
         summary_row = QHBoxLayout()
         summary_row.setSpacing(16)
         for lbl, val, color in [
             ("Total Charged", f"₱ {total_debit:,.2f}",  "#E11D48"),
             ("Total Paid",    f"₱ {total_credit:,.2f}", "#22C55E"),
+            # Balance shows amber when money is still owed, green when settled.
             ("Balance Due",   f"₱ {balance:,.2f}",      "#F59E0B" if balance > 0 else "#22C55E"),
         ]:
             card = QFrame()
@@ -592,6 +758,7 @@ class CustomerLedgerDialog(QDialog):
         ledger_lay.setContentsMargins(0, 0, 4, 0)
         ledger_lay.setSpacing(8)
 
+        # Accent color per entry type and per entry status, used on the cards below.
         _TYPE_COLORS = {
             "Booking": "#3B82F6",
             "Invoice": "#F59E0B",
@@ -650,6 +817,9 @@ class CustomerLedgerDialog(QDialog):
                 desc_l.setTextFormat(Qt.RichText)
                 el.addWidget(desc_l, 3)
 
+                # Amount rendering depends on entry type: payments are credits
+                # (green, "+"), bookings are charges (red), everything else
+                # (invoices) is shown as an amber debit.
                 if e_type == "Payment":
                     amt_text = f"+ ₱ {credit_val:,.2f}"
                     amt_color = "#22C55E"
@@ -682,6 +852,8 @@ class CustomerLedgerDialog(QDialog):
 
         outer.addWidget(container)
 
+# Preset barangay/city options for the bulk-add address dropdown + completer.
+# The leading "" is a blank default; the completer uses the list from index 1 on.
 _CEBU_ADDRESS_OPTIONS = [
     "",
     "Lahug, Cebu City", "Guadalupe, Cebu City", "Mabolo, Cebu City", "Talamban, Cebu City",
@@ -699,17 +871,34 @@ _CEBU_ADDRESS_OPTIONS = [
 
 
 class AddMultipleCustomersDialog(QDialog):
+    """Spreadsheet-style modal for entering many customers in one pass.
+
+    Presents an editable table (name / contact / email / address) that saves all
+    non-empty rows at once, skipping duplicates by name. The count of newly
+    inserted customers is exposed as ``self._added_count`` for the caller's toast.
+    """
+
     def __init__(self, parent=None):
+        """Set up the bulk-add window and build the grid UI.
+
+        Args:
+            parent: Optional parent widget.
+        """
         super().__init__(parent)
         self.setWindowTitle("Add Multiple Customers")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMinimumSize(860, 540)
         self.setModal(True)
-        self._added_count = 0
+        self._added_count = 0  # How many rows were actually inserted (post-dedupe).
         self._build_ui()
 
     def _build_ui(self):
+        """Build the header, the 4-column entry table, row controls, and buttons.
+
+        Side effects: creates ``self.table`` seeded with 5 empty rows and
+        ``self._err`` for validation messages.
+        """
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
         container = QFrame()
@@ -789,6 +978,8 @@ class AddMultipleCustomersDialog(QDialog):
         outer.addWidget(container)
 
     def _add_row(self):
+        """Append one empty entry row with name/contact/email inputs and an
+        editable, auto-completing Cebu-address combo box."""
         r = self.table.rowCount()
         self.table.insertRow(r)
 
@@ -808,20 +999,29 @@ class AddMultipleCustomersDialog(QDialog):
         self.table.setCellWidget(r, 2, email_edit)
 
         addr_combo = QComboBox()
-        addr_combo.setEditable(True)
+        addr_combo.setEditable(True)  # Allow free-text addresses beyond the presets.
         addr_combo.addItems(_CEBU_ADDRESS_OPTIONS)
         addr_combo.setFixedHeight(34)
+        # Case-insensitive completer over the presets (skipping the blank at [0]).
         completer = QCompleter(_CEBU_ADDRESS_OPTIONS[1:], addr_combo)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
         addr_combo.setCompleter(completer)
         self.table.setCellWidget(r, 3, addr_combo)
 
     def _delete_selected_row(self):
+        """Remove the currently selected table row, if any."""
         curr = self.table.currentRow()
         if curr >= 0:
             self.table.removeRow(curr)
 
     def _save_all(self):
+        """Collect, validate, dedupe, and insert every non-empty row.
+
+        Rows with neither a name nor a contact are skipped silently. A row with a
+        contact but no name is a hard validation error. Duplicates - either within
+        this batch or already in the DB (``repo.customer_exists``) - are skipped
+        and reported. Sets ``self._added_count`` and accepts the dialog.
+        """
         rows_to_save = []
         for r in range(self.table.rowCount()):
             name_w = self.table.cellWidget(r, 0)
@@ -835,8 +1035,9 @@ class AddMultipleCustomersDialog(QDialog):
             addr = addr_w.currentText().strip() if isinstance(addr_w, QComboBox) else ""
 
             if not name and not contact:
-                continue
+                continue  # Entirely blank row - ignore it.
             if not name:
+                # A contact without a name is invalid; point at the offending row.
                 self._err.setText(f"Row {r+1}: Customer Name cannot be empty.")
                 self._err.show()
                 return
@@ -855,9 +1056,10 @@ class AddMultipleCustomersDialog(QDialog):
 
         saved = 0
         skipped_names = []
-        seen_names = set()
+        seen_names = set()  # Case-insensitive names already handled this batch.
         for data in rows_to_save:
             name_key = data["name"].strip().lower()
+            # Skip if it's a duplicate within this batch OR already in the DB.
             if name_key in seen_names or repo.customer_exists(data["name"]):
                 skipped_names.append(data["name"])
                 continue
@@ -868,6 +1070,7 @@ class AddMultipleCustomersDialog(QDialog):
 
         self._added_count = saved
         if skipped_names:
+            # Tell the user which names were skipped, with singular/plural grammar.
             from components.dialogs import success as _success
             names_str = ", ".join(skipped_names)
             _success(
@@ -881,15 +1084,39 @@ class AddMultipleCustomersDialog(QDialog):
 
 
 class CustomersPage(QWidget):
+    """Main customers screen: searchable, paginated, batch-selectable card list.
+
+    Design notes / invariants worth knowing when editing this class:
+
+    - Reloads are *coalesced*: a debounce timer plus in-flight/pending flags
+      (``_reload_in_flight`` / ``_reload_pending``) ensure only one fetch+render
+      pass runs at a time, with at most one more queued behind it.
+    - Rendering is *generation-tokened*: ``_reload_generation`` and
+      ``_render_token`` let stale async callbacks/batches detect they've been
+      superseded and abort, preventing races that mutate the same layout.
+    - The list is *lazily paginated* (``_page_size`` rows at a time) and rendered
+      in small yielded batches so the Qt UI thread is never blocked for long.
+    - An optional pre-warmed in-memory cache serves the "Show All" view instantly;
+      the default "Active only" view always hits the DB for the recency window.
+    - Cards bake in per-user permissions at render time, so a permission change
+      forces a rebuild (see :meth:`refresh_permissions`).
+    """
+
     def __init__(self, parent=None):
+        """Initialize all reload/pagination/selection state, build the UI, and
+        subscribe to app-wide data-change signals that trigger a reload.
+
+        Args:
+            parent: Optional parent widget.
+        """
         super().__init__(parent)
-        self._dirty = True
-        self._customers = []
-        self._selected_ids: set[int] = set()
-        self._card_checkboxes: dict[int, QCheckBox] = {}
-        self._reload_generation = 0
-        self._reload_in_flight = False
-        self._reload_pending = False
+        self._dirty = True  # Needs a (re)load before it can show fresh data.
+        self._customers = []  # Currently loaded customer rows (grows via pagination).
+        self._selected_ids: set[int] = set()  # Ids checked for batch delete.
+        self._card_checkboxes: dict[int, QCheckBox] = {}  # id -> its card checkbox.
+        self._reload_generation = 0  # Bumped each reload; stale callbacks compare against it.
+        self._reload_in_flight = False  # True while a fetch+render pass is running.
+        self._reload_pending = False  # A reload was requested while one was in flight.
         # Lazy pagination: only fetch/render the rows the user actually scrolls to.
         self._page_size = 50
         self._has_more = True
@@ -898,16 +1125,19 @@ class CustomersPage(QWidget):
         # scroll-triggered load-more from starting while an initial/previous
         # batch chain is still mutating the same layout (see race fix).
         self._rendering = False
-        self._cached_remainder = None
+        self._cached_remainder = None  # Un-rendered tail of a cached full list, if any.
         # Default view: only customers with a booking in the last 6 months.
         # Toggle to "Show All" reveals dormant/never-booked customers too.
         self._active_only = True
+        # Debounce timer: collapse a burst of reload requests into one fetch.
         self._reload_timer = QTimer(self)
         self._reload_timer.setSingleShot(True)
         self._reload_timer.setInterval(80)
         self._reload_timer.timeout.connect(self._do_reload_direct)
         self._build_ui()
 
+        # Refresh whenever anything elsewhere in the app changes customer-relevant
+        # data. Wrapped in try/except so a missing signals module never breaks the page.
         try:
             from utils.signals import app_events
             app_events().customer_saved.connect(self._mark_dirty_and_reload)
@@ -918,6 +1148,15 @@ class CustomersPage(QWidget):
             pass
 
     def _show_toast(self, title: str, message: str, color: str = "#22C55E"):
+        """Show a transient toast via the main window's toast manager.
+
+        Falls back to a modal success dialog if the window has no toast manager.
+
+        Args:
+            title: Toast heading.
+            message: Toast body text.
+            color: Accent color (defaults to green/success).
+        """
         win = self.window()
         if hasattr(win, "_toast_manager") and win._toast_manager:
             win._toast_manager.show(title, message, color=color)
@@ -926,6 +1165,12 @@ class CustomersPage(QWidget):
             success(self, title=title, message=message)
 
     def _mark_dirty_and_reload(self):
+        """Signal handler: mark data stale and reload, unless a search is active.
+
+        If the user is mid-search, an immediate rebuild would wipe their filtered
+        view, so the refresh is deferred (``_reload_deferred``) until the search
+        clears. Only reloads when the page is actually visible.
+        """
         self._dirty = True
         # Don't rebuild the list while the user is actively searching - it would
         # wipe their filtered view. Defer; refresh once the search is cleared.
@@ -936,20 +1181,31 @@ class CustomersPage(QWidget):
             self._do_reload()
 
     def _mark_dirty(self):
+        """Flag that the loaded data is stale and should be refetched next reload."""
         self._dirty = True
 
     def showEvent(self, event):
+        """On becoming visible, refresh permissions and reload if data is stale.
+
+        This is why navigating back to the page picks up external changes.
+        """
         super().showEvent(event)
         self.refresh_permissions()
         if getattr(self, "_dirty", True):
             self._do_reload()
 
     def reload(self):
+        """Force a full refresh: mark dirty, re-check permissions, and reload."""
         self._mark_dirty()
         self.refresh_permissions()
         self._do_reload()
 
     def _on_status_filter_changed(self, _idx):
+        """Handle the Active/Show-All dropdown change and force a fresh fetch.
+
+        ``_has_populated_once`` is reset so the reload can't reuse a population
+        from the other filter mode (the cache only applies to "Show All").
+        """
         self._active_only = bool(self._status_filter.currentData())
         # Force the next reload to re-fetch (cache only applies to Show All,
         # and a prior Show All population must not leak into Active or vice versa).
@@ -957,6 +1213,13 @@ class CustomersPage(QWidget):
         self._do_reload()
 
     def refresh_permissions(self):
+        """Re-read the current user's customer permissions and update the UI.
+
+        Toggles visibility/enablement of the create/import/delete controls and,
+        crucially, rebuilds the card list if the permission set changed - because
+        per-card Edit/Delete buttons are baked in at render time and would
+        otherwise reflect a previous user's rights after a re-login.
+        """
         from utils.auth import SessionManager
         can_create = SessionManager.has_permission("customers", "create")
         can_delete = SessionManager.has_permission("customers", "delete")
@@ -990,6 +1253,11 @@ class CustomersPage(QWidget):
             self._lbl_selected_count.setVisible(can_delete)
 
     def _do_reload(self):
+        """Schedule a reload through the debounce timer (or run it immediately).
+
+        Clears any deferred-reload flag and starts the 80ms timer so bursty
+        triggers collapse into a single fetch.
+        """
         self._reload_deferred = False
         if hasattr(self, "_reload_timer"):
             self._reload_timer.start(80)
@@ -997,6 +1265,12 @@ class CustomersPage(QWidget):
             self._do_reload_direct()
 
     def _do_reload_direct(self):
+        """Perform (or queue) the actual reload: fetch page 0 and re-render.
+
+        Coalesces overlapping reloads via ``_reload_in_flight``/``_reload_pending``,
+        resets pagination, and serves from the pre-warmed cache when eligible
+        (Show-All view, first population) otherwise fetches page 0 from the DB.
+        """
         # Coalesce overlapping reloads: if a reload (fetch + batch-render) is
         # already running, don't start a second one in parallel - just remember
         # to run exactly one more pass once the current one fully finishes.
@@ -1022,12 +1296,15 @@ class CustomersPage(QWidget):
         cached = DataCache.get("customers_loyalty") if not self._active_only else None
         if cached is not None and not getattr(self, "_has_populated_once", False):
             self._has_populated_once = True
+            # Render only the first page now; stash the rest to serve on scroll
+            # without touching the DB again.
             self._cached_remainder = list(cached[self._page_size:])
             page = list(cached[:self._page_size])
             if len(cached) <= self._page_size:
                 self._has_more = False
             if hasattr(self, "_loader"):
                 self._loader.show_overlay("Loading customer records...")
+                # Slight delay lets the overlay paint before the render work starts.
                 QTimer.singleShot(60, lambda: self._on_customers_loaded(page, gen))
             else:
                 self._on_customers_loaded(page, gen)
@@ -1042,12 +1319,24 @@ class CustomersPage(QWidget):
                   None, 0, self._page_size, self._active_only)
 
     def _on_first_page_loaded(self, data, gen=None):
+        """Async callback for the page-0 DB fetch; hands off to the renderer.
+
+        Args:
+            data: The fetched first-page rows (or None).
+            gen: Reload generation this fetch belongs to, for staleness checks.
+        """
         page = data or []
         if len(page) < self._page_size:
+            # A short first page means there is no further page to load.
             self._has_more = False
         self._on_customers_loaded(page, gen)
 
     def _reload_finished(self):
+        """Mark the current reload pass complete and run one queued reload if any.
+
+        This is the single exit point that clears the in-flight flag, so a
+        coalesced ``_reload_pending`` request is honored exactly once here.
+        """
         self._reload_in_flight = False
         self._loading_more = False
         if self._reload_pending:
@@ -1055,6 +1344,16 @@ class CustomersPage(QWidget):
             QTimer.singleShot(0, self._do_reload)
 
     def _on_customers_loaded(self, data, gen=None):
+        """Receive page-0 rows and (re)populate the card list if they changed.
+
+        Guards: aborts if the widget was destroyed (shiboken ``isValid``) or if a
+        newer reload generation has superseded this one. Short-circuits the render
+        pipeline when the data signature is unchanged from what's already shown.
+
+        Args:
+            data: The customer rows to display.
+            gen: The reload generation this data belongs to.
+        """
         try:
             from shiboken6 import isValid
             if not isValid(self):
@@ -1062,8 +1361,10 @@ class CustomersPage(QWidget):
         except Exception:
             pass
         if gen is not None and gen != self._reload_generation:
-            return
+            return  # A newer reload has started; this callback is stale.
         rows = data if data is not None else []
+        # Cheap change-detection signature: if the visible fields are identical,
+        # skip the expensive re-render entirely.
         old_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in self._customers]
         new_sig = [(c.get("id"), c.get("name"), c.get("events"), c.get("status")) for c in rows]
         if old_sig == new_sig and getattr(self, "_has_populated_once", False):
@@ -1080,11 +1381,21 @@ class CustomersPage(QWidget):
         self._populate_table()
 
     def _on_scroll_near_bottom(self, value):
+        """Scrollbar handler: trigger loading the next page when near the bottom.
+
+        Args:
+            value: Current vertical scrollbar position.
+        """
         sb = self.scroll_area.verticalScrollBar()
-        if sb.maximum() - value < 200:
+        if sb.maximum() - value < 200:  # Within 200px of the end -> prefetch more.
             self._load_more_customers()
 
     def _load_more_customers(self):
+        """Load and append the next page of customers (from cache or the DB).
+
+        No-ops if a page load is already running, there are no more rows, or the
+        batch renderer is still busy (guards against concurrent layout mutation).
+        """
         if getattr(self, "_loading_more", False) or not getattr(self, "_has_more", False):
             return
         # Don't start a new page while this list's batch chain is still active.
@@ -1099,14 +1410,21 @@ class CustomersPage(QWidget):
                 self._has_more = False
             QTimer.singleShot(0, lambda: self._on_more_customers_loaded(more))
             return
+        # Offset by the current row count so we fetch the next contiguous page.
         run_async(self, repo.get_customers_page, self._on_more_customers_loaded,
                   None, len(self._customers), self._page_size, self._active_only)
 
     def _on_more_customers_loaded(self, data):
+        """Async callback for a subsequent page: append the new rows' cards.
+
+        Args:
+            data: The newly fetched rows (or None). A short page clears
+                ``_has_more``; an empty page just releases the loading flag.
+        """
         try:
             from shiboken6 import isValid
             if not isValid(self):
-                return
+                return  # Widget was destroyed before the fetch returned.
         except Exception:
             pass
         new_rows = data or []
@@ -1119,6 +1437,14 @@ class CustomersPage(QWidget):
         self._append_customer_cards(new_rows)
 
     def _append_customer_cards(self, new_rows):
+        """Kick off incremental rendering of appended rows onto the existing list.
+
+        Args:
+            new_rows: The newly loaded customer rows to render as cards.
+
+        Side effects: snapshots current edit/delete permissions, bumps the render
+        token, and starts the batched renderer with ``_rendering`` set.
+        """
         # New cards are inserted just before the trailing stretch by the batch
         # renderer (see _insert_card_before_stretch), so we no longer take the
         # stretch out of the layout here - repeatedly take()-ing and discarding
@@ -1133,6 +1459,13 @@ class CustomersPage(QWidget):
         self._render_next_batch(self._render_token)
 
     def _build_ui(self):
+        """Construct the full page: action header, search+filter row, and the
+        scrollable card area with its batch-selection toolbar.
+
+        Side effects: creates the many widgets/attributes the rest of the class
+        relies on (``add_btn``, ``_search``, ``_status_filter``, ``scroll_area``,
+        ``cards_layout``, ``_empty_lbl``, ``_loader`` and the batch controls).
+        """
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
         root.setSpacing(20)
@@ -1183,6 +1516,8 @@ class CustomersPage(QWidget):
         self._search.setPlaceholderText("Search customers...")
         self._search.setFixedHeight(38)
         self._search.setMaximumWidth(320)
+        # Debounce search input by 500ms so filtering runs once the user pauses,
+        # not on every keystroke.
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._filter_table_now)
@@ -1192,6 +1527,7 @@ class CustomersPage(QWidget):
         self._status_filter = QComboBox()
         self._status_filter.setFixedHeight(38)
         self._status_filter.setMinimumWidth(200)
+        # Item data is the _active_only flag: True = recent-only, False = all.
         self._status_filter.addItem("Active Customers (Default)", True)
         self._status_filter.addItem("Show All", False)
         self._status_filter.currentIndexChanged.connect(self._on_status_filter_changed)
@@ -1270,20 +1606,33 @@ class CustomersPage(QWidget):
         self._loader = LoadingOverlay(self, "Loading customer records...")
 
     def _populate_table(self, customers=None):
+        """Tear down existing cards and (re)build the list via the batch renderer.
+
+        Args:
+            customers: Optional explicit row list to render; defaults to
+                ``self._customers``.
+
+        Side effects: destroys current card widgets, resets selection checkboxes,
+        snapshots edit/delete permissions, and starts incremental rendering. When
+        there's no data it shows the empty label and finishes the pipeline early.
+        """
         # Invalidate any in-flight incremental render so stale batches abort.
         self._render_token = getattr(self, "_render_token", 0) + 1
         token = self._render_token
 
+        # Freeze repaints while we mutate the layout to avoid flicker/partial paints.
         if hasattr(self, "cards_container"):
             self.cards_container.setUpdatesEnabled(False)
         try:
             self._card_checkboxes.clear()
+            # Remove and schedule deletion of every previously rendered card.
             for _, card_w in self._customer_cards:
                 self.cards_layout.removeWidget(card_w)
                 card_w.hide()
                 card_w.deleteLater()
             self._customer_cards.clear()
 
+            # Sweep any leftover layout items except the empty label at index 0.
             while self.cards_layout.count() > 1:
                 item = self.cards_layout.takeAt(1)
                 if item.widget() and item.widget() != self._empty_lbl:
@@ -1307,7 +1656,7 @@ class CustomersPage(QWidget):
             from utils.auth import SessionManager
             self._render_can_edit = SessionManager.has_permission("customers", "edit")
             self._render_can_delete = SessionManager.has_permission("customers", "delete")
-            self._render_queue = list(data)
+            self._render_queue = list(data)  # Drained batch-by-batch by the renderer.
         finally:
             if hasattr(self, "cards_container"):
                 self.cards_container.setUpdatesEnabled(True)
@@ -1319,6 +1668,16 @@ class CustomersPage(QWidget):
 
     @staticmethod
     def _insert_card_before_stretch(layout, card):
+        """Insert ``card`` just before a trailing stretch spacer, if present.
+
+        Args:
+            layout: The QVBoxLayout to insert into.
+            card: The widget to add.
+
+        Rationale: repeatedly ``take()``-ing and discarding the stretch spacer was
+        the suspected trigger for a native Qt memory-reuse crash under heavy
+        append churn, so the spacer is left in place and cards go before it.
+        """
         # Insert just before a trailing stretch spacer if one exists, rather
         # than ever taking the spacer out of the layout - repeatedly
         # take()-ing and discarding a QLayoutItem was the suspected trigger
@@ -1330,6 +1689,18 @@ class CustomersPage(QWidget):
             layout.addWidget(card)
 
     def _render_next_batch(self, token, batch_size=15):
+        """Render one batch of queued cards, then reschedule itself for the rest.
+
+        Renders ``batch_size`` cards, yields to the Qt event loop, and continues
+        on the next tick so the UI stays responsive. When the queue drains it adds
+        the trailing stretch, updates selection/filter UI, hides the loader (only
+        once nothing more is pending), and optionally auto-loads the next page.
+
+        Args:
+            token: The render token this chain was started with; if it no longer
+                matches ``self._render_token`` the batch aborts (superseded).
+            batch_size: Number of cards to build per event-loop slice.
+        """
         # Abort if a newer populate call has superseded this render.
         if token != getattr(self, "_render_token", 0):
             return
@@ -1340,6 +1711,7 @@ class CustomersPage(QWidget):
         except Exception:
             pass
 
+        # Pop the next slice off the front of the render queue.
         queue = getattr(self, "_render_queue", [])
         batch = queue[:batch_size]
         del queue[:batch_size]
@@ -1358,6 +1730,7 @@ class CustomersPage(QWidget):
             if hasattr(self, "cards_container"):
                 self.cards_container.setUpdatesEnabled(True)
 
+        # Advance the loading spinner one frame per batch as visible progress.
         if hasattr(self, "_loader") and self._loader and self._loader.isVisible():
             self._loader.spin_step()
 
@@ -1390,6 +1763,20 @@ class CustomersPage(QWidget):
                 QTimer.singleShot(150, self._load_more_customers)
 
     def _create_customer_card(self, c: dict, can_edit: bool = None, can_delete: bool = None) -> QFrame:
+        """Build one customer row card with checkbox, details, actions, and status.
+
+        Args:
+            c: The customer dict (supports ``id`` or ``cus_id``).
+            can_edit: Whether to render/enable the edit action. If None it is
+                looked up from the session (used when called outside a batch).
+            can_delete: Whether to render/enable the delete action; same None
+                fallback as ``can_edit``.
+
+        Returns:
+            QFrame: The assembled, fully wired card. Edit/delete buttons are only
+            added when the respective permission is granted, and double-click-to-
+            edit is enabled only when editing is allowed.
+        """
         cid = int(c.get("id") or c.get("cus_id") or 0)
         card = QFrame()
         card.setObjectName("entryCard")
@@ -1399,7 +1786,8 @@ class CustomersPage(QWidget):
 
         # Col 0: Checkbox
         cb = QCheckBox()
-        cb.setChecked(cid in self._selected_ids)
+        cb.setChecked(cid in self._selected_ids)  # Restore selection across re-renders.
+        # Default-arg captures this card's id so the handler targets the right row.
         cb.stateChanged.connect(lambda state, cust_id=cid: self._on_card_checked(cust_id, state))
         self._card_checkboxes[cid] = cb
         lay.addWidget(cb, alignment=Qt.AlignVCenter)
@@ -1413,8 +1801,8 @@ class CustomersPage(QWidget):
         name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
         # Keep a handle so the search filter can re-highlight the name live
         # (the list is filtered client-side without re-rendering the cards).
-        card._name_lbl = name_lbl
-        card._cust_name = c.get("name", "")
+        card._name_lbl = name_lbl        # Label to re-apply highlight markup to.
+        card._cust_name = c.get("name", "")  # Unhighlighted source name for filtering.
         info_lbl = QLabel(f"📞 {c['contact']}  |  ✉ {c['email']}")
         info_lbl.setObjectName("subtitle")
         c1.addWidget(name_lbl)
@@ -1456,6 +1844,8 @@ class CustomersPage(QWidget):
         actions_l.setContentsMargins(0, 0, 0, 0)
         actions_l.setSpacing(6)
 
+        # When permissions weren't passed in (card built outside a batch render),
+        # look them up from the current session now.
         if can_edit is None or can_delete is None:
             from utils.auth import SessionManager
             if can_edit is None:
@@ -1513,6 +1903,8 @@ class CustomersPage(QWidget):
         del_btn.setToolTip("Delete customer" if can_delete else "Permission required to delete")
         del_btn.clicked.connect(lambda _, cust=c: self._delete_customer_by_ref(cust))
 
+        # Edit/delete buttons only appear when permitted; ledger and follow-up
+        # are always available.
         if can_edit:
             actions_l.addWidget(edit_btn)
         actions_l.addWidget(ledger_btn)
@@ -1522,12 +1914,19 @@ class CustomersPage(QWidget):
 
         lay.addWidget(actions_w)
 
+        # Convenience: double-clicking the card opens edit (only if allowed).
         if can_edit:
             card.mouseDoubleClickEvent = lambda _, cust=c: self._open_edit_dialog(cust)
 
         return card
 
     def _on_card_checked(self, cid: int, state):
+        """Add/remove a customer id from the batch selection on checkbox toggle.
+
+        Args:
+            cid: The customer id for the toggled card (0/falsy ids are ignored).
+            state: Qt check state; truthy means checked.
+        """
         if not cid:
             return
         if state:
@@ -1537,6 +1936,14 @@ class CustomersPage(QWidget):
         self._update_selection_ui()
 
     def _toggle_select_all(self, state):
+        """Select or deselect every currently *visible* card's checkbox.
+
+        Only visible (search-matching) cards are affected so a filtered "Select
+        All" doesn't silently select hidden rows.
+
+        Args:
+            state: Qt check state of the master checkbox; truthy = select all.
+        """
         visible_cids = []
         for c, card_w in self._customer_cards:
             if card_w.isVisible():
@@ -1549,6 +1956,7 @@ class CustomersPage(QWidget):
         else:
             self._selected_ids.difference_update(visible_cids)
 
+        # Sync each visible checkbox's UI state without re-firing its handler.
         for cid, cb in self._card_checkboxes.items():
             if cid in visible_cids:
                 cb.blockSignals(True)
@@ -1558,6 +1966,11 @@ class CustomersPage(QWidget):
         self._update_selection_ui()
 
     def _update_selection_ui(self):
+        """Refresh the selection count label, delete button, and select-all state.
+
+        Recomputes whether all visible cards are selected to keep the master
+        "Select All" checkbox in sync (signals blocked to avoid a feedback loop).
+        """
         count = len(self._selected_ids)
         self._lbl_selected_count.setText(f"{count} selected")
         self._btn_delete_selected.setEnabled(count > 0)
@@ -1570,6 +1983,12 @@ class CustomersPage(QWidget):
         self._cb_select_all.blockSignals(False)
 
     def _delete_selected_customers(self):
+        """Permission-check, confirm, and batch-delete all selected customers.
+
+        Guards on the delete permission and a non-empty selection, asks for
+        confirmation, performs the bulk delete via ``repo``, clears selection,
+        reloads, emits change signals, and toasts the result.
+        """
         from utils.auth import SessionManager
         if not SessionManager.has_permission("customers", "delete"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete customers.")
@@ -1594,6 +2013,7 @@ class CustomersPage(QWidget):
         self._show_toast("Customers Deleted", f"Successfully deleted {deleted} customer(s).")
 
     def _open_multi_add_dialog(self):
+        """Open the bulk-add dialog (create permission required) and reload on save."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("customers", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add customers.")
@@ -1611,6 +2031,7 @@ class CustomersPage(QWidget):
 
 
     def _open_ledger(self, c):
+        """Open the ledger dialog for customer ``c``; show a warning on failure."""
         try:
             dlg = CustomerLedgerDialog(self, customer=c)
             dlg.exec()
@@ -1620,6 +2041,17 @@ class CustomersPage(QWidget):
             QMessageBox.warning(self, "Ledger Error", f"Unable to open customer ledger:\n{e}")
 
     def _delete_customer_by_ref(self, c):
+        """Confirm and delete a single customer by object reference.
+
+        Warns the user when the customer has bookings, since deleting them
+        cascades to those bookings/invoices/payments (see ``sp_delete_customer``).
+        Removes the row from the local mirror by identity, re-renders, emits the
+        relevant change signals (including booking/invoice ones when events were
+        deleted), and toasts.
+
+        Args:
+            c: The customer dict to delete.
+        """
         from utils.auth import SessionManager
         if not SessionManager.has_permission("customers", "delete"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete customers.")
@@ -1636,6 +2068,7 @@ class CustomersPage(QWidget):
             return
         if c.get("id"):
             repo.delete_customer(c["id"])
+        # Drop by identity (is not) so a same-valued duplicate isn't also removed.
         self._customers = [x for x in self._customers if x is not c]
         if hasattr(self, "_loader"):
             self._loader.show_overlay("Updating customer records...")
@@ -1654,6 +2087,15 @@ class CustomersPage(QWidget):
         self._show_toast("Customer Deleted", "Customer deleted successfully.")
 
     def _open_follow_ups(self, c):
+        """Open an inline follow-up/reminder manager dialog for customer ``c``.
+
+        Builds a small self-contained dialog (locally imported widgets) that lists
+        existing follow-ups with complete/delete actions and an add row. The inner
+        ``_reload`` closure rebuilds the list after each mutation via ``repo``.
+
+        Args:
+            c: The customer dict whose follow-ups are managed (needs ``id``).
+        """
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                        QPushButton, QLineEdit, QDateEdit, QScrollArea, QFrame)
         from PySide6.QtCore import QDate
@@ -1683,6 +2125,7 @@ class CustomersPage(QWidget):
         lay.addWidget(scroll)
 
         def _reload():
+            # Rebuild the follow-up list from scratch after any add/complete/delete.
             while inner_lay.count():
                 item = inner_lay.takeAt(0)
                 if item.widget():
@@ -1690,7 +2133,9 @@ class CustomersPage(QWidget):
             fups = repo.get_follow_ups(c["id"]) if c.get("id") else []
             for fu in fups:
                 fu_row = QHBoxLayout()
+                # Checkmark for done, open circle for pending, plus date and note.
                 done_cb_lbl = QLabel(("✓ " if fu["is_done"] else "○ ") + fu["date"] + " — " + fu["note"])
+                # Muted color when done; otherwise pick a readable color per theme.
                 _done_color = "#94A3B8" if fu["is_done"] else ("#475569" if not ThemeManager().is_dark() else "#F9FAFB")
                 done_cb_lbl.setStyleSheet(f"color:{_done_color};")
                 done_cb_lbl.setWordWrap(True)
@@ -1699,6 +2144,7 @@ class CustomersPage(QWidget):
                     done_btn = QPushButton("Done")
                     done_btn.setFixedHeight(26)
                     done_btn.setStyleSheet("background:#16A34A;color:white;border:none;border-radius:5px;font-size:11px;padding:0 8px;")
+                    # Mark done then rebuild the list (tuple runs both in the lambda).
                     done_btn.clicked.connect(lambda _, fid=fu["id"]: (repo.complete_follow_up(fid), _reload()))
                     fu_row.addWidget(done_btn)
                 del_btn2 = QPushButton("✕")
@@ -1729,6 +2175,7 @@ class CustomersPage(QWidget):
         add_fu_btn.setObjectName("primaryButton")
 
         def _add_fu():
+            # Add a new follow-up; ignore empty notes or customers without an id.
             note = note_edit.text().strip()
             if not note or not c.get("id"):
                 return
@@ -1747,6 +2194,16 @@ class CustomersPage(QWidget):
         dlg.exec()
 
     def _open_edit_dialog(self, c):
+        """Open the edit dialog for ``c`` and persist changes on accept.
+
+        Requires edit permission. On save it updates the customer row, optionally
+        saves and links a new structured address, mirrors the changes back onto
+        the local dict ``c`` (so the card reflects them without a full refetch),
+        re-renders, emits change signals, and toasts.
+
+        Args:
+            c: The customer dict to edit (mutated in place on success).
+        """
         from utils.auth import SessionManager
         if not SessionManager.has_permission("customers", "edit"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to edit customers.")
@@ -1756,6 +2213,7 @@ class CustomersPage(QWidget):
             result = dlg.get_result()
             if result and c.get("id"):
                 repo.update_customer(c["id"], result)
+                # If a structured address was picked, persist it and link it.
                 addr_data = result.get("address_data")
                 if addr_data:
                     addr_id = repo.save_address(
@@ -1766,6 +2224,7 @@ class CustomersPage(QWidget):
                     )
                     if addr_id:
                         repo.link_customer_address(c["id"], addr_id)
+                # Mirror the saved values back onto the in-memory row.
                 c["name"]    = result["name"]
                 c["contact"] = result["contact"]
                 c["email"]   = result["email"]
@@ -1783,6 +2242,14 @@ class CustomersPage(QWidget):
                 self._show_toast("Customer Updated", "Customer updated successfully.")
 
     def _open_add_dialog(self):
+        """Open the single-customer add dialog and persist on accept.
+
+        Requires create permission. Rejects a duplicate name up front, inserts
+        the customer, seeds loyalty ("Bronze") and recalculates it, optionally
+        saves/links a structured address, appends to the local mirror, re-renders,
+        emits change signals, and toasts. Errors in loyalty/address steps are
+        swallowed so they don't block the successful core insert.
+        """
         from utils.auth import SessionManager
         if not SessionManager.has_permission("customers", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to add customers.")
@@ -1791,6 +2258,7 @@ class CustomersPage(QWidget):
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
             if result:
+                # Reject duplicate names before touching the DB.
                 if repo.customer_exists(result.get("name", "")):
                     QMessageBox.warning(
                         self, "Customer Already Exists",
@@ -1800,11 +2268,13 @@ class CustomersPage(QWidget):
                 new_id = repo.add_customer(result)
                 if new_id:
                     result["id"] = new_id
-                    result["loyalty_tier"] = "Bronze"
+                    result["loyalty_tier"] = "Bronze"  # Everyone starts at Bronze.
                     try:
+                        # Recompute tier in case rules give a higher starting tier.
                         repo.recalculate_loyalty(new_id)
                     except Exception:
                         pass
+                    # Persist/link the structured address if one was selected.
                     addr_data = result.get("address_data")
                     if addr_data:
                         try:
@@ -1833,18 +2303,27 @@ class CustomersPage(QWidget):
                     QMessageBox.warning(self, "Error", "Failed to save customer to database.")
 
     def _filter_table(self, _text=""):
+        """Debounced entry point for filtering (restart the 500ms search timer)."""
         if hasattr(self, "_search_timer"):
             self._search_timer.start(500)
         else:
             self._filter_table_now()
 
     def _has_active_search(self) -> bool:
+        """Return True if the search box currently holds a non-blank query."""
         try:
             return bool(self._search.text().strip())
         except Exception:
             return False
 
     def _filter_table_now(self):
+        """Apply the current search query by showing/hiding already-rendered cards.
+
+        Filtering is client-side (no re-render): each card's name label is
+        re-highlighted and its visibility is set based on a substring match across
+        name/email/contact/address. If the search just cleared while a background
+        refresh was deferred, that deferred reload runs now instead.
+        """
         raw_q = self._search.text() if hasattr(self, "_search") else ""
         q = raw_q.strip().lower()
         # Search just cleared while a background refresh was deferred -> reload once.
@@ -1872,18 +2351,23 @@ class CustomersPage(QWidget):
                 card_w.setVisible(match)
                 if match:
                     visible_count += 1
+        # Show the empty label only when a non-empty dataset filtered down to zero
+        # visible matches (not when there simply are no customers at all).
         if hasattr(self, "_empty_lbl") and self._empty_lbl:
             self._empty_lbl.setVisible(visible_count == 0 and len(getattr(self, "_customers", [])) > 0)
 
     def filter_search(self, text):
+        """Public hook (e.g. from a global search) to set the page's search text."""
         self._search.setText(text)
 
     def _export_csv(self):
+        """Open the export wizard dialog for exporting customer data."""
         from components.export_dialog import ExportWizardDialog
         dlg = ExportWizardDialog(parent=self)
         dlg.exec()
 
     def _open_import_dialog(self):
+        """Open the import wizard (create permission required); reload on success."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("customers", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to import customers.")
