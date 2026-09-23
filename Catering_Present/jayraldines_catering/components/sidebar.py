@@ -1,3 +1,13 @@
+"""
+Collapsible left navigation sidebar for the main application shell.
+
+Defines :class:`Sidebar`, a QFrame containing the app logo, a set of
+permission-gated navigation buttons (see ``_NAV_ITEMS``), and a user-profile
+footer with an account menu (Change Password / Log Out). It can animate between
+an expanded and a collapsed (icon-only) width, adapts to the active theme, and
+emits :attr:`Sidebar.page_changed` to request navigation. Button visibility is
+driven by the current session's module permissions.
+"""
 import os
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSizePolicy
 from PySide6.QtCore import Signal, Qt, QSize, QPropertyAnimation, QEasingCurve, QTimer
@@ -10,6 +20,9 @@ from utils.paths import resource_path
 
 from utils.auth import SessionManager
 
+# Navigation button definitions: (label, icon name, page index, permission key).
+# The page index is emitted via page_changed; the permission key gates
+# visibility through SessionManager.has_permission(..., "view").
 _NAV_ITEMS = [
     ("Customers", "customers", 2, "customers"),
     ("Menu",      "menu",      3, "menu"),
@@ -19,21 +32,36 @@ _NAV_ITEMS = [
     ("Settings",  "settings",  10, "settings"),
 ]
 
+# Pixel widths for the two sidebar states (used by the collapse animation).
 EXPANDED_WIDTH  = 250
 COLLAPSED_WIDTH = 68
 
 
 class Sidebar(QFrame):
+    """Left navigation sidebar widget.
+
+    Signals:
+        page_changed(int): emitted with a page index when a nav button is
+            clicked (once the sidebar is ready).
+        logout_requested(): emitted when the user chooses Log Out.
+        change_password_requested(): declared for external wiring (the sidebar
+            itself opens the change-password dialog directly).
+    """
     page_changed = Signal(int)
     logout_requested = Signal()
     change_password_requested = Signal()
 
     def __init__(self):
+        """Build the full sidebar UI: logo/header with collapse toggle,
+        permission-gated navigation buttons, the user-profile footer with its
+        account menu, and the expand/collapse animations. Applies theme styles,
+        refreshes permissions, and defers marking itself 'ready' (so early
+        programmatic clicks are ignored)."""
         super().__init__()
         self.setObjectName("sidebar")
         self.setFixedWidth(EXPANDED_WIDTH)
-        self._collapsed = False
-        self._ready = False
+        self._collapsed = False   # current expand/collapse state
+        self._ready = False       # guards nav clicks until the first event loop tick
 
         self.root_layout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
@@ -48,12 +76,15 @@ class Sidebar(QFrame):
 
         self.logo_icon = QLabel(self.logo_frame)
         self.logo_icon.setCursor(Qt.PointingHandCursor)
+        # When collapsed, clicking the logo re-expands the sidebar (it is the
+        # only visible affordance in that state).
         self.logo_icon.mousePressEvent = lambda e: self.toggle_collapse() if self._collapsed else None
         logo_path = resource_path("assets", "logo.png")
         if os.path.exists(logo_path):
             px = QPixmap(logo_path).scaled(30, 30, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.logo_icon.setPixmap(px)
         else:
+            # Fallback glyph when the logo asset is missing from the bundle.
             self.logo_icon.setPixmap(get_icon("orders", color="#E11D48", size=QSize(26, 26)).pixmap(QSize(26, 26)))
         self.logo_icon.setFixedSize(30, 30)
         self.logo_icon.setAlignment(Qt.AlignCenter)
@@ -86,10 +117,13 @@ class Sidebar(QFrame):
         self.buttons = []
         self.root_layout.addSpacing(8)
 
+        # Build one checkable nav button per _NAV_ITEMS entry, stashing its
+        # metadata on the widget via Qt properties for later lookup.
         for item in _NAV_ITEMS:
             text = item[0]
             icon_name = item[1]
             index = item[2]
+            # Permission key defaults to the lowercased label if not provided.
             mod_key = item[3] if len(item) > 3 else text.lower()
 
             btn = QPushButton(f"   {text}", self)
@@ -101,10 +135,12 @@ class Sidebar(QFrame):
             btn.setProperty("page_index", index)
             btn.setProperty("perm_key", mod_key)
 
+            # Pre-select the dashboard button (index 0) as the default page.
             if index == 0:
                 btn.setChecked(True)
                 btn.setIcon(nav_icon_active(icon_name))
 
+            # Bind idx per-iteration so each button reports its own page index.
             btn.clicked.connect(lambda _, idx=index: self._on_nav_clicked(idx))
             self.root_layout.addWidget(btn)
             self.buttons.append(btn)
@@ -145,16 +181,19 @@ class Sidebar(QFrame):
         )
 
         def _open_menu(event):
+            """Mouse-press handler: open the account popup menu."""
             event.accept()
             self._show_user_menu()
 
+        # Both the caret label and the whole footer row open the account menu.
         self.logout_lbl.mousePressEvent = _open_menu
         self.user_frame.mousePressEvent = _open_menu
         self.user_layout.addWidget(self.logout_lbl)
 
         self.root_layout.addWidget(self.user_frame)
 
-        # Animations
+        # Collapse/expand animations: animate both min and max width together
+        # so the fixed-width frame smoothly resizes between the two states.
         self._anim = QPropertyAnimation(self, b"minimumWidth")
         self._anim.setDuration(200)
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
@@ -166,9 +205,14 @@ class Sidebar(QFrame):
         self._apply_theme_styles()
         self.refresh_permissions()
         ThemeManager().theme_changed.connect(self._on_theme_changed)
+        # Defer readiness to the next event-loop tick so any clicks emitted
+        # during construction/layout don't trigger navigation.
         QTimer.singleShot(0, self._mark_ready)
 
     def _on_theme_changed(self, *_args):
+        """Theme-change signal handler: re-apply themed styles, guarded by a
+        shiboken validity check so a queued signal to a deleted widget is a
+        no-op."""
         try:
             from shiboken6 import isValid
             if isValid(self):
@@ -177,6 +221,10 @@ class Sidebar(QFrame):
             pass
 
     def _apply_theme_styles(self):
+        """Restyle the theme-sensitive elements (user name/role labels, the
+        collapse button, and the account caret icon) for the current light or
+        dark theme, including the collapse button's icon tint which also
+        depends on the collapsed state."""
         dark = ThemeManager().is_dark()
         self.name_lbl.setStyleSheet(
             "font-weight: 700; font-size: 13px; color: %s;"
@@ -197,6 +245,7 @@ class Sidebar(QFrame):
                     border-color: #E11D48;
                 }
             """)
+            # Highlight the collapse icon when collapsed to hint it re-expands.
             btn_icon_col = "#38BDF8" if self._collapsed else "#F9FAFB"
         else:
             self.collapse_btn.setStyleSheet("""
@@ -221,9 +270,14 @@ class Sidebar(QFrame):
         )
 
     def _mark_ready(self):
+        """Flip the readiness flag so nav clicks are honored (called one tick
+        after construction)."""
         self._ready = True
 
     def handle_click(self, page_index: int):
+        """Update the checked/active state and icon of every nav button so the
+        one matching ``page_index`` is highlighted. Used both on user clicks and
+        when navigation is driven externally (keeps the sidebar in sync)."""
         for btn in self.buttons:
             btn_idx = btn.property("page_index")
             icon_name = btn.property("icon_name")
@@ -232,12 +286,18 @@ class Sidebar(QFrame):
             btn.setIcon(nav_icon_active(icon_name) if active else nav_icon(icon_name))
 
     def _on_nav_clicked(self, index):
+        """Handle a nav button click: ignore until ready, otherwise sync the
+        highlight and emit :attr:`page_changed` to request navigation."""
         if not self._ready:
             return
         self.handle_click(index)
         self.page_changed.emit(index)
 
     def toggle_collapse(self):
+        """Toggle between expanded and collapsed layouts, animating the width
+        and adjusting margins/alignment, hiding or showing the logo text, user
+        info and button labels, and converting labels to tooltips (and back)
+        when collapsed."""
         self._collapsed = not self._collapsed
         target = COLLAPSED_WIDTH if self._collapsed else EXPANDED_WIDTH
 
@@ -248,6 +308,7 @@ class Sidebar(QFrame):
 
         dark = ThemeManager().is_dark()
         if self._collapsed:
+            # Collapsed: center the icon, hide text/labels, use tooltips.
             self.logo_layout.setContentsMargins(0, 14, 0, 10)
             self.logo_layout.setAlignment(self.logo_icon, Qt.AlignCenter)
             self.logo_text.hide()
@@ -264,6 +325,7 @@ class Sidebar(QFrame):
                 btn.setText("")
                 btn.setToolTip(btn.property("nav_label"))
         else:
+            # Expanded: restore left-aligned layout, text/labels, no tooltips.
             self.logo_layout.setContentsMargins(12, 14, 12, 14)
             self.logo_layout.setAlignment(self.logo_icon, Qt.AlignLeft | Qt.AlignVCenter)
             self.logo_text.show()
@@ -281,6 +343,10 @@ class Sidebar(QFrame):
                 btn.setToolTip("")
 
     def update_user_display(self):
+        """Refresh the footer to reflect the current session user: set the
+        display name, a friendly role label ('ADMINISTRATOR' for admins), and
+        the avatar initial. Falls back to sensible defaults when no user is
+        logged in."""
         user = SessionManager.current_user() or {}
         name = user.get("display_name") or user.get("username", "Administrator")
         raw_role = user.get("role", "admin" if name.lower() == "admin" else "staff")
@@ -294,6 +360,9 @@ class Sidebar(QFrame):
         self.avatar.setText(initial)
 
     def refresh_permissions(self):
+        """Show or hide each nav button based on the current user's 'view'
+        permission for its module key (buttons without a key stay visible), then
+        refresh the user footer. Call after login/logout or permission change."""
         for btn in self.buttons:
             perm_key = btn.property("perm_key")
             if perm_key:
@@ -332,12 +401,14 @@ class Sidebar(QFrame):
         # Anchor at the top-right of the footer; Qt flips it upward if there's no room below.
         anchor = self.user_frame.mapToGlobal(QPoint(self.user_frame.width() - 6, 0))
         chosen = menu.exec(anchor)
+        # Route the chosen action: open change-password dialog or request logout.
         if chosen == act_pass:
             self._open_change_password()
         elif chosen == act_out:
             self.logout_requested.emit()
 
     def _open_change_password(self):
+        """Open the modal 'change own password' dialog for the current user."""
         from components.user_management_panel import ChangeOwnPasswordDialog
         dlg = ChangeOwnPasswordDialog(self)
         dlg.exec()
