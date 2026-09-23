@@ -1,3 +1,13 @@
+"""
+Global search dropdown component for the topbar.
+
+Provides a floating, theme-aware results panel that performs a fuzzy,
+cross-entity search over customers, bookings, invoices, menu items and
+packages. Searching runs off the UI thread (see :class:`_SearchWorker`) and is
+debounced, so typing stays responsive. Results are scored, grouped by type and
+rendered as clickable rows; selecting one emits :attr:`SearchDropdown.result_selected`
+so the host window can navigate to the matching page.
+"""
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
     QScrollArea, QSizePolicy
@@ -10,6 +20,9 @@ from utils.theme import ThemeManager
 
 
 def _palette() -> dict:
+    """Return the color palette dict for the dropdown, keyed by role
+    (card_bg, text, muted, row_hover, etc.), selecting dark or light values
+    based on the active theme."""
     if ThemeManager().is_dark():
         return {
             "card_bg":     "#111827",
@@ -28,6 +41,8 @@ def _palette() -> dict:
         "row_hover":   "#F3F5F9",
     }
 
+# Result type -> destination page index used by the host window to route a
+# selected result to the correct page.
 _PAGE_MAP = {
     "Booking":   1,
     "Customer":  2,
@@ -37,6 +52,7 @@ _PAGE_MAP = {
     "Kitchen":   5,
 }
 
+# Accent color per result type, used for the leading dot and the meta badge.
 _TYPE_COLOR = {
     "Booking":   "#3B82F6",
     "Customer":  "#22C55E",
@@ -46,10 +62,16 @@ _TYPE_COLOR = {
     "Kitchen":   "#F97316",
 }
 
+# Canonical display/grouping order for result types (also used as a tiebreaker
+# when sorting equally-scored results).
 _TYPE_ORDER = ["Booking", "Customer", "Invoice", "Menu Item", "Package", "Kitchen"]
 
 
 def _score(text: str, q: str) -> int:
+    """Return a relevance score (0-100) for how well ``text`` matches query
+    ``q`` (``q`` is expected already lowercased). Higher is better: exact match
+    (100) > prefix (80) > substring (60) > all whitespace-split tokens present
+    (40) > no match (0). Used to rank search candidates."""
     t = text.lower()
     if t == q:
         return 100
@@ -57,6 +79,7 @@ def _score(text: str, q: str) -> int:
         return 80
     if q in t:
         return 60
+    # Fallback: every word of the query appears somewhere in the text.
     parts = q.split()
     if all(p in t for p in parts):
         return 40
@@ -64,12 +87,24 @@ def _score(text: str, q: str) -> int:
 
 
 def _build_suggestions(query: str) -> list[dict]:
+    """Build and rank cross-entity search suggestions for ``query``.
+
+    Queries the repository for customers, bookings, invoices, menu items and
+    packages, scoring each against the (lowercased, trimmed) query on its most
+    relevant fields. Each match becomes a result dict with keys such as
+    ``type``, ``label``, ``sub``, ``meta``, ``id`` and ``score``. Returns an
+    empty list for queries shorter than 2 chars. Every repository lookup is
+    wrapped in try/except so a failure in one entity type never aborts the
+    others. Results are sorted by descending score then type order and capped
+    at 40. Runs on a worker thread — must not touch Qt widgets.
+    """
     q = query.lower().strip()
     if not q or len(q) < 2:
         return []
 
     results = []
 
+    # --- Customers: match on name / contact / email ---
     try:
         for c in repo.get_all_customers():
             name    = c.get("name", "")
@@ -88,6 +123,7 @@ def _build_suggestions(query: str) -> list[dict]:
     except Exception:
         pass
 
+    # --- Bookings: match on reference / customer name / occasion ---
     try:
         for b in repo.get_all_bookings():
             ref  = str(b.get("booking_ref", "") or b.get("id", ""))
@@ -107,6 +143,7 @@ def _build_suggestions(query: str) -> list[dict]:
     except Exception:
         pass
 
+    # --- Invoices: match on reference / customer; show formatted total ---
     try:
         for inv in repo.get_all_invoices():
             ref  = str(inv.get("invoice_ref", "") or inv.get("invoice", ""))
@@ -126,6 +163,7 @@ def _build_suggestions(query: str) -> list[dict]:
     except Exception:
         pass
 
+    # --- Menu items: match on name / category; show formatted price ---
     try:
         for item in repo.get_all_menu_items():
             name = item.get("item", "") or item.get("name", "")
@@ -143,6 +181,7 @@ def _build_suggestions(query: str) -> list[dict]:
     except Exception:
         pass
 
+    # --- Packages: match on name; show per-set price ---
     try:
         for pkg in repo.get_all_packages():
             name = pkg.get("name", "")
@@ -159,34 +198,56 @@ def _build_suggestions(query: str) -> list[dict]:
     except Exception:
         pass
 
+    # Best score first; ties broken by canonical type order (unknown -> last).
     results.sort(key=lambda x: (-x["score"], _TYPE_ORDER.index(x["type"]) if x["type"] in _TYPE_ORDER else 99))
     return results[:40]
 
 
 class _SearchWorker(QObject):
+    """QObject worker that runs :func:`_build_suggestions` off the UI thread.
+
+    Moved onto a QThread by the dropdown; emits :attr:`finished` with the list
+    of result dicts when the (blocking) search completes.
+    """
     finished = Signal(list)
 
     def __init__(self, query: str):
+        """Store the query string to search for when :meth:`run` is invoked."""
         super().__init__()
         self._query = query
 
     def run(self):
+        """Perform the search on the worker thread and emit ``finished`` with
+        the results list. Connected to the thread's ``started`` signal."""
         results = _build_suggestions(self._query)
         self.finished.emit(results)
 
 
 class SearchDropdown(QFrame):
+    """Floating results panel for the global topbar search.
+
+    Debounces incoming queries, runs the search on a background thread, and
+    renders grouped, keyboard-navigable result rows. Emits
+    :attr:`result_selected` (with the chosen result dict) when the user clicks
+    or presses Enter on a row.
+    """
     result_selected = Signal(dict)
 
     def __init__(self, parent=None):
+        """Create the frameless, translucent dropdown frame and initialize its
+        debounce timer and internal state (row list, selection index, worker
+        thread handle), build the UI, and start hidden."""
         super().__init__(parent)
+        # Frameless translucent child window so it floats over content without
+        # its own OS title bar / opaque background.
         self.setWindowFlags(Qt.SubWindow | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setFixedWidth(480)
-        self._rows: list[QWidget] = []
-        self._selected_idx: int = -1
-        self._thread: QThread | None = None
+        self._rows: list[QWidget] = []       # currently rendered result row widgets
+        self._selected_idx: int = -1         # keyboard-highlighted row (-1 = none)
+        self._thread: QThread | None = None  # active search worker thread
+        # 220ms debounce so a burst of keystrokes triggers only one search.
         self._debounce = QTimer()
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(220)
@@ -196,6 +257,9 @@ class SearchDropdown(QFrame):
         self.hide()
 
     def _build_ui(self):
+        """Construct the dropdown's widget tree: rounded card, a 'Searching...'
+        label, a scrollable results list container, and a footer hint line,
+        then apply the current theme."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 4, 0, 0)
 
@@ -233,6 +297,8 @@ class SearchDropdown(QFrame):
         self._apply_theme()
 
     def _apply_theme(self):
+        """Restyle the card, loading label and footer using the current theme
+        palette. Called on build and each time the dropdown is shown."""
         p = _palette()
         self._card.setStyleSheet(f"""
             QFrame#searchCard {{
@@ -245,6 +311,9 @@ class SearchDropdown(QFrame):
         self._footer.setStyleSheet(f"color: {p['faint']}; font-size: 10px; padding: 4px 16px 6px;")
 
     def search(self, query: str):
+        """Public entry point called as the user types. Stores the query and
+        (re)starts the debounce timer; queries under 2 non-space chars hide the
+        dropdown immediately instead of searching."""
         self._pending_query = query
         self._debounce.stop()
         if not query.strip() or len(query.strip()) < 2:
@@ -254,6 +323,9 @@ class SearchDropdown(QFrame):
         self._debounce.start()
 
     def _stop_thread(self):
+        """Stop and tear down any in-flight search worker thread, waiting
+        briefly for it to finish, and drop references so a new search can
+        start cleanly. Safe to call when no thread is running."""
         if self._thread is not None:
             try:
                 if self._thread.isRunning():
@@ -265,10 +337,16 @@ class SearchDropdown(QFrame):
         self._worker = None
 
     def hideEvent(self, event):
+        """Ensure any running search thread is stopped whenever the dropdown is
+        hidden, then defer to the base handler."""
         self._stop_thread()
         super().hideEvent(event)
 
     def _fetch(self):
+        """Debounce callback: spin up a fresh QThread + :class:`_SearchWorker`
+        for the pending query, wiring signals so results are delivered to
+        :meth:`_on_results` and the thread/worker are cleaned up on
+        completion."""
         self._stop_thread()
         self._thread = QThread()
         self._worker = _SearchWorker(self._pending_query)
@@ -281,6 +359,10 @@ class SearchDropdown(QFrame):
         self._thread.start()
 
     def _on_results(self, results: list):
+        """Slot receiving search results on the UI thread. Clears the previous
+        rows, then either shows a 'No results found' placeholder or renders the
+        results grouped by type (in ``_TYPE_ORDER``) with a footer summarizing
+        the count and keyboard hints, finally resizing to fit."""
         self._loading_lbl.hide()
         self._clear_list()
         self._rows = []
@@ -293,10 +375,12 @@ class SearchDropdown(QFrame):
             self._list_lay.addWidget(lbl)
             self._footer.hide()
         else:
+            # Bucket results by type so each type gets its own header section.
             grouped: dict[str, list] = {}
             for r in results:
                 grouped.setdefault(r["type"], []).append(r)
 
+            # Render sections in canonical order, skipping empty buckets.
             for type_name in _TYPE_ORDER:
                 items = grouped.get(type_name)
                 if not items:
@@ -321,12 +405,21 @@ class SearchDropdown(QFrame):
         self.adjustSize()
 
     def _clear_list(self):
+        """Remove and schedule deletion of every widget currently in the
+        results list layout (headers, rows, placeholder), leaving it empty."""
         while self._list_lay.count():
             item = self._list_lay.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
     def _build_row(self, item: dict) -> QWidget:
+        """Build and return a clickable row widget for a single result ``item``.
+
+        Lays out a type-colored dot, the primary label, an optional subtitle,
+        and an optional meta badge. Stashes the result dict on the widget via
+        ``result_data`` (read back for keyboard selection) and binds its
+        mouse-press to :meth:`_select`.
+        """
         p = _palette()
         color = _TYPE_COLOR.get(item["type"], "#9CA3AF")
         w = QWidget()
@@ -369,14 +462,20 @@ class SearchDropdown(QFrame):
             )
             lay.addWidget(meta_lbl, alignment=Qt.AlignVCenter)
 
+        # Clicking anywhere on the row selects that result (default arg binds
+        # the current item so the closure isn't affected by the loop variable).
         w.mousePressEvent = lambda e, d=item: self._select(d)
         return w
 
     def _select(self, item: dict):
+        """Finalize a selection: hide the dropdown and emit
+        :attr:`result_selected` with the chosen result dict."""
         self.hide()
         self.result_selected.emit(item)
 
     def _highlight_row(self, idx: int):
+        """Visually highlight the row at ``idx`` (keyboard selection) and clear
+        the highlight on all others, scrolling the selected row into view."""
         hover = _palette()["row_hover"]
         for i, row in enumerate(self._rows):
             if i == idx:
@@ -388,6 +487,12 @@ class SearchDropdown(QFrame):
             self._scroll.ensureWidgetVisible(self._rows[idx])
 
     def handle_key(self, event: QKeyEvent) -> bool:
+        """Handle keyboard navigation forwarded from the search input.
+
+        Down/Up move the highlighted row (clamped to range), Enter selects the
+        highlighted result, Escape hides the dropdown. Returns True if the key
+        was consumed here, False to let the caller handle it.
+        """
         key = event.key()
         if key == Qt.Key_Down:
             self._selected_idx = min(self._selected_idx + 1, len(self._rows) - 1)
@@ -409,6 +514,9 @@ class SearchDropdown(QFrame):
         return False
 
     def show_below(self, anchor: QWidget):
+        """Position and show the dropdown just beneath ``anchor`` (typically the
+        search input), re-applying the theme and raising it above siblings.
+        Uses the anchor's global coordinates plus a small vertical gap."""
         self._apply_theme()
         global_pos = anchor.mapToGlobal(QPoint(0, anchor.height() + 6))
         self.move(global_pos)
