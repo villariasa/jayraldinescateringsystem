@@ -14,6 +14,7 @@ page) - pass either a single booking id/ref/dict or a list of them.
 import os
 import re
 import html
+import base64
 from datetime import datetime
 from typing import Optional
 
@@ -33,6 +34,7 @@ except ImportError:
     PRINTER_SUPPORT = False
 
 from utils.icons import get_icon
+from utils.paths import resource_path
 import utils.repository as repo
 import utils.exporter as exporter
 from components.dialogs import success
@@ -65,6 +67,46 @@ class OrderPrintDialog(QDialog):
     Defaults to the official client Booking Agreement & Order Slip (Up & Down format:
     Upper Order details, Package & Menu, Financials, Signatures; Lower Terms & Conditions).
     """
+
+    _logo_data_uri_cache: Optional[str] = None
+    _icon_data_uri_cache: dict = {}
+
+    @classmethod
+    def _logo_data_uri(cls) -> str:
+        """Base64 data-URI for assets/receipt_logo.png - the same logo image
+        embedded by utils/exporter.py's export_receipt_pdf (the actual PDF
+        generator this on-screen preview must visually match). Cached on the
+        class after first successful read."""
+        if cls._logo_data_uri_cache is not None:
+            return cls._logo_data_uri_cache
+        cls._logo_data_uri_cache = ""
+        try:
+            logo_path = resource_path("assets", "receipt_logo.png")
+            with open(logo_path, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode("ascii")
+            cls._logo_data_uri_cache = f"data:image/png;base64,{encoded}"
+        except Exception:
+            pass
+        return cls._logo_data_uri_cache
+
+    @classmethod
+    def _icon_data_uri(cls, name: str) -> str:
+        """Base64 data-URI for assets/receipt_icons/icon_<name>.png - the
+        exact same small card/footer icons used by export_receipt_pdf's
+        _card_header(), so the on-screen preview uses identical iconography
+        instead of emoji stand-ins. Cached per icon name."""
+        if name in cls._icon_data_uri_cache:
+            return cls._icon_data_uri_cache[name]
+        uri = ""
+        try:
+            icon_path = resource_path("assets", "receipt_icons", f"icon_{name}.png")
+            with open(icon_path, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode("ascii")
+            uri = f"data:image/png;base64,{encoded}"
+        except Exception:
+            pass
+        cls._icon_data_uri_cache[name] = uri
+        return uri
 
     def __init__(self, booking_ids_or_refs, parent=None):
         super().__init__(parent)
@@ -678,6 +720,9 @@ class OrderPrintDialog(QDialog):
     def _build_booking_agreement_page(self, booking: dict) -> str:
         biz = self._business or {}
         biz_name = html.escape(str(biz.get("name") or "Jayraldine's Catering Services")).upper()
+        biz_name_title = html.escape(str(biz.get("name") or "Jayraldine's Catering Services"))
+        address_biz = html.escape(str(biz.get("address") or "—"))
+        contact_biz = html.escape(str(biz.get("contact") or "—"))
         order_ref = html.escape(str(booking.get("id") or booking.get("booking_ref") or "ORD-SLIP"))
         cust_name = html.escape(str(booking.get("name") or booking.get("customer_name") or "Valued Client"))
         address = html.escape(str(booking.get("address") or booking.get("venue") or "—"))
@@ -757,82 +802,120 @@ class OrderPrintDialog(QDialog):
                 </div>
             """
 
-        instructions_block = ""
-        if notes:
-            instructions_block = f"""
+        pax_label = "No. of Sets:" if is_food_set else "No. of Pax:"
+        pax_value = f"{pax} Set(s)" if is_food_set else f"{pax} Pax"
+        special_instructions = notes or "Standard arrangement."
+        logo_uri = self._logo_data_uri()
+        logo_img_html = (
+            f'<img src="{logo_uri}" width="48" height="48" style="border-radius:50%;" />'
+            if logo_uri else ""
+        )
+
+        def _footer_icon(name: str) -> str:
+            uri = self._icon_data_uri(name)
+            return f'<img src="{uri}" width="10" height="10" style="vertical-align:middle; margin-right:4px;" />' if uri else ""
+
+        megaphone_img = _footer_icon("megaphone")
+        pin_img = _footer_icon("pin")
+        phone_img = _footer_icon("phone")
+        fb_img = _footer_icon("fb")
+
+        def _card_open(icon_name: str, title: str) -> str:
+            icon_uri = self._icon_data_uri(icon_name)
+            icon_img = f'<img src="{icon_uri}" width="11" height="11" style="vertical-align:middle; margin-right:5px;" />' if icon_uri else ""
+            return f"""
+                <div style="border:1px solid #CBD5E1; border-radius:6px; padding:8px 10px 9px 10px; margin-bottom:8px;">
+                    <div style="font-size:10px; font-weight:900; color:#0F172A; text-transform:uppercase; letter-spacing:0.3px; padding-bottom:4px; margin-bottom:6px; border-bottom:1px solid #E2E8F0;">{icon_img}{title}</div>
+            """
+
+        _card_close = "</div>"
+
+        def _row(label: str, value: str, bold_value: bool = False) -> str:
+            weight = "800" if bold_value else "normal"
+            return f"""
                 <tr>
-                    <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Special Instr:</td>
-                    <td style="font-size:11px; color:#0F172A; padding:2.5px 0; vertical-align:top;">{notes}</td>
+                    <td style="width:100px; font-weight:700; color:#334155; font-size:11px; padding:2.5px 0; vertical-align:top;">{label}</td>
+                    <td style="font-size:11px; font-weight:{weight}; color:#0F172A; padding:2.5px 0; vertical-align:top;">{value}</td>
                 </tr>
             """
 
-        return f"""
-        <div style="box-sizing:border-box; width:{_SLIP_LAYOUT_WIDTH}px; padding:16px 20px; background:#FFFFFF; color:#0F172A; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-            <!-- HEADER (Top) -->
-            <div style="text-align:center; margin-bottom:10px;">
-                <div style="font-size:20px; font-weight:900; color:#E11D48; letter-spacing:0.5px;">{biz_name}</div>
-                <div style="font-size:13px; font-weight:900; color:#0F172A; text-decoration:underline; margin-top:2px; letter-spacing:0.5px;">BOOKING AGREEMENT</div>
-                <div style="font-size:9.5px; color:#64748B; margin-top:3px;">Booking Ref: <b>{order_ref}</b> &nbsp;|&nbsp; Date Issued: {issue_date}</div>
-            </div>
-            <hr style="border:none; border-top:1px solid #CBD5E1; margin:0 0 12px 0;" />
+        client_info_card = _card_open("user", "CLIENT INFORMATION") + f"""
+            <table width="100%" style="width:100%; border-collapse:collapse;">
+                {_row("Name:", cust_name, True)}
+                {_row("Address:", address)}
+                {_row("Contact #:", contact)}
+            </table>
+        """ + _card_close
 
-            <!-- UPPER SECTION (THE ORDER - 2 COLUMNS) -->
+        event_details_card = _card_open("calendar", "EVENT DETAILS") + f"""
+            <table width="100%" style="width:100%; border-collapse:collapse;">
+                {_row("Function Date:", event_date, True)}
+                {_row("Time:", event_time)}
+                {_row("Venue:", venue)}
+                {_row("Occasion:", occasion)}
+                {_row("Motif:", motif)}
+                {_row(pax_label, pax_value, True)}
+                {_row("Special Instr:", special_instructions)}
+            </table>
+        """ + _card_close
+
+        payment_details_card = _card_open("coins", "PAYMENT DETAILS") + f"""
             <table width="100%" style="width:100%; border-collapse:collapse;">
                 <tr>
-                    <!-- Left Sub-Column: Customer Details, Financials, Signatures -->
-                    <td style="width:48%; vertical-align:top; padding-right:14px;">
-                        <table width="100%" style="width:100%; border-collapse:collapse;">
-                            <tr>
-                                <td style="width:100px; font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Name:</td>
-                                <td style="font-size:11.5px; font-weight:800; color:#0F172A; padding:2.5px 0; vertical-align:top;">{cust_name}</td>
-                            </tr>
-                            <tr>
-                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Address:</td>
-                                <td style="font-size:11px; color:#0F172A; padding:2.5px 0; vertical-align:top;">{address}</td>
-                            </tr>
-                            <tr>
-                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Contact #:</td>
-                                <td style="font-size:11px; color:#0F172A; padding:2.5px 0; vertical-align:top;">{contact}</td>
-                            </tr>
-                            <tr>
-                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Function Date:</td>
-                                <td style="font-size:11px; font-weight:800; color:#0F172A; padding:2.5px 0; vertical-align:top;">{event_date} ({event_time})</td>
-                            </tr>
-                            <tr>
-                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Venue:</td>
-                                <td style="font-size:11px; color:#0F172A; padding:2.5px 0; vertical-align:top;">{venue}</td>
-                            </tr>
-                            <tr>
-                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">Occasion / Motif:</td>
-                                <td style="font-size:11px; color:#0F172A; padding:2.5px 0; vertical-align:top;">{occasion} &middot; {motif}</td>
-                            </tr>
-                            <tr>
-                                <td style="font-weight:700; color:#475569; font-size:11px; padding:2.5px 0; vertical-align:top;">No. of Sets:</td>
-                                <td style="font-size:11px; font-weight:800; color:#0F172A; padding:2.5px 0; vertical-align:top;">{pax} Set(s) @ {pkg_name}</td>
-                            </tr>
-                            {instructions_block}
-                        </table>
+                    <td style="font-weight:700; color:#334155; font-size:11px; padding:2.5px 0;">Total Amount:</td>
+                    <td style="font-size:11.5px; font-weight:900; color:#0F172A; text-align:right; padding:2.5px 0;">{total_str}</td>
+                </tr>
+                <tr>
+                    <td style="font-weight:700; color:#334155; font-size:11px; padding:2.5px 0;">Downpayment:</td>
+                    <td style="font-size:11px; color:#0F172A; text-align:right; padding:2.5px 0;">{down_str} ({pay_mode} - {status_str})</td>
+                </tr>
+                <tr>
+                    <td style="font-weight:800; color:#0F172A; font-size:11.5px; padding:3px 0 0 0; border-top:1px dashed #CBD5E1;">Balance Due:</td>
+                    <td style="font-size:12px; font-weight:900; color:#0F172A; text-align:right; padding:3px 0 0 0; border-top:1px dashed #CBD5E1;">{bal_str}</td>
+                </tr>
+            </table>
+        """ + _card_close
 
-                        <!-- Financial Box -->
-                        <div style="margin-top:10px; padding:8px 12px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:6px;">
-                            <table width="100%" style="width:100%; border-collapse:collapse;">
-                                <tr>
-                                    <td style="font-weight:700; color:#475569; font-size:11px; padding:2px 0;">Total Amount:</td>
-                                    <td style="font-size:11.5px; font-weight:900; color:#0F172A; text-align:right; padding:2px 0;">{total_str}</td>
-                                </tr>
-                                <tr>
-                                    <td style="font-weight:700; color:#475569; font-size:11px; padding:2px 0;">Downpayment:</td>
-                                    <td style="font-size:11.5px; font-weight:900; color:#16A34A; text-align:right; padding:2px 0;">{down_str}</td>
-                                </tr>
-                                <tr>
-                                    <td style="font-weight:700; color:#475569; font-size:11px; padding:2px 0;">Balance Due:</td>
-                                    <td style="font-size:12px; font-weight:900; color:{'#E11D48' if bal_f > 0 else '#16A34A'}; text-align:right; padding:2px 0;">{bal_str}</td>
-                                </tr>
-                                <tr>
-                                    <td colspan="2" style="font-size:9px; color:#64748B; padding-top:3px; border-top:1px dashed #CBD5E1;">Status: <b>{status_str}</b> &nbsp;|&nbsp; Mode: <b>{pay_mode}</b></td>
-                                </tr>
-                            </table>
-                        </div>
+        package_qty_line = (f"Quantity: <b>{pax}</b> Set(s)" if is_food_set else f"Quantity: <b>{pax}</b> Pax") + f" &middot; Base: <b>{total_str}</b>"
+        package_menu_card = _card_open("cloche", "PACKAGE &amp; MENU") + f"""
+            <div style="font-size:11px; font-weight:900; color:#0F172A;">PACKAGE: {pkg_name.upper()}</div>
+            <div style="font-size:10px; color:#334155; margin-top:1px; margin-bottom:8px;">{package_qty_line}</div>
+            <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; border-bottom:1px solid #0F172A; padding-bottom:2px; margin-bottom:4px;">MENU:</div>
+            <table width="100%" style="width:100%; border-collapse:collapse;">
+                {''.join(dish_items_html)}
+            </table>
+            <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; margin-top:10px; margin-bottom:4px;">ADD-ONS &amp; EXTRAS:</div>
+            {addons_section if addons_html else '<div style="font-size:10.5px; color:#64748B; font-style:italic;">None specified.</div>'}
+        """ + _card_close
+
+        return f"""
+        <div style="box-sizing:border-box; width:{_SLIP_LAYOUT_WIDTH}px; padding:16px 20px; background:#FFFFFF; color:#0F172A; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <!-- HEADER (Top) - logo | red divider | title block | ref/date, matching the
+                 Tablet PWA's canonical exporter.js Booking Agreement PDF header -->
+            <table width="100%" style="width:100%; border-collapse:collapse;">
+                <tr>
+                    <td style="width:56px; vertical-align:middle;">{logo_img_html}</td>
+                    <td style="width:8px; vertical-align:middle;"><div style="border-left:2px solid #DC2626; height:44px;"></div></td>
+                    <td style="vertical-align:middle; padding-left:10px;">
+                        <div style="font-size:18px; font-weight:900; color:#DC2626; letter-spacing:0.3px;">{biz_name}</div>
+                        <div style="font-size:13px; font-weight:900; color:#0F172A; margin-top:2px;">BOOKING AGREEMENT</div>
+                    </td>
+                    <td style="vertical-align:middle; text-align:right;">
+                        <div style="font-size:8.5px; color:#0F172A;">ORDER REF: <b>{order_ref}</b></div>
+                        <div style="font-size:8.5px; color:#0F172A; margin-top:4px;">DATE ISSUED: {issue_date}</div>
+                    </td>
+                </tr>
+            </table>
+            <hr style="border:none; border-top:2px solid #DC2626; margin:8px 0 12px 0;" />
+
+            <!-- UPPER SECTION (THE ORDER - 2 COLUMNS OF CARDS) -->
+            <table width="100%" style="width:100%; border-collapse:collapse;">
+                <tr>
+                    <!-- Left Sub-Column: Client Info / Event Details / Payment Details cards -->
+                    <td style="width:48%; vertical-align:top; padding-right:14px;">
+                        {client_info_card}
+                        {event_details_card}
+                        {payment_details_card}
 
                         <!-- Signatures -->
                         <div style="margin-top:12px;">
@@ -865,53 +948,42 @@ class OrderPrintDialog(QDialog):
                         </div>
                     </td>
 
-                    <!-- Right Sub-Column: Package Inclusions, Numbered Menu, Add-ons -->
-                    <td style="width:52%; vertical-align:top; border-left:1px solid #E2E8F0; padding-left:14px;">
-                        <!-- Package Banner -->
-                        <div style="background:#FFF1F2; border:1px solid #FECDD3; border-radius:6px; padding:6px 10px; margin-bottom:8px;">
-                            <div style="font-size:12px; font-weight:900; color:#BE123C; text-transform:uppercase;">{pkg_name}</div>
-                            <div style="font-size:9.5px; color:#475569; margin-top:1px;">{f"Quantity: <b>{pax}</b> Set(s)" if is_food_set else f"Good for <b>{pax}</b> Guests"}</div>
-                        </div>
-
-                        <!-- Menu Header & Dishes -->
-                        <div style="font-size:11.5px; font-weight:900; color:#0F172A; text-transform:uppercase; border-bottom:1.5px solid #0F172A; padding-bottom:2px; margin-bottom:4px;">MENU:</div>
-                        <table width="100%" style="width:100%; border-collapse:collapse;">
-                            {''.join(dish_items_html)}
-                        </table>
-
-                        {addons_section}
+                    <!-- Right Sub-Column: Package & Menu card -->
+                    <td style="width:52%; vertical-align:top; padding-left:0;">
+                        {package_menu_card}
                     </td>
                 </tr>
             </table>
 
-            <!-- LOWER SECTION (TERMS AND CONDITIONS) -->
-            <hr style="border:none; border-top:2px solid #E11D48; margin:14px 0 8px 0;" />
-            <div style="font-size:12px; font-weight:900; color:#0F172A; margin-bottom:5px;">Terms and Conditions</div>
+            <!-- LOWER SECTION (TERMS AND CONDITIONS CARD) -->
+            {_card_open("doc", "TERMS AND CONDITIONS")}
             <table width="100%" style="width:100%; border-collapse:collapse; font-size:10px; color:#334155; line-height:1.3;">
                 <tr>
-                    <td style="width:14px; vertical-align:top; font-weight:800; color:#E11D48; padding:1.5px 0;">&bull;</td>
-                    <td style="vertical-align:top; padding:1.5px 0 3px 4px;">The client shall pay 50% downpayment upon reservation of booking and shall pay the full amount 3 days before the date of the event.</td>
+                    <td style="width:14px; vertical-align:top; font-weight:800; color:#0F172A; padding:1.5px 0;">&bull;</td>
+                    <td style="vertical-align:top; padding:1.5px 0 6px 4px;">The client shall pay 50% downpayment upon reservation of booking and shall pay the full amount 3 days before the date of the event.</td>
                 </tr>
                 <tr>
-                    <td style="width:14px; vertical-align:top; font-weight:800; color:#E11D48; padding:1.5px 0;">&bull;</td>
-                    <td style="vertical-align:top; padding:1.5px 0 3px 4px;"><b>Mode of payment.</b> The client shall personally pay in Cash for the downpayment and full payment. If cash is not available, the client shall also pay through Bank Transfer or Gcash.</td>
+                    <td style="width:14px; vertical-align:top; font-weight:800; color:#0F172A; padding:1.5px 0;">&bull;</td>
+                    <td style="vertical-align:top; padding:1.5px 0 6px 4px;">Mode of payment. The client shall personally pay in Cash for the downpayment and full payment. If cash is not available, the client can also pay through Bank Transfer or Gcash.</td>
                 </tr>
                 <tr>
-                    <td style="width:14px; vertical-align:top; font-weight:800; color:#E11D48; padding:1.5px 0;">&bull;</td>
-                    <td style="vertical-align:top; padding:1.5px 0 3px 4px;"><b>Failure to pay.</b> A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply: (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%.</td>
+                    <td style="width:14px; vertical-align:top; font-weight:800; color:#0F172A; padding:1.5px 0;">&bull;</td>
+                    <td style="vertical-align:top; padding:1.5px 0 6px 4px;">Failure to pay. A failure to make payment according to the terms of the payment will be considered a cancellation of the event and the provisions for cancellation will apply. (15) days before the event - 20% charge, (7) days - 30%, (3) days - 50%.</td>
                 </tr>
                 <tr>
-                    <td style="width:14px; vertical-align:top; font-weight:800; color:#E11D48; padding:1.5px 0;">&bull;</td>
-                    <td style="vertical-align:top; padding:1.5px 0 3px 4px;">Any Food and Drinks or any consumables that is NOT prepared by JAY-RALDINE SERVICES brought by the client will <b>FREE US ON ANY LIABILITIES</b> due to food poisoning and spoilage. We charged Corkage Fee for bringing outside Food and Drinks. Precise time should be place in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage.</td>
+                    <td style="width:14px; vertical-align:top; font-weight:800; color:#0F172A; padding:1.5px 0;">&bull;</td>
+                    <td style="vertical-align:top; padding:1.5px 0 3px 4px;">Consider Food and Liabilities. Any Food and Drinks or any consumables that is NOT prepared by JAYRALDINE SERVICES brought by the client will FREE US ON ANY LIABILITIES due to food poisoning and spoilage. We charge Corkage Fee for bringing outside Food and Drinks. Precise time should be placed in the BOOKING AGREEMENT and shall be strictly follow to avoid poisoning and spoilage.</td>
                 </tr>
             </table>
+            {_card_close}
 
-            <!-- FOOTER INVITATION BOX -->
-            <div style="margin-top:10px; padding:8px 14px; background:#F8FAFC; border:1px solid #CBD5E1; border-radius:6px; text-align:center;">
-                <div style="font-size:10px; font-weight:900; color:#BE123C; letter-spacing:0.3px;">WE INVITE YOU TO SEE HOW WE CAN HELP YOUR EVENT THE BEST IT CAN POSSIBLY BE!!!</div>
-                <div style="font-size:9.5px; color:#1E293B; margin-top:2px;">Located at 121 Katipunan St. Brgy Calamba Cebu City</div>
-                <div style="font-size:9.5px; color:#1E293B; margin-top:1px;">Please feel free to call us at (032) 255-3113, (032) 238-9417 &middot; Globe 0917-6519555, 0917-1051528</div>
-                <div style="font-size:9.5px; font-weight:800; color:#0284C7; margin-top:1px;">Find us on Facebook: Jayraldine's Catering Services</div>
+            <!-- FOOTER INVITATION BAR -->
+            <hr style="border:none; border-top:2px solid #DC2626; margin:10px 0 8px 0;" />
+            <div style="text-align:center;">
+                <div style="font-size:10px; font-weight:900; color:#DC2626; letter-spacing:0.2px;">{megaphone_img}WE INVITE YOU TO SEE HOW WE CAN HELP YOUR EVENT; THE BEST IT CAN POSSIBLY BE!!!</div>
+                <div style="font-size:9px; color:#1E293B; margin-top:5px;">{pin_img}Located at {address_biz}</div>
+                <div style="font-size:9px; color:#1E293B; margin-top:2px;">{phone_img}Please feel free to call us at {contact_biz}</div>
+                <div style="font-size:9px; color:#1E293B; margin-top:2px;">{fb_img}Find us on Facebook: {biz_name_title}</div>
             </div>
         </div>
         """
