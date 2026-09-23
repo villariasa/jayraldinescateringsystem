@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS occasions (
 CREATE TABLE IF NOT EXISTS menu_categories (
     mc_id INTEGER PRIMARY KEY AUTOINCREMENT,
     mc_name TEXT NOT NULL UNIQUE,
-    mc_is_active INTEGER DEFAULT 1
+    mc_is_active INTEGER DEFAULT 1,
+    mc_sort INTEGER DEFAULT 0
 );
 
 -- Customers Master Table
@@ -673,6 +674,7 @@ def _ensure_columns(conn: sqlite3.Connection):
         ("menu_items", "mi_image", "TEXT DEFAULT ''"),
         ("menu_items", "image", "TEXT DEFAULT ''"),
         ("packages", "pkg_image", "TEXT DEFAULT ''"),
+        ("menu_categories", "mc_sort", "INTEGER DEFAULT 0"),
         ("package_items", "pi_bucket_id", "INTEGER"),
     ]
     for table, col, col_def in cols_to_add:
