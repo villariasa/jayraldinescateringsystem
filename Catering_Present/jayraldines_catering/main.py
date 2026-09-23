@@ -1,9 +1,30 @@
+"""Application entry point for the Jayraldine's Catering desktop system.
+
+This module boots the PySide6 (Qt) desktop application. Its responsibilities,
+in order, are:
+
+- Configure the process environment before Qt loads (UTF-8 stdio on Windows,
+  frozen/PyInstaller Qt plugin paths, GPU/High-DPI hints).
+- Install crash/exception plumbing: a ``faulthandler`` for native segfaults and
+  a Python ``sys.excepthook`` that logs and shows a user-facing dialog.
+- Enforce a single running instance (Windows mutex) and focus the existing
+  window instead of launching a duplicate.
+- Provide a headless ``--reset-admin`` CLI path for emergency password resets.
+- Drive the ``main()`` startup sequence: splash screen, theme/accent, threaded
+  DB connect, optional client-mode data sync, auth bootstrap, then create and
+  show the main window plus background LAN sync/device-tracking services.
+
+Run directly (``python main.py``) to start the GUI; pass ``--reset-admin`` to
+reset the admin password from a terminal.
+"""
 import sys
 import os
 import traceback
 import time
 
 
+# On Windows the console defaults to a legacy codepage; force UTF-8 so log
+# lines and emoji status strings don't raise UnicodeEncodeError on print.
 if sys.platform == "win32":
     try:
         if hasattr(sys.stdout, "reconfigure"):
@@ -28,15 +49,21 @@ try:
 except Exception:
     pass
 
+# Startup profiling: record a t0 and, when the env flag is set, log elapsed
+# time at each milestone so slow launches can be diagnosed on client machines.
 _STARTUP_T0 = time.perf_counter()
 _PROFILE_STARTUP = os.environ.get("JAYRALDINES_PROFILE_STARTUP", "").lower() in {"1", "true", "yes", "on"}
 
 
 def _profile(label: str):
+    """Log seconds elapsed since process start for ``label`` (only when profiling is enabled)."""
     if _PROFILE_STARTUP:
         elapsed = time.perf_counter() - _STARTUP_T0
         log.info(f"[startup] {label}: {elapsed:.2f}s")
 
+# When frozen by PyInstaller, Qt's plugins live inside the bundle rather than in
+# the site-packages layout Qt expects; point Qt at the first path that exists so
+# the platform ("windows") plugin loads and the GUI can actually start.
 if getattr(sys, "frozen", False):
     _meipass = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
     _qt_plugin_roots = [
@@ -61,22 +88,34 @@ from PySide6.QtCore import Qt, QCoreApplication
 from PySide6.QtGui import QGuiApplication
 _profile("Qt imports")
 
-# Configure High DPI scaling policy for clean rendering on Windows laptop displays
+# Configure High DPI scaling policy for clean rendering on Windows laptop displays.
+# PassThrough keeps fractional scale factors (e.g. 125%/150%) instead of rounding,
+# avoiding blurry text on laptop panels.
 if hasattr(Qt, "HighDpiScaleFactorRoundingPolicy"):
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
 
+# Module-level state: the named-mutex handle (kept alive for the process
+# lifetime) and a re-entrancy guard so the exception hook never stacks dialogs.
 _MUTEX_HANDLE = None
 _IN_EXCEPTION_HOOK = False
 
 
 def _acquire_single_instance():
+    """Try to claim the single-instance mutex on Windows.
+
+    Returns True if this process is the first/only instance (or on non-Windows
+    platforms, where no locking is done). Returns False when another instance
+    already holds the mutex, signalling the caller to focus that window instead.
+    """
     global _MUTEX_HANDLE
     if sys.platform != "win32":
         return True
     import ctypes
     try:
+        # Give the app a stable taskbar/AppUserModelID identity so Windows groups
+        # its windows and shows the correct icon/jump list.
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("jayraldines.catering.system.v1")
     except Exception:
         pass
@@ -89,10 +128,18 @@ def _acquire_single_instance():
     # Use Local session mutex to prevent cross-session permission conflicts
     _MUTEX_HANDLE = ctypes.windll.kernel32.CreateMutexW(None, True, "Local\\JayraldinesCateringMutex")
     err = ctypes.windll.kernel32.GetLastError()
+    # 183 == ERROR_ALREADY_EXISTS: the mutex was already created by a prior
+    # instance, so this one is a duplicate and should not proceed.
     return err != 183 and _MUTEX_HANDLE != 0
 
 
 def _focus_existing_catering_window():
+    """Find the already-running app's main window by title and bring it to front.
+
+    Called when the single-instance check fails so the user's double-click
+    surfaces the existing window instead of doing nothing. Windows-only; returns
+    True if a matching window was found and restored/focused.
+    """
     if sys.platform != "win32":
         return False
     try:
@@ -102,9 +149,11 @@ def _focus_existing_catering_window():
 
         found_hwnd = []
 
+        # Callback signature required by EnumWindows: (HWND, LPARAM) -> bool.
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
 
         def _enum_proc(hwnd, lparam):
+            # Return True to keep enumerating, False to stop once we've found it.
             if not user32.IsWindowVisible(hwnd):
                 return True
             length = user32.GetWindowTextLengthW(hwnd)
@@ -130,7 +179,15 @@ def _focus_existing_catering_window():
 
 
 def _exception_hook(exc_type, exc_value, exc_tb):
+    """Global last-resort handler for uncaught exceptions.
+
+    Installed as ``sys.excepthook`` so any exception that escapes the app is
+    printed, written to the app log and a persistent ``error_log.txt``, and (if
+    a Qt app exists) surfaced to the user via a modal dialog rather than
+    silently crashing.
+    """
     global _IN_EXCEPTION_HOOK
+    # Let Ctrl+C behave normally instead of popping an error dialog.
     if issubclass(exc_type, KeyboardInterrupt):
         return sys.__excepthook__(exc_type, exc_value, exc_tb)
 
@@ -142,6 +199,8 @@ def _exception_hook(exc_type, exc_value, exc_tb):
     except Exception:
         pass
     try:
+        # Append the traceback to a stable, user-writable location so support
+        # can retrieve it even if the rotating app log is unavailable.
         log_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "JayraldinesCatering")
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, "error_log.txt")
@@ -171,6 +230,13 @@ def _exception_hook(exc_type, exc_value, exc_tb):
 
 
 def _handle_reset_admin_cli():
+    """Headless emergency reset of the 'admin' password (``--reset-admin`` path).
+
+    Connects to the DB, ensures the auth tables exist, then sets a new admin
+    password taken either from the CLI argument after ``--reset-admin`` or from
+    an interactive prompt (validated for complexity). Creates the admin account
+    if it does not yet exist. Runs entirely in the terminal with no GUI.
+    """
     print("====================================================")
     print("  Jayraldine's Catering - Admin Emergency Password Reset")
     print("====================================================")
@@ -179,6 +245,8 @@ def _handle_reset_admin_cli():
     db.connect()
     ensure_auth_tables()
 
+    # Accept the password as the token right after --reset-admin (unless that
+    # token is itself another flag), otherwise fall back to a prompt below.
     new_pwd = None
     argv = sys.argv
     idx = argv.index("--reset-admin")
@@ -186,6 +254,7 @@ def _handle_reset_admin_cli():
         new_pwd = argv[idx + 1]
 
     if not new_pwd:
+        # Loop the prompt until a complexity-valid password is entered.
         import getpass
         while True:
             try:
@@ -218,17 +287,23 @@ def _handle_reset_admin_cli():
 
 
 def main():
+    """Boot the application: handle CLI flags, then run the GUI startup sequence."""
+    # Route all uncaught exceptions through our logging/dialog handler.
     sys.excepthook = _exception_hook
 
+    # Emergency password reset is a headless code path; handle and exit early.
     if "--reset-admin" in sys.argv:
         _handle_reset_admin_cli()
         sys.exit(0)
 
+    # If another copy is already running, focus it and quit instead of duplicating.
     if not _acquire_single_instance():
         print("[Jayraldine's Catering] Application is already running in background/taskbar.")
         _focus_existing_catering_window()
         sys.exit(0)
 
+    # In frozen builds, register the resolved Qt plugin dir(s) as Qt library
+    # paths so plugins load reliably regardless of the current working dir.
     if getattr(sys, "frozen", False):
         for plugin_path in os.environ.get("QT_PLUGIN_PATH", "").split(os.pathsep):
             if plugin_path and os.path.isdir(plugin_path):
@@ -259,6 +334,7 @@ def main():
     except Exception:
         log.exception("[INPUT_ACTIVATION_GUARD] Failed to initialize - inputs will NOT require a click to activate.")
 
+    # Prefer the multi-resolution .ico; fall back to .png if the icon is missing.
     ico_path = resource_path("assets", "logo.ico")
     if not os.path.exists(ico_path):
         ico_path = resource_path("assets", "logo.png")
@@ -267,6 +343,9 @@ def main():
 
     _profile("QApplication")
 
+    # Show the splash immediately so the user gets feedback while heavy
+    # imports and the DB connection happen below. processEvents() forces Qt to
+    # actually paint it before we block.
     from components.splash import SplashScreen
     splash = SplashScreen()
     splash.show()
@@ -287,12 +366,15 @@ def main():
             ThemeManager().apply("dark")
             _profile("theme applied")
         except Exception:
+            # Theming is fundamental; if it fails the UI would be unusable, so abort.
             traceback.print_exc()
             sys.exit(1)
 
         splash.set_status("Connecting to database...", 25)
         app.processEvents()
 
+        # Connect on a worker thread so a slow/unreachable DB can't freeze the
+        # splash. The single-element list is a mutable box for the thread result.
         _db_result = [False]
 
         def _db_connect():
@@ -307,6 +389,7 @@ def main():
 
         splash.set_status("Waiting for database...", 50)
         app.processEvents()
+        # Bounded wait: after 8s give up and continue in offline mode below.
         db_thread.join(timeout=8)
         _profile("db wait complete")
 
@@ -321,6 +404,8 @@ def main():
         ensure_auth_tables()
 
         # ── Client Workstation: Pull full DB snapshot from Server PC ──
+        # On machines configured as clients (not the server PC), fetch a fresh
+        # full data snapshot over the LAN so they start with current data.
         try:
             from utils.client_sync import is_client_mode, pull_server_snapshot, get_server_url
             if is_client_mode():
@@ -336,6 +421,8 @@ def main():
                         timeout=12
                     )
 
+                # Run the pull on a thread with a bounded join so a slow server
+                # doesn't hang startup; skip the sync if it exceeds the timeout.
                 sync_thread = threading.Thread(target=_do_sync, daemon=True)
                 sync_thread.start()
                 sync_thread.join(timeout=20)
@@ -350,6 +437,7 @@ def main():
         except Exception as _sync_err:
             log.warning(f"[main] Client sync error: {_sync_err}")
 
+        # First-run safety net: guarantee a login account exists.
         admin_check = db.fetchone("SELECT id FROM users WHERE username = 'admin'")
         if not admin_check:
             create_default_admin()
@@ -361,13 +449,16 @@ def main():
         splash.hide()
 
         # ── Launch MainWindow directly with integrated unified auth & welcome (0 cutouts) ──
+        # MainWindow owns the login/welcome flow internally, so there's no
+        # separate login dialog to swap in and out ("0 cutouts").
         from ui.main_window import MainWindow
         window = MainWindow()
         if os.path.exists(ico_path):
             window.setWindowIcon(QIcon(ico_path))
         _profile("main window created")
 
-        # Start background LAN Sync Server
+        # Start background LAN Sync Server so client workstations/tablets on the
+        # network can pull data and diagnostics from this machine. Non-fatal.
         try:
             from utils.db_sync_server import start_sync_server_background
             start_sync_server_background()
@@ -375,13 +466,16 @@ def main():
             log.warning(f"[main] Could not start background LAN Sync Server: {e}")
 
         # Start background Client Device Monitoring & Heartbeat Tracker
+        # (tracks which client devices are online). Non-fatal.
         try:
             from utils.device_tracker import device_tracker
             device_tracker().start()
         except Exception as e:
             log.warning(f"[main] Could not start DeviceTracker: {e}")
 
-        # Start real-time version watcher & auto-refresh for client workstations (Option 1)
+        # Start real-time version watcher & auto-refresh for client workstations (Option 1).
+        # Clients poll the server's data version (~1.5s) for near-live refresh and
+        # also do a full periodic sync every 5 minutes as a backstop.
         try:
             from utils.client_sync import is_client_mode, start_realtime_version_watcher, start_periodic_sync
             if is_client_mode():
@@ -391,11 +485,14 @@ def main():
         except Exception as e:
             log.warning(f"[main] Could not start real-time sync watcher: {e}")
 
+        # Present the window fullscreen and make sure it grabs focus.
         window.showFullScreen()
         window.raise_()
         window.activateWindow()
 
     except Exception:
+        # Any failure during the startup block above is fatal: log it to the app
+        # log and a persistent startup_crash.txt, show a dialog, then exit.
         err_txt = traceback.format_exc()
         print(err_txt, file=sys.stderr)
         try:
@@ -421,10 +518,12 @@ def main():
             pass
         sys.exit(1)
 
+    # Keep a reference on the app object so the window isn't garbage-collected.
     app.window_ref = window
     _profile("main window shown")
 
     def _cleanup_on_quit():
+        """Release background services and the DB connection on app shutdown."""
         try:
             from utils.device_tracker import device_tracker
             device_tracker().mark_offline()
@@ -441,6 +540,7 @@ def main():
             pass
 
     app.aboutToQuit.connect(_cleanup_on_quit)
+    # Enter the Qt event loop; exit the process with its return code.
     sys.exit(app.exec())
 
 
