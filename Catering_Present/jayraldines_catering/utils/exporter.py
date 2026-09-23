@@ -881,7 +881,13 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         dishes  = booking_detail.get("selected_dishes") or booking_detail.get("dishes") or []
         rcpt_no = (inv.get("invoice") or inv.get("invoice_ref") or booking_detail.get("ref")
                    or booking_detail.get("booking_ref") or "—")
-        date_issued = _dt_datetime.now().strftime("%B %d, %Y")
+        _raw_created = (inv.get("created_at") or booking_detail.get("created_at")
+                        or inv.get("booking_date") or booking_detail.get("booking_date") or "")
+        try:
+            _created_dt = _dt_datetime.strptime(str(_raw_created)[:10], "%Y-%m-%d") if _raw_created else _dt_datetime.now()
+            date_issued = _created_dt.strftime("%B %d, %Y")
+        except Exception:
+            date_issued = _dt_datetime.now().strftime("%B %d, %Y")
 
         def _peso(n):
             return f"PHP {float(n or 0):,.2f}"
@@ -944,7 +950,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             _fill(rgb); c.rect(x, Y(y + h), w, h, stroke=0, fill=1)
         def _rrf(x, y, w, h, r, rgb):
             r = min(r, w / 2.0, h / 2.0)   # clamp so tiny icons never over-round
-            _fill(rgb); c.roundedRect(x, Y(y + h), w, h, r, stroke=0, fill=1)
+            _fill(rgb); c.roundRect(x, Y(y + h), w, h, r, stroke=0, fill=1)
         def _ell(cx, cy, rx, ry, rgb):
             _fill(rgb); c.ellipse(cx - rx, Y(cy - ry), cx + rx, Y(cy + ry), stroke=0, fill=1)
         def _tri(x1, y1, x2, y2, x3, y3, rgb):
@@ -977,7 +983,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
 
         def draw_card(x, y, w, h, icon_fn, title):
             _fill(WHITE); _stroke(S300); c.setLineWidth(0.75)
-            c.roundedRect(x, Y(y + h), w, h, 4, stroke=1, fill=1)
+            c.roundRect(x, Y(y + h), w, h, 4, stroke=1, fill=1)
             if icon_fn:
                 icon_fn(x + 8, y + 5)
             T(x + (22 if icon_fn else 8), y + 13.5, title, 8.5, bold=True, color=BLACK)
@@ -1080,7 +1086,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         rY = startY + 31
         T(rightColX + 8, rY, f"PACKAGE: {str(pkg_name).upper()}", 10, bold=True, color=BLACK)
         rY += 13
-        _good = f"Quantity: {pax} Set(s)" if is_set else f"Good for {pax} person(s)"
+        _good = f"Quantity: {pax} {'Set(s)' if is_set else 'Pax'}"
         T(rightColX + 8, rY, f"{_good}   ·   Base: {_peso(base_tot)}", 8.5, bold=False, color=BLACK)
         rY += 12
 
