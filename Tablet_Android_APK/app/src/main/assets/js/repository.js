@@ -342,6 +342,33 @@ export function getPackageItems(pkgId) {
   }
 }
 
+export function getPackageBuckets(pkgId) {
+  if (!pkgId) return [];
+  try {
+    const rows = fetchAll(
+      "SELECT pb_id, pb_name, pb_limit, pb_categories, pb_sort FROM package_buckets WHERE pb_package_id = ? ORDER BY pb_sort, pb_id",
+      [pkgId]
+    );
+    return rows.map((r) => {
+      let cats = [];
+      try {
+        const raw = r.pb_categories;
+        if (Array.isArray(raw)) cats = raw.map((c) => String(c));
+        else if (typeof raw === "string" && raw.trim()) cats = JSON.parse(raw).map((c) => String(c));
+      } catch (_) { cats = []; }
+      return {
+        id: r.pb_id,
+        name: r.pb_name || "",
+        limit: Number(r.pb_limit || 0),
+        categories: cats,
+        sort: Number(r.pb_sort || 0),
+      };
+    });
+  } catch (_) {
+    return [];
+  }
+}
+
 export function getBookingsByDate(dateStr) {
   try {
     const rows = fetchAll(`
@@ -805,7 +832,7 @@ export function markRecordsSynced(bookingRefs = [], customerNames = []) {
   }
 }
 
-export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = [], occasions = []) {
+export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = [], occasions = [], packageBuckets = []) {
   const pendingPackageImages = getPendingPackageImageMap();
   const pendingMenuItemImages = getPendingMenuItemImageMap();
 
@@ -814,6 +841,7 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
       packages: packages || [],
       menuItems: menuItems || [],
       packageItems: packageItems || [],
+      packageBuckets: packageBuckets || [],
       customers: customers || []
     });
   }
@@ -865,7 +893,7 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
       window.__onMasterDataUpdated();
     }
     window.dispatchEvent(new CustomEvent("jayraldines:sync-completed", {
-      detail: { packages, menu_items: menuItems, package_items: packageItems, customers, occasions }
+      detail: { packages, menu_items: menuItems, package_items: packageItems, package_buckets: packageBuckets, customers, occasions }
     }));
   }
 }
