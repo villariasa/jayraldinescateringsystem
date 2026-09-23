@@ -1,3 +1,32 @@
+"""Orders & Bookings page for the Jayraldine's Catering desktop app (PySide6).
+
+This module renders the main "Orders & Bookings" screen and every dialog that
+supports it. Its responsibilities:
+
+- BookingPage: the top-level QWidget shown in the app's navigation. It presents
+  bookings across three lazily-paginated tabs (Pending / Confirmed / All),
+  wires up a client-side search box plus a server-side filter bar (date range,
+  time-of-day, customer, occasion), and exposes per-card and batch actions
+  (approve/confirm, decline/cancel, edit, delete, additional charges, color
+  motif, confirmation email, print order slip, CSV/Excel export).
+- AdditionalChargesDialog: view/add/remove itemized surcharges & discounts for
+  a single order without collapsing them into a flat total.
+- MultiMenuSelectionDialog: multi-select custom dishes to compose a per-order
+  menu and compute a combined per-pax rate.
+- AddMultipleBookingsDialog: spreadsheet-style bulk entry of several bookings
+  at once, auto-creating customers as needed.
+
+Performance/robustness notes that pervade this file:
+- Bookings are fetched from the DB one page at a time PER TAB (see the
+  self._tab_* dicts) so the whole history is never loaded on open; a login-time
+  memory cache (DataCache) can serve the first pages with zero DB round-trips.
+- Card rendering is done in small yielded batches (_render_next_batch) to keep
+  the Qt UI thread responsive, guarded by render tokens and per-tab "rendering"
+  flags to avoid two render chains mutating one layout (a past crash source).
+- All heavy data access goes through utils.repository (repo) and runs on a
+  background thread via utils.data_loader.run_async.
+"""
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
@@ -25,6 +54,8 @@ from utils.signals import app_events
 from utils.data_loader import run_async
 
 
+# Status -> (text color, background, border) used to render colored status
+# badges. Unknown statuses fall back to a neutral gray (see _status_badge).
 _STATUS_COLORS = {
     "CONFIRMED": ("#22C55E", "rgba(34,197,94,.15)", "rgba(34,197,94,.3)"),
     "PENDING":   ("#F59E0B", "rgba(245,158,11,.15)", "rgba(245,158,11,.3)"),
@@ -33,12 +64,26 @@ _STATUS_COLORS = {
 
 
 class AnimatedCard(QFrame):
+    """Thin QFrame subclass styled via the shared "card" QSS object name.
+
+    Provides a reusable card container; currently only sets the object name so
+    the app stylesheet can theme it consistently.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("card")
 
 
 def _status_badge(text):
+    """Build a small pill-style QLabel colored to match a booking status.
+
+    Args:
+        text: The status string (e.g. "PENDING"); also shown as the label text.
+
+    Returns:
+        A center-aligned QLabel styled with the status color, falling back to a
+        neutral gray for statuses not present in _STATUS_COLORS.
+    """
     color, bg, border = _STATUS_COLORS.get(text, ("#9CA3AF", "rgba(156,163,175,.15)", "rgba(156,163,175,.3)"))
     lbl = QLabel(text)
     lbl.setStyleSheet(
@@ -50,10 +95,24 @@ def _status_badge(text):
 
 
 def _action_buttons(status, on_approve, on_decline, can_edit=True):
+    """Build the inline approve/decline button row shown on PENDING cards.
+
+    Args:
+        status: The booking's current status; buttons only appear for "PENDING".
+        on_approve: Callback connected to the approve button's clicked signal.
+        on_decline: Callback connected to the decline button's clicked signal.
+        can_edit: When False, no action buttons are shown (view-only user).
+
+    Returns:
+        A QWidget containing the approve/decline buttons (or an empty placeholder
+        label when the row is not actionable).
+    """
     widget = QWidget()
     row = QHBoxLayout(widget)
     row.setContentsMargins(4, 0, 4, 0)
     row.setSpacing(6)
+    # Only editable PENDING rows get live approve/decline controls; everything
+    # else renders an empty placeholder so column widths stay aligned.
     if status == "PENDING" and can_edit:
         approve_btn = QPushButton()
         approve_btn.setIcon(get_icon("check", color="#22C55E", size=QSize(16, 16)))
@@ -95,6 +154,14 @@ class AdditionalChargesDialog(QDialog):
     """
 
     def __init__(self, parent=None, booking: dict = None):
+        """Initialize the dialog for one booking.
+
+        Args:
+            parent: Parent widget/dialog.
+            booking: The booking dict; its "db_id" identifies which order's
+                charges to load. self.changed is later set True if the user
+                adds/removes any charge (so the caller can trigger a reload).
+        """
         super().__init__(parent)
         self._booking = booking or {}
         self._booking_id = self._booking.get("db_id")
@@ -107,6 +174,7 @@ class AdditionalChargesDialog(QDialog):
         self._build_ui()
 
     def _build_ui(self):
+        """Construct the dialog layout: header, add-charge form, list, total."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
@@ -178,6 +246,12 @@ class AdditionalChargesDialog(QDialog):
         self._reload()
 
     def _reload(self):
+        """Re-fetch this order's charges and rebuild the scrollable list + total.
+
+        Rebuilds the entire list widget each call (simplest way to reflect an
+        add/delete), then recomputes both the sum of additional charges and the
+        updated order total (base total already includes charges DB-side).
+        """
         charges = repo.get_additional_charges(self._booking_id) if self._booking_id else []
 
         p_container = QWidget()
@@ -205,6 +279,8 @@ class AdditionalChargesDialog(QDialog):
                 c1.addWidget(sub_lbl)
                 pl.addLayout(c1, 3)
 
+                # Negative amounts are discounts: shown with a minus sign and
+                # amber, positive surcharges in green.
                 is_discount = ch["amount"] < 0
                 amt_text = f"− ₱ {abs(ch['amount']):,.2f}" if is_discount else f"₱ {ch['amount']:,.2f}"
                 amt_lbl = QLabel(amt_text)
@@ -219,6 +295,8 @@ class AdditionalChargesDialog(QDialog):
                 del_btn.setStyleSheet("background:transparent;border:none;")
                 del_btn.setCursor(Qt.PointingHandCursor)
                 del_btn.setToolTip("Remove this charge")
+                # Bind the charge id per-iteration (default-arg capture) so each
+                # trash button deletes its own row, not the last loop value.
                 del_btn.clicked.connect(lambda _, cid=ch["id"]: self._delete_charge(cid))
                 pl.addWidget(del_btn)
 
@@ -236,12 +314,21 @@ class AdditionalChargesDialog(QDialog):
         p_lay.addStretch()
         self._scroll.setWidget(p_container)
 
+        # Footer shows both the net of all additional charges and the resulting
+        # order total (re-read from the DB, which already folds charges in).
         charges_sum = sum(c["amount"] for c in charges)
         detail = repo.get_booking_detail(self._booking_id) if self._booking_id else None
         new_total = float(detail["total"]) if detail else charges_sum
         self._total_lbl.setText(f"Additional Charges: ₱ {charges_sum:,.2f}   |   Updated Order Total: ₱ {new_total:,.2f}")
 
     def _add_charge(self):
+        """Validate the form and persist a new charge, then audit/notify/reload.
+
+        Rejects blank descriptions and zero amounts. On success writes the
+        charge, appends an audit-log entry and an in-app notification, clears
+        the form, marks the dialog dirty, and broadcasts data_changed so other
+        views refresh.
+        """
         desc = self._desc_input.text().strip()
         amount = self._amount_input.value()
         if not desc:
@@ -268,6 +355,11 @@ class AdditionalChargesDialog(QDialog):
         app_events().data_changed.emit()
 
     def _delete_charge(self, charge_id):
+        """Confirm then remove a single charge, reload, and broadcast the change.
+
+        Args:
+            charge_id: DB id of the additional-charge row to delete.
+        """
         if not confirm(self, title="Remove Charge", message="Remove this additional charge? This will update the order total.",
                        confirm_label="Remove", danger=True):
             return
@@ -277,6 +369,8 @@ class AdditionalChargesDialog(QDialog):
         app_events().data_changed.emit()
 
 
+# Fallback list of event occasions (used where a static default is needed;
+# the live app normally loads occasions from Settings via the repository).
 _OCCASIONS_LIST = [
     "Wedding", "Birthday", "Debut", "Corporate Event", "Anniversary", "Christening", "Graduation", "Holiday Party", "Party"
 ]
@@ -285,6 +379,13 @@ _OCCASIONS_LIST = [
 class MultiMenuSelectionDialog(QDialog):
     """Interactive modal to select multiple custom dishes / menu offerings for an order."""
     def __init__(self, selected_items=None, parent=None):
+        """Load available menu items and pre-check any already-selected dishes.
+
+        Args:
+            selected_items: Iterable of dish names to show pre-selected (used
+                when re-opening the picker to edit an existing custom menu).
+            parent: Parent widget.
+        """
         super().__init__(parent)
         self.setWindowTitle("Select Custom Menu Dishes")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
@@ -297,10 +398,13 @@ class MultiMenuSelectionDialog(QDialog):
         self._build_ui()
 
     def showEvent(self, event):
+        """Play the dialog open animation (and auto-center) when first shown."""
         super().showEvent(event)
         animate_dialog_open(self, duration=240, auto_center=True)
 
     def _build_ui(self):
+        """Build the header, search/quick-actions, category-grouped dish list,
+        and bottom summary/action bar; populate self._checkboxes for later use."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
@@ -366,7 +470,8 @@ class MultiMenuSelectionDialog(QDialog):
         self._dishes_lay.setContentsMargins(0, 0, 0, 0)
         self._dishes_lay.setSpacing(12)
 
-        # Group items by category
+        # Group items by category so dishes render under category headers;
+        # items without a category fall under "Main Course".
         grouped = {}
         for item in self._all_items:
             cat = item.get("category") or "Main Course"
@@ -394,6 +499,8 @@ class MultiMenuSelectionDialog(QDialog):
                     i_price = float(it.get("price") or 0.0)
                     i_desc = it.get("description") or ""
 
+                    # Stash dish identity on the row frame so search filtering
+                    # and selection can reason about it directly from the widget.
                     row_frame = QFrame()
                     row_frame._dish_name = i_name
                     row_frame._dish_cat = cat
@@ -420,6 +527,9 @@ class MultiMenuSelectionDialog(QDialog):
                     r_lay.addWidget(price_lbl)
 
                     cg_lay.addWidget(row_frame)
+                    # Track (checkbox, item dict, row frame) so filtering,
+                    # select-all/clear, counters, and the final selection can
+                    # iterate every dish regardless of its category grouping.
                     self._checkboxes.append((cb, it, row_frame))
 
                 self._dishes_lay.addWidget(cat_group)
@@ -454,6 +564,12 @@ class MultiMenuSelectionDialog(QDialog):
         self._update_counter()
 
     def _filter_items(self, text: str):
+        """Show/hide dish rows live as the user types in the search box.
+
+        Args:
+            text: Current search text; a row stays visible if the query matches
+                its dish name, category, or description (case-insensitive).
+        """
         query = text.strip().lower()
         for cb, it, rf in self._checkboxes:
             dish_name = str(it.get("name") or it.get("item") or "")
@@ -465,22 +581,31 @@ class MultiMenuSelectionDialog(QDialog):
             rf.setVisible(match)
 
     def _select_all(self):
+        """Check every currently-visible dish (respects an active search filter)."""
         for cb, it, rf in self._checkboxes:
             if rf.isVisible():
                 cb.setChecked(True)
         self._update_counter()
 
     def _clear_all(self):
+        """Uncheck all dishes regardless of visibility/filter."""
         for cb, it, rf in self._checkboxes:
             cb.setChecked(False)
         self._update_counter()
 
     def _update_counter(self):
+        """Refresh the summary label with the count and combined per-pax rate."""
         cnt = sum(1 for cb, it, _ in self._checkboxes if cb.isChecked())
         tot = sum(float(it.get("price") or 0.0) for cb, it, _ in self._checkboxes if cb.isChecked())
         self._summary_lbl.setText(f"Selected: {cnt} dishes | Total Rate: ₱ {tot:,.2f} / pax")
 
     def get_selected_dishes(self) -> tuple[list[str], float]:
+        """Return the caller's result after the dialog is accepted.
+
+        Returns:
+            A (dish_names, total_rate) tuple where dish_names is the list of
+            checked dish names and total_rate is their summed per-pax price.
+        """
         selected_names = []
         sum_rate = 0.0
         for cb, it, _ in self._checkboxes:
@@ -492,7 +617,15 @@ class MultiMenuSelectionDialog(QDialog):
 
 
 class AddMultipleBookingsDialog(QDialog):
+    """Spreadsheet-style modal for entering several bookings in one pass.
+
+    Each table row captures one order (customer, contact, occasion, menu/package,
+    date/time, pax, theme, total, down payment). On save, unknown customers are
+    auto-created and each row becomes a PENDING booking. self._added_count holds
+    how many were saved so the caller can report the result.
+    """
     def __init__(self, parent=None):
+        """Preload customers, packages, menu items, and occasions, then build UI."""
         super().__init__(parent)
         self.setWindowTitle("Add Multiple Orders & Bookings")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
@@ -509,10 +642,13 @@ class AddMultipleBookingsDialog(QDialog):
         self._build_ui()
 
     def showEvent(self, event):
+        """Play the open animation (and auto-center) the first time shown."""
         super().showEvent(event)
         animate_dialog_open(self, duration=240, auto_center=True)
 
     def _build_ui(self):
+        """Build the header, the 11-column entry table (seeded with 5 rows),
+        row-management buttons, running KPI totals, and the save/cancel bar."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
         container = QFrame()
@@ -569,7 +705,7 @@ class AddMultipleBookingsDialog(QDialog):
         self.table.verticalHeader().setDefaultSectionSize(48)
         lay.addWidget(self.table)
 
-        # Add 5 initial rows
+        # Start with 5 blank rows so the grid is immediately usable.
         for _ in range(5):
             self._add_row()
 
@@ -619,6 +755,14 @@ class AddMultipleBookingsDialog(QDialog):
         self._update_grand_totals()
 
     def _add_row(self):
+        """Append one fully-wired entry row to the table.
+
+        Populates every cell with the appropriate editor widget (customer combo
+        with auto-fill, occasion/menu/time combos, date/pax/amount editors, a
+        dish-picker button, and a delete button) and connects the signals that
+        keep the row's total auto-computed (rate x pax) and the grand totals
+        updated. Purely UI construction; nothing is persisted here.
+        """
         r = self.table.rowCount()
         self.table.insertRow(r)
 
@@ -643,7 +787,8 @@ class AddMultipleBookingsDialog(QDialog):
         contact_edit.setFixedHeight(34)
         self.table.setCellWidget(r, 1, contact_edit)
 
-        # Auto-fill contact on customer selection
+        # Auto-fill the contact cell when a registered customer is picked (only
+        # if that customer record actually carries a phone number).
         def _on_cust_selected(idx):
             data = cust_combo.currentData()
             if isinstance(data, dict):
@@ -678,6 +823,9 @@ class AddMultipleBookingsDialog(QDialog):
         if menu_combo.view():
             menu_combo.view().setMinimumWidth(340)
 
+        # Each combo entry stashes a data payload dict ({"type", "name",
+        # "rate", ...}) so save-time knows whether it is a package, a custom
+        # multi-dish menu, or a single dish, plus the per-pax rate to price by.
         # Add Packages
         if self._packages:
             for pkg in self._packages:
@@ -771,10 +919,14 @@ class AddMultipleBookingsDialog(QDialog):
         del_btn.setStyleSheet("background: transparent; border: none;")
         del_btn.setCursor(Qt.PointingHandCursor)
         del_btn.setToolTip("Remove row")
+        # Identify the row to delete by its menu cell widget (row indices shift
+        # as rows are removed, so a stable widget reference is used instead).
         del_btn.clicked.connect(lambda _, w=menu_widget: self._delete_row_by_widget(w))
         self.table.setCellWidget(r, 10, del_btn)
 
-        # Multi-dish selector handler
+        # Multi-dish selector handler: opens MultiMenuSelectionDialog, and on
+        # accept inserts a new "Custom (N Dishes)" entry at the top of the combo
+        # and selects it so the row prices by the combined per-pax rate.
         def _open_dish_picker():
             curr_data = menu_combo.currentData() or {}
             initial_dishes = curr_data.get("items", [])
@@ -808,6 +960,12 @@ class AddMultipleBookingsDialog(QDialog):
         _recompute_price()
 
     def _delete_row_by_widget(self, cell_w: QWidget):
+        """Remove the table row whose menu cell (column 3) is cell_w.
+
+        Args:
+            cell_w: The menu-cell widget stored for the row to delete; matched
+                by identity so it survives row-index shifts.
+        """
         for r in range(self.table.rowCount()):
             if self.table.cellWidget(r, 3) == cell_w:
                 self.table.removeRow(r)
@@ -815,12 +973,18 @@ class AddMultipleBookingsDialog(QDialog):
         self._update_grand_totals()
 
     def _delete_selected_row(self):
+        """Remove whichever row is currently selected in the table, if any."""
         curr = self.table.currentRow()
         if curr >= 0:
             self.table.removeRow(curr)
         self._update_grand_totals()
 
     def _clear_empty_rows(self):
+        """Drop every row that has no customer name entered (keeps filled rows).
+
+        Iterates without incrementing r after a removal because removeRow()
+        shifts subsequent rows up into the current index.
+        """
         r = 0
         while r < self.table.rowCount():
             name_w = self.table.cellWidget(r, 0)
@@ -840,6 +1004,11 @@ class AddMultipleBookingsDialog(QDialog):
         self._update_grand_totals()
 
     def _update_grand_totals(self):
+        """Recompute and display the footer KPIs (row count, total, down payment).
+
+        NOTE: this reads columns 7 and 8, so the summed figures reflect those
+        cells' QDoubleSpinBox values.
+        """
         count = self.table.rowCount()
         tot_sales = 0.0
         tot_dp = 0.0
@@ -853,6 +1022,15 @@ class AddMultipleBookingsDialog(QDialog):
         self._kpi_summary_lbl.setText(f"Rows: {count}  |  Total Estimated: ₱ {tot_sales:,.2f}  |  Total Down Payment: ₱ {tot_dp:,.2f}")
 
     def _save_all(self):
+        """Validate every row, then persist all named rows as PENDING bookings.
+
+        For each row it reads the editor widgets into a normalized booking dict
+        (resolving the menu/package payload into a display value and per-pax
+        pricing type), skipping rows with no customer name. Unknown customers
+        are looked up by name and auto-created when missing. On completion it
+        records self._added_count and accepts the dialog. If no valid rows are
+        found it shows an inline error and returns without closing.
+        """
         rows_to_save = []
         for r in range(self.table.rowCount()):
             cust_w = self.table.cellWidget(r, 0)
@@ -881,6 +1059,7 @@ class AddMultipleBookingsDialog(QDialog):
             elif isinstance(cust_w, QLineEdit):
                 cust_name = cust_w.text().strip()
 
+            # A row with no customer name is treated as blank and skipped.
             if not cust_name:
                 continue
 
@@ -944,6 +1123,9 @@ class AddMultipleBookingsDialog(QDialog):
 
         saved = 0
         for b_data in rows_to_save:
+            # Resolve or create the customer record before creating the booking:
+            # prefer the id captured from the combo, else look up by name, else
+            # register a new Active customer on the fly.
             cid = b_data.get("customer_id")
             if not cid:
                 cust = repo.get_customer_by_name(b_data["name"])
@@ -970,17 +1152,28 @@ class AddMultipleBookingsDialog(QDialog):
 
 
 class BookingPage(QWidget):
+    """Main Orders & Bookings screen (three lazily-paginated status tabs).
+
+    Owns all view state: the loaded rows and pagination cursors per tab, the
+    client-side search query and active status filter, the server-side filter
+    bar values, the set of selected card references for batch actions, and the
+    render-token/rendering guards that keep incremental card rendering safe.
+    Subscribes to app_events so external mutations mark it dirty and trigger a
+    silent background reload while visible.
+    """
     def __init__(self, parent=None):
+        """Initialize all view/pagination state, build the UI, and subscribe to
+        the global app_events that should refresh this page."""
         super().__init__(parent)
-        self._dirty = True
-        self._bookings = []
-        self._reload_in_flight = False
-        self._reload_pending = False
-        self._selected_refs: set[str] = set()
-        self._card_checkboxes: dict[str, QCheckBox] = {}
-        self._active_filter = "All"
+        self._dirty = True          # rows may be stale -> reload on next show
+        self._bookings = []         # union of rows currently loaded across tabs
+        self._reload_in_flight = False   # a fetch+render pass is running now
+        self._reload_pending = False     # another reload was requested mid-pass
+        self._selected_refs: set[str] = set()   # booking refs ticked for batch ops
+        self._card_checkboxes: dict[str, QCheckBox] = {}  # ref -> its card checkbox
+        self._active_filter = "All"   # client-side status filter from the popover
         self._filter_popover = None
-        self._search_query = ""
+        self._search_query = ""       # client-side free-text search over loaded rows
 
         # Server-side filter state (DB-level, ADDITIONAL to whatever tab
         # status_filter is active and independent of the client-side search box).
@@ -998,20 +1191,20 @@ class BookingPage(QWidget):
         # bookings independently by status so we never fetch/render rows nobody
         # is scrolled to. Tab 0 = Pending, 1 = Confirmed/Completed, 2 = All.
         self._page_size = 50
-        self._tab_status = {0: ["PENDING"], 1: ["CONFIRMED", "COMPLETED"], 2: None}
-        self._tab_rows = {0: [], 1: [], 2: []}
-        self._tab_has_more = {0: True, 1: True, 2: True}
-        self._tab_loading_more = {0: False, 1: False, 2: False}
-        self._tab_cached_remainder = {0: None, 1: None, 2: None}
+        self._tab_status = {0: ["PENDING"], 1: ["CONFIRMED", "COMPLETED"], 2: None}  # status bucket per tab (None = all)
+        self._tab_rows = {0: [], 1: [], 2: []}          # rows loaded so far, per tab
+        self._tab_has_more = {0: True, 1: True, 2: True} # more DB pages may exist, per tab
+        self._tab_loading_more = {0: False, 1: False, 2: False}  # a next-page fetch in flight
+        self._tab_cached_remainder = {0: None, 1: None, 2: None}  # unshown tail of memory cache, per tab
         # True while a batch-render chain (initial page OR scroll-appended page)
         # is actively mutating this tab's layout - blocks a new load-more from
         # starting mid-chain, which was corrupting the layout and crashing.
         self._tab_rendering = {0: False, 1: False, 2: False}
-        self._tab_cached_full = {0: None, 1: None, 2: None}
-        self._tab_layouts = {}
-        self._scroll_areas = {}
-        self._tab_loading_label = {0: None, 1: None, 2: None}
-        self._counts = {"pending": 0, "confirmed": 0, "all": 0}
+        self._tab_cached_full = {0: None, 1: None, 2: None}  # full memory-cache slice, per tab
+        self._tab_layouts = {}        # tab index -> its cards QVBoxLayout
+        self._scroll_areas = {}       # tab index -> its QScrollArea
+        self._tab_loading_label = {0: None, 1: None, 2: None}  # "Loading more..." row, per tab
+        self._counts = {"pending": 0, "confirmed": 0, "all": 0}  # DB-side totals for tab titles
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._on_search_timer_fired)
@@ -1023,6 +1216,9 @@ class BookingPage(QWidget):
         self._build_ui()
         self._bookings = []
         self._dirty = True
+        # Any of these app-wide events means booking data changed elsewhere
+        # (another page saved/created/updated, a sync finished, etc.) -> mark
+        # dirty and silently reload this page while it is visible.
         _ev = app_events()
         _ev.booking_saved.connect(self._mark_dirty_and_reload)
         _ev.booking_created.connect(self._mark_dirty_and_reload)
@@ -1031,12 +1227,19 @@ class BookingPage(QWidget):
         _ev.data_changed.connect(self._mark_dirty_and_reload)
 
     def _mark_dirty(self):
+        """Flag loaded rows as stale so the next show/reload re-fetches them."""
         self._dirty = True
 
     def _has_active_search(self) -> bool:
+        """Return True while the user has non-empty text in the search box."""
         return bool(getattr(self, "_search_query", "").strip())
 
     def _mark_dirty_and_reload(self):
+        """Mark dirty and, unless the user is mid-search, silently reload.
+
+        Deferring the rebuild during an active search avoids yanking results out
+        from under the user; the deferred reload is picked up when search clears.
+        """
         self._dirty = True
         # Defer background rebuilds while the user is actively searching.
         if self._has_active_search():
@@ -1046,18 +1249,36 @@ class BookingPage(QWidget):
             self._refresh_bookings(silent=True)
 
     def showEvent(self, event):
+        """On becoming visible, refresh permissions and reload if dirty.
+
+        The first load shows the loader overlay; subsequent loads are silent
+        (gated on _has_loaded_once) to avoid flashing the overlay on every show.
+        """
         super().showEvent(event)
         self.refresh_permissions()
         if getattr(self, "_dirty", True):
             self._refresh_bookings(silent=getattr(self, "_has_loaded_once", False))
 
     def reload(self, silent: bool = False):
+        """Public reload entry point: mark dirty, refresh perms, re-fetch if shown.
+
+        Args:
+            silent: When True, suppress the loading overlay during the reload.
+        """
         self._mark_dirty()
         self.refresh_permissions()
         if self.isVisible():
             self._refresh_bookings(silent=silent)
 
     def refresh_permissions(self):
+        """Apply the current user's booking permissions to the UI.
+
+        Reads create/edit/delete rights from the session and toggles the header
+        action buttons and each tab's batch/select controls accordingly. Because
+        per-card buttons are baked in at render time, a change in the effective
+        permission set forces a full card rebuild so stale (previous-user)
+        buttons never linger.
+        """
         from utils.auth import SessionManager
         can_create = SessionManager.has_permission("bookings", "create")
         can_delete = SessionManager.has_permission("bookings", "delete")
@@ -1100,6 +1321,7 @@ class BookingPage(QWidget):
                     tb["selected_lbl"].setVisible(can_edit or can_delete)
 
     def _reset_pagination(self):
+        """Reset all three tabs' pagination cursors/caches to a fresh page-0 state."""
         # Every full reload starts each tab from page 0. Non-active tabs stay
         # empty until the user switches to them (lazy) or a memory cache is
         # available to slice their first page from with zero DB round-trips.
@@ -1112,6 +1334,15 @@ class BookingPage(QWidget):
         self._populated_tabs = set()
 
     def _refresh_bookings(self, silent: bool = False):
+        """Kick off a full reload of the active tab (counts + page 0).
+
+        Coalesces concurrent calls via the in-flight guard, resets pagination
+        for all tabs, and takes the instant memory-cache path on first open when
+        available; otherwise fetches counts and page 0 on a background thread.
+
+        Args:
+            silent: When True, do not show the loading overlay.
+        """
         # Coalesce overlapping reloads: if a reload (fetch + batch-render of the
         # active tab) is already running, don't start a second one in parallel -
         # just remember to run exactly one more pass once this one fully finishes.
@@ -1160,6 +1391,11 @@ class BookingPage(QWidget):
 
     @staticmethod
     def _fetch_reload_data(status, page_size, date_start, date_end, customer, event, time_start=None, time_end=None):
+        """Background worker: fetch DB counts + the active tab's first page.
+
+        Runs off the UI thread (via run_async). Returns a (counts, rows) tuple,
+        both scoped by the active server-side filter arguments.
+        """
         # Combined round trip: DB-side counts (accurate under pagination) plus
         # the active tab's first page. Both scoped by the active server-side
         # filter (date window / customer / occasion / time-of-day).
@@ -1169,6 +1405,14 @@ class BookingPage(QWidget):
         )
 
     def _on_reload_loaded(self, idx, result):
+        """UI-thread callback for _fetch_reload_data: store counts + page 0, render.
+
+        Args:
+            idx: The tab index the fetched page belongs to.
+            result: The (counts, rows) tuple from the background worker.
+
+        Guards against the widget having been destroyed while the fetch ran.
+        """
         self._refreshing = False
         from shiboken6 import isValid
         if not isValid(self):
@@ -1185,6 +1429,15 @@ class BookingPage(QWidget):
         self._render_tab_initial(idx)
 
     def _load_from_cache(self, cached):
+        """Populate all tabs instantly from a login-time full-list memory cache.
+
+        Args:
+            cached: The full list of booking dicts cached at login.
+
+        Partitions the (filter-scoped) cache into Pending/Confirmed/All buckets,
+        sets DB-equivalent counts, serves page 1 of the active tab from memory
+        and keeps the remainder for zero-round-trip scroll paging.
+        """
         from shiboken6 import isValid
         if not isValid(self):
             self._reload_in_flight = False
@@ -1206,6 +1459,12 @@ class BookingPage(QWidget):
         self._render_tab_initial(idx)
 
     def _serve_tab_from_cache(self, idx):
+        """Slice one tab's first page from its full memory-cache bucket.
+
+        Args:
+            idx: Tab index to serve. Loads page 1 into _tab_rows[idx], stashes
+                the rest as the cached remainder, and sets has-more accordingly.
+        """
         full = self._tab_cached_full.get(idx) or []
         self._tab_rows[idx] = list(full[:self._page_size])
         self._tab_cached_remainder[idx] = list(full[self._page_size:])
@@ -1213,6 +1472,13 @@ class BookingPage(QWidget):
         self._rebuild_bookings()
 
     def _apply_counts(self, counts):
+        """Store the DB-side pending/confirmed/all totals and update tab titles.
+
+        Args:
+            counts: Dict with "pending"/"confirmed"/"all" keys (missing keys
+                default to 0). These drive the parenthesized tab counts, which
+                intentionally reflect the DB totals, not the loaded-slice length.
+        """
         counts = counts or {}
         self._counts = {
             "pending": int(counts.get("pending", 0) or 0),
@@ -1225,6 +1491,12 @@ class BookingPage(QWidget):
             self._tabs.setTabText(2, f"📋 All Bookings ({self._counts['all']})")
 
     def _rebuild_bookings(self):
+        """Recompute self._bookings as the de-duplicated union of all tabs' rows.
+
+        This backing list is what single-row lookups (approve/edit/delete) and
+        selection helpers resolve against; under pagination it is only the loaded
+        subset, never the full dataset.
+        """
         # self._bookings is the union of rows loaded across all tabs so far;
         # single-row lookups and selection helpers still resolve any card that is
         # currently rendered. It is NOT the full dataset under pagination.
@@ -1240,6 +1512,11 @@ class BookingPage(QWidget):
         self._bookings = merged
 
     def _reload_finished(self):
+        """Clear the in-flight guard; run one more reload if one was queued.
+
+        Must be called only once the fetch+render pipeline for the active tab has
+        truly finished, so a mid-render reload request is honored exactly once.
+        """
         # Called only when the full pipeline (fetch + render of the active tab)
         # has truly completed. Reset the in-flight guard and, if a reload was
         # requested mid-render, schedule exactly one more pass.
@@ -1249,6 +1526,11 @@ class BookingPage(QWidget):
             QTimer.singleShot(0, self.reload)
 
     def _on_bookings_error(self, err):
+        """Error callback for background fetches: hide loader, settle reload, log.
+
+        Args:
+            err: The exception/message from the failed background fetch.
+        """
         self._refreshing = False
         if hasattr(self, "_loader"):
             self._loader.hide_overlay()
@@ -1256,6 +1538,8 @@ class BookingPage(QWidget):
         print(f"[BookingPage] Background refresh error: {err}")
 
     def _build_ui(self):
+        """Assemble the whole page: header actions, search bar, server-side
+        filter bar, the 3 booking tabs, and the loading overlay."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(20)
@@ -1432,6 +1716,17 @@ class BookingPage(QWidget):
         self._populate_table()
 
     def _create_booking_tab(self, tab_type: str):
+        """Build one status tab: toolbar (select-all, batch/delete/print) + a
+        scrollable card area wired for infinite scroll.
+
+        Args:
+            tab_type: "PENDING", "CONFIRMED", or "ALL"; PENDING additionally gets
+                batch-confirm/batch-cancel buttons.
+
+        Returns:
+            (page_widget, cards_layout, toolbar_bundle) where toolbar_bundle is a
+            dict of the tab's toolbar widgets for later enable/visibility updates.
+        """
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 14, 0, 0)
@@ -1549,6 +1844,11 @@ class BookingPage(QWidget):
         return page, cards_layout, tb_bundle
 
     def _on_tab_changed(self, index: int):
+        """Handle tab switches: lazy-load the tab's first page or re-render it.
+
+        Args:
+            index: The newly-active tab index.
+        """
         # Lazily load a tab's first page the first time it becomes active.
         if index not in getattr(self, "_populated_tabs", set()) and not self._tab_rows.get(index):
             self._ensure_tab_loaded(index)
@@ -1557,6 +1857,12 @@ class BookingPage(QWidget):
         self._update_selection_ui()
 
     def _ensure_tab_loaded(self, idx: int):
+        """Guarantee a tab has its first page, from cache or a DB fetch.
+
+        Args:
+            idx: Tab index to populate. Shows the loader while cards batch-render
+                (even the cached path can take a visible moment for big tabs).
+        """
         # Serve the tab's first page from the pre-loaded memory cache if we have
         # it (zero DB round-trip); otherwise fetch page 0 from the DB. Either way,
         # show the loader while this tab's cards batch-render - even the cached
@@ -1581,6 +1887,12 @@ class BookingPage(QWidget):
         )
 
     def _on_tab_first_page(self, idx: int, rows):
+        """UI callback for a lazily-loaded tab's page-0 fetch: store rows + render.
+
+        Args:
+            idx: Tab index the page belongs to.
+            rows: The fetched first page of booking dicts.
+        """
         from shiboken6 import isValid
         if not isValid(self):
             return
@@ -1592,6 +1904,13 @@ class BookingPage(QWidget):
         self._render_tab_initial(idx)
 
     def _render_tab_initial(self, idx: int):
+        """Render a tab's currently-loaded rows from scratch (clears then rebuilds).
+
+        Args:
+            idx: Tab index to render. Caches (layout, rows, empty_msg) in
+                _tab_data so later mutations can re-render the same tab, and
+                marks the tab populated.
+        """
         from utils.auth import SessionManager
         can_edit = SessionManager.has_permission("bookings", "edit")
         can_delete = SessionManager.has_permission("bookings", "delete")
@@ -1608,6 +1927,7 @@ class BookingPage(QWidget):
         self._update_selection_ui()
 
     def _tab_empty_msg(self, idx: int) -> str:
+        """Return the empty-state message text for the given tab index."""
         return {
             0: "No pending bookings found.",
             1: "No confirmed bookings found.",
@@ -1615,6 +1935,12 @@ class BookingPage(QWidget):
         }.get(idx, "No bookings found.")
 
     def _rows_for_tab(self, idx: int):
+        """Return the tab's loaded rows narrowed to its status bucket + search.
+
+        Args:
+            idx: Tab index. Enforcing the status bucket drops rows whose status
+                changed via a mutation so they don't linger in the wrong tab.
+        """
         # Enforce the tab's status bucket (so a row whose status changed via a
         # mutation - e.g. Pending -> Confirmed - drops out of the wrong tab on
         # re-render) then apply the client-side search/filter.
@@ -1625,6 +1951,15 @@ class BookingPage(QWidget):
         return self._filter_rows(rows)
 
     def _filter_rows(self, rows):
+        """Apply the active client-side status filter and search query to rows.
+
+        Args:
+            rows: The already-loaded rows to filter.
+
+        Returns:
+            The subset matching both the popover status filter and (if set) the
+            free-text search across name/id/date/pax/total/occasion/etc.
+        """
         # Client-side status + search filtering over the rows already loaded for a
         # tab. KNOWN LIMITATION: search/filter only sees loaded (scrolled-to)
         # rows, not the full DB set - full DB-side search is a later follow-up.
@@ -1656,6 +1991,13 @@ class BookingPage(QWidget):
         return rows
 
     def _on_tab_scroll(self, idx: int, value: int):
+        """Trigger a load-more for a tab when the user nears its scroll bottom.
+
+        Args:
+            idx: Tab index whose scroll area fired.
+            value: Current vertical scrollbar value; within 200px of the bottom
+                requests the next page.
+        """
         sa = self._scroll_areas.get(idx)
         if not sa:
             return
@@ -1664,6 +2006,13 @@ class BookingPage(QWidget):
             self._load_more_tab(idx)
 
     def _load_more_tab(self, idx: int):
+        """Fetch/append the next page of rows for a tab (cache-first, then DB).
+
+        Args:
+            idx: Tab index to extend. No-ops while a load is already in flight,
+                the tab has no more rows, its initial render chain is still
+                mutating the layout, or a client-side search is active.
+        """
         if self._tab_loading_more.get(idx) or not self._tab_has_more.get(idx):
             return
         # Don't start appending to this tab's layout while its own initial
@@ -1695,6 +2044,12 @@ class BookingPage(QWidget):
         )
 
     def _show_tab_loading_indicator(self, idx: int):
+        """Insert a transient "Loading more bookings..." row for a tab.
+
+        Args:
+            idx: Tab index; no-ops if an indicator is already present. The label
+                is inserted before the trailing stretch, never replacing it.
+        """
         layout = self._tab_layouts.get(idx)
         if not layout or self._tab_loading_label.get(idx) is not None:
             return
@@ -1708,6 +2063,11 @@ class BookingPage(QWidget):
         self._tab_loading_label[idx] = lbl
 
     def _hide_tab_loading_indicator(self, idx: int):
+        """Remove and delete a tab's "Loading more..." row if one is showing.
+
+        Args:
+            idx: Tab index whose indicator to clear.
+        """
         lbl = self._tab_loading_label.get(idx)
         if lbl is None:
             return
@@ -1718,6 +2078,12 @@ class BookingPage(QWidget):
         self._tab_loading_label[idx] = None
 
     def _on_tab_more_loaded(self, idx: int, rows):
+        """UI callback for a load-more page: append the new rows and their cards.
+
+        Args:
+            idx: Tab index being extended.
+            rows: Newly-fetched page of booking dicts (empty = end reached).
+        """
         self._hide_tab_loading_indicator(idx)
         from shiboken6 import isValid
         if not isValid(self):
@@ -1734,6 +2100,12 @@ class BookingPage(QWidget):
         self._tab_loading_more[idx] = False
 
     def _append_tab_cards(self, idx: int, new_rows):
+        """Render newly-appended rows as cards without disturbing existing ones.
+
+        Args:
+            idx: Tab index to append into.
+            new_rows: The rows to render (inserted before the permanent stretch).
+        """
         layout = self._tab_layouts.get(idx)
         if not layout:
             return
@@ -1755,6 +2127,11 @@ class BookingPage(QWidget):
         self._render_next_batch(layout, list(new_rows), token, can_edit, can_delete, tab_idx=idx)
 
     def _visible_bookings(self):
+        """Return the loaded bookings that pass the active status + search filter.
+
+        Operates over the whole loaded union (self._bookings), so it backs
+        cross-tab operations like select-all and export.
+        """
         rows = self._bookings
         f = self._active_filter
         if f and f != "All":
@@ -1786,6 +2163,14 @@ class BookingPage(QWidget):
         return rows
 
     def _populate_table(self, data=None):
+        """Re-render each tab from its loaded rows (post-mutation / search).
+
+        Args:
+            data: Unused; kept for signal-slot signature compatibility.
+
+        Refreshes tab titles from the DB counts, resets the populated-tab
+        tracking, and (re)renders only the active tab.
+        """
         # Re-render the currently-loaded rows for each tab (used after mutations
         # like approve/cancel/delete/save and for client-side search/filter). The
         # per-tab paginated self._tab_rows are the source of truth for what's
@@ -1818,6 +2203,12 @@ class BookingPage(QWidget):
             self.setUpdatesEnabled(True)
 
     def _populate_active_tab(self, can_edit=None, can_delete=None):
+        """Render just the currently-selected tab if it isn't populated yet.
+
+        Args:
+            can_edit: Optional pre-resolved edit permission (looked up if None).
+            can_delete: Optional pre-resolved delete permission (looked up if None).
+        """
         if not hasattr(self, "_tabs") or not hasattr(self, "_tab_data"):
             return
         cur_idx = self._tabs.currentIndex()
@@ -1837,6 +2228,18 @@ class BookingPage(QWidget):
             self._populated_tabs.add(cur_idx)
 
     def _populate_card_layout(self, layout: QVBoxLayout, rows: list[dict], empty_msg: str, can_edit: bool = True, can_delete: bool = True, tab_idx: int = None):
+        """Clear a card layout and (re)fill it with booking cards or empty state.
+
+        Args:
+            layout: The tab's cards QVBoxLayout to rebuild.
+            rows: Booking dicts to render.
+            empty_msg: Text shown when rows is empty.
+            can_edit / can_delete: Permission flags baked into each card.
+            tab_idx: Owning tab index (drives the per-tab rendering guard).
+
+        Bumps the render token so any stale in-flight batch from a previous
+        populate cancels itself, then renders incrementally via _render_next_batch.
+        """
         if not layout:
             return
         while layout.count():
@@ -1882,6 +2285,12 @@ class BookingPage(QWidget):
 
     @staticmethod
     def _insert_card_before_stretch(layout, card):
+        """Add a card just before a trailing stretch spacer, never removing it.
+
+        Args:
+            layout: The QVBoxLayout to insert into.
+            card: The widget to add.
+        """
         # Insert just before a trailing stretch spacer if one exists, rather
         # than ever taking the spacer out of the layout - repeatedly
         # take()-ing and discarding a QLayoutItem was the suspected trigger
@@ -1893,6 +2302,20 @@ class BookingPage(QWidget):
             layout.addWidget(card)
 
     def _render_next_batch(self, layout, queue, token, can_edit, can_delete, batch_size=15, tab_idx=None):
+        """Render up to batch_size cards, then yield to the event loop and recurse.
+
+        Args:
+            layout: Target cards layout.
+            queue: Mutable list of remaining row dicts (popped as consumed).
+            token: The render token this chain owns; a newer token aborts it.
+            can_edit / can_delete: Permission flags for each card.
+            batch_size: Cards to build per event-loop tick (UI-freeze mitigation).
+            tab_idx: Owning tab index (managed rendering guard + auto-continue).
+
+        On completion adds the trailing stretch, hides the loader once nothing is
+        left to background-load, settles any pending reload, and quietly prefetches
+        the tab's next page.
+        """
         # Abandon if a newer populate started (stale in-flight batch). The
         # newer chain owns _tab_rendering[tab_idx] now, so don't touch it here.
         if token != getattr(self, "_render_token", 0):
@@ -1948,6 +2371,18 @@ class BookingPage(QWidget):
 
 
     def _create_booking_card(self, b: dict, can_edit: bool = True, can_delete: bool = True) -> QFrame:
+        """Build one booking's row card widget.
+
+        Args:
+            b: The booking dict (needs id/date/name/pax/total/status, etc.).
+            can_edit: Whether edit/charges/color/confirm actions are enabled/shown.
+            can_delete: Whether the delete action is enabled/shown.
+
+        Returns:
+            A QFrame containing the selection checkbox, key fields, status badge,
+            inline approve/decline (PENDING only), and the action button row.
+            The card's checkbox is registered in self._card_checkboxes[ref].
+        """
         bref = b["id"]
         card = QFrame()
         card.setObjectName("entryCard")
@@ -1976,6 +2411,7 @@ class BookingPage(QWidget):
         # Col 2: Client Name & Pax
         c2 = QVBoxLayout()
         c2.setSpacing(2)
+        # Rich-text name with the current search term highlighted inline.
         name_lbl = QLabel(highlight_html(b["name"], getattr(self, "_search_query", "")))
         name_lbl.setTextFormat(Qt.RichText)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
@@ -2013,6 +2449,8 @@ class BookingPage(QWidget):
         c4.setSpacing(4)
         c4.setAlignment(Qt.AlignCenter)
         c4.addWidget(_status_badge(b["status"]), alignment=Qt.AlignLeft)
+        # Cancelled orders show their reason; editable pending orders show the
+        # inline approve/decline controls instead.
         if b["status"] == "CANCELLED" and b.get("cancellation_reason"):
             reason_lbl = QLabel(b["cancellation_reason"])
             reason_lbl.setStyleSheet("color:#DC2626;font-size:10px;font-style:italic;")
@@ -2122,6 +2560,8 @@ class BookingPage(QWidget):
         actions_l.addWidget(del_btn)
         actions_l.addWidget(confirm_btn)
 
+        # Hide (not just disable) mutating actions for view-only users so the
+        # row reads cleanly; delete is governed by the separate delete right.
         if not can_edit:
             edit_btn.hide()
             charges_btn.hide()
@@ -2137,6 +2577,11 @@ class BookingPage(QWidget):
         return card
 
     def _print_order_slip(self, ref: str):
+        """Open the printable order-slip dialog for one booking.
+
+        Args:
+            ref: Booking reference id; resolved to its db_id when available.
+        """
         from components.order_print_dialog import OrderPrintDialog
         b = next((x for x in self._bookings if x.get("id") == ref), None)
         target = b.get("db_id") if (b and b.get("db_id")) else ref
@@ -2144,6 +2589,7 @@ class BookingPage(QWidget):
         dlg.exec()
 
     def _print_selected_orders(self):
+        """Open the order-slip dialog for all currently selected bookings."""
         if not self._selected_refs:
             return
         from components.order_print_dialog import OrderPrintDialog
@@ -2155,6 +2601,12 @@ class BookingPage(QWidget):
         dlg.exec()
 
     def _change_booking_color(self, ref: str):
+        """Prompt for and persist a booking's theme/color motif.
+
+        Args:
+            ref: Booking reference id. Requires edit permission; on save updates
+                the DB, the in-memory row, re-renders, and emits update events.
+        """
         from utils.auth import SessionManager
         if not SessionManager.has_permission("bookings", "edit"):
             return
@@ -2165,6 +2617,8 @@ class BookingPage(QWidget):
 
         cur_motif = str(b.get("color_theme") or b.get("motif") or "")
 
+        # NOTE: this dialog is built with PyQt5 widgets (the rest of the file
+        # uses PySide6); kept as-is to avoid changing runtime behavior.
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
         dlg = QDialog(self)
         dlg.setWindowTitle("Set Theme & Motif")
@@ -2215,6 +2669,16 @@ class BookingPage(QWidget):
             success(self, message=f"Motif updated for {b.get('name', ref)}!")
 
     def _approve_booking(self, ref):
+        """Approve/confirm a single pending booking via the confirm dialog.
+
+        Args:
+            ref: Booking reference id.
+
+        Opens ConfirmBookingDialog to optionally record a payment and color
+        theme, persists the CONFIRMED status (and any payment), recalculates
+        loyalty, re-renders, fires the auto-confirmation email, and emits the
+        relevant app events. Errors surface as a warning box.
+        """
         b = next((x for x in self._bookings if x["id"] == ref), None)
         if not b:
             return
@@ -2237,6 +2701,8 @@ class BookingPage(QWidget):
             pay_method = dlg.get_payment_method()
             remarks = dlg.get_payment_remarks()
 
+            # Remaining balance = total minus what's already paid (never < 0);
+            # used below to decide the "fully paid" success wording.
             tot_val = _parse_amount(detail.get("total") or detail.get("total_amount") or b.get("total", 0.0))
             paid_val = _parse_amount(detail.get("amount_paid") or detail.get("down_payment") or 0.0)
             rem = max(0.0, tot_val - paid_val)
@@ -2290,8 +2756,16 @@ class BookingPage(QWidget):
             QMessageBox.warning(self, "Cannot Approve", str(exc))
 
     def _decline_booking(self, ref):
+        """Decline a pending booking (mark it CANCELLED) with an optional reason.
+
+        Args:
+            ref: Booking reference id. Falls back to scanning per-tab rows if the
+                row isn't in the merged list. Clears the data cache and reloads
+                so all tabs reflect the status change.
+        """
         b = next((x for x in self._bookings if x.get("id") == ref), None)
         if not b:
+            # Row may live in a tab not merged into self._bookings yet; scan tabs.
             for rlist in getattr(self, "_tab_rows", {}).values():
                 b = next((x for x in rlist if x.get("id") == ref), None)
                 if b:
@@ -2371,6 +2845,13 @@ class BookingPage(QWidget):
                 "Ensure customer has an email and SMTP is configured in Settings.")
 
     def _delete_booking(self, ref):
+        """Permanently delete a single booking after a confirm prompt.
+
+        Args:
+            ref: Booking reference id. Requires delete permission. Removes the
+                row from the DB and every in-memory cache/tab list, clears the
+                data cache, reloads, and emits the relevant events.
+        """
         from utils.auth import SessionManager
         if not SessionManager.has_permission("bookings", "delete"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to delete bookings.")
@@ -2396,6 +2877,8 @@ class BookingPage(QWidget):
                 return
             repo.write_audit_log(get_actor(), "DELETE", "bookings", b["db_id"], {"customer": b.get("name"), "amount": b.get("total")}, None)
 
+        # Drop the deleted row from the merged list and every per-tab list and
+        # memory-cache bucket so it can't reappear on a re-render before reload.
         self._bookings = [x for x in (self._bookings or []) if isinstance(x, dict) and x.get("id") != ref]
         for tid in (0, 1, 2):
             if hasattr(self, "_tab_rows") and self._tab_rows and self._tab_rows.get(tid) is not None:
@@ -2412,6 +2895,11 @@ class BookingPage(QWidget):
         success(self, message="Booking deleted successfully.")
 
     def _open_additional_charges(self, ref):
+        """Open the additional-charges dialog for a booking; reload if it changed.
+
+        Args:
+            ref: Booking reference id (must resolve to a row with a db_id).
+        """
         b = next((x for x in self._bookings if x["id"] == ref), None)
         if not b or not b.get("db_id"):
             return
@@ -2423,6 +2911,13 @@ class BookingPage(QWidget):
             app_events().data_changed.emit()
 
     def _edit_booking(self, ref):
+        """Open the booking modal to edit an existing order.
+
+        Args:
+            ref: Booking reference id. Requires edit permission. Loads full
+                detail from the DB (falls back to the loaded row) and wires the
+                modal's save signal to _update_booking.
+        """
         from utils.auth import SessionManager
         if not SessionManager.has_permission("bookings", "edit"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to edit bookings.")
@@ -2439,8 +2934,18 @@ class BookingPage(QWidget):
         modal.exec()
 
     def _update_booking(self, orig, data):
+        """Persist edits from the booking modal for an existing order.
+
+        Args:
+            orig: The original loaded row (for its db_id).
+            data: The edited field dict from the modal.
+
+        Requires a non-blank venue (falls back to address), writes the update
+        and an audit-log entry, reloads, and emits booking_updated.
+        """
         venue = str(data.get("venue") or "").strip()
         if not venue:
+            # Fall back to the address field when no explicit venue was entered.
             venue = str(data.get("address") or "").strip()
         if not venue:
             QMessageBox.warning(self, "Validation Error", "Event Venue is required and cannot be blank.")
@@ -2457,6 +2962,7 @@ class BookingPage(QWidget):
         app_events().booking_updated.emit()
 
     def _open_modal(self):
+        """Open the booking modal to create a new order (requires create perm)."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("bookings", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to create bookings.")
@@ -2466,6 +2972,16 @@ class BookingPage(QWidget):
         modal.exec()
 
     def _add_booking(self, data):
+        """Create a new booking from the modal's data and update the UI.
+
+        Args:
+            data: New-booking field dict from the modal.
+
+        Requires a non-blank venue, persists via repo.create_booking, writes an
+        audit entry, optimistically appends the new row, sends the approval-
+        request email (reporting its outcome in the success message), pushes an
+        in-app notification, and emits booking_saved.
+        """
         venue = str(data.get("venue") or "").strip()
         if not venue:
             venue = str(data.get("address") or "").strip()
@@ -2495,6 +3011,7 @@ class BookingPage(QWidget):
         })
         self._populate_table()
 
+        # Tri-state: True=sent, False=send failed, None=no email/SMTP configured.
         email_status = self._send_approval_request(data, bkg_id)
         if email_status is True:
             msg = f"Booking created successfully.\nConfirmation email sent to {data.get('email', '')}."
@@ -2548,6 +3065,7 @@ class BookingPage(QWidget):
             return False
 
     def _open_filter(self):
+        """Toggle the client-side status filter popover, creating it on first use."""
         if self._filter_popover is None:
             win = self.window()
             self._filter_popover = FilterPopover(
@@ -2558,16 +3076,33 @@ class BookingPage(QWidget):
         self._filter_popover.toggle_anchored(self._btn_filter)
 
     def _on_filter_applied(self, result):
+        """Apply the popover's chosen status as the client-side filter and re-render.
+
+        Args:
+            result: Dict from the popover with a "statuses" list (first entry used).
+        """
         status = result.get("statuses", ["All"])[0]
         self._active_filter = "All" if not status or status == "All" else status
         self._populate_table()
 
     def _export_csv(self):
+        """Open the export wizard dialog.
+
+        NOTE: this definition is shadowed later by a second _export_csv that does
+        the actual CSV/Excel export; this one is bound to the header Export button
+        at build time and is overridden by the later method on the class.
+        """
         from components.export_dialog import ExportWizardDialog
         dlg = ExportWizardDialog(parent=self)
         dlg.exec()
 
     def _current_filter_args(self):
+        """Return the 6-tuple of server-side filter values for DB fetch/count calls.
+
+        Returns:
+            (date_start, date_end, customer, event, time_start, time_end) threaded
+            into every fetch so all tabs stay consistent.
+        """
         # The 6 server-side filter values threaded into every DB fetch/count call
         # so all 3 tabs (active now, or lazily loaded later) stay consistent.
         return (self._filter_date_start, self._filter_date_end,
@@ -2575,6 +3110,12 @@ class BookingPage(QWidget):
                 self._filter_time_start, self._filter_time_end)
 
     def _on_server_filter_changed(self):
+        """Debounce server-side filter widget changes into one reload.
+
+        Ignored while _suspend_filter_signals is set (used during programmatic
+        resets); otherwise (re)starts a short timer that fires
+        _apply_server_filter_reload.
+        """
         # Read the current widget state into self._filter_* then reload. Applies
         # WITHIN whichever tab is active; the other two tabs reset here and lazily
         # re-fetch with these same values on next switch via _ensure_tab_loaded.
@@ -2586,6 +3127,13 @@ class BookingPage(QWidget):
             self._apply_server_filter_reload()
 
     def _apply_server_filter_reload(self):
+        """Read the filter widgets into self._filter_* and force a DB reload.
+
+        Normalizes "All Customers"/"All Occasions" and a full 00:00-23:59 time
+        range to None (meaning "no restriction"), then forces a DB reload (not
+        the one-time memory cache) so all tabs' counts and rows reflect the
+        active filter.
+        """
         self._filter_date_start = self._date_from.date().toString("yyyy-MM-dd")
         self._filter_date_end = self._date_to.date().toString("yyyy-MM-dd")
         cust = self._customer_filter.currentText().strip()
@@ -2609,6 +3157,11 @@ class BookingPage(QWidget):
         self._refresh_bookings()
 
     def _reset_server_filters(self):
+        """Restore the default date window and clear customer/occasion/time, reload.
+
+        Suspends filter signals while resetting each widget so only one reload
+        fires at the end.
+        """
         # Restore the default 1-month-back / 2-months-ahead window and clear the
         # customer/occasion pickers, then reload once.
         self._filter_date_start, self._filter_date_end = repo.get_default_orders_window()
@@ -2627,6 +3180,15 @@ class BookingPage(QWidget):
         self._on_server_filter_changed()
 
     def _parse_booking_date(self, val):
+        """Normalize a display-formatted booking date to ISO "YYYY-MM-DD".
+
+        Args:
+            val: A date value like "Sep 14, 2026" or already-ISO string.
+
+        Returns:
+            The ISO date string, or None on any parse failure (caller keeps the
+            row rather than dropping it).
+        """
         # Booking dicts carry event_date pre-formatted as "%b %d, %Y" (e.g.
         # "Sep 14, 2026"); normalize to ISO for comparison against the filter
         # bounds. Returns None on any parse failure (row is then kept, not dropped).
@@ -2642,6 +3204,14 @@ class BookingPage(QWidget):
         return None
 
     def _parse_booking_time(self, val):
+        """Normalize a display-formatted booking time to 24h "HH:MM".
+
+        Args:
+            val: A time value like "6:00 PM" or an already-24h string.
+
+        Returns:
+            The 24h time string, or None on parse failure (row is kept).
+        """
         # Booking dicts carry event_time pre-formatted for display (e.g.
         # "6:00 PM" via format_time_ampm); normalize to 24h "HH:MM" for
         # comparison against the filter bounds. None on parse failure (row
@@ -2658,6 +3228,16 @@ class BookingPage(QWidget):
         return None
 
     def _server_filter_rows(self, rows):
+        """Apply the server-side filter to a memory-cached list, client-side.
+
+        Args:
+            rows: The pre-loaded (cached) list of booking dicts.
+
+        Returns:
+            Rows matching the active date/time/customer/occasion filter, so the
+            first-open cache path mirrors the DB path. Rows whose date/time can't
+            be parsed are kept (not dropped).
+        """
         # Apply the same date/time/customer/occasion filter client-side to a
         # pre-loaded (memory-cached) list, so the first-open cache path
         # respects the default window and any active filter exactly like
@@ -2683,6 +3263,13 @@ class BookingPage(QWidget):
         return out
 
     def filter_search(self, text):
+        """Handle search box text changes (debounced re-render).
+
+        Args:
+            text: Current search text. If cleared while a background refresh was
+                deferred (search was active), reload once; otherwise restart the
+                debounce timer that re-renders via _populate_table.
+        """
         self._search_query = str(text or "")
         # Search cleared while a background refresh was deferred -> reload once.
         if not self._search_query.strip() and getattr(self, "_reload_deferred", False):
@@ -2696,15 +3283,23 @@ class BookingPage(QWidget):
             self._populate_table()
 
     def _on_search_timer_fired(self):
+        """Debounce-timer slot: re-render the active tab for the current query."""
         self._populate_table()
 
     def search(self, query: str):
+        """Public API to programmatically drive the search box.
+
+        Args:
+            query: Text to search for (routed through the input widget when
+                present so the UI stays in sync).
+        """
         if hasattr(self, "_search_input"):
             self._search_input.setText(query)
         else:
             self.filter_search(query)
 
     def _open_import_dialog(self):
+        """Open the import wizard for bookings; reload on successful import."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("bookings", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to import bookings.")
@@ -2715,6 +3310,12 @@ class BookingPage(QWidget):
             self._refresh_bookings()
 
     def _on_card_checked(self, ref: str, state):
+        """Add/remove a booking ref from the batch-selection set on checkbox toggle.
+
+        Args:
+            ref: The booking reference id of the toggled card.
+            state: Qt check state (truthy = checked).
+        """
         if not ref:
             return
         if state:
@@ -2724,6 +3325,13 @@ class BookingPage(QWidget):
         self._update_selection_ui()
 
     def _toggle_select_tab(self, tab_type: str, state):
+        """Select/deselect all visible bookings for a tab's status bucket.
+
+        Args:
+            tab_type: "PENDING", "CONFIRMED", or "ALL" (chooses which visible
+                rows are affected).
+            state: Qt check state from the tab's Select-All checkbox.
+        """
         t_type = (tab_type or "").upper()
         if t_type == "PENDING":
             target_refs = [b["id"] for b in self._visible_bookings() if b.get("status") == "PENDING"]
@@ -2737,6 +3345,8 @@ class BookingPage(QWidget):
         else:
             self._selected_refs.difference_update(target_refs)
 
+        # Sync the visible checkboxes to match, muting their signals so this
+        # bulk change doesn't re-trigger _on_card_checked per box.
         for ref, cb in self._card_checkboxes.items():
             if ref in target_refs:
                 cb.blockSignals(True)
@@ -2746,6 +3356,12 @@ class BookingPage(QWidget):
         self._update_selection_ui()
 
     def _update_selection_ui(self):
+        """Sync every tab toolbar to the current selection set.
+
+        Updates the "N selected" label and the enabled state/text of the
+        delete/print/batch buttons, and reconciles each tab's Select-All
+        checkbox with whether all its visible rows are selected.
+        """
         count = len(self._selected_refs)
         pending_count = sum(1 for r in self._selected_refs if any(b["id"] == r and b.get("status") == "PENDING" for b in self._bookings))
         cancellable_count = sum(1 for r in self._selected_refs if any(b["id"] == r and b.get("status") != "CANCELLED" for b in self._bookings))
@@ -2789,6 +3405,12 @@ class BookingPage(QWidget):
             tb["select_all"].blockSignals(False)
 
     def _delete_selected_bookings(self):
+        """Confirm and permanently delete all currently selected bookings.
+
+        Collects db_ids (or refs) for the selection, writes an audit entry per
+        deletion, calls the bulk delete, clears the selection, reloads, and
+        reports how many were removed.
+        """
         if not self._selected_refs:
             return
         count = len(self._selected_refs)
@@ -2818,6 +3440,14 @@ class BookingPage(QWidget):
         success(self, message=f"Successfully deleted {deleted} order(s).")
 
     def _batch_approve_bookings(self):
+        """Confirm multiple selected pending bookings in one pass.
+
+        Opens BatchConfirmBookingDialog to choose a payment mode ("none",
+        "downpayment", or "full"), method, remarks, fixed down-payment, and a
+        shared color theme, then for each pending selection records the payment
+        (if any) and marks it CONFIRMED. Clears selection, reloads, emits events,
+        and reports the count plus total collected.
+        """
         if not self._selected_refs:
             return
 
@@ -2841,6 +3471,9 @@ class BookingPage(QWidget):
         if dlg.exec() != QDialog.Accepted:
             return
 
+        # Payment handling for the batch: "none" confirms without collecting,
+        # "downpayment" collects a fixed amount capped at each remaining balance,
+        # "full" settles each remaining balance.
         mode = dlg.get_action_mode()  # "none", "downpayment", "full"
         method = dlg.get_payment_method()
         remarks = dlg.get_payment_remarks()
@@ -2897,6 +3530,12 @@ class BookingPage(QWidget):
             success(self, message=f"Successfully batch confirmed {approved_cnt} booking(s) (Unpaid / Kept Remaining Balance).")
 
     def _batch_cancel_bookings(self):
+        """Cancel all selected bookings that aren't already cancelled.
+
+        Confirms once, then marks each eligible selection CANCELLED (with a
+        "Batch cancelled by user" reason and audit entry), clears the selection,
+        reloads, and reports the count.
+        """
         if not self._selected_refs:
             return
 
@@ -2934,6 +3573,7 @@ class BookingPage(QWidget):
         success(self, message=f"Batch cancelled {cancelled_cnt} booking(s).")
 
     def _open_multi_add_dialog(self):
+        """Open the bulk multi-booking entry dialog; reload if any were saved."""
         from utils.auth import SessionManager
         if not SessionManager.has_permission("bookings", "create"):
             QMessageBox.warning(self, "Access Denied", "Your account does not have permission to create bookings.")
@@ -2946,6 +3586,14 @@ class BookingPage(QWidget):
             success(self, message=f"Added {dlg._added_count} booking(s) successfully.")
 
     def _export_csv(self):
+        """Export the visible (or all loaded) bookings to an Excel or CSV file.
+
+        This is the effective _export_csv (it shadows the earlier wizard-opening
+        definition). Prompts for a save path, normalizes each booking into a
+        fixed set of columns (parsing currency/pax and computing the balance),
+        and writes a styled .xlsx via openpyxl or a UTF-8-BOM .csv, based on the
+        chosen extension. Failures surface as a warning box.
+        """
         bookings = self._visible_bookings()
         if not bookings:
             bookings = getattr(self, "_bookings", []) or []
@@ -2956,6 +3604,7 @@ class BookingPage(QWidget):
         if not path:
             return
 
+        # Default to .xlsx when the user typed a bare filename with no extension.
         ext = os.path.splitext(path)[1].lower()
         if not ext:
             path = f"{path}.xlsx"
@@ -2969,6 +3618,8 @@ class BookingPage(QWidget):
 
         rows = []
         for b in bookings:
+            # Totals/payments may arrive as plain numbers OR display strings like
+            # "₱ 1,200.00"; strip currency/commas before converting to float.
             raw_tot = b.get("total_amount") or b.get("total") or 0.0
             if isinstance(raw_tot, str):
                 try:
@@ -3026,6 +3677,7 @@ class BookingPage(QWidget):
                 notes
             ])
 
+        # Branch on the chosen format: styled Excel workbook vs. plain CSV.
         if ext in (".xlsx", ".xls"):
             try:
                 import openpyxl
@@ -3070,6 +3722,7 @@ class BookingPage(QWidget):
                 for r_idx in range(2, len(all_rows) + 1):
                     ws.row_dimensions[r_idx].height = 22
 
+                # Auto-fit each column to its widest cell (min width 14).
                 for col in ws.columns:
                     max_len = 0
                     col_letter = get_column_letter(col[0].column)
