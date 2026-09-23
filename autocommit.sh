@@ -1,467 +1,192 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-#  autocommit.sh — Smart auto-commit with auto-generated commit message
+#  autocommit.sh — FULLY AUTOMATIC: one commit per changed file, then push.
+#  No prompts, no typing. Just run it.
+#
+#  For each changed file it makes a commit:  type(scope): <action> <path>
+#    type   = auto-detected (fix / feat / docs / style / chore / refactor)
+#    scope  = auto-detected from the path (ui, utils, components, tablet-js, ...)
+#    action = add / update / remove / rename (from the file's git status)
 #
 #  Usage:
-#    ./autocommit.sh
-#    ./autocommit.sh --no-push
-#    ./autocommit.sh --dry-run
+#    ./autocommit.sh            # commit every changed file + push
+#    ./autocommit.sh --no-push  # commit only, don't push
+#    ./autocommit.sh --dry-run  # show what it WOULD do, change nothing
 # ─────────────────────────────────────────────────────────────────────────────
 
-set -euo pipefail
+set -uo pipefail   # NOTE: intentionally no `-e` — one failed git command must
+                   # not abort the whole run; we handle failures per-command.
 
 # ── Options ──────────────────────────────────────────────────────────────────
 PUSH=true
 DRY_RUN=false
-
 for arg in "$@"; do
   case "$arg" in
-    --no-push)
-      PUSH=false
-      ;;
-    --dry-run)
-      DRY_RUN=true
-      PUSH=false
-      ;;
-    *)
-      echo "❌ Unknown option: $arg"
-      echo "Usage: $0 [--no-push|--dry-run]"
-      exit 1
-      ;;
+    --no-push) PUSH=false ;;
+    --dry-run) DRY_RUN=true; PUSH=false ;;
+    *) echo "❌ Unknown option: $arg"; echo "Usage: $0 [--no-push|--dry-run]"; exit 1 ;;
   esac
 done
 
-
-# ── Ensure we're inside a git repo ────────────────────────────────────────────
+# ── Must be inside a git repo ────────────────────────────────────────────────
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
   echo "❌ Not a git repository. Run this from inside your project folder."
   exit 1
 fi
 
-
-# ── Collect changed files ─────────────────────────────────────────────────────
-mapfile -t ADDED < <(
-  git status --short |
-    awk '$1 ~ /A/ || $1 == "??" {print $2}'
-)
-
-mapfile -t MODIFIED < <(
-  git status --short |
-    awk '$1 ~ /M/ {print $2}'
-)
-
-mapfile -t DELETED < <(
-  git status --short |
-    awk '$1 ~ /D/ {print $2}'
-)
-
-mapfile -t RENAMED < <(
-  git status --short |
-    awk '$1 ~ /R/ {print $NF}'
-)
-
-ALL_FILES=(
-  "${ADDED[@]}"
-  "${MODIFIED[@]}"
-  "${DELETED[@]}"
-  "${RENAMED[@]}"
-)
-
-
-# ── Check if there are changes ────────────────────────────────────────────────
-if [ "${#ALL_FILES[@]}" -eq 0 ]; then
-  echo "✅ Nothing to commit — working tree is clean."
-  exit 0
-fi
-
-
-# ── Determine commit TYPE from changed files ──────────────────────────────────
-determine_type() {
-  local files=("$@")
-
-  local has_fix=false
-  local has_feat=false
-  local has_refactor=false
-  local has_docs=false
-  local has_style=false
-  local has_chore=false
-
-  for f in "${files[@]}"; do
-
-    case "$f" in
-      *.md|docs/*)
-        has_docs=true
-        ;;
-
-      *.css|*.scss|*.less)
-        has_style=true
-        ;;
-
-      */fix*|*/bug*|*_fix*|*fix_*)
-        has_fix=true
-        ;;
-
-      setup*.py|*.cfg|*.ini|*.toml|*.yml|*.yaml|Makefile|*.sh|*.bat|*.iss|*.spec)
-        has_chore=true
-        ;;
-    esac
-
-    # Check staged diff for keywords related to fixes
-    if git diff --cached -- "$f" 2>/dev/null |
-      grep -qiE '^\+.*(fix|bug|error|crash|broken|patch)'; then
-      has_fix=true
-    fi
-
-    # Check staged diff for keywords related to features
-    if git diff --cached -- "$f" 2>/dev/null |
-      grep -qiE '^\+.*(add|new|feat|feature|implement|create)'; then
-      has_feat=true
-    fi
-
-  done
-
-  # Priority:
-  # fix > feat > style > docs > chore > refactor
-
-  if $has_fix; then
-    echo "fix"
-    return
+# ── Clear a STALE index.lock (only if no git process is actually running) ─────
+clear_stale_lock() {
+  local lock; lock="$(git rev-parse --git-dir)/index.lock"
+  [ -f "$lock" ] || return 0
+  if pgrep -x git >/dev/null 2>&1; then
+    echo "❌ .git/index.lock exists and a git process is running."
+    echo "   Close the other git/editor operation, then re-run."
+    exit 1
   fi
-
-  if $has_feat; then
-    echo "feat"
-    return
-  fi
-
-  if $has_style; then
-    echo "style"
-    return
-  fi
-
-  if $has_docs; then
-    echo "docs"
-    return
-  fi
-
-  if $has_chore; then
-    echo "chore"
-    return
-  fi
-
-  echo "refactor"
+  echo "⚠️  Removing stale .git/index.lock left by a previous interrupted run."
+  rm -f "$lock"
 }
+clear_stale_lock
 
+# Ignore permission-bit-only changes (e.g. 100644→100755) so they don't create
+# noisy content-less commits.
+git config core.fileMode false >/dev/null 2>&1 || true
 
-# ── Build human-readable scope ────────────────────────────────────────────────
-build_scope() {
-  local files=("$@")
-  local raw_scopes=()
-
-  for f in "${files[@]}"; do
-
-    local scope=""
-
-    case "$f" in
-
-      Catering_Present/*/components/*)
-        scope="components"
-        ;;
-
-      Catering_Present/*/ui/*)
-        scope="ui"
-        ;;
-
-      Catering_Present/*/utils/*)
-        scope="utils"
-        ;;
-
-      Catering_Present/*/assets/*)
-        scope="assets"
-        ;;
-
-      Catering_Present/*)
-        scope="desktop-app"
-        ;;
-
-      Tablet_PWA/frontend/js/*)
-        scope="tablet-js"
-        ;;
-
-      Tablet_PWA/frontend/*)
-        scope="tablet-pwa"
-        ;;
-
-      Tablet_PWA/backend/*)
-        scope="tablet-backend"
-        ;;
-
-      Tablet_PWA/*)
-        scope="tablet-pwa"
-        ;;
-
-      Tablet_Android_APK/*)
-        scope="android-apk"
-        ;;
-
-      leasingsystem/js/*)
-        scope="leasing-js"
-        ;;
-
-      leasingsystem/*)
-        scope="leasing"
-        ;;
-
-      docs/*)
-        scope="docs"
-        ;;
-
-      *.md)
-        scope="docs"
-        ;;
-
-      *.sh|*.bat|*.spec|*.iss)
-        scope="build"
-        ;;
-
-      *)
-        scope=$(echo "$f" | cut -d'/' -f1)
-        ;;
-    esac
-
-    raw_scopes+=("$scope")
-  done
-
-
-  # ── Deduplicate scopes ─────────────────────────────────────────────────────
-  local unique_scopes
-  unique_scopes=$(
-    printf '%s\n' "${raw_scopes[@]}" |
-      sort -u |
-      tr '\n' ',' |
-      sed 's/,$//'
-  )
-
-  local count
-  count=$(
-    printf '%s\n' "${raw_scopes[@]}" |
-      sort -u |
-      wc -l
-  )
-
-  if [ "$count" -gt 3 ]; then
-    echo "multi"
+# ── Push EVERY unpushed commit on the current branch ─────────────────────────
+do_push() {
+  $PUSH || return 0
+  local branch unpushed push_args
+  branch=$(git rev-parse --abbrev-ref HEAD)
+  if git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
+    unpushed=$(git rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo 0)
+    push_args=(origin "$branch")
   else
-    echo "$unique_scopes"
+    unpushed=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+    push_args=(-u origin "$branch")
   fi
-}
-
-
-# ── Build summary line ────────────────────────────────────────────────────────
-build_summary() {
-  local files=("$@")
-  local parts=()
-
-  # Count operations
-  if [ "${#ADDED[@]}" -gt 0 ]; then
-    parts+=("add ${#ADDED[@]} file(s)")
-  fi
-
-  if [ "${#MODIFIED[@]}" -gt 0 ]; then
-    parts+=("update ${#MODIFIED[@]} file(s)")
-  fi
-
-  if [ "${#DELETED[@]}" -gt 0 ]; then
-    parts+=("remove ${#DELETED[@]} file(s)")
-  fi
-
-  if [ "${#RENAMED[@]}" -gt 0 ]; then
-    parts+=("rename ${#RENAMED[@]} file(s)")
-  fi
-
-
-  # Show up to 3 filenames
-  local names=()
-
-  for f in "${files[@]:0:3}"; do
-    names+=("$(basename "$f")")
-  done
-
-  local name_str
-
-  name_str=$(IFS=', '; echo "${names[*]}")
-
-  if [ "${#files[@]}" -gt 3 ]; then
-    name_str+=" and $((${#files[@]} - 3)) more"
-  fi
-
-
-  echo "$(IFS=', '; echo "${parts[*]}") → $name_str"
-}
-
-
-# ── Build full commit body ────────────────────────────────────────────────────
-build_body() {
-  local files=("$@")
-  local body=""
-
-  if [ "${#ADDED[@]}" -gt 0 ]; then
-    body+="Added:\n"
-    body+="$(printf '  + %s\n' "${ADDED[@]}")"
-    body+="\n"
-  fi
-
-  if [ "${#MODIFIED[@]}" -gt 0 ]; then
-    body+="Modified:\n"
-    body+="$(printf '  ~ %s\n' "${MODIFIED[@]}")"
-    body+="\n"
-  fi
-
-  if [ "${#DELETED[@]}" -gt 0 ]; then
-    body+="Removed:\n"
-    body+="$(printf '  - %s\n' "${DELETED[@]}")"
-    body+="\n"
-  fi
-
-  if [ "${#RENAMED[@]}" -gt 0 ]; then
-    body+="Renamed:\n"
-    body+="$(printf '  → %s\n' "${RENAMED[@]}")"
-    body+="\n"
-  fi
-
-  echo -e "$body"
-}
-
-
-# ── Stage everything ──────────────────────────────────────────────────────────
-git add -A
-
-
-# ── Re-collect after staging ──────────────────────────────────────────────────
-mapfile -t ADDED < <(
-  git diff --cached --name-only --diff-filter=A
-)
-
-mapfile -t MODIFIED < <(
-  git diff --cached --name-only --diff-filter=M
-)
-
-mapfile -t DELETED < <(
-  git diff --cached --name-only --diff-filter=D
-)
-
-mapfile -t RENAMED < <(
-  git diff --cached --name-only --diff-filter=R
-)
-
-ALL_FILES=(
-  "${ADDED[@]}"
-  "${MODIFIED[@]}"
-  "${DELETED[@]}"
-  "${RENAMED[@]}"
-)
-
-
-# ── Check again after staging ─────────────────────────────────────────────────
-if [ "${#ALL_FILES[@]}" -eq 0 ]; then
-  echo "✅ Nothing to commit — working tree is clean."
-  exit 0
-fi
-
-
-# ── Generate commit message ──────────────────────────────────────────────────
-COMMIT_TYPE=$(determine_type "${ALL_FILES[@]}")
-COMMIT_SCOPE=$(build_scope "${ALL_FILES[@]}")
-COMMIT_SUMMARY=$(build_summary "${ALL_FILES[@]}")
-COMMIT_BODY=$(build_body "${ALL_FILES[@]}")
-
-COMMIT_MSG="${COMMIT_TYPE}(${COMMIT_SCOPE}): ${COMMIT_SUMMARY}"
-
-
-# ── Preview ───────────────────────────────────────────────────────────────────
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Auto-generated commit message:"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-echo "  $COMMIT_MSG"
-echo ""
-
-if [ -n "$COMMIT_BODY" ]; then
-  echo -e "$COMMIT_BODY" | sed 's/^/  /'
-fi
-
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-
-
-# ── Dry run ───────────────────────────────────────────────────────────────────
-if $DRY_RUN; then
-
-  echo "Dry run — nothing committed."
-
-  git reset HEAD -- . > /dev/null 2>&1 || true
-
-  exit 0
-fi
-
-
-# ── Confirm ───────────────────────────────────────────────────────────────────
-read -r -p "  Commit with this message? [Y/n/e(dit)]: " CONFIRM
-
-CONFIRM="${CONFIRM:-Y}"
-
-
-case "$CONFIRM" in
-
-  [Yy]*)
-
-    git commit \
-      -m "$COMMIT_MSG" \
-      -m "$COMMIT_BODY"
-
-    echo ""
-    echo "Committed: $COMMIT_MSG"
-    ;;
-
-
-  [Ee]*)
-
-    TMPFILE=$(mktemp /tmp/autocommit_msg.XXXXXX)
-
-    echo "$COMMIT_MSG" > "$TMPFILE"
-    echo "" >> "$TMPFILE"
-    echo -e "$COMMIT_BODY" >> "$TMPFILE"
-
-    "${EDITOR:-nano}" "$TMPFILE"
-
-    git commit -F "$TMPFILE"
-
-    rm -f "$TMPFILE"
-
-    echo ""
-    echo "Committed with edited message."
-    ;;
-
-
-  *)
-
-    echo ""
-    echo "Aborted. Changes are still staged."
-
-    exit 0
-    ;;
-
-esac
-
-
-# ── Push ──────────────────────────────────────────────────────────────────────
-if $PUSH; then
-
   echo ""
-  echo "Pushing to remote..."
+  if [ "$unpushed" -gt 0 ]; then
+    echo "Pushing $unpushed commit(s) to origin/$branch..."
+    if git push "${push_args[@]}"; then
+      echo "✅ Pushed successfully."
+    else
+      echo "❌ Push FAILED (commits are safe locally)."
+      echo "   • remote ahead → git pull --rebase && git push"
+      echo "   • auth/network → fix, then re-run ./autocommit.sh"
+      exit 1
+    fi
+  else
+    echo "Nothing to push — origin/$branch is already up to date."
+  fi
+}
 
-  git push
+# ── Auto commit TYPE for a file ──────────────────────────────────────────────
+determine_type() {
+  local f="$1"
+  case "$f" in
+    *.md|docs/*)                                           echo docs;  return ;;
+    *.css|*.scss|*.less)                                   echo style; return ;;
+    setup*.py|*.cfg|*.ini|*.toml|*.yml|*.yaml|Makefile|*.sh|*.bat|*.iss|*.spec)
+                                                           echo chore; return ;;
+  esac
+  # Peek at the staged diff to guess fix vs feat.
+  if git diff --cached -- "$f" 2>/dev/null | grep -qiE '^\+.*(fix|bug|error|crash|broken|patch)'; then
+    echo fix; return
+  fi
+  if git diff --cached -- "$f" 2>/dev/null | grep -qiE '^\+.*(add|new|feat|feature|implement|create)'; then
+    echo feat; return
+  fi
+  echo refactor
+}
 
-  echo "Pushed successfully."
+# ── Auto scope from the path ─────────────────────────────────────────────────
+build_scope() {
+  case "$1" in
+    Catering_Present/*/components/*) echo components ;;
+    Catering_Present/*/ui/*)         echo ui ;;
+    Catering_Present/*/utils/*)      echo utils ;;
+    Catering_Present/*/assets/*)     echo assets ;;
+    Catering_Present/*)              echo desktop-app ;;
+    Tablet_PWA/frontend/js/*)        echo tablet-js ;;
+    Tablet_PWA/frontend/*)           echo tablet-pwa ;;
+    Tablet_PWA/backend/*)            echo tablet-backend ;;
+    Tablet_PWA/*)                    echo tablet-pwa ;;
+    Tablet_Android_APK/*)            echo android-apk ;;
+    docs/*|*.md)                     echo docs ;;
+    *.sh|*.bat|*.spec|*.iss)         echo build ;;
+    *)                               echo "$1" | cut -d'/' -f1 ;;
+  esac
+}
 
+# ── Collect changed entries (staged + unstaged + untracked) ──────────────────
+mapfile -t STATUS_LINES < <(git status --porcelain)
+
+if [ "${#STATUS_LINES[@]}" -eq 0 ]; then
+  echo "✅ Nothing to commit — working tree is clean."
+  do_push          # still push commits stranded by an earlier run
+  exit 0
 fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  ${#STATUS_LINES[@]} changed file(s) — auto-committing one commit each."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+COMMITTED_COUNT=0
+FAILED_COUNT=0
+
+for line in "${STATUS_LINES[@]}"; do
+  STATUS_CODE="${line:0:2}"
+  REST="${line:3}"
+
+  # Handle renames ("old -> new"); otherwise a single path.
+  if [[ "$REST" == *" -> "* ]]; then
+    OLD_PATH="${REST%% -> *}"; NEW_PATH="${REST##* -> }"
+    PATHS=("$OLD_PATH" "$NEW_PATH")
+    ACTION="rename"; TARGET="$NEW_PATH"
+    DESC="rename ${OLD_PATH} to ${NEW_PATH}"
+  else
+    # git quotes paths containing special chars — strip surrounding quotes.
+    REST="${REST%\"}"; REST="${REST#\"}"
+    PATHS=("$REST"); TARGET="$REST"
+    case "$STATUS_CODE" in
+      "??"|*A*) ACTION="add" ;;
+      *D*)      ACTION="remove" ;;
+      *R*)      ACTION="rename" ;;
+      *)        ACTION="update" ;;
+    esac
+    DESC="${ACTION} ${REST}"
+  fi
+
+  TYPE=$(determine_type "$TARGET")
+  SCOPE=$(build_scope "$TARGET")
+  COMMIT_MSG="${TYPE}(${SCOPE}): ${DESC}"
+
+  if $DRY_RUN; then
+    echo "  would commit → $COMMIT_MSG"
+    continue
+  fi
+
+  # Stage just this file/pair, then commit just it.
+  git add -A -- "${PATHS[@]}" 2>/dev/null
+
+  if git commit -q -m "$COMMIT_MSG" -- "${PATHS[@]}" 2>/dev/null; then
+    echo "  ✅ $COMMIT_MSG"
+    COMMITTED_COUNT=$((COMMITTED_COUNT + 1))
+  else
+    echo "  ❌ FAILED: $COMMIT_MSG"
+    git reset -q HEAD -- "${PATHS[@]}" >/dev/null 2>&1 || true
+    FAILED_COUNT=$((FAILED_COUNT + 1))
+  fi
+done
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+if $DRY_RUN; then
+  echo "  Dry run complete — nothing was committed."
+else
+  echo "  Done: $COMMITTED_COUNT commit(s) made, $FAILED_COUNT failed."
+fi
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+do_push
