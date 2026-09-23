@@ -731,9 +731,14 @@ _DEFAULT_MENU_CATEGORIES = ["Main Course", "Noodles", "Soup", "Vegetables", "Des
 
 
 def get_all_menu_categories() -> list[str]:
+    """Category names in ADMIN-DEFINED display order (mc_sort, then mc_id as a
+    tiebreak for categories never explicitly reordered). This order is what
+    every dish-grouped view (order-time pickers, package bucket editor, etc.)
+    should show categories in — see reorder_menu_categories()."""
     try:
         rows = db.fetchall(
-            "SELECT mc_name AS name FROM menu_categories WHERE mc_is_active = 1 OR mc_is_active IS NULL ORDER BY mc_id"
+            "SELECT mc_name AS name FROM menu_categories WHERE mc_is_active = 1 OR mc_is_active IS NULL "
+            "ORDER BY COALESCE(mc_sort, 0), mc_id"
         )
         if rows:
             res = [str(r["name"]).strip() for r in rows if r.get("name") and str(r["name"]).strip()]
@@ -743,20 +748,50 @@ def get_all_menu_categories() -> list[str]:
         print(f"[repository] get_all_menu_categories error: {exc}")
 
     try:
-        for d in _DEFAULT_MENU_CATEGORIES:
-            db.execute("INSERT INTO menu_categories (mc_name, mc_is_active) VALUES (%s, 1) ON CONFLICT (mc_name) DO NOTHING", (d,))
+        for i, d in enumerate(_DEFAULT_MENU_CATEGORIES):
+            db.execute("INSERT INTO menu_categories (mc_name, mc_is_active, mc_sort) VALUES (%s, 1, %s) ON CONFLICT (mc_name) DO NOTHING", (d, i))
     except Exception:
         pass
     return list(_DEFAULT_MENU_CATEGORIES)
+
+
+def get_category_sort_map() -> dict:
+    """{category_name_lowercased: sort_index} for the admin-defined order,
+    for display sites that group dishes by category and need a sort key
+    instead of the plain name list from get_all_menu_categories()."""
+    return {name.strip().lower(): i for i, name in enumerate(get_all_menu_categories())}
+
+
+def reorder_menu_categories(ordered_names: list[str]) -> bool:
+    """Persist a new admin-defined category display order (drag-and-drop in
+    Settings > Menu Categories). ``ordered_names`` is the full category list
+    in its new top-to-bottom order; each gets mc_sort = its position."""
+    try:
+        for i, name in enumerate(ordered_names or []):
+            name = str(name or "").strip()
+            if not name:
+                continue
+            db.execute("UPDATE menu_categories SET mc_sort = %s WHERE mc_name = %s", (i, name))
+        write_audit_log(action="UPDATE", table_name="menu_categories", record_id=0,
+                        new_value={"order": list(ordered_names or [])})
+        return True
+    except Exception as exc:
+        print(f"[repository] reorder_menu_categories failed: {exc}")
+        return False
 
 
 def add_menu_category(name: str) -> None:
     if not name or not name.strip():
         return
     clean_name = name.strip()
+    try:
+        next_sort_row = db.fetchone("SELECT COALESCE(MAX(mc_sort), -1) + 1 AS n FROM menu_categories")
+        next_sort = int(next_sort_row["n"]) if next_sort_row else 0
+    except Exception:
+        next_sort = 0
     db.execute(
-        "INSERT INTO menu_categories (mc_name, mc_is_active) VALUES (%s, 1) ON CONFLICT (mc_name) DO UPDATE SET mc_is_active = 1",
-        (clean_name,),
+        "INSERT INTO menu_categories (mc_name, mc_is_active, mc_sort) VALUES (%s, 1, %s) ON CONFLICT (mc_name) DO UPDATE SET mc_is_active = 1",
+        (clean_name, next_sort),
     )
     write_audit_log(action="CREATE", table_name="menu_categories", record_id=0, new_value={"name": clean_name})
 
