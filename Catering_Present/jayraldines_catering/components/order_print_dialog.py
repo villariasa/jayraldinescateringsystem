@@ -745,7 +745,12 @@ class OrderPrintDialog(QDialog):
         pkg_name = html.escape(str(booking.get("package_name") or booking.get("menu_type") or "Catering Package"))
         is_food_set = is_food_set_pkg(pkg_name)
         notes = html.escape(str(booking.get("notes") or booking.get("special_instructions") or ""))
-        issue_date = html.escape(str(booking.get("created_at") or datetime.now().strftime("%Y-%m-%d")))
+        _raw_created = booking.get("created_at") or ""
+        try:
+            _created_dt = datetime.strptime(str(_raw_created)[:10], "%Y-%m-%d") if _raw_created else datetime.now()
+            issue_date = html.escape(_created_dt.strftime("%B %d, %Y"))
+        except Exception:
+            issue_date = html.escape(datetime.now().strftime("%B %d, %Y"))
 
         def _peso(v):
             try:
@@ -778,12 +783,14 @@ class OrderPrintDialog(QDialog):
         dish_items_html = []
         for idx, d in enumerate(dishes[:10], 1):
             d_name = html.escape(d.get("name") or d.get("item_name") or str(d))
-            # Item number and name are both plain black, matching the Tablet
-            # PWA's exporter.js (no crimson accent on the numbering there).
+            d_cat = html.escape(d.get("category") or d.get("mi_category") or "")
+            d_full = f"{d_name} ({d_cat})" if d_cat else d_name
+            # Item number and name with category, matching the Tablet
+            # PWA's exporter.js format: "1. Dish Name (Category)"
             dish_items_html.append(f"""
                 <tr>
                     <td style="width:20px; font-weight:normal; color:#0F172A; font-size:11.5px; padding:2px 0; vertical-align:top;">{idx}.</td>
-                    <td style="font-size:11.5px; color:#0F172A; padding:2px 0; vertical-align:top;">{d_name}</td>
+                    <td style="font-size:11.5px; color:#0F172A; padding:2px 0; vertical-align:top;">{d_full}</td>
                 </tr>
             """)
         if not dish_items_html:
@@ -889,16 +896,16 @@ class OrderPrintDialog(QDialog):
         """ + _card_close
 
         base_total_str = _peso(booking.get("base_total") or booking.get("bk_base_total") or booking.get("total_amount") or booking.get("total") or 0)
-        package_qty_line = (f"Quantity: <b>{pax}</b> Set(s)" if is_food_set else f"Good for <b>{pax}</b> person(s)") + f" &middot; Base: <b>{base_total_str}</b>"
+        package_qty_line = (f"Quantity: <b>{pax}</b> Set(s)" if is_food_set else f"Quantity: <b>{pax}</b> Pax") + f"  &middot;  Base: <b>{base_total_str}</b>"
         package_menu_card = _card_open("cloche", "PACKAGE &amp; MENU") + f"""
             <div style="font-size:11px; font-weight:900; color:#0F172A;">PACKAGE: {pkg_name.upper()}</div>
             <div style="font-size:10px; color:#334155; margin-top:1px; margin-bottom:8px;">{package_qty_line}</div>
-            <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; border-bottom:1px solid #0F172A; padding-bottom:2px; margin-bottom:4px;">MENU:</div>
+            <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; padding-bottom:2px; margin-bottom:4px;">MENU:</div>
             <table width="100%" style="width:100%; border-collapse:collapse;">
                 {''.join(dish_items_html)}
             </table>
             <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; margin-top:10px; margin-bottom:4px;">ADD-ONS &amp; EXTRAS:</div>
-            {addons_section if addons_html else '<div style="font-size:10.5px; color:#64748B; font-style:italic;">None specified.</div>'}
+            {addons_section if addons_html else '<div style="font-size:10.5px; color:#64748B;">&bull; None specified.</div>'}
         """ + _card_close
 
         main_html = f"""
@@ -940,22 +947,10 @@ class OrderPrintDialog(QDialog):
                                     <td style="border-bottom:1px solid #64748B; width:65px;">&nbsp;</td>
                                 </tr>
                                 <tr>
-                                    <td></td>
-                                    <td style="font-size:8px; color:#64748B; text-align:center; padding-top:2px;">Client Signature</td>
-                                    <td></td>
-                                    <td></td>
-                                </tr>
-                                <tr>
-                                    <td style="font-weight:800; font-size:10px; color:#0F172A; padding-top:6px;">NOTED BY:</td>
-                                    <td style="border-bottom:1px solid #64748B; padding-top:6px;">&nbsp;</td>
-                                    <td style="font-weight:800; font-size:10px; color:#0F172A; text-align:right; padding-right:4px; padding-top:6px;">Date:</td>
-                                    <td style="border-bottom:1px solid #64748B; padding-top:6px;">&nbsp;</td>
-                                </tr>
-                                <tr>
-                                    <td></td>
-                                    <td style="font-size:8px; color:#64748B; text-align:center; padding-top:2px;">Catering Representative</td>
-                                    <td></td>
-                                    <td></td>
+                                    <td style="font-weight:800; font-size:10px; color:#0F172A; padding-top:18px;">NOTED BY:</td>
+                                    <td style="border-bottom:1px solid #64748B; padding-top:18px;">&nbsp;</td>
+                                    <td style="font-weight:800; font-size:10px; color:#0F172A; text-align:right; padding-right:4px; padding-top:18px;">Date:</td>
+                                    <td style="border-bottom:1px solid #64748B; padding-top:18px;">&nbsp;</td>
                                 </tr>
                             </table>
                         </div>
