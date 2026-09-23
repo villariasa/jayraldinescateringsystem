@@ -1261,6 +1261,14 @@ async function renderStepPackage(card) {
       console.warn("Could not load default package items:", e);
     }
 
+    // Load this package's selection buckets (dish/dessert quotas). A package
+    // with no buckets => unlimited selection (legacy behavior, no enforcement).
+    try {
+      d.package.buckets = await api.getPackageBuckets(pkg.id);
+    } catch (e) {
+      d.package.buckets = [];
+    }
+
     const isSet = isFoodSet(pkg.name);
     const qtyLbl = card.querySelector("#lbl-order-qty");
     if (qtyLbl) qtyLbl.textContent = isSet ? "No. of Sets (Min: 1 Set) *" : "No. of Pax *";
@@ -1354,7 +1362,20 @@ async function renderStepMenu(card) {
 
   const selectedIds = new Set(d.menuSelections.map((m) => m.menu_item_id));
   const categories = Object.keys(menuGroupedCache);
-  const totalAll = Object.values(menuGroupedCache).reduce((sum, arr) => sum + (arr ? arr.length : 0), 0);
+
+  // ── Selection buckets (dish/dessert quotas) ──────────────────────────
+  // A package with buckets limits how many dishes may be picked per bucket
+  // ("up to N"). No buckets => unlimited (legacy behavior).
+  const pkgBuckets = (d.package && Array.isArray(d.package.buckets)) ? d.package.buckets : [];
+  const hasBuckets = pkgBuckets.length > 0;
+  const _catBucket = {};
+  for (const b of pkgBuckets) for (const c of (b.categories || [])) _catBucket[String(c).toLowerCase()] = b;
+  const bucketOf = (cat) => _catBucket[String(cat || "").toLowerCase()] || null;
+  const countInBucket = (b) => d.menuSelections.filter((m) => bucketOf(m.category) === b).length;
+  // When buckets are defined, only show categories that belong to a bucket.
+  const visibleCategories = hasBuckets ? categories.filter((c) => bucketOf(c)) : categories;
+  const visibleEntries = Object.entries(menuGroupedCache).filter(([cat]) => !hasBuckets || bucketOf(cat));
+  const totalAll = visibleEntries.reduce((sum, [, arr]) => sum + (arr ? arr.length : 0), 0);
 
   card.innerHTML = `
     <div class="kiosk-menu-header-row" style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;">
@@ -1390,7 +1411,7 @@ async function renderStepMenu(card) {
           All Dishes (${totalAll})
           <span class="pill pill-partial" style="padding:2px 7px; font-size:11px;" id="all-selected-count">${totalAll}</span>
         </button>
-        ${categories.map((cat) => {
+        ${visibleCategories.map((cat) => {
           const catTotal = (menuGroupedCache[cat] || []).length;
           return `
             <button type="button" class="kiosk-cat-pill" data-cat="${escapeHtml(cat)}">
@@ -1400,10 +1421,18 @@ async function renderStepMenu(card) {
           `;
         }).join("")}
       </div>
+      ${hasBuckets ? `
+      <div class="kiosk-bucket-bar" id="kiosk-bucket-bar" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+        ${pkgBuckets.map((b, i) => `
+          <span class="pill pill-partial" data-bucket-idx="${i}" style="font-size:12px; font-weight:700;">
+            ${escapeHtml(b.name)}: <span data-bucket-count="${i}">0</span> / ${Number(b.limit || 0)}
+          </span>
+        `).join("")}
+      </div>` : ""}
     </div>
 
     <div id="menu-categories-container">
-      ${Object.entries(menuGroupedCache).map(([cat, items]) => `
+      ${visibleEntries.map(([cat, items]) => `
         <div class="kiosk-category-section" id="cat-sec-${escapeHtml(cat.replace(/[^a-zA-Z0-9]/g, "-"))}" data-category-name="${escapeHtml(cat.toLowerCase())}" style="margin-bottom:28px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1.5px solid var(--border); padding-bottom:8px;">
             <h4 style="margin:0; font-size:17px; font-weight:800; color:var(--text);">${escapeHtml(cat)}</h4>
@@ -1561,8 +1590,33 @@ async function renderStepMenu(card) {
         allPill.className = "pill pill-partial";
       }
     }
+    if (hasBuckets) {
+      pkgBuckets.forEach((b, i) => {
+        const cnt = countInBucket(b);
+        const cntEl = card.querySelector(`[data-bucket-count="${i}"]`);
+        if (cntEl) cntEl.textContent = String(cnt);
+        const pillEl = card.querySelector(`[data-bucket-idx="${i}"]`);
+        if (pillEl) pillEl.className = `pill ${cnt >= (Number(b.limit) || 0) && cnt > 0 ? "pill-paid" : "pill-partial"}`;
+      });
+    }
   }
   window._updateStep3Counts = updateCounts;
+
+  // "Up to N": allow removing always; block adding a dish once its bucket is full.
+  // Returns true if the add is allowed. No buckets => always allowed.
+  const canAdd = (item) => {
+    if (!hasBuckets) return true;
+    const b = bucketOf(item.category);
+    if (!b) {
+      toast("This dish isn't part of the package selection.", "info");
+      return false;
+    }
+    if (countInBucket(b) >= (Number(b.limit) || 0)) {
+      toast(`You can only choose ${b.limit} from ${b.name}. Remove one to swap.`, "info");
+      return false;
+    }
+    return true;
+  };
 
   const goNextStep = () => { wizard.step = 4; render(); };
   const topNextBtn = card.querySelector("#sticky-next-btn-top");
@@ -1574,6 +1628,7 @@ async function renderStepMenu(card) {
     el.addEventListener("click", () => {
       const idx = d.menuSelections.findIndex((m) => m.menu_item_id === item.menu_item_id);
       if (idx === -1) {
+        if (!canAdd(item)) return;
         d.menuSelections.push({ menu_item_id: item.menu_item_id, item_name: item.name, category: item.category, price: item.price, quantity: 1 });
         el.classList.add("selected");
         el.querySelector(".item-check-badge").innerHTML = icon("checkCircle");
@@ -1599,6 +1654,7 @@ async function renderStepMenu(card) {
         const idx = d.menuSelections.findIndex((m) => m.menu_item_id === item.menu_item_id);
         const cardEl = card.querySelector(`.select-card[data-item-id="${item.menu_item_id}"]`);
         if (idx === -1) {
+          if (!canAdd(item)) return;
           d.menuSelections.push({ menu_item_id: item.menu_item_id, item_name: item.name, category: item.category, price: item.price, quantity: 1 });
           if (cardEl) {
             cardEl.classList.add("selected");
