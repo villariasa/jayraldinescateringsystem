@@ -1,6 +1,6 @@
 [Setup]
 AppName=Jayraldines Catering
-AppVersion=4.1.43
+AppVersion=4.1.45
 AppPublisher=Jayraldines Catering
 DefaultDirName={autopf}\JayraldinesCatering
 DefaultGroupName=Jayraldines Catering
