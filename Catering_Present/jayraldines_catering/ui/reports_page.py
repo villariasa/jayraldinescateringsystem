@@ -1,3 +1,23 @@
+"""Reports & Analytics page for the Jayraldine's Catering desktop app.
+
+This module builds the "Reports & Analytics" screen: a scrollable dashboard of
+KPI cards, seven QtCharts visualisations (income trend, payment mix, monthly
+revenue, top menu items, top locations, customer frequency, occasion mix), a
+monthly Sales-Evaluation (target vs actual) table, and two paginated record
+lists (recent bookings and expenses) with CSV/Excel/PDF export.
+
+Key design points worth knowing before editing:
+  * QtCharts is optional. If ``PySide6.QtCharts`` fails to import we fall back to
+    plain placeholder labels; every chart class guards on ``_CHARTS_AVAILABLE``.
+  * Chart series/sets are pinned as instance attributes (``self._...``) on
+    purpose — Qt does not take Python ownership of them, so a local variable
+    would be garbage-collected out from under the C++ chart and blank it.
+  * All heavy DB work runs off the GUI thread via ``DataLoader`` (a QThread
+    worker); results are dispatched back to GUI-thread render methods.
+  * The two record lists use in-memory "DOM pagination": the full period-scoped
+    dataset is fetched once, but only a page of card widgets is built at a time,
+    with more appended on scroll (see the ``_bk_*`` / ``_exp_*`` state).
+"""
 import sys
 import csv
 import os
@@ -18,6 +38,10 @@ from components.dialogs import prompt_file_saved
 import utils.repository as repo
 from utils.data_loader import DataLoader
 
+# QtCharts ships as a separate module and isn't guaranteed on every install
+# (e.g. minimal PySide6 builds). Probe it once at import time; if unavailable,
+# bind every chart symbol to None so the guarded chart classes degrade to a
+# "chart unavailable" label instead of raising NameError.
 try:
     from PySide6.QtCharts import (QChart, QChartView, QLineSeries, QAreaSeries,
                                   QPieSeries, QBarCategoryAxis, QBarSeries, QBarSet,
@@ -42,10 +66,16 @@ _CATEGORY_COLORS = {
 
 
 def _chart_view(chart) -> QWidget:
+    """Wrap a QChart in a transparent, antialiased QChartView.
+
+    When charts are unavailable (or no chart was built) return a small blank
+    placeholder widget so callers can add it to a layout unconditionally.
+    """
     if not _CHARTS_AVAILABLE or chart is None:
         w = QWidget()
         w.setFixedHeight(40)
         return w
+    # Transparent background + zero margins let the chart blend into the card.
     chart.setBackgroundBrush(Qt.transparent)
     chart.setMargins(QMargins(0, 0, 0, 0))
     chart.legend().setLabelColor(QColor("#9CA3AF"))
@@ -57,20 +87,36 @@ def _chart_view(chart) -> QWidget:
 
 
 def _axis_style(axis, label_color=None):
+    """Apply the shared axis look (muted labels, hidden axis line, subtle grid).
+
+    Colors switch between light/dark palettes based on the active theme so the
+    same helper works on every chart in this module.
+    """
     if label_color is None:
+        # Pick a readable-but-muted label color for the current theme.
         label_color = "#64748B" if not ThemeManager().is_dark() else "#9CA3AF"
     axis.setLabelsColor(QColor(label_color))
-    axis.setLinePenColor(Qt.transparent)
+    axis.setLinePenColor(Qt.transparent)  # hide the hard axis line; keep only grid
     axis.setGridLineColor(QColor("#E2E8F0") if not ThemeManager().is_dark() else QColor("#243244"))
 
 
 class HoverCard(QFrame):
+    """A plain card-styled QFrame (objectName ``card``) used as a panel container.
+
+    Named "HoverCard" because the ``card`` QSS selector carries the hover
+    styling shared across the app's panels.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("card")
 
 
 def create_status_badge(text):
+    """Return a small widget holding a colored booking-status pill.
+
+    Green (``badgeSuccess``) for Completed/Confirmed states, amber
+    (``badgeWarning``) for everything else.
+    """
     widget = QWidget()
     layout = QHBoxLayout(widget)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -85,6 +131,11 @@ def create_status_badge(text):
 
 
 def create_pax_limit_badge(pax, limit_status):
+    """Return a widget showing the guest count plus an optional capacity badge.
+
+    ``limit_status`` is "LIMIT REACHED" (red) or "NEAR LIMIT" (amber) or empty;
+    empty means no badge is appended.
+    """
     widget = QWidget()
     layout = QHBoxLayout(widget)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -107,6 +158,13 @@ def create_pax_limit_badge(pax, limit_status):
 # CHART 1: Income Trend (Area)
 # ─────────────────────────────────────────────
 class IncomeAreaChart(QVBoxLayout):
+    """Year-to-date income shown as a filled area line chart.
+
+    Subclasses QVBoxLayout so the whole widget stack (title + chart view +
+    reset button) can be dropped straight into a card's ``setLayout``. All
+    series and axes are kept as instance attributes so Qt's C++ side doesn't
+    lose them to Python garbage collection.
+    """
     def __init__(self):
         super().__init__()
 
@@ -123,8 +181,9 @@ class IncomeAreaChart(QVBoxLayout):
         db_data = repo.get_monthly_income()
         if db_data:
             self._months = [r["month"] for r in db_data]
-            values = [r["revenue"] / 1000 for r in db_data]
+            values = [r["revenue"] / 1000 for r in db_data]  # scale to thousands (k) for axis
         else:
+            # No data yet: draw an empty 6-month skeleton so the chart still frames.
             self._months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
             values = [0] * 6
 
@@ -136,11 +195,13 @@ class IncomeAreaChart(QVBoxLayout):
         for i, v in enumerate(values):
             self._upper.append(i, v)
 
+        # Baseline series pinned at y=0 — the area fills between _upper and this.
         self._lower = QLineSeries()
         for i in range(len(values)):
             self._lower.append(i, 0)
 
         self._area = QAreaSeries(self._upper, self._lower)
+        # Vertical gradient: accent-tinted at the top fading to transparent baseline.
         grad = QLinearGradient(0, 0, 0, 300)
         grad.setColorAt(0.0, QColor(225, 29, 72, 80))
         grad.setColorAt(1.0, QColor(225, 29, 72, 0))
@@ -161,8 +222,9 @@ class IncomeAreaChart(QVBoxLayout):
         self._upper.attachAxis(self._ax)
 
         self._ay = QValueAxis()
+        # Headroom of 20% above the peak so the top of the curve isn't clipped.
         self._ay.setRange(0, max(values) * 1.2 if values else 100)
-        self._ay.setLabelFormat("%dk")
+        self._ay.setLabelFormat("%dk")  # values already scaled to thousands
         _axis_style(self._ay)
         self._chart.addAxis(self._ay, Qt.AlignLeft)
         self._area.attachAxis(self._ay)
@@ -170,6 +232,7 @@ class IncomeAreaChart(QVBoxLayout):
 
         self._view = _chart_view(self._chart)
         self._view.setMinimumHeight(260)
+        # Drag-rectangle zoom; paired with the "Reset Zoom" button below.
         self._view.setRubberBand(QChartView.RubberBand.RectangleRubberBand)
 
         self._upper.hovered.connect(
@@ -186,7 +249,9 @@ class IncomeAreaChart(QVBoxLayout):
         self.addLayout(btn_row)
 
     def _on_hover(self, point, state, months):
+        """Show a revenue tooltip for the hovered month; hide it on leave."""
         if state:
+            # point.x() is the fractional category index; round to the month slot.
             idx = int(round(point.x()))
             if 0 <= idx < len(months):
                 QToolTip.showText(
@@ -201,6 +266,7 @@ class IncomeAreaChart(QVBoxLayout):
 # CHART 2: Payment Methods (Donut)
 # ─────────────────────────────────────────────
 class PaymentDonutChart(QVBoxLayout):
+    """Donut (holed pie) chart of revenue split by payment method."""
     def __init__(self):
         super().__init__()
 
@@ -214,21 +280,25 @@ class PaymentDonutChart(QVBoxLayout):
             self.addWidget(no_c)
             return
 
+        # First slice uses the app accent; the rest cycle through fixed hues.
         _COLORS = [AccentManager().current, "#F59E0B", "#3B82F6", "#22C55E", "#8B5CF6", "#6B7280"]
         db_data = repo.get_payment_methods()
         if db_data:
             data = {r["method"]: (r["total"], _COLORS[i % len(_COLORS)]) for i, r in enumerate(db_data)}
         else:
+            # Single grey placeholder slice so the donut still renders.
             data = {"No Data": (1, "#374151")}
 
         self._series = QPieSeries()
-        self._series.setHoleSize(0.55)
+        self._series.setHoleSize(0.55)  # hole makes it a donut rather than a pie
         self._slices = []
         for label, (value, color) in data.items():
             sl = self._series.append(label, value)
             sl.setColor(QColor(color))
             _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
             sl.setLabelColor(QColor(_lbl_c))
+            # Bind sl/color per-iteration (default args) so each callback keeps
+            # its own slice — a bare closure would capture only the last one.
             sl.hovered.connect(
                 lambda state, s=sl, c=color: self._on_hover(s, state, c)
             )
@@ -246,8 +316,9 @@ class PaymentDonutChart(QVBoxLayout):
         self.addWidget(self._view)
 
     def _on_hover(self, sl, state, color):
-        sl.setExploded(state)
-        sl.setLabelVisible(state)
+        """Pop the hovered slice out and label it; reset on leave."""
+        sl.setExploded(state)      # nudge the slice outward while hovered
+        sl.setLabelVisible(state)  # reveal its inline label only while hovered
         if state:
             QToolTip.showText(
                 QCursor.pos(),
@@ -261,6 +332,7 @@ class PaymentDonutChart(QVBoxLayout):
 # CHART 3: Monthly Revenue Breakdown (Bar)
 # ─────────────────────────────────────────────
 class MonthlyRevenueChart(QVBoxLayout):
+    """Grouped bar chart comparing monthly revenue against a fixed sales target."""
     def __init__(self):
         super().__init__()
 
@@ -278,7 +350,7 @@ class MonthlyRevenueChart(QVBoxLayout):
         if db_data:
             months  = [r["month"] for r in db_data]
             revenue = [r["revenue"] for r in db_data]
-            target  = [400000] * len(months)
+            target  = [400000] * len(months)  # flat ₱400k/month reference target
         else:
             months  = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
             revenue = [0] * 6
@@ -299,6 +371,7 @@ class MonthlyRevenueChart(QVBoxLayout):
         _muted_c = "#64748B" if not ThemeManager().is_dark() else "#9CA3AF"
         self._bar_tgt.setLabelColor(QColor(_muted_c))
 
+        # Feed both bar sets in thousands so the axis reads e.g. "400k".
         for v, t in zip(revenue, target):
             self._bar_rev.append(v / 1000)
             self._bar_tgt.append(t / 1000)
@@ -321,9 +394,10 @@ class MonthlyRevenueChart(QVBoxLayout):
         self._chart.addAxis(self._ax, Qt.AlignBottom)
         self._series.attachAxis(self._ax)
 
+        # Scale the axis to the larger of revenue/target so neither series clips.
         max_rev = max(revenue + target) if (revenue or target) else 700000
         self._ay = QValueAxis()
-        self._ay.setRange(0, max_rev / 1000 * 1.2)
+        self._ay.setRange(0, max_rev / 1000 * 1.2)  # thousands, +20% headroom
         self._ay.setLabelFormat("%dk")
         _axis_style(self._ay)
         self._chart.addAxis(self._ay, Qt.AlignLeft)
@@ -343,10 +417,11 @@ class MonthlyRevenueChart(QVBoxLayout):
         self.addLayout(btn_row)
 
     def _on_hover_rev(self, state, index):
+        """Tooltip for a revenue bar: actual vs target and hit/short status."""
         if state and 0 <= index < len(self._months):
             rev = self._revenue[index]
             tgt = self._target[index]
-            pct = (rev / tgt * 100) if tgt else 0
+            pct = (rev / tgt * 100) if tgt else 0  # guard divide-by-zero target
             hit = "✅ Target hit!" if rev >= tgt else f"⚠ {pct:.0f}% of target"
             QToolTip.showText(
                 QCursor.pos(),
@@ -358,10 +433,11 @@ class MonthlyRevenueChart(QVBoxLayout):
             QToolTip.hideText()
 
     def _on_hover_tgt(self, state, index):
+        """Tooltip for a target bar: the target and any remaining gap to it."""
         if state and 0 <= index < len(self._months):
             tgt = self._target[index]
             rev = self._revenue[index]
-            gap = tgt - rev
+            gap = tgt - rev  # positive => still short of target
             QToolTip.showText(
                 QCursor.pos(),
                 f"<b>{self._months[index]}</b> — Target<br>"
@@ -376,6 +452,11 @@ class MonthlyRevenueChart(QVBoxLayout):
 # CHART 4: Top Menu Items (Horizontal Bar)
 # ─────────────────────────────────────────────
 class TopMenuItemsChart(QVBoxLayout):
+    """Bar chart of the most-ordered menu items.
+
+    Axis labels are truncated for space, but ``_full_items`` keeps the untrimmed
+    names so hover tooltips can show the complete item name.
+    """
     def __init__(self):
         super().__init__()
 
@@ -391,7 +472,8 @@ class TopMenuItemsChart(QVBoxLayout):
 
         db_data = repo.get_top_menu_items()
         if db_data:
-            self._full_items = [r["item"] for r in db_data]
+            self._full_items = [r["item"] for r in db_data]  # untrimmed, for tooltips
+            # Trim long names to 9 chars + ellipsis so axis labels stay legible.
             items  = [(r["item"][:9] + "…") if len(r["item"]) > 9 else r["item"] for r in db_data]
             self._orders = [r["count"] for r in db_data]
         else:
@@ -422,6 +504,7 @@ class TopMenuItemsChart(QVBoxLayout):
         self._series.attachAxis(self._ax)
 
         self._ay = QValueAxis()
+        # 30% headroom; fall back to 10 when there are no orders to size against.
         self._ay.setRange(0, max(self._orders) * 1.3 if (self._orders and max(self._orders) > 0) else 10)
         self._ay.setLabelFormat("%d")
         _axis_style(self._ay)
@@ -433,8 +516,9 @@ class TopMenuItemsChart(QVBoxLayout):
         self.addWidget(self._view)
 
     def _on_hover(self, state, index):
+        """Tooltip showing the full item name and its total order count."""
         if state and 0 <= index < len(self._full_items):
-            item_name = self._full_items[index]
+            item_name = self._full_items[index]  # full name, not the trimmed axis label
             cnt = self._orders[index]
             QToolTip.showText(
                 QCursor.pos(),
@@ -448,6 +532,11 @@ class TopMenuItemsChart(QVBoxLayout):
 # CHART 5: Top Booking Locations (Horizontal Bar)
 # ─────────────────────────────────────────────
 class TopLocationsChart(QVBoxLayout):
+    """Bar chart of the venues/areas that generate the most bookings.
+
+    Exposes ``reload()`` so the parent page can refresh it in place when the
+    period filter changes without rebuilding the whole chart.
+    """
     def __init__(self):
         super().__init__()
 
@@ -462,7 +551,7 @@ class TopLocationsChart(QVBoxLayout):
             return
 
         db_data = repo.get_top_locations(limit=10)
-        _MAX = 30
+        _MAX = 30  # max venue-label length before truncating with an ellipsis
         if db_data:
             venues = [(r["venue"][:_MAX] + "…") if len(r["venue"]) > _MAX else r["venue"] for r in db_data]
             counts = [r["count"] for r in db_data]
@@ -507,6 +596,10 @@ class TopLocationsChart(QVBoxLayout):
         self.addWidget(self._view)
 
     def reload(self):
+        """Re-query locations and update the existing bar set/axes in place.
+
+        No-op when charts are unavailable or the chart never built its bar set.
+        """
         if not _CHARTS_AVAILABLE or not hasattr(self, "_bar_set"):
             return
         db_data = repo.get_top_locations(limit=10)
@@ -521,6 +614,7 @@ class TopLocationsChart(QVBoxLayout):
         self._venues = venues
         self._counts = counts
 
+        # Replace all bars (clear then re-append) rather than rebuilding the chart.
         self._bar_set.remove(0, self._bar_set.count())
         for v in counts:
             self._bar_set.append(v)
@@ -531,6 +625,7 @@ class TopLocationsChart(QVBoxLayout):
         self._ay.setRange(0, max(counts) * 1.2 if max(counts) > 0 else 10)
 
     def _on_hover(self, state, index):
+        """Tooltip showing a venue and its order count."""
         if state and 0 <= index < len(self._venues):
             QToolTip.showText(
                 QCursor.pos(),
@@ -544,6 +639,7 @@ class TopLocationsChart(QVBoxLayout):
 # CHART 6: Customer Order Frequency (Pie)
 # ─────────────────────────────────────────────
 class CustomerFrequencyChart(QVBoxLayout):
+    """Pie chart of how many orders each (top) customer has placed."""
     def __init__(self):
         super().__init__()
 
@@ -564,15 +660,17 @@ class CustomerFrequencyChart(QVBoxLayout):
         colors    = [_COLORS[i % len(_COLORS)] for i in range(len(customers))]
 
         self._series = QPieSeries()
-        self._series.setHoleSize(0.0)
+        self._series.setHoleSize(0.0)  # solid pie, not a donut
         self._slices = []
-        total = sum(counts) or 1
+        total = sum(counts) or 1  # denominator for share %, guard divide-by-zero
         _lbl_c3 = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
         for label, count, color in zip(customers, counts, colors):
             sl = self._series.append(f"{label} ({count})", count)
             sl.setColor(QColor(color))
             sl.setLabelColor(QColor(_lbl_c3))
             sl.setBorderColor(Qt.transparent)
+            # Capture per-slice values as default args so each callback is bound
+            # to its own slice/name/count rather than the loop's final values.
             sl.hovered.connect(
                 lambda state, s=sl, c=color, n=label, v=count: self._on_hover(s, state, c, n, v, total)
             )
@@ -591,10 +689,11 @@ class CustomerFrequencyChart(QVBoxLayout):
         self.addWidget(self._view)
 
     def _on_hover(self, sl, state, color, name, count, total):
+        """Explode/label the hovered customer slice and show its order share."""
         sl.setExploded(state)
         sl.setLabelVisible(state)
         if state:
-            pct = (count / total * 100) if total else 0
+            pct = (count / total * 100) if total else 0  # this customer's share
             QToolTip.showText(
                 QCursor.pos(),
                 f"<b style='color:{color};'>{name}</b><br>"
@@ -609,6 +708,13 @@ class CustomerFrequencyChart(QVBoxLayout):
 # CHART 7: Top Occasion Types (Horizontal Bar)
 # ─────────────────────────────────────────────
 class OccasionBreakdownChart(QVBoxLayout):
+    """Bar chart of the most common booking occasion/event types.
+
+    Each occasion is its own single-value bar set (so it gets its own color and
+    legend entry), and a two-column legend table with counts/percentages is
+    added beneath the chart.
+    """
+    # Class-level default palette; index 0 is overridden per-instance below.
     _COLORS = [
         "#E11D48", "#F59E0B", "#3B82F6", "#22C55E", "#8B5CF6",
         "#F97316", "#06B6D4", "#EC4899", "#84CC16", "#6366F1",
@@ -616,6 +722,7 @@ class OccasionBreakdownChart(QVBoxLayout):
 
     def __init__(self):
         super().__init__()
+        # Swap the first palette slot for the live app accent color.
         self._COLORS = [AccentManager().current] + self.__class__._COLORS[1:]
 
         self._title_lbl = QLabel("Most Popular Event Types")
@@ -642,11 +749,14 @@ class OccasionBreakdownChart(QVBoxLayout):
         _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
 
         self._series = QBarSeries()
+        # One bar set per occasion → distinct color + individual legend entry,
+        # all sharing the single "Bookings" category on the x-axis.
         for i, (occ, cnt) in enumerate(zip(occasions, counts)):
             bar_set = QBarSet(occ)
             bar_set.setColor(QColor(self._COLORS[i % len(self._COLORS)]))
             bar_set.setLabelColor(QColor(_lbl_c))
             bar_set.append(cnt)
+            # Bind occasion/count per-iteration so hover shows the right bar.
             bar_set.hovered.connect(
                 lambda state, idx, o=occ, c=cnt: self._on_hover(state, o, c)
             )
@@ -659,7 +769,7 @@ class OccasionBreakdownChart(QVBoxLayout):
         self._chart.legend().setLabelColor(QColor(_lbl_c))
 
         self._ax = QBarCategoryAxis()
-        self._ax.append(["Bookings"])
+        self._ax.append(["Bookings"])  # single shared category; sets sit side by side
         _axis_style(self._ax)
         self._chart.addAxis(self._ax, Qt.AlignBottom)
         self._series.attachAxis(self._ax)
@@ -675,11 +785,13 @@ class OccasionBreakdownChart(QVBoxLayout):
         self._view.setMinimumHeight(260)
         self.addWidget(self._view)
 
+        # Only worth a legend table when there's real data behind the bars.
         if db_data:
             self._add_legend_table(db_data)
 
     def _add_legend_table(self, db_data: list[dict]):
-        total = sum(r["count"] for r in db_data) or 1
+        """Render a two-column legend under the chart: color dot + name ×count (%)."""
+        total = sum(r["count"] for r in db_data) or 1  # % denominator, guard zero
         grid = QHBoxLayout()
         grid.setSpacing(8)
         left_col  = QVBoxLayout()
@@ -700,6 +812,7 @@ class OccasionBreakdownChart(QVBoxLayout):
             row_l.addWidget(dot)
             row_l.addWidget(lbl)
             row_l.addStretch()
+            # Alternate rows between the two columns (even→left, odd→right).
             if i % 2 == 0:
                 left_col.addWidget(row_w)
             else:
@@ -711,6 +824,7 @@ class OccasionBreakdownChart(QVBoxLayout):
         self.addLayout(grid)
 
     def _on_hover(self, state: bool, occasion: str, count: int):
+        """Tooltip showing an occasion name and its booking count."""
         if state:
             QToolTip.showText(
                 QCursor.pos(),
@@ -723,15 +837,25 @@ class OccasionBreakdownChart(QVBoxLayout):
 # ─────────────────────────────────────────────
 # MAIN REPORTS PAGE
 # ─────────────────────────────────────────────
+# Selectable period-filter chips, in display order. "All Time" is the default.
 _PERIOD_LABELS = ["Today", "This Week", "This Month", "This Year", "Last Year", "All Time"]
 
 
 class ReportsPage(QWidget):
+    """The full Reports & Analytics screen.
+
+    Assembles the header/export menu, period-filter chips, KPI grid, the seven
+    chart cards, the sales-evaluation table, and the two paginated record lists.
+    Data is loaded asynchronously (see ``reload``): a background ``DataLoader``
+    fetches everything in one batch, then GUI-thread ``_reload_*`` methods paint
+    each section. A loading overlay stays up until both async render pipelines
+    (bookings + expenses) finish.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("mainBackground")
-        self._period = "All Time"
-        self._dirty = False
+        self._period = "All Time"     # active period filter
+        self._dirty = False           # True when data changed and a reload is owed
 
         # ── DOM pagination state (per pipeline) ───────────────────────────────
         # Reports load the full period-scoped dataset once (KPIs & charts need it),
@@ -1075,14 +1199,25 @@ class ReportsPage(QWidget):
         self._loader = LoadingOverlay(self, "Generating analytics & financial reports...")
 
     def _mark_dirty(self):
+        """Flag that underlying data changed so the next show triggers a reload."""
         self._dirty = True
 
     def _mark_dirty_and_reload(self):
+        """Data-change handler: mark dirty, and reload now if the page is visible.
+
+        Hidden pages defer the refresh to their next ``showEvent`` (see below) to
+        avoid rebuilding widgets nobody is looking at.
+        """
         self._dirty = True
         if self.isVisible():
             self.reload()
 
     def showEvent(self, event):
+        """Lazy-load on first show and refresh whenever data is stale.
+
+        Reloads when dirty (default True for a never-loaded page) or when no
+        cached dataset exists yet.
+        """
         super().showEvent(event)
         if getattr(self, "_dirty", True) or getattr(self, "_cached_data", None) is None:
             self.reload()
@@ -1090,9 +1225,16 @@ class ReportsPage(QWidget):
     # ── Period filter ─────────────────────────────────────────────────────────
 
     def _on_period(self, btn, period, checked):
+        """Handle a period chip toggle: restyle chips and re-render from cache.
+
+        Fires for both the newly-checked and newly-unchecked buttons; we only
+        act on the checked one. If a dataset is already cached we re-filter it in
+        place (fast, no DB hit); otherwise we kick a full ``reload``.
+        """
         if not checked:
-            return
+            return  # ignore the "unchecked" half of the exclusive-group toggle
         self._period = period
+        # Build an accent-tinted "active" style from the current accent RGB.
         _ar, _ag, _ab, _ = QColor(AccentManager().current).getRgb()
         btn.setStyleSheet(
             "border-radius:14px;font-size:12px;font-weight:700;padding:0 14px;"
@@ -1105,6 +1247,7 @@ class ReportsPage(QWidget):
                     "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
                     "background:transparent;color:#9CA3AF;border:1px solid #374151;"
                 )
+        # Re-filter the already-loaded data client-side instead of re-querying.
         if getattr(self, "_cached_data", None):
             d = dict(self._cached_data)
             d["period"] = period
@@ -1114,9 +1257,15 @@ class ReportsPage(QWidget):
             if hasattr(self, "_locations_chart_layout") and hasattr(self._locations_chart_layout, "reload"):
                 self._locations_chart_layout.reload()
         else:
-            self.reload()
+            self.reload()  # nothing cached yet — do a full async load
 
     def _period_sql_filter(self) -> str:
+        """Return a SQLite ``AND ...`` clause matching the active period.
+
+        Used by the export paths (which re-query the DB); returns "" for
+        "All Time" so no extra filter is appended. Dates are compared against
+        ``bk_event_date`` using SQLite's ``DATE``/``strftime`` helpers.
+        """
         p = getattr(self, "_period", "All Time")
         if p == "Today":
             return "AND DATE(bk_event_date) = DATE('now')"
@@ -1158,9 +1307,11 @@ class ReportsPage(QWidget):
         loader.start()
 
     def _reload_finished(self):
+        """Clear the in-flight flag and run one queued reload if any was coalesced."""
         self._reload_in_flight = False
         if getattr(self, "_reload_pending", False):
             self._reload_pending = False
+            # Defer via the event loop so this reload fully unwinds first.
             QTimer.singleShot(0, self.reload)
 
     def _report_render_step(self):
@@ -1177,6 +1328,8 @@ class ReportsPage(QWidget):
 
     def _fetch_all_reports_data(self):
         """Runs entirely in a background thread — fetches all data in one batch."""
+        # Resolve the sales-eval year from the combo if it exists, else this year.
+        # (Reading a widget's text here is safe — it's just a value read.)
         try:
             yr = int(getattr(self, "_eval_year_combo", None) and self._eval_year_combo.currentText() or datetime.now().year)
         except Exception:
@@ -1195,6 +1348,8 @@ class ReportsPage(QWidget):
     def _on_reports_data_ready(self, data: dict):
         """Called on the GUI thread — dispatches pre-fetched data to each renderer."""
         try:
+            # Guard against the C++ widget having been destroyed while the
+            # background load was running (page closed mid-fetch).
             from shiboken6 import isValid
             if not isValid(self):
                 return
@@ -1236,6 +1391,11 @@ class ReportsPage(QWidget):
         chart._ay.setRange(0, max(counts) * 1.2 if max(counts) > 0 else 10)
 
     def _build_sales_evaluation_card(self):
+        """Build the Sales-Evaluation card: year picker, CSV export, 13-row table.
+
+        The table holds 12 month rows plus a TOTAL ANNUAL summary row. Returns
+        the assembled card; it is added to the page layout by the caller.
+        """
         card = HoverCard(self.scroll_content)
         lay = QVBoxLayout(card)
         lay.setContentsMargins(24, 24, 24, 24)
@@ -1260,6 +1420,7 @@ class ReportsPage(QWidget):
         from PySide6.QtWidgets import QComboBox
         self._eval_year_combo = QComboBox()
         cur_year = datetime.now().year
+        # Offer a ±2-year window around the current year.
         for yr in [cur_year - 2, cur_year - 1, cur_year, cur_year + 1, cur_year + 2]:
             self._eval_year_combo.addItem(str(yr), yr)
         self._eval_year_combo.setCurrentText(str(cur_year))
@@ -1278,7 +1439,7 @@ class ReportsPage(QWidget):
 
         lay.addLayout(head)
 
-        # 12-Month Table
+        # 12-Month Table (12 month rows + 1 annual-total row = 13)
         self._eval_table = QTableWidget(13, 4)
         self._eval_table.setHorizontalHeaderLabels([
             "Month", "Target Sales (₱)", "Net Profit (₱)", "Evaluation / Remaining (₱)"
@@ -1317,10 +1478,11 @@ class ReportsPage(QWidget):
             return
         months = data.get("months", [])
 
-        self._eval_table.setRowCount(len(months) + 1)
+        self._eval_table.setRowCount(len(months) + 1)  # +1 for the TOTAL row
         for r_idx, m_info in enumerate(months):
             m_name = m_info["month_name"]
             t_amt = m_info["target_sales"]
+            # Prefer net_profit; fall back to actual_sales for older payload shapes.
             np_amt = m_info.get("net_profit", m_info.get("actual_sales", 0.0))
             rem = m_info["remaining"]
 
@@ -1337,11 +1499,13 @@ class ReportsPage(QWidget):
 
             # Ref Image 1: Shortfall displayed in red parenthesis e.g. (85,000.00)
             if np_amt < t_amt:
+                # Below target → red "(remaining)" accounting-style negative.
                 eval_str = f"(₱ {rem:,.2f})"
                 item_e = QTableWidgetItem(eval_str)
                 item_e.setForeground(QColor("#EF4444"))
                 item_e.setToolTip(f"₱{rem:,.2f} remaining to hit the target")
             else:
+                # At/above target → green "+surplus (Target Achieved)".
                 surplus = np_amt - t_amt
                 eval_str = f"+₱ {surplus:,.2f} (Target Achieved)"
                 item_e = QTableWidgetItem(eval_str)
@@ -1354,7 +1518,7 @@ class ReportsPage(QWidget):
             self._eval_table.setItem(r_idx, 2, item_a)
             self._eval_table.setItem(r_idx, 3, item_e)
 
-        # Summary Row (13th row)
+        # Summary Row (13th row) — bold annual totals, same shortfall/surplus rule.
         tot_target = data.get("total_target", 0.0)
         tot_net_profit = data.get("total_net_profit", data.get("total_actual", 0.0))
         tot_rem = data.get("total_remaining", 0.0)
@@ -1390,10 +1554,11 @@ class ReportsPage(QWidget):
         self._eval_table.setItem(last_r, 3, tot_e)
 
     def _export_sales_eval_csv(self):
+        """Export the selected year's sales-evaluation table to a CSV file."""
         yr = int(self._eval_year_combo.currentText())
         path, _ = QFileDialog.getSaveFileName(self, f"Export Sales Evaluation {yr}", f"Jayraldines_Sales_Evaluation_{yr}.csv", "CSV Files (*.csv)")
         if not path:
-            return
+            return  # user cancelled the save dialog
         data = repo.get_monthly_sales_evaluation_report(yr)
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
@@ -1402,6 +1567,7 @@ class ReportsPage(QWidget):
                 writer.writerow(["Month", "Target Sales", "Net Profit", "Evaluation / Remaining"])
                 for m in data.get("months", []):
                     np_amt = m.get("net_profit", m.get("actual_sales", 0.0))
+                    # Shortfall → parenthesised remaining; else the surplus amount.
                     rem_str = f"({m['remaining']:,.2f})" if m['is_shortfall'] else f"{np_amt - m['target_sales']:,.2f}"
                     writer.writerow([m["month_name"], f"{m['target_sales']:,.2f}", f"{np_amt:,.2f}", rem_str])
                 writer.writerow([])
@@ -1425,6 +1591,8 @@ class ReportsPage(QWidget):
         today = date.today()
 
         def _get_date(d_str):
+            # Dates arrive in several human/ISO formats depending on source;
+            # try each known layout and return the first that parses (else None).
             if not d_str:
                 return None
             for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%Y/%m/%d"):
@@ -1486,7 +1654,10 @@ class ReportsPage(QWidget):
                 if e_date.year == today.year - 1:
                     filtered_e.append(e)
 
-        # Compute KPI numbers
+        # Compute KPI numbers.
+        # Revenue/pax count only "real" (confirmed/completed) bookings; but if the
+        # period has none confirmed yet, fall back to all filtered bookings so the
+        # cards aren't misleadingly blank.
         confirmed_b = [b for b in filtered_b if b.get("status", "").upper() in ("CONFIRMED", "COMPLETED")]
         target_b = confirmed_b if confirmed_b else filtered_b
         total_bookings = len(target_b)
@@ -1530,8 +1701,10 @@ class ReportsPage(QWidget):
         else:
             unpaid_start = unpaid_end = None
         try:
+            # Authoritative outstanding figure from the invoices table (matches Billing).
             total_unpaid = repo.get_invoices_summary(unpaid_start, unpaid_end).get("total_pending", 0.0)
         except Exception:
+            # Fallback: sum per-booking balances if the invoices query fails.
             total_unpaid = sum(float(b.get("balance", 0) or 0) for b in target_b)
 
         # Calculate today, week, and month bookings from all bookings
@@ -1557,6 +1730,8 @@ class ReportsPage(QWidget):
             f"{total_pax:,} Pax booked" if total_pax > 0 else "No guests for period",
             "Outstanding balance",
         ]
+        # Patch each pre-built KPI card in place: find its value/subtitle labels
+        # by objectName and update the text (cards are built once, values swap).
         for card, val, sub in zip(self._kpi_cards, vals, subs):
             lay = card.layout()
             for i in range(lay.count()):
@@ -1664,6 +1839,11 @@ class ReportsPage(QWidget):
 
     @staticmethod
     def _insert_card_before_stretch(layout, card):
+        """Append a card, keeping it above any trailing stretch spacer.
+
+        See the note below: never removing the spacer avoids a native Qt crash
+        seen under heavy append churn.
+        """
         # Insert just before a trailing stretch spacer if one exists, rather
         # than ever taking the spacer out of the layout - repeatedly
         # take()-ing and discarding a QLayoutItem was the suspected trigger
@@ -1735,8 +1915,9 @@ class ReportsPage(QWidget):
             self._report_render_step()  # last batch done — release the loader slot
 
     def _on_bookings_scroll(self, value):
+        """Trigger the next booking page when scrolled within 200px of the bottom."""
         sb = self._bookings_scroll.verticalScrollBar()
-        if sb.maximum() - value < 200:
+        if sb.maximum() - value < 200:  # near-bottom threshold for infinite scroll
             self._load_more_bookings()
 
     def _load_more_bookings(self):
@@ -1766,6 +1947,11 @@ class ReportsPage(QWidget):
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _kpi(self, title, val, sub, sub_color=None):
+        """Build one KPI card (uppercase title, big value, subtitle) and return it.
+
+        Value/subtitle labels carry objectNames ``kpiValue``/``subtitle`` so
+        ``_reload_kpis`` can find and update them later.
+        """
         card = HoverCard(self.scroll_content)
         lay  = QVBoxLayout(card)
         lay.setContentsMargins(24, 24, 24, 24)
@@ -1813,11 +1999,13 @@ class ReportsPage(QWidget):
 
         expenses = []
         if p in ("All Time", "All", ""):
-            expenses = all_exp
+            expenses = all_exp  # no filtering needed
         else:
             for exp in all_exp:
                 d_str = exp.get("date", "")
                 exp_d = None
+                # Expenses can be saved in more formats than bookings, so try a
+                # wider set of layouts; skip rows whose date can't be parsed.
                 for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%Y/%m/%d", "%b-%d-%Y", "%d-%b-%Y"):
                     try:
                         exp_d = datetime.strptime(str(d_str).strip(), fmt).date()
@@ -1886,7 +2074,7 @@ class ReportsPage(QWidget):
         # Use pre-fetched profit_data if available, else fall back to synchronous call
         _profit_data = profit_data if profit_data is not None else []
         total_rev = sum(r["revenue"] for r in _profit_data)
-        net = total_rev - total_exp
+        net = total_rev - total_exp  # net profit shown in the footer label
         color = "#22C55E" if net >= 0 else "#EF4444"
         self._profit_lbl.setStyleSheet(f"font-size:14px;font-weight:700;color:{color};")
         self._profit_lbl.setText(
@@ -1961,6 +2149,8 @@ class ReportsPage(QWidget):
             series.append(bset)
             max_val = max(max_val, tot)
 
+            # Closure factory: freeze this bar's category/total/color into its own
+            # hover handler so all bars don't share the last iteration's values.
             def _make_hover(s=bset, c=cat, t=tot, col=color_hex):
                 def _on_hover(state, _index):
                     if state:
@@ -1994,9 +2184,11 @@ class ReportsPage(QWidget):
         # Same "nice round number" tick algorithm as the dashboard chart, with
         # labels built as plain f-strings (not QValueAxis.setLabelFormat) so
         # the ₱ sign always renders correctly.
-        upper = max(max_val * 1.15, 1.0)
+        upper = max(max_val * 1.15, 1.0)  # 15% headroom above the tallest bar
         target_ticks = 5
         raw_step = upper / (target_ticks - 1)
+        # Round the raw step up to a "nice" 1/2.5/5/10 × power-of-ten value so the
+        # axis labels land on human-friendly numbers instead of e.g. 3271.4.
         magnitude = 10 ** int(math.floor(math.log10(max(raw_step, 1))))
         residual = raw_step / magnitude
         if residual <= 1.5:
@@ -2011,6 +2203,8 @@ class ReportsPage(QWidget):
         num_steps = max(1, int(math.ceil(upper / clean_step)))
         final_max = num_steps * clean_step
 
+        # QCategoryAxis (not QValueAxis) so each tick label is a literal f-string
+        # — that keeps the ₱ glyph rendering, which setLabelFormat mangles.
         axis_y = QCategoryAxis()
         axis_y.setRange(0, final_max)
         for i in range(num_steps + 1):
@@ -2070,6 +2264,7 @@ class ReportsPage(QWidget):
             del_btn.setStyleSheet("background: transparent; border: none;")
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.setToolTip("Delete expense")
+            # Bind this row's expense id into the delete handler (per-iteration).
             del_btn.clicked.connect(lambda _, eid=exp["id"]: self._delete_expense(eid))
             el.addWidget(del_btn)
 
@@ -2084,8 +2279,9 @@ class ReportsPage(QWidget):
             self._report_render_step()  # last batch done — release the loader slot
 
     def _on_expenses_scroll(self, value):
+        """Trigger the next expense page when scrolled within 200px of the bottom."""
         sb = self._expenses_scroll.verticalScrollBar()
-        if sb.maximum() - value < 200:
+        if sb.maximum() - value < 200:  # near-bottom threshold for infinite scroll
             self._load_more_expenses()
 
     def _load_more_expenses(self):
@@ -2112,6 +2308,7 @@ class ReportsPage(QWidget):
         self._render_expense_batch(self._exp_render_token)
 
     def _open_add_expense(self):
+        """Open the Add-Expense dialog; on accept, persist it and refresh the list."""
         from PySide6.QtWidgets import QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox, QDateEdit
         from PySide6.QtCore import QDate
         dlg = QDialog(self)
@@ -2144,8 +2341,9 @@ class ReportsPage(QWidget):
         form.addRow(btns)
 
         if dlg.exec() != QDialog.Accepted:
-            return
+            return  # cancelled
         try:
+            # Strip thousands separators before parsing the amount.
             amt = float(amt_edit.text().replace(",", "").strip())
         except ValueError:
             QMessageBox.warning(self, "Invalid", "Enter a valid amount.")
@@ -2153,13 +2351,15 @@ class ReportsPage(QWidget):
         date_str = date_edit.date().toString("MMM dd, yyyy")
         repo.add_expense({"category": cat_cb.currentText(), "description": desc_edit.text().strip() or "—",
                           "amount": amt, "date": date_str})
-        self._load_expenses()
+        self._load_expenses()  # re-render list with the new row
 
     def _delete_expense(self, expense_id):
+        """Delete an expense by id and re-render the expenses list."""
         repo.delete_expense(expense_id)
         self._load_expenses()
 
     def _build_export_menu(self):
+        """Build the Export dropdown menu (PDF/Excel/CSV + activity-log exports)."""
         menu = QMenu(self)
         if not ThemeManager().is_dark():
             menu.setStyleSheet(
@@ -2193,6 +2393,12 @@ class ReportsPage(QWidget):
         return menu
 
     def _get_export_data(self):
+        """Re-query KPIs and bookings scoped to the active period, for exporting.
+
+        Returns ``(kpis, bookings, period_label)``. Unlike the on-screen data
+        (filtered in Python from a cached full set), exports re-query the DB with
+        the SQL period filter so they always reflect current data.
+        """
         fltr = self._period_sql_filter()
         kpis = repo.get_report_kpis(period_filter=fltr)
         bookings = repo.get_all_bookings(period_filter=fltr) or []
@@ -2217,8 +2423,9 @@ class ReportsPage(QWidget):
         for title, attr in cards:
             card = getattr(self, attr, None)
             if card is None or card.width() < 10:
-                continue
+                continue  # skip cards that don't exist or were never laid out
             try:
+                # Render at 2x device pixel ratio for a crisp print-quality image.
                 sz = card.size()
                 w = max(10, sz.width())
                 h = max(10, sz.height())
@@ -2226,7 +2433,7 @@ class ReportsPage(QWidget):
                 pixmap.setDevicePixelRatio(2.0)
                 card.render(pixmap)
                 if pixmap.isNull():
-                    pixmap = card.grab()
+                    pixmap = card.grab()  # fallback capture path
 
                 png = os.path.join(tmp_dir, f"{attr}.png")
                 if pixmap.save(png, "PNG"):
@@ -2243,6 +2450,7 @@ class ReportsPage(QWidget):
         return images
 
     def _export_pdf(self):
+        """Export a full business-report PDF (KPIs, bookings, analytics, charts)."""
         path, _ = QFileDialog.getSaveFileName(
             self, "Export PDF", "jayraldines_report.pdf", "PDF Files (*.pdf)"
         )
@@ -2260,6 +2468,7 @@ class ReportsPage(QWidget):
                 "PDF export failed. Make sure reportlab is installed:\npip install reportlab")
 
     def _export_excel(self):
+        """Export the business report as an .xlsx workbook (KPIs + bookings + sections)."""
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Excel", "jayraldines_report.xlsx", "Excel Files (*.xlsx)"
         )
@@ -2276,6 +2485,7 @@ class ReportsPage(QWidget):
                 "Excel export failed. Make sure openpyxl is installed:\npip install openpyxl")
 
     def _export_csv(self):
+        """Export the period-scoped bookings list to a flat CSV file."""
         path, _ = QFileDialog.getSaveFileName(
             self, "Export CSV", "jayraldines_report.csv", "CSV Files (*.csv)"
         )
@@ -2294,6 +2504,7 @@ class ReportsPage(QWidget):
         prompt_file_saved(self, path, title="Report CSV Exported", message="Report bookings CSV exported successfully.")
 
     def _export_activity_log_pdf(self):
+        """Export the recent activity / audit log (up to 500 entries) as a PDF."""
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Activity Log PDF", "activity_audit_report.pdf", "PDF Files (*.pdf)"
         )
@@ -2308,12 +2519,14 @@ class ReportsPage(QWidget):
             QMessageBox.warning(self, "Export Failed", "PDF export failed. Make sure reportlab is installed:\npip install reportlab")
 
     def _export_activity_log_csv(self):
+        """Export the recent activity / audit log to CSV (BOM-prefixed for Excel)."""
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Activity Log CSV", "activity_audit_report.csv", "CSV Files (*.csv)"
         )
         if not path:
             return
         entries = repo.get_audit_log(limit=500)
+        # utf-8-sig writes a BOM so Excel opens the ₱/unicode columns correctly.
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
             writer.writerow(["Date", "Time", "User", "Action", "Details"])
