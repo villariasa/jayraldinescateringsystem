@@ -1,3 +1,34 @@
+"""Billing page: invoice management, payment recording, and financial summary.
+
+This module renders the Billing screen and its dialogs:
+
+- RecordPaymentDialog   -- record a payment against an invoice, with
+                           downpayment/fully-paid auto-fill presets driven by
+                           the invoice's payment-policy info.
+- EditBillingDialog     -- manually correct an invoice's Total / Paid / Balance
+                           (they are kept internally consistent as the user types).
+- PaymentHistoryDialog  -- read-only list of an invoice's recorded payments.
+- BillingPage           -- the main widget: a searchable, filterable, lazily
+                           paginated card list of invoices, a period-scoped KPI
+                           header, a ledger tab, plus per-invoice actions
+                           (pay, verify, edit, additional charges, receipt
+                           print/email, delete) and CSV export.
+
+Design notes worth knowing before editing BillingPage:
+
+- Loads are async (run_async) and coalesced/generation-guarded so a stale
+  in-flight fetch can never overwrite newer results (e.g. search results).
+- Card rendering is batched via QTimer to keep the UI responsive, with an
+  explicit _rendering guard to prevent load-more from corrupting the layout
+  mid-render.
+- The header KPI cards are computed from exactly the rows currently shown
+  (self._invoices) unless an optional period override is active, so the header
+  can never disagree with the visible table.
+- Monetary values: balance is always Total - Paid; the unreliable
+  down-payment field is deliberately ignored for balance math.
+
+Money is displayed in Philippine Pesos (₱).
+"""
 import csv
 import os
 import tempfile
@@ -23,18 +54,27 @@ from utils.theme import ThemeManager
 from utils.text_highlight import highlight_html
 
 
+# Badge/label color per payment status.
 _STATUS_COLORS = {"Paid": "#22C55E", "Partial": "#F59E0B", "Unpaid": "#EF4444"}
 _STATUSES = ["Unpaid", "Partial", "Paid"]
+# Payment methods offered in the Record Payment dialog.
 _METHODS = ["Cash", "GCash", "Maya", "Bank Transfer", "Credit Card", "Cheque", "Other"]
 
 
 def _fmt_date(val) -> str:
+    """Format a date value for display as e.g. "Jan 05, 2026".
+
+    Accepts either a datetime.date or a string. Strings are parsed from
+    ISO ("yyyy-MM-dd") or the already-formatted "MMM dd, yyyy" form; anything
+    unrecognized is returned unchanged so no data is lost.
+    """
     if isinstance(val, _date_type):
         return val.strftime("%b %d, %Y")
     s = str(val)
     q = QDate.fromString(s, "yyyy-MM-dd")
     if q.isValid():
         return q.toString("MMM dd, yyyy")
+    # Already in display format? Round-trip it to normalize.
     q2 = QDate.fromString(s, "MMM dd, yyyy")
     if q2.isValid():
         return q2.toString("MMM dd, yyyy")
@@ -42,7 +82,24 @@ def _fmt_date(val) -> str:
 
 
 class RecordPaymentDialog(QDialog):
+    """Modal dialog for recording a single payment against an invoice.
+
+    Pre-computes the amount due and a policy-aware downpayment target (from
+    repo.get_invoice_payment_info when a booking_id is present, otherwise from
+    the invoice's own amount/paid), then offers "Downpayment" and "Fully Paid"
+    auto-fill presets alongside a free-entry amount spinbox. On accept, the
+    entered amount/date/method/note are exposed via get_result().
+    """
     def __init__(self, parent=None, inv: dict = None):
+        """Initialize the dialog for the given invoice.
+
+        Args:
+            parent: parent widget.
+            inv: invoice dict (may include booking_id, invoice, customer,
+                amount, paid). Defaults to an empty dict.
+        Side effects: fetches payment-policy info from the repository when the
+        invoice is linked to a booking (failures are tolerated -> no policy).
+        """
         super().__init__(parent)
         self._inv = inv or {}
         self._pay_info = None
@@ -53,6 +110,8 @@ class RecordPaymentDialog(QDialog):
         self.setModal(True)
         self._result = None
 
+        # Policy info (min downpayment %, remaining, required payment, etc.) is
+        # only available for booking-linked invoices; tolerate lookup failure.
         if self._inv.get("booking_id"):
             try:
                 self._pay_info = repo.get_invoice_payment_info(self._inv["booking_id"])
@@ -62,6 +121,15 @@ class RecordPaymentDialog(QDialog):
         self._build_ui()
 
     def _build_ui(self):
+        """Build the dialog UI: summary of totals/balance, the downpayment vs
+        fully-paid preset buttons, and the amount/date/method/note form.
+
+        Also defines and wires the preset-application and amount-change
+        handlers that keep the two preset buttons visually in sync with the
+        current amount. Uses self._pay_info when available to show the
+        policy-required downpayment; otherwise falls back to a plain 50%/full
+        computation from the invoice's amount and paid values.
+        """
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
@@ -91,6 +159,8 @@ class RecordPaymentDialog(QDialog):
         div.setFixedHeight(1)
         lay.addWidget(div)
 
+        # Two sourcing paths for the summary + preset targets: the richer
+        # policy-driven path (pi) vs. a plain fallback from the invoice fields.
         pi = self._pay_info
         if pi:
             total     = float(pi["total"] or 0.0)
@@ -98,7 +168,7 @@ class RecordPaymentDialog(QDialog):
             remaining = float(pi["remaining"] or 0.0)
             req       = float(pi["required_payment"] or 0.0)
             min_pct   = float(pi["min_pct"] or 50.0)
-            is_first  = paid == 0
+            is_first  = paid == 0  # first payment -> show required downpayment
             req_label = (
                 f"Required downpayment ({min_pct:.0f}%): <b style='color:#F59E0B;'>₱ {req:,.2f}</b>"
                 if is_first and not pi["allow_zero"]
@@ -112,9 +182,13 @@ class RecordPaymentDialog(QDialog):
                 f"{req_label}"
             )
             max_amount = remaining
+            # Downpayment preset = policy-required amount, else 50% of total;
+            # clamped to the outstanding balance and a positive minimum.
             down_target = req if req > 0 else round(total * 0.50, 2)
             down_target = min(remaining, max(0.01, down_target))
             full_target = remaining
+            # Default to the downpayment only on the first payment; otherwise
+            # default to clearing the whole remaining balance.
             default_amount = down_target if is_first else remaining
         else:
             total = float(self._inv.get("amount", 0) or 0.0)
@@ -127,6 +201,8 @@ class RecordPaymentDialog(QDialog):
                 f"Balance due: <span style='color:#E11D48;font-weight:700;'>₱ {balance:,.2f}</span>"
             )
             max_amount = balance
+            # No policy info: downpayment preset is simply 50% of total,
+            # clamped to the outstanding balance.
             down_target = min(balance, max(0.01, round(total * 0.50, 2)))
             full_target = balance
             default_amount = down_target if paid == 0 else balance
@@ -227,16 +303,20 @@ class RecordPaymentDialog(QDialog):
         self._amount_f.setFixedHeight(38)
 
         def _apply_downpayment():
+            # Preset button: set amount to the downpayment target and highlight.
             self._amount_f.setValue(max(0.01, down_target))
             self._btn_down.setStyleSheet(STYLE_ACTIVE_DOWN)
             self._btn_full.setStyleSheet(STYLE_INACTIVE)
 
         def _apply_fully_paid():
+            # Preset button: set amount to the full remaining balance and highlight.
             self._amount_f.setValue(max(0.01, full_target))
             self._btn_full.setStyleSheet(STYLE_ACTIVE_FULL)
             self._btn_down.setStyleSheet(STYLE_INACTIVE)
 
         def _on_amount_changed(val):
+            # Keep the preset buttons' highlight in sync with manual edits:
+            # highlight whichever preset the current amount matches, else none.
             if abs(val - down_target) < 0.01 and down_target > 0:
                 self._btn_down.setStyleSheet(STYLE_ACTIVE_DOWN)
                 self._btn_full.setStyleSheet(STYLE_INACTIVE)
@@ -251,7 +331,7 @@ class RecordPaymentDialog(QDialog):
         self._btn_full.clicked.connect(_apply_fully_paid)
         self._amount_f.valueChanged.connect(_on_amount_changed)
 
-        # Initial button state
+        # Initial button state: reflect whichever preset the default amount matches.
         _on_amount_changed(self._amount_f.value())
 
         self._date_f = QDateEdit()
@@ -303,6 +383,9 @@ class RecordPaymentDialog(QDialog):
         outer.addWidget(container)
 
     def _save(self):
+        """Validate the entered amount and, if valid, capture the payment into
+        self._result (amount, ISO payment_date, method, note) and accept the
+        dialog. Shows an inline error and stays open if the amount is <= 0."""
         amount = self._amount_f.value()
         if amount <= 0:
             self._err.setText("Amount must be greater than 0.")
@@ -317,6 +400,7 @@ class RecordPaymentDialog(QDialog):
         self.accept()
 
     def get_result(self):
+        """Return the captured payment dict, or None if the dialog was cancelled."""
         return self._result
 
 
@@ -325,6 +409,8 @@ class EditBillingDialog(QDialog):
     to correct manual encoding mistakes as requested.
     """
     def __init__(self, parent=None, inv: dict = None):
+        """Initialize the edit dialog for the given invoice dict (`inv`), which
+        should carry amount, paid, balance, and db_id. Builds the UI immediately."""
         super().__init__(parent)
         self._inv = inv or {}
         self.setWindowTitle("Edit Billing Payment")
@@ -335,6 +421,11 @@ class EditBillingDialog(QDialog):
         self._build_ui()
 
     def _build_ui(self):
+        """Build the edit form: an editable Total, Paid, and Balance spinbox
+        trio kept mutually consistent (editing any one recomputes the others
+        via the _on_*_changed handlers, guarded by self._updating to avoid
+        recursive signal loops), plus 50%-down / fully-paid quick-fill presets.
+        """
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
@@ -371,6 +462,8 @@ class EditBillingDialog(QDialog):
         div.setFixedHeight(1)
         lay.addWidget(div)
 
+        # Seed the three editable fields; fall back to Total - Paid for the
+        # balance when the invoice doesn't carry an explicit balance value.
         self._total_val = float(self._inv.get("amount") or 0.0)
         curr_paid = float(self._inv.get("paid") or 0.0)
         curr_bal = float(self._inv.get("balance") if self._inv.get("balance") is not None else max(0.0, self._total_val - curr_paid))
@@ -455,9 +548,12 @@ class EditBillingDialog(QDialog):
         self._bal_spin.setValue(curr_bal)
         self._bal_spin.setFixedHeight(38)
 
+        # Re-entrancy guard: setValue() inside a handler re-fires valueChanged,
+        # so each handler bails out while another is mid-update.
         self._updating = False
 
         def _on_total_changed(val):
+            # New total -> keep paid fixed, recompute balance.
             if self._updating:
                 return
             self._updating = True
@@ -467,6 +563,7 @@ class EditBillingDialog(QDialog):
             self._updating = False
 
         def _on_paid_changed(val):
+            # New paid -> recompute balance from total.
             if self._updating:
                 return
             self._updating = True
@@ -475,6 +572,7 @@ class EditBillingDialog(QDialog):
             self._updating = False
 
         def _on_bal_changed(val):
+            # New balance -> back-solve paid from total.
             if self._updating:
                 return
             self._updating = True
@@ -485,9 +583,11 @@ class EditBillingDialog(QDialog):
         self._total_spin.valueChanged.connect(_on_total_changed)
 
         def _apply_edit_down():
+            # Quick-fill: set paid to the precomputed 50% downpayment.
             self._paid_spin.setValue(down_val)
 
         def _apply_edit_full():
+            # Quick-fill: set paid equal to the current total (fully paid).
             self._paid_spin.setValue(self._total_val)
 
         btn_down.clicked.connect(_apply_edit_down)
@@ -525,6 +625,12 @@ class EditBillingDialog(QDialog):
         outer.addWidget(container)
 
     def _save(self):
+        """Validate and persist the edited Total/Paid/Balance to the invoice.
+
+        Rejects negative values and a missing db_id with an inline error;
+        otherwise calls repo.update_invoice_payment and accepts the dialog on
+        success (or shows an error on failure).
+        """
         new_total = self._total_spin.value()
         new_paid = self._paid_spin.value()
         new_bal = self._bal_spin.value()
@@ -549,7 +655,11 @@ class EditBillingDialog(QDialog):
 
 
 class PaymentHistoryDialog(QDialog):
+    """Read-only modal listing every recorded payment for an invoice as a
+    scrollable list of cards (date, method, note, amount)."""
     def __init__(self, parent=None, inv: dict = None):
+        """Initialize for the given invoice dict (`inv`, expected to carry
+        db_id and invoice #) and build the UI."""
         super().__init__(parent)
         self._inv = inv or {}
         self.setWindowTitle("Payment History")
@@ -560,6 +670,9 @@ class PaymentHistoryDialog(QDialog):
         self._build_ui()
 
     def _build_ui(self):
+        """Build the dialog: fetch this invoice's payment records and render
+        one card per record (or an empty-state card when there are none / the
+        lookup fails)."""
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
@@ -589,6 +702,8 @@ class PaymentHistoryDialog(QDialog):
         div.setFixedHeight(1)
         lay.addWidget(div)
 
+        # Fetch payment records for this invoice; tolerate any lookup failure
+        # by falling back to an empty list (renders the empty-state card).
         records = []
         if self._inv.get("db_id"):
             try:
@@ -662,7 +777,26 @@ class PaymentHistoryDialog(QDialog):
 
 
 class BillingPage(QWidget):
+    """Main Billing screen widget.
+
+    Presents invoices as a searchable, filterable, lazily-paginated card list
+    plus a period-scoped KPI header and a payment ledger tab. Data is loaded
+    asynchronously and rendered in batches; overlapping loads are coalesced and
+    each fetch is generation-tagged so stale results are discarded rather than
+    clobbering newer state. Subscribes to app-wide events (payments, bookings,
+    invoices, sync) to keep itself fresh, deferring refreshes while the user is
+    mid-search.
+    """
     def __init__(self, parent=None):
+        """Initialize all pagination/filter/render/search state, build the UI,
+        and subscribe to the app events that should trigger a live refresh.
+
+        The many instance attributes set here are documented inline below; key
+        ones: _dirty (needs reload on next show), _invoices (current rows),
+        _page_size/_has_more/_cached_remainder (pagination), _rendering
+        (batch-render guard), _filter_* (list scope), _search_query, and
+        _header_period/_header_summary (optional KPI-header period override).
+        """
         super().__init__(parent)
         self._dirty = True  # Load on first show
         self._invoices = []
@@ -708,15 +842,23 @@ class BillingPage(QWidget):
         app_events().data_changed.connect(self._mark_dirty_and_reload)
 
     def _mark_dirty(self):
+        """Flag the page as needing a reload on its next show."""
         self._dirty = True
 
     def _has_active_search(self) -> bool:
+        """Return True if a search is currently in effect.
+
+        Prefers the live search box text; falls back to the stored query if the
+        widget isn't available yet (e.g. very early in construction)."""
         try:
             return bool(self._search.text().strip())
         except Exception:
             return bool(getattr(self, "_search_query", ""))
 
     def _mark_dirty_and_reload(self):
+        """Signal handler: mark dirty and reload silently if visible, unless a
+        search is active (in which case defer, to avoid wiping the user's
+        results/scroll; the refresh runs once the search clears)."""
         self._dirty = True
         # Don't rebuild the list out from under an active search - it would wipe
         # the user's results/scroll. Defer; we refresh once the search clears.
@@ -727,12 +869,25 @@ class BillingPage(QWidget):
             self.reload(silent=True)
 
     def showEvent(self, event):
+        """Qt override: refresh permissions and, if dirty, reload on show
+        (silently after the first load so re-visiting the tab doesn't flash the
+        loading overlay)."""
         super().showEvent(event)
         self.refresh_permissions()
         if getattr(self, "_dirty", True):
             self.reload(silent=getattr(self, "_has_loaded_once", False))
 
     def reload(self, silent: bool = False):
+        """Reload the invoice list (and header summary) from scratch.
+
+        Args:
+            silent: when True, suppress the loading overlay (used for
+                background/auto refreshes).
+        Behavior: coalesces overlapping reloads, bumps the data generation so
+        stale in-flight fetches are ignored, re-runs the active search if one
+        is set, and otherwise serves page 0 from the login memory cache when
+        valid or fetches it asynchronously. Resets pagination each time.
+        """
         # Coalesce overlapping reloads: if a reload (fetch + batch-render) is
         # already running, don't start a second one in parallel - just remember
         # to run exactly one more pass once the current one fully finishes.
@@ -829,6 +984,9 @@ class BillingPage(QWidget):
 
     @staticmethod
     def _fetch_first_page(page_size, date_start, date_end, customer, paid_status):
+        """Worker (off the UI thread): fetch both the filtered header summary
+        and page 0 of the invoice list under the same filter, returned as a
+        (summary, page) tuple."""
         # Header KPI summary is now scoped to the SAME active filter as the
         # invoice list below it, so the numbers actually move when the
         # filter changes instead of always showing an all-time total.
@@ -837,6 +995,10 @@ class BillingPage(QWidget):
                                        customer, paid_status))
 
     def _on_first_page_loaded(self, result, gen=None):
+        """UI-thread callback for _fetch_first_page: unpack (summary, page),
+        store the summary, mark pagination exhausted if the page is short, and
+        hand the rows to _on_invoices_loaded. Discards stale results whose
+        generation no longer matches the current one."""
         if gen is not None and gen != getattr(self, "_data_gen", None):
             return  # Superseded by a newer reload/search - discard.
         summary, page = result if result else ({}, [])
@@ -847,11 +1009,19 @@ class BillingPage(QWidget):
 
     @staticmethod
     def _compute_summary_from_rows(rows):
+        """Compute the header KPI summary directly from a list of invoice rows.
+
+        Returns a dict with total_received (sum of paid), total_pending (sum of
+        outstanding balance across non-Paid invoices), and events_count (row
+        count). Deriving this from the same rows shown in the table guarantees
+        the header can't disagree with the list."""
         total_rcv = sum(float(i.get("paid", 0.0) or 0.0) for i in rows)
         total_pending = sum(max(0.0, float(i.get("amount", 0.0) or 0.0) - float(i.get("paid", 0.0) or 0.0)) for i in rows if i.get("status") != "Paid")
         return {"total_received": total_rcv, "total_pending": total_pending, "events_count": len(rows)}
 
     def _reload_finished(self):
+        """Release the reload in-flight guard and, if another reload was
+        requested while one was running, schedule exactly one follow-up pass."""
         self._reload_in_flight = False
         self._loading_more = False
         if self._reload_pending:
@@ -859,6 +1029,9 @@ class BillingPage(QWidget):
             QTimer.singleShot(0, self.reload)
 
     def refresh_permissions(self):
+        """Re-evaluate the current user's edit/delete permissions and, only if
+        they actually changed since last time, rebuild the card list so action
+        buttons reflect them. No-op when no invoices are loaded yet."""
         # main_window.py calls this on EVERY nav visit to this page, not just
         # when permissions actually change - so we must not unconditionally
         # rebuild the (possibly multi-page, scrolled-through) card list here,
@@ -875,6 +1048,11 @@ class BillingPage(QWidget):
         self._populate_table()
 
     def _on_invoices_loaded(self, data, gen=None):
+        """Store the freshly loaded page-0 rows and start rendering the table.
+
+        Guards against a destroyed widget and against stale (superseded)
+        generations. Rendering/loader-hiding is handled by the batch renderer,
+        not here."""
         from shiboken6 import isValid
         if not isValid(self):
             return
@@ -886,6 +1064,12 @@ class BillingPage(QWidget):
         self._populate_table()
 
     def _load_more_invoices(self):
+        """Fetch and append the next page of invoices (pagination).
+
+        No-op when already loading, when nothing more remains, or while the
+        initial batch-render is still mutating the layout. Serves the next
+        slice from the in-memory cached remainder when available (no DB hit),
+        otherwise fetches the next page asynchronously."""
         if self._loading_more or not self._has_more:
             return
         # Don't start appending to cards_layout while the initial page's own
@@ -909,6 +1093,10 @@ class BillingPage(QWidget):
                   self._filter_customer, self._filter_paid_status)
 
     def _on_more_invoices_loaded(self, data, gen=None):
+        """UI-thread callback for a load-more page: append the new rows to the
+        list and to the card layout, mark pagination exhausted on a short page,
+        and recompute the header KPIs so they stay in sync with the growing
+        table. Guards against a destroyed widget and stale generations."""
         from shiboken6 import isValid
         if not isValid(self):
             return
@@ -930,6 +1118,10 @@ class BillingPage(QWidget):
         self._apply_header_kpis()
 
     def _append_invoice_cards(self, new_rows):
+        """Kick off a batched, non-blocking render that appends cards for
+        new_rows to the existing list (used by pagination). Snapshots the
+        current edit/delete permissions and drives _render_next_batch via a
+        fresh render token."""
         # NOTE: we deliberately never remove/re-add the trailing stretch spacer
         # (previously done via layout.takeAt() on every append) - repeatedly
         # taking a QLayoutItem out of a layout and discarding it was the
@@ -946,11 +1138,17 @@ class BillingPage(QWidget):
         self._render_next_batch(self._render_token)
 
     def _on_scroll_near_bottom(self, value):
+        """Scrollbar handler: trigger loading the next page once the user
+        scrolls within 200px of the bottom (infinite scroll)."""
         sb = self.scroll_area.verticalScrollBar()
         if sb.maximum() - value < 200:
             self._load_more_invoices()
 
     def _build_ui(self):
+        """Construct the whole page: header + export, the KPI summary cards with
+        their period filter, and the tabbed body (Invoices tab with search +
+        customer/paid-status filters + the scrollable card list, and a Ledger
+        tab). Also creates the loading overlay."""
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
         root.setSpacing(20)
@@ -1150,6 +1348,9 @@ class BillingPage(QWidget):
         self._loader = LoadingOverlay(self, "Loading billing records & invoices...")
 
     def _populate_customer_filter(self):
+        """Populate the customer filter combo (once) from the shared customer
+        list, preserving any current selection. Tolerates a failed lookup by
+        leaving only 'All Customers'."""
         # Lazily fill the customer dropdown once, from the shared customer list.
         if getattr(self, "_customer_filter_populated", False):
             return
@@ -1171,6 +1372,13 @@ class BillingPage(QWidget):
         self._customer_filter.blockSignals(False)
 
     def _on_filter_changed(self, *args):
+        """Handler for the customer / paid-status filter controls.
+
+        Reads both widgets into the stored filter state (dropping the default
+        date window for the 'unpaid'/'all' buckets so no outstanding invoice is
+        hidden by an event-date window), invalidates the login cache fast-path,
+        resets pagination, reloads, and re-applies any active header-period
+        override on top of the new filter."""
         # Read the current widget states into the stored filter state.
         cust = self._customer_filter.currentText().strip()
         self._filter_customer = None if (not cust or cust == "All Customers") else cust
@@ -1206,10 +1414,19 @@ class BillingPage(QWidget):
             self._on_header_period_changed()
 
     def _on_billing_tab_changed(self, idx: int):
+        """Tab-change handler: lazily (re)populate the Ledger tab (index 1)
+        when the user switches to it."""
         if idx == 1:
             self._populate_ledger()
 
     def _apply_header_kpis(self):
+        """Refresh the four header KPI labels (Total Received, Unpaid Balance,
+        combined Total, Active Events).
+
+        Sources the numbers from the currently visible rows (self._invoices)
+        so the header always matches the table, unless a header-period override
+        is active, in which case the separately-fetched self._header_summary is
+        used and the labels get a period suffix. Silently ignores errors."""
         # Header cards default to summing self._invoices DIRECTLY - i.e.
         # EXACTLY the rows currently shown in the table below - not a
         # separate DB-side aggregate. Those used to disagree (e.g. table
@@ -1281,6 +1498,12 @@ class BillingPage(QWidget):
         return None, None
 
     def _on_header_period_changed(self):
+        """Handler for the header 'Figures for' period combo.
+
+        Clearing the period reverts the header to matching the table. Selecting
+        a period fetches a summary scoped to that period's date range combined
+        with the list's current customer/paid-status filter, so the two
+        controls stack rather than override each other."""
         self._header_period = self._header_period_combo.currentData()
         if not self._header_period:
             self._header_summary = None
@@ -1294,10 +1517,18 @@ class BillingPage(QWidget):
                   date_start, date_end, self._filter_customer, self._filter_paid_status)
 
     def _on_header_summary_loaded(self, summary):
+        """UI-thread callback: store the period-scoped header summary (falling
+        back to zeros) and refresh the KPI labels."""
         self._header_summary = summary or {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
         self._apply_header_kpis()
 
     def _populate_table(self):
+        """Render the invoice card list from self._invoices.
+
+        Clears existing cards, refreshes the header KPIs, and either shows an
+        empty-state label or starts a batched render (via _render_next_batch)
+        of the current rows with the user's edit/delete permissions applied.
+        Invalidates any in-flight prior render by bumping the render token."""
         self._apply_header_kpis()
 
         while self.cards_layout.count():
@@ -1334,6 +1565,8 @@ class BillingPage(QWidget):
 
     @staticmethod
     def _insert_card_before_stretch(layout, card):
+        """Add `card` to `layout`, keeping it above a trailing stretch spacer if
+        present (so cards stay top-packed) without ever removing the spacer."""
         # Insert just before a trailing stretch spacer if one exists, rather
         # than ever taking the spacer out of the layout - repeatedly
         # take()-ing and discarding a QLayoutItem was the suspected trigger
@@ -1345,6 +1578,17 @@ class BillingPage(QWidget):
             layout.addWidget(card)
 
     def _render_next_batch(self, token: int, batch_size: int = 15):
+        """Render one batch of invoice cards, then reschedule itself for the
+        next batch via QTimer to keep the UI responsive.
+
+        Args:
+            token: the render token this chain belongs to; if a newer render
+                started, this stale chain stops.
+            batch_size: number of cards to build per tick.
+        When the queue drains it adds the trailing stretch, refreshes the
+        ledger if visible, clears the rendering guards, hides the loader once
+        nothing more is pending, and kicks off background pagination of the
+        next page."""
         # A newer reload/populate call superseded this one; stop.
         if token != getattr(self, "_render_token", None):
             return
@@ -1352,10 +1596,13 @@ class BillingPage(QWidget):
         if not isValid(self):
             return
 
+        # Pop this batch off the front of the render queue.
         batch = self._render_queue[:batch_size]
         del self._render_queue[:batch_size]
         can_edit, can_delete = self._render_perms
 
+        # Suspend repaints while inserting the batch, then re-enable once (a
+        # single paint instead of one per card).
         self.cards_container.setUpdatesEnabled(False)
         for inv in batch:
             i_card = self._create_invoice_card(inv, can_edit, can_delete)
@@ -1390,6 +1637,11 @@ class BillingPage(QWidget):
                 QTimer.singleShot(150, self._load_more_invoices)
 
     def _populate_ledger(self):
+        """Fill the Ledger tab's table with all payment-ledger entries
+        (date, customer, transaction, amount, status), coloring the status
+        cell by payment status. A query failure is logged and treated as an
+        empty ledger (distinguishable from a genuinely empty result via the
+        log)."""
         try:
             entries = repo.get_payment_ledger()
         except Exception as exc:
@@ -1418,6 +1670,22 @@ class BillingPage(QWidget):
             self.ledger_table.setItem(row, 4, status_item)
 
     def _create_invoice_card(self, inv: dict, can_edit: bool, can_delete: bool) -> QFrame:
+        """Build and return one invoice row card.
+
+        Renders four columns: invoice/customer/event date; Total/Paid/Balance;
+        status (+ an 'Unverified' badge for unverified non-zero payments); and
+        the action buttons. Which action buttons appear/enable is gated by
+        `can_edit`/`can_delete` and by the invoice's own state (balance,
+        booking link, verification). Balance is computed as Total - Paid; the
+        unreliable down-payment field is intentionally not used.
+
+        Args:
+            inv: the invoice dict.
+            can_edit: whether the user may record/verify/edit payments.
+            can_delete: whether the user may delete invoices.
+        Returns:
+            QFrame: the assembled card.
+        """
         card = QFrame()
         card.setObjectName("entryCard")
         lay = QHBoxLayout(card)
@@ -1528,6 +1796,8 @@ class BillingPage(QWidget):
         pay_btn.setStyleSheet("background: transparent; border: none;")
         pay_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
         pay_btn.setToolTip("Record Payment" if can_edit else "Permission required")
+        # Recording a payment requires edit rights, a real outstanding balance
+        # (>0.005 guards against float dust reading as owing), and a booking link.
         pay_btn.setEnabled(can_edit and bal > 0.005 and bool(inv.get("booking_id")))
         pay_btn.clicked.connect(lambda _, invoice=inv: self._record_payment_dict(invoice))
 
@@ -1579,6 +1849,8 @@ class BillingPage(QWidget):
         del_btn.setToolTip("Delete invoice" if can_delete else "Permission required to delete")
         del_btn.clicked.connect(lambda _, invoice=inv: self._delete_invoice_dict(invoice))
 
+        # Assemble the action row, gating edit-only and delete-only buttons on
+        # the caller's permissions (history/print are always available).
         if can_edit:
             actions_l.addWidget(pay_btn)
         actions_l.addWidget(hist_btn)
@@ -1595,6 +1867,8 @@ class BillingPage(QWidget):
         return card
 
     def _open_additional_charges(self, inv: dict):
+        """Open the Additional Charges dialog for the invoice's linked booking,
+        reloading the page if the user made changes. No-op without a booking."""
         if not inv.get("booking_id"):
             return
         from ui.booking_page import AdditionalChargesDialog
@@ -1605,12 +1879,17 @@ class BillingPage(QWidget):
             self.reload()
 
     def _edit_billing_dict(self, inv: dict):
+        """Open the EditBillingDialog for an invoice; on save, toast success
+        and reload the list."""
         dlg = EditBillingDialog(self, inv=inv)
         if dlg.exec() == QDialog.Accepted:
             success(self, message=f"Invoice {inv.get('invoice')} payment details updated successfully.")
             self.reload()
 
     def _verify_payment_dict(self, inv: dict):
+        """Manually mark an invoice's payment as verified/accepted, then reload.
+
+        No-op without a db_id; surfaces any repository error in a warning box."""
         if not inv.get("db_id"):
             return
         try:
@@ -1621,6 +1900,14 @@ class BillingPage(QWidget):
             QMessageBox.warning(self, "Verification Failed", str(e))
 
     def _record_payment_dict(self, inv: dict):
+        """Record a payment against a booking-linked invoice via the dialog.
+
+        On accept: persists the payment (repo.pay_invoice), updates the
+        in-memory invoice's paid/status and re-renders, writes an audit log
+        (classifying the first payment as a DOWN_PAYMENT), pushes a
+        notification, emits payment_recorded, and toasts success. Rejects
+        invoices with no booking link; surfaces persistence errors in a
+        warning box."""
         if not inv.get("booking_id"):
             QMessageBox.warning(self, "Not Allowed",
                 "This invoice is not linked to a booking and cannot accept payments through this flow.")
@@ -1630,6 +1917,7 @@ class BillingPage(QWidget):
             result = dlg.get_result()
             if result:
                 try:
+                    # Snapshot whether this is the first payment (for audit type).
                     was_unpaid = float(inv.get("paid", 0) or 0) <= 0
                     pr = repo.pay_invoice(
                         inv["booking_id"],
@@ -1658,6 +1946,11 @@ class BillingPage(QWidget):
                     QMessageBox.warning(self, "Payment Error", str(exc))
 
     def _delete_invoice_dict(self, inv: dict):
+        """Delete an invoice (after confirmation) and cancel its linked booking.
+
+        Cancelling the booking too keeps Orders/Calendar consistent (both hide
+        only CANCELLED bookings), so a deleted invoice doesn't leave a dangling
+        active booking. Removes the row locally, re-renders, and toasts."""
         if not confirm(self, title="Delete Invoice",
                        message=f"Are you sure you want to delete invoice '{inv.get('invoice', '')}'? "
                                 "This also cancels the linked booking (so it no longer shows on Orders/Calendar). "
@@ -1708,6 +2001,10 @@ class BillingPage(QWidget):
         return additional_charges, payment_records, down_payment
 
     def _print_receipt_dict(self, inv: dict):
+        """Prompt for a save path and export a receipt PDF for the invoice
+        (including its charges, payment history and down payment). Logs the
+        receipt as 'print' on success; warns if PDF generation failed. Cancels
+        silently if no path is chosen."""
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Receipt PDF",
             f"receipt_{inv.get('invoice', 'receipt')}.pdf",
@@ -1727,6 +2024,11 @@ class BillingPage(QWidget):
                 "Could not generate PDF. Make sure reportlab is installed.")
 
     def _email_receipt_dict(self, inv: dict):
+        """Generate a receipt PDF to a temp file and email it to the customer.
+
+        Resolves the recipient from the invoice or the customer record; bails
+        with a warning if there's no valid email or SMTP isn't configured. Logs
+        the receipt as 'email' on success and always cleans up the temp file."""
         to_email = inv.get("customer_email", "").strip()
         if not to_email:
             to_email = repo.get_customer_email_by_name(inv.get("customer", "")).strip()
@@ -1741,6 +2043,8 @@ class BillingPage(QWidget):
             QMessageBox.warning(self, "SMTP Not Configured",
                 "Please configure SMTP settings in the Settings page before sending emails.")
             return
+        # Create a temp path for the PDF (delete=False so we control cleanup in
+        # the finally block after the mailer has read the file).
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
             tmp_path = tmp.name
         try:
@@ -1766,6 +2070,13 @@ class BillingPage(QWidget):
                 pass
 
     def filter_search(self, text):
+        """Run a server-side search across the FULL invoice set for `text`.
+
+        Searching the whole dataset (not just the currently filtered subset)
+        prevents results from silently disappearing behind the active
+        paid-status/date-window filter. An empty query triggers a fresh reload
+        instead. Disables pagination for the results and bumps the data
+        generation so a stale in-flight fetch can't overwrite them."""
         # Search the FULL invoice set (ignoring the paid-status/date-window
         # filters) via a server-side query, rather than filtering only
         # within whatever subset the current filter already loaded. Without
@@ -1793,6 +2104,10 @@ class BillingPage(QWidget):
         run_async(self, repo.search_invoices, lambda results, g=gen: self._on_search_results(results, g), None, q)
 
     def _on_search_results(self, results, gen=None):
+        """UI-thread callback for a search query: replace the invoice list with
+        the results and re-render. Discards stale (superseded) generations, and
+        releases the reload in-flight guard if this search ran inside a
+        reload()."""
         if gen is not None and gen != getattr(self, "_data_gen", None):
             return  # A newer search/reload has since started - discard.
         self._invoices = results or []
@@ -1803,6 +2118,9 @@ class BillingPage(QWidget):
             self._reload_finished()
 
     def export_csv(self):
+        """Export the currently loaded invoices to a user-chosen CSV file
+        (invoice, customer, event date, total, balance, status). Balance is
+        computed as Total - Paid. Cancels silently if no path is chosen."""
         path, _ = QFileDialog.getSaveFileName(self, "Export Invoices", "invoices.csv", "CSV Files (*.csv)")
         if not path:
             return
