@@ -627,18 +627,13 @@ export const api = {
   async reorderMenuCategories(orderedNames) {
     await ready();
     const ok = repo.reorderMenuCategories(orderedNames);
-    const pushed = await _proxyPackageWrite("POST", "/api/menu-categories/reorder", {
-      ordered_names: orderedNames || [],
-    }).catch(() => false);
-    if (!pushed) {
-      for (let i = 0; i < (orderedNames || []).length; i++) {
-        const name = (orderedNames[i] || "").trim();
-        if (name) {
-          await _proxyServerWrite("UPDATE menu_categories SET mc_sort = ?, mc_is_active = 1 WHERE LOWER(TRIM(mc_name)) = LOWER(TRIM(?))", [i, name]).catch(() => {});
-        }
-      }
-    }
-    api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Category reorder sync note:", e));
+    let pushed = false;
+    try {
+      pushed = await _proxyPackageWrite("POST", "/api/menu-categories/reorder", {
+        ordered_names: orderedNames || [],
+      });
+    } catch (_) {}
+    api.autoSyncPendingRecords().catch(() => {});
     return { ok, pushed };
   },
 
