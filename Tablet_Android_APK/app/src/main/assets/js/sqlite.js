@@ -318,97 +318,21 @@ function seedDefaults() {
     }
   }
 
-  // Seed Default Offline Packages if empty
+  // Purge any stale categories on the tablet that have no matching dishes in menu_items
   try {
-    if (countOf("packages") === 0) {
-      const defaultPkgs = [
-        ["Classic Celebration Package", "Standard catering buffet package with 4 main dishes, rice, dessert, and drinks.", 350.0, 30],
-        ["Premium Grand Feast", "Deluxe buffet with 6 main dishes, roast pork lechon belly, 2 desserts, and beverage bar.", 550.0, 50],
-        ["Executive VIP Buffet", "Top-tier package with live carving station, 7 signature mains, seafood, and full dessert table.", 850.0, 50],
-      ];
-      for (const [name, desc, price, min_pax] of defaultPkgs) {
-        db.run("INSERT OR IGNORE INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)", [name, desc, price, min_pax]);
-      }
+    const dishCount = db.exec("SELECT COUNT(*) FROM menu_items")[0]?.values[0][0] || 0;
+    if (dishCount > 0) {
+      db.run(`
+        DELETE FROM menu_categories 
+        WHERE LOWER(TRIM(mc_name)) NOT IN (
+          SELECT DISTINCT LOWER(TRIM(mi_category)) 
+          FROM menu_items 
+          WHERE mi_category IS NOT NULL AND TRIM(mi_category) != ''
+        )
+      `);
     }
   } catch (err) {
-    console.warn("[SQLite] Package seed note:", err);
-  }
-
-  // Seed Default Offline Menu Items if empty
-  try {
-    if (countOf("menu_items") === 0) {
-      const defaultItems = [
-        ["Special Pork Humba", "Main Course", "Standard", 450.0, "Available", "Slow cooked pork belly with banana blossoms"],
-        ["Lechon Belly Roast", "Main Course", "Premium", 1200.0, "Available", "Crispy rolled pork belly with herbs"],
-        ["Chicken Pandan", "Main Course", "Standard", 380.0, "Available", "Wrapped savory fried chicken"],
-        ["Garlic Butter Buttered Shrimp", "Main Course", "Premium", 550.0, "Available", "Fresh prawns in savory garlic butter"],
-        ["Sweet & Sour Fish Fillet", "Main Course", "Standard", 360.0, "Available", "Crispy fish fillet in pineapple sweet sauce"],
-        ["Beef with Broccoli", "Main Course", "Standard", 480.0, "Available", "Tender beef slices in oyster glaze"],
-        ["Biko with Latik", "Dessert", "Standard", 250.0, "Available", "Traditional sweet sticky rice"],
-        ["Mango Tapioca", "Dessert", "Standard", 220.0, "Available", "Chilled mango cubes with sago pearls"],
-        ["Refillable Iced Tea", "Drinks", "Standard", 150.0, "Available", "House blend lemon iced tea"],
-      ];
-      for (const [name, cat, pkg, price, status, desc] of defaultItems) {
-        db.run("INSERT OR IGNORE INTO menu_items (mi_name, name, mi_category, category, mi_package_tier, mi_package, mi_price, price, mi_status, status, mi_description, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [name, name, cat, cat, pkg, pkg, price, price, status, status, desc, desc]);
-      }
-    }
-  } catch (err) {
-    console.warn("[SQLite] Menu items seed note:", err);
-  }
-
-  // Seed Default Package Items if empty
-  try {
-    if (countOf("package_items") === 0) {
-      const pkgs = db.exec("SELECT pkg_id FROM packages")[0]?.values || [];
-      const items = db.exec("SELECT mi_id, mi_name, mi_category FROM menu_items")[0]?.values || [];
-      for (const [pkgId] of pkgs) {
-        for (const [miId, miName, miCat] of items) {
-          db.run("INSERT INTO package_items (pi_package_id, pi_menu_item_id, pi_item_name, pi_category, pi_quantity) VALUES (?, ?, ?, ?, 1)", [pkgId, miId, miName, miCat]);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("[SQLite] Package items seed note:", err);
-  }
-
-  // Seed Menu Categories strictly from existing menu items only if empty (NO predefined categories!)
-  try {
-    // Clean up any stale predefined categories if they have no dishes in menu_items
-    const stalePredefined = ["Beef", "Pork", "Chicken", "Fish & Seafood", "Pasta & Noodles", "Vegetables", "Dessert", "Beverage", "Add-on"];
-    for (const cat of stalePredefined) {
-      const cnt = db.exec("SELECT COUNT(*) FROM menu_items WHERE mi_category = ?", [cat])[0]?.values[0][0] || 0;
-      if (cnt === 0) {
-        db.run("DELETE FROM menu_categories WHERE mc_name = ?", [cat]);
-      }
-    }
-
-    if (countOf("menu_categories") === 0) {
-      const existingCats = db.exec("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND TRIM(mi_category) != ''")[0]?.values || [];
-      let nextSort = 0;
-      for (const [cat] of existingCats) {
-        const c = String(cat || "").trim();
-        if (c) {
-          db.run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort, mc_is_active) VALUES (?, ?, 1)", [c, nextSort++]);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("[SQLite] Menu categories seed note:", err);
-  }
-
-  // Seed Default Occasions if empty
-  try {
-    if (countOf("occasions") === 0) {
-      const defaultOccasions = [
-        "Wedding", "Birthday", "Debut", "Corporate Event", "Anniversary",
-        "Christening", "Graduation", "Holiday Party"
-      ];
-      for (const occ of defaultOccasions) {
-        db.run("INSERT OR IGNORE INTO occasions (occ_name, occ_is_active) VALUES (?, 1)", [occ]);
-      }
-    }
-  } catch (err) {
-    console.warn("[SQLite] Occasions seed note:", err);
+    console.warn("[SQLite] Stale category cleanup note:", err);
   }
 }
 
