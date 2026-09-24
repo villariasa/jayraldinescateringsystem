@@ -1361,7 +1361,23 @@ async function renderStepMenu(card) {
   }
 
   const selectedIds = new Set(d.menuSelections.map((m) => m.menu_item_id));
-  const categories = Object.keys(menuGroupedCache);
+
+  // Sort categories by admin-defined display order from api.getMenuCategories()
+  let adminCats = [];
+  try {
+    adminCats = await api.getMenuCategories();
+  } catch (_) {}
+  const rank = new Map(adminCats.map((name, i) => [String(name).toLowerCase().trim(), i]));
+  const sortCatFn = (a, b) => {
+    const keyA = String(a).toLowerCase().trim();
+    const keyB = String(b).toLowerCase().trim();
+    const ra = rank.has(keyA) ? rank.get(keyA) : 999;
+    const rb = rank.has(keyB) ? rank.get(keyB) : 999;
+    if (ra !== rb) return ra - rb;
+    return String(a).localeCompare(String(b));
+  };
+
+  const categories = Object.keys(menuGroupedCache).sort(sortCatFn);
 
   // ── Selection buckets (dish/dessert quotas) ──────────────────────────
   // A package with buckets limits how many dishes may be picked per bucket
@@ -1369,12 +1385,14 @@ async function renderStepMenu(card) {
   const pkgBuckets = (d.package && Array.isArray(d.package.buckets)) ? d.package.buckets : [];
   const hasBuckets = pkgBuckets.length > 0;
   const _catBucket = {};
-  for (const b of pkgBuckets) for (const c of (b.categories || [])) _catBucket[String(c).toLowerCase()] = b;
-  const bucketOf = (cat) => _catBucket[String(cat || "").toLowerCase()] || null;
+  for (const b of pkgBuckets) for (const c of (b.categories || [])) _catBucket[String(c).toLowerCase().trim()] = b;
+  const bucketOf = (cat) => _catBucket[String(cat || "").toLowerCase().trim()] || null;
   const countInBucket = (b) => d.menuSelections.filter((m) => bucketOf(m.category) === b).length;
   // When buckets are defined, only show categories that belong to a bucket.
-  const visibleCategories = hasBuckets ? categories.filter((c) => bucketOf(c)) : categories;
-  const visibleEntries = Object.entries(menuGroupedCache).filter(([cat]) => !hasBuckets || bucketOf(cat));
+  const visibleCategories = (hasBuckets ? categories.filter((c) => bucketOf(c)) : categories).sort(sortCatFn);
+  const visibleEntries = Object.entries(menuGroupedCache)
+    .filter(([cat]) => !hasBuckets || bucketOf(cat))
+    .sort(([catA], [catB]) => sortCatFn(catA, catB));
   const totalAll = visibleEntries.reduce((sum, [, arr]) => sum + (arr ? arr.length : 0), 0);
 
   card.innerHTML = `
