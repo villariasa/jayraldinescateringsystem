@@ -429,16 +429,27 @@ export function getAllMenuItems() {
   let rows = [];
   try {
     rows = fetchAll(`
-      SELECT mi.*, COALESCE(NULLIF(ei.image_data, ''), '') AS entity_image_data
+      SELECT mi.*, COALESCE(NULLIF(ei.image_data, ''), '') AS entity_image_data,
+             COALESCE(mc.mc_sort, 999) AS cat_sort
       FROM menu_items mi
       LEFT JOIN entity_images ei ON ei.entity_type = 'menu_item' AND ei.entity_id = mi.mi_id
-      ORDER BY mi.mi_category, mi.mi_name
+      LEFT JOIN menu_categories mc ON LOWER(TRIM(mc.mc_name)) = LOWER(TRIM(mi.mi_category))
+      ORDER BY cat_sort ASC, mi.mi_name ASC
     `);
   } catch (e) {
     try {
-      rows = fetchAll("SELECT * FROM menu_items ORDER BY mi_category, mi_name");
+      rows = fetchAll(`
+        SELECT mi.*, COALESCE(mc.mc_sort, 999) AS cat_sort
+        FROM menu_items mi
+        LEFT JOIN menu_categories mc ON LOWER(TRIM(mc.mc_name)) = LOWER(TRIM(mi.mi_category))
+        ORDER BY cat_sort ASC, mi.mi_name ASC
+      `);
     } catch (_) {
-      rows = [];
+      try {
+        rows = fetchAll("SELECT * FROM menu_items ORDER BY mi_category, mi_name");
+      } catch (_) {
+        rows = [];
+      }
     }
   }
 
@@ -479,27 +490,79 @@ export function deleteMenuItem(miId) {
 }
 
 export function getMenuCategories() {
-  // Admin-defined display order: strictly fetch distinct categories present in menu_items
-  // joined with menu_categories to get their custom mc_sort order.
-  // This guarantees NO stale/predefined empty categories appear, and dishes always follow admin order.
-  const rows = fetchAll(`
-    SELECT mi_cat.cat_name, COALESCE(mc.mc_sort, 999) AS cat_sort
-    FROM (
+  // 1. Check local stored order fallback first if saved recently
+  let cachedRank = null;
+  let cachedNames = [];
+  if (typeof localStorage !== "undefined") {
+    try {
+      const raw = localStorage.getItem("jc_category_order");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          cachedNames = parsed.map((c) => String(c).trim()).filter(Boolean);
+          cachedRank = new Map(cachedNames.map((c, i) => [c.toLowerCase(), i]));
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 2. Query categories from DB table
+  let dbRows = [];
+  try {
+    dbRows = fetchAll(`
+      SELECT mc_name, COALESCE(mc_sort, 999) AS cat_sort
+      FROM menu_categories
+      WHERE mc_is_active = 1 OR mc_is_active IS NULL
+      ORDER BY COALESCE(mc_sort, 999) ASC, mc_id ASC
+    `);
+  } catch (_) {}
+
+  // 3. Query distinct categories from menu items
+  let itemRows = [];
+  try {
+    itemRows = fetchAll(`
       SELECT DISTINCT mi_category AS cat_name
       FROM menu_items
       WHERE mi_category IS NOT NULL AND TRIM(mi_category) != ''
-    ) mi_cat
-    LEFT JOIN menu_categories mc ON LOWER(TRIM(mc.mc_name)) = LOWER(TRIM(mi_cat.cat_name))
-    ORDER BY cat_sort ASC, mi_cat.cat_name ASC
-  `);
-  if (rows && rows.length > 0) {
-    return rows.map((r) => r.cat_name);
+    `);
+  } catch (_) {}
+
+  let res = [];
+  const seen = new Set();
+
+  if (dbRows && dbRows.length > 0) {
+    for (const r of dbRows) {
+      const name = String(r.mc_name || "").trim();
+      if (name && !seen.has(name.toLowerCase())) {
+        seen.add(name.toLowerCase());
+        res.push(name);
+      }
+    }
   }
-  const fallback = fetchAll(
-    "SELECT mc_name FROM menu_categories WHERE mc_is_active = 1 OR mc_is_active IS NULL "
-    + "ORDER BY COALESCE(mc_sort, 0), mc_id"
-  );
-  return fallback.map((r) => r.mc_name);
+
+  if (itemRows && itemRows.length > 0) {
+    for (const r of itemRows) {
+      const name = String(r.cat_name || "").trim();
+      if (name && !seen.has(name.toLowerCase())) {
+        seen.add(name.toLowerCase());
+        res.push(name);
+      }
+    }
+  }
+
+  // If cachedRank has custom user order, enforce that rank
+  if (cachedRank && res.length > 0) {
+    res.sort((a, b) => {
+      const ka = a.toLowerCase();
+      const kb = b.toLowerCase();
+      const ra = cachedRank.has(ka) ? cachedRank.get(ka) : 999;
+      const rb = cachedRank.has(kb) ? cachedRank.get(kb) : 999;
+      if (ra !== rb) return ra - rb;
+      return a.localeCompare(b);
+    });
+  }
+
+  return res;
 }
 
 export function reorderMenuCategories(orderedNames) {
@@ -507,21 +570,21 @@ export function reorderMenuCategories(orderedNames) {
     .map((item) => (typeof item === "string" ? item : (item?.mc_name || item?.name || "")).trim())
     .filter(Boolean);
 
-  names.forEach((name, i) => {
-    run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort, mc_is_active) VALUES (?, ?, 1)", [name, i]);
-    run("UPDATE menu_categories SET mc_sort = ?, mc_is_active = 1 WHERE LOWER(TRIM(mc_name)) = LOWER(TRIM(?))", [i, name]);
-  });
-
-  // Push any existing categories in menu_categories not in ordered list after them
-  const nextSort = names.length;
-  const existing = fetchAll("SELECT mc_id, mc_name FROM menu_categories");
-  const inOrderSet = new Set(names.map((n) => n.toLowerCase()));
-  let extraSort = nextSort;
-  for (const r of existing) {
-    if (!inOrderSet.has(String(r.mc_name || "").toLowerCase().trim())) {
-      run("UPDATE menu_categories SET mc_sort = ? WHERE mc_id = ?", [extraSort++, r.mc_id]);
-    }
+  if (typeof localStorage !== "undefined") {
+    try {
+      localStorage.setItem("jc_category_order", JSON.stringify(names));
+    } catch (_) {}
   }
+
+  try {
+    run("DELETE FROM menu_categories");
+    names.forEach((name, i) => {
+      run("INSERT INTO menu_categories (mc_name, mc_sort, mc_is_active) VALUES (?, ?, 1)", [name, i]);
+    });
+  } catch (err) {
+    console.warn("[repo] reorderMenuCategories error:", err);
+  }
+
   return true;
 }
 
@@ -916,14 +979,19 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
   if (menuCategories && menuCategories.length > 0) {
     try {
       run("DELETE FROM menu_categories");
+      const savedNames = [];
       menuCategories.forEach((catObj, i) => {
         const name = (typeof catObj === "string" ? catObj : (catObj?.mc_name || catObj?.name || "")).trim();
         const sort = typeof catObj === "object" && catObj?.mc_sort != null ? Number(catObj.mc_sort) : i;
         const active = typeof catObj === "object" && catObj?.mc_is_active != null ? Number(catObj.mc_is_active) : 1;
         if (name) {
           run("INSERT INTO menu_categories (mc_name, mc_sort, mc_is_active) VALUES (?, ?, ?)", [name, sort, active]);
+          savedNames.push(name);
         }
       });
+      if (typeof localStorage !== "undefined" && savedNames.length > 0) {
+        localStorage.setItem("jc_category_order", JSON.stringify(savedNames));
+      }
     } catch (err) {
       console.warn("[repo] sync menuCategories note:", err);
     }
