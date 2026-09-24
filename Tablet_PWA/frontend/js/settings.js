@@ -965,12 +965,19 @@ async function renderMenuTab(content) {
         <option value="">All Categories (${items.length})</option>
         ${categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
       </select>
+      <button class="btn btn-secondary" id="reorder-cats">
+        ${icon("layers")} Reorder Categories
+      </button>
       <button class="btn btn-primary" id="add-item">
         ${icon("plus")} Add Menu Item
       </button>
     </div>
     <div class="settings-card-grid" id="menu-rows"></div>
   `;
+
+  content.querySelector("#reorder-cats").addEventListener("click", () => {
+    openCategoryReorderModal(categories, () => renderMenuTab(content));
+  });
 
   function renderRows() {
     const filter = content.querySelector("#cat-filter").value;
@@ -1013,6 +1020,103 @@ async function renderMenuTab(content) {
   content.querySelector("#cat-filter").addEventListener("change", renderRows);
   content.querySelector("#add-item").addEventListener("click", () => openMenuItemForm(content, null, categories));
   renderRows();
+}
+
+// Drag-and-drop category reorder (Settings > Menu Dishes & Add-ons).
+// Uses Pointer Events (not HTML5 dragstart/dragover) so it works with touch
+// on the kiosk tablet's screen, not just a mouse.
+function openCategoryReorderModal(categories, onSaved) {
+  const formId = "category-reorder-modal";
+  let order = [...categories];
+
+  openModal({
+    id: formId,
+    title: `${icon("layers")} Reorder Menu Categories`,
+    bodyHtml: `
+      <p style="color:var(--text-muted); font-size:13px; margin:0 0 12px;">
+        Drag by the handle to change the order dishes appear in on the Dashboard and Order screens.
+      </p>
+      <ul id="cat-reorder-list" style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px;"></ul>
+    `,
+    footerHtml: `
+      <button class="btn btn-secondary" data-close>Cancel</button>
+      <button class="btn btn-primary" id="save-cat-order">${icon("check")} Save Order</button>
+    `,
+  });
+
+  const modal = document.getElementById(formId);
+  const list = modal.querySelector("#cat-reorder-list");
+
+  function renderList() {
+    list.innerHTML = order.map((name, i) => `
+      <li class="management-card" data-cat-row="${i}" style="display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:default;">
+        <span class="drag-handle" style="cursor:grab; touch-action:none; color:var(--text-muted); display:flex;">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+        </span>
+        <span style="flex:1; font-weight:600;">${escapeHtml(name)}</span>
+      </li>
+    `).join("");
+
+    list.querySelectorAll(".drag-handle").forEach((handle) => {
+      handle.addEventListener("pointerdown", (e) => startDrag(e, handle));
+    });
+  }
+
+  function markDragging(index) {
+    list.querySelectorAll("[data-cat-row]").forEach((r, i) => {
+      r.style.opacity = i === index ? "0.6" : "";
+    });
+  }
+
+  // Uses document-level listeners (not listeners on the dragged element)
+  // because renderList() rebuilds the <li> nodes on every reorder step —
+  // an element-bound listener would go dead the moment its node is replaced.
+  // The dragged item's position is tracked via `curIndex` in this closure,
+  // not by re-locating a DOM node, for the same reason.
+  function startDrag(e, handle) {
+    e.preventDefault();
+    const row = handle.closest("[data-cat-row]");
+    let curIndex = Number(row.dataset.catRow);
+    markDragging(curIndex);
+
+    function onMove(ev) {
+      const rows = Array.from(list.querySelectorAll("[data-cat-row]"));
+      const y = ev.clientY;
+      for (let i = 0; i < rows.length; i++) {
+        if (i === curIndex) continue;
+        const rect = rows[i].getBoundingClientRect();
+        const mid = rect.top + rect.height / 2;
+        if ((i < curIndex && y < mid) || (i > curIndex && y > mid)) {
+          const [moved] = order.splice(curIndex, 1);
+          order.splice(i, 0, moved);
+          curIndex = i;
+          renderList();
+          markDragging(curIndex);
+          break;
+        }
+      }
+    }
+    function onUp() {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      list.querySelectorAll("[data-cat-row]").forEach((r) => (r.style.opacity = ""));
+    }
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp, { once: true });
+  }
+
+  renderList();
+
+  modal.querySelector("#save-cat-order").addEventListener("click", async () => {
+    try {
+      await api.reorderMenuCategories(order);
+      toast("Category order saved!", "success");
+      closeModal(formId);
+      if (onSaved) onSaved();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
 }
 
 function openMenuItemForm(content, item, categories) {
