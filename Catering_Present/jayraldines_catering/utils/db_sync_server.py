@@ -1712,6 +1712,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
 
 def perform_server_sync(payload: dict) -> dict:
     """Executes live duplicate-proof bidirectional synchronization."""
+    import utils.repository as repo
     candidate_custs = payload.get("customers") or []
     candidate_bks = payload.get("bookings") or []
 
@@ -2270,43 +2271,14 @@ def perform_server_sync(payload: dict) -> dict:
         logger.warning(f"[SyncServer] Failed to fetch occasions: {oe}")
         occasions = []
 
-    # Pull latest menu categories in admin-defined sort order
+    # Pull latest menu categories strictly matching dishes in admin-defined sort order
     menu_categories = []
     try:
-        mc_raw = db.fetchall("""
-            SELECT mc_id, mc_name, COALESCE(mc_sort, 0) AS mc_sort, COALESCE(mc_is_active, 1) AS mc_is_active
-            FROM menu_categories
-            WHERE mc_is_active = 1 OR mc_is_active IS NULL
-            ORDER BY COALESCE(mc_sort, 999) ASC, mc_id ASC
-        """) or []
+        cat_names = repo.get_all_menu_categories()
         menu_categories = [
-            {
-                "mc_id": r["mc_id"],
-                "mc_name": str(r["mc_name"]).strip(),
-                "mc_sort": int(r.get("mc_sort") or 0),
-                "mc_is_active": int(r.get("mc_is_active") or 1)
-            }
-            for r in mc_raw if r.get("mc_name") and str(r["mc_name"]).strip()
+            {"mc_id": idx + 1, "mc_name": str(c).strip(), "mc_sort": idx, "mc_is_active": 1}
+            for idx, c in enumerate(cat_names) if str(c).strip()
         ]
-        if not menu_categories:
-            cat_names = repo.get_all_menu_categories()
-            menu_categories = [
-                {"mc_id": idx + 1, "mc_name": str(c).strip(), "mc_sort": idx, "mc_is_active": 1}
-                for idx, c in enumerate(cat_names) if str(c).strip()
-            ]
-        else:
-            existing_names = {r["mc_name"].lower() for r in menu_categories}
-            all_dish_cats = repo.get_all_menu_categories()
-            for c in all_dish_cats:
-                clean_c = str(c).strip()
-                if clean_c and clean_c.lower() not in existing_names:
-                    menu_categories.append({
-                        "mc_id": len(menu_categories) + 1,
-                        "mc_name": clean_c,
-                        "mc_sort": len(menu_categories),
-                        "mc_is_active": 1
-                    })
-                    existing_names.add(clean_c.lower())
     except Exception as mce:
         logger.warning(f"[SyncServer] Failed to fetch menu_categories: {mce}")
         menu_categories = []
