@@ -490,7 +490,7 @@ export function deleteMenuItem(miId) {
 }
 
 export function getMenuCategories() {
-  // 1. Query categories from DB table (authoritative order from PC server or tablet save)
+  // 1. Query categories strictly from menu_categories table (authoritative from PC DB Server)
   let dbRows = [];
   try {
     dbRows = fetchAll(`
@@ -501,7 +501,20 @@ export function getMenuCategories() {
     `);
   } catch (_) {}
 
-  // 2. Query distinct categories from menu items
+  if (dbRows && dbRows.length > 0) {
+    const res = [];
+    const seen = new Set();
+    for (const r of dbRows) {
+      const name = String(r.mc_name || "").trim();
+      if (name && !seen.has(name.toLowerCase())) {
+        seen.add(name.toLowerCase());
+        res.push(name);
+      }
+    }
+    return res;
+  }
+
+  // 2. Fallback only if menu_categories table is completely empty
   let itemRows = [];
   try {
     itemRows = fetchAll(`
@@ -511,20 +524,8 @@ export function getMenuCategories() {
     `);
   } catch (_) {}
 
-  let res = [];
+  const res = [];
   const seen = new Set();
-
-  if (dbRows && dbRows.length > 0) {
-    for (const r of dbRows) {
-      const name = String(r.mc_name || "").trim();
-      if (name && !seen.has(name.toLowerCase())) {
-        seen.add(name.toLowerCase());
-        res.push(name);
-      }
-    }
-  }
-
-  // Any dish category not yet in dbRows gets appended at the end
   if (itemRows && itemRows.length > 0) {
     for (const r of itemRows) {
       const name = String(r.cat_name || "").trim();
@@ -533,27 +534,6 @@ export function getMenuCategories() {
         res.push(name);
       }
     }
-  }
-
-  // If DB table was empty, only then fall back to localStorage order
-  if ((!dbRows || dbRows.length === 0) && res.length > 0 && typeof localStorage !== "undefined") {
-    try {
-      const raw = localStorage.getItem("jc_category_order");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const cachedRank = new Map(parsed.map((c, i) => [String(c).toLowerCase().trim(), i]));
-          res.sort((a, b) => {
-            const ka = a.toLowerCase();
-            const kb = b.toLowerCase();
-            const ra = cachedRank.has(ka) ? cachedRank.get(ka) : 999;
-            const rb = cachedRank.has(kb) ? cachedRank.get(kb) : 999;
-            if (ra !== rb) return ra - rb;
-            return a.localeCompare(b);
-          });
-        }
-      }
-    } catch (_) {}
   }
 
   return res;
@@ -1035,16 +1015,7 @@ export function getAllOccasions() {
   } catch (err) {
     console.warn("[repository] getAllOccasions error:", err);
   }
-  return [
-    { id: 1, name: "Wedding", is_active: 1 },
-    { id: 2, name: "Birthday", is_active: 1 },
-    { id: 3, name: "Debut", is_active: 1 },
-    { id: 4, name: "Corporate Event", is_active: 1 },
-    { id: 5, name: "Anniversary", is_active: 1 },
-    { id: 6, name: "Christening", is_active: 1 },
-    { id: 7, name: "Graduation", is_active: 1 },
-    { id: 8, name: "Holiday Party", is_active: 1 }
-  ];
+  return [];
 }
 
 export function addOccasion(name) {
