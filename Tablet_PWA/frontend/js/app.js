@@ -1378,11 +1378,12 @@ async function mountLandingMenuShowcase() {
       <button class="kiosk-cat-pill ${selectedCat === 'ALL' ? 'active' : ''}" data-cat="ALL">
         ${icon("utensils")} All Dishes (${allMenuItems.length})
       </button>
-      ${categories.map(cat => {
+      ${categories.map((cat, idx) => {
         const count = allMenuItems.filter(it => (it.category || "").trim().toLowerCase() === cat.toLowerCase()).length;
         const isActive = selectedCat.toLowerCase() === cat.toLowerCase();
         return `
           <button class="kiosk-cat-pill ${isActive ? 'active' : ''}" data-cat="${escapeHtml(cat)}">
+            <span class="cat-pill-order-badge" style="display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; padding:0 5px; border-radius:10px; background:${isActive ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.08)'}; font-size:11px; font-weight:800; margin-right:6px;">${idx + 1}</span>
             ${escapeHtml(cat)} (${count})
           </button>
         `;
@@ -1443,7 +1444,10 @@ async function mountLandingMenuShowcase() {
       return;
     }
 
-    grid.innerHTML = filtered.map(it => `
+    grid.innerHTML = filtered.map(it => {
+      const catKey = String(it.category || "").toLowerCase().trim();
+      const catOrderPrefix = catRankMap.has(catKey) ? `${catRankMap.get(catKey) + 1}. ` : "";
+      return `
       <div class="card showcase-dish-card" data-dish-id="${it.id}">
         <div class="showcase-card-img-wrap">
           ${it.image ? `
@@ -1454,7 +1458,7 @@ async function mountLandingMenuShowcase() {
               <span class="placeholder-cat">${escapeHtml(it.category || "Specialty")}</span>
             </div>
           `}
-          <span class="showcase-card-badge">${escapeHtml(it.category || "Main Dish")}</span>
+          <span class="showcase-card-badge">${catOrderPrefix}${escapeHtml(it.category || "Main Dish")}</span>
           ${it.price > 0 ? `
             <span class="showcase-card-price">${peso(it.price)}</span>
           ` : `
