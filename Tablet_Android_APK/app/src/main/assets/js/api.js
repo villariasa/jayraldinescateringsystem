@@ -565,6 +565,21 @@ export const api = {
     return repo.getMenuCategories();
   },
 
+  // Persists a new admin-defined category display order (drag-and-drop in
+  // Settings > Menu Categories) locally, then pushes it to the Central
+  // Server so the desktop app and every other tablet pick it up on their
+  // next sync. Await the push before syncing — same race-avoidance
+  // reasoning as package/menu-item edits.
+  async reorderMenuCategories(orderedNames) {
+    await ready();
+    const ok = repo.reorderMenuCategories(orderedNames);
+    await _proxyPackageWrite("POST", "/api/menu-categories/reorder", {
+      ordered_names: orderedNames || [],
+    }).catch(() => {});
+    api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Category reorder sync note:", e));
+    return { ok };
+  },
+
   async createMenuItem(data) {
     await ready();
     const id = repo.addMenuItem(data.name, data.category, data.price, data.status, data.description, data.image);
@@ -572,10 +587,14 @@ export const api = {
     if (imageChanged) {
       repo.queueMenuItemImageUpload(id, data.image || "", !data.image, data.name);
     }
-    _proxyServerWrite(
-      "INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description) VALUES (?, ?, ?, ?, ?)",
-      [data.name, data.category || "Main Dish", Number(data.price) || 0, data.status || "Available", data.description || ""]
-    ).catch(() => {});
+    // Route through the real /api/menu-items REST endpoint (like packages),
+    // not the never-implemented /api/db/write raw-SQL path — otherwise this
+    // never reaches the kiosk server or syncs to Postgres/other devices.
+    await _proxyPackageWrite("POST", "/api/menu-items", {
+      name: data.name, category: data.category || "Main Dish",
+      price: data.price != null ? Number(data.price) : 0,
+      status: data.status || "Available", description: data.description || "",
+    }).catch(() => {});
     api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Menu item upload queued:", e));
     return { id, image_sync: imageChanged ? "pending" : "none" };
   },
@@ -586,17 +605,23 @@ export const api = {
     if (imageChanged) {
       repo.queueMenuItemImageUpload(id, data.image || "", !data.image, data.name);
     }
-    _proxyServerWrite(
-      "UPDATE menu_items SET mi_name = ?, mi_category = ?, mi_price = ?, mi_status = ?, mi_description = ? WHERE mi_id = ?",
-      [data.name, data.category || "Main Dish", Number(data.price) || 0, data.status || "Available", data.description || "", id]
-    ).catch(() => {});
+    // price may legitimately be 0 (e.g. a free/promo item) — keep that intact
+    // rather than letting `|| 0` mask a real value. Await this before syncing
+    // so the sync's pull step doesn't race ahead of the edit and pull back
+    // the stale price. Uses the real /api/menu-items/{id} endpoint (like
+    // packages), not the never-implemented /api/db/write raw-SQL path.
+    await _proxyPackageWrite("PUT", `/api/menu-items/${id}`, {
+      name: data.name, category: data.category || "Main Dish",
+      price: data.price != null ? Number(data.price) : 0,
+      status: data.status || "Available", description: data.description || "",
+    }).catch(() => {});
     api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Menu item sync note:", e));
     return { ok, image_sync: imageChanged ? "pending" : "unchanged" };
   },
   async deleteMenuItem(id) {
     await ready();
     repo.deleteMenuItem(id);
-    _proxyServerWrite("DELETE FROM menu_items WHERE mi_id = ?", [id]).catch(() => {});
+    _proxyPackageWrite("DELETE", `/api/menu-items/${id}`).catch(() => {});
     return { ok: true };
   },
 
@@ -986,8 +1011,8 @@ export const api = {
         _knownServerDbVersion = Math.max(_knownServerDbVersion || 0, sVer);
       }
 
-      if (res.packages || res.menu_items || res.customers || res.occasions) {
-        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || [], res.occasions || [], res.package_buckets || []);
+      if (res.packages || res.menu_items || res.customers || res.occasions || res.menu_categories) {
+        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || [], res.occasions || [], res.package_buckets || [], res.menu_categories || []);
       }
       if (res.synced_booking_refs || res.synced_customer_names) {
         repo.markRecordsSynced(res.synced_booking_refs || [], res.synced_customer_names || []);
