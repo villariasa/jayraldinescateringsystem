@@ -2529,3 +2529,12 @@ export function openLightCalendarModal(onSelectDate, opts = {}) {
 
   renderMonth();
 }
+
+window.addEventListener("kiosk:categories-changed", () => {
+  menuGroupedCache = {};
+  const stepCard = document.querySelector(".wizard-card");
+  if (stepCard && stepCard.querySelector("#menu-categories-container")) {
+    renderStepMenu(stepCard);
+  }
+});
+
