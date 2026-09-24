@@ -516,7 +516,7 @@ export const api = {
     // kiosk server and pull back the stale price/name.
     await _proxyPackageWrite("POST", "/api/packages", {
       name: data.name, description: data.description || "",
-      price_per_pax: Number(data.price_per_pax) || 0, min_pax: Number(data.min_pax) || 30,
+      price_per_pax: data.price_per_pax != null ? Number(data.price_per_pax) : 0, min_pax: Number(data.min_pax) || 30,
     }).catch(() => {});
     api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Package upload queued:", e));
     return { id, image_sync: imageChanged ? "pending" : "none" };
