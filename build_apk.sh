@@ -10,7 +10,11 @@ echo "======================================================="
 echo "   Jayraldine's Catering — Standalone APK Builder     "
 echo "======================================================="
 
-# 1. Setup Android SDK Environment
+# 1. Check & Auto-Increment Version (Office 3-digit versioning rule)
+echo "==> Running Office 3-digit auto-versioning..."
+python3 "$SCRIPT_DIR/bump_version.py" "$@"
+
+# 2. Setup Android SDK Environment
 if [ -z "$ANDROID_HOME" ]; then
     if [ -d "$HOME/.android-sdk" ]; then
         export ANDROID_HOME="$HOME/.android-sdk"
@@ -25,7 +29,7 @@ fi
 export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
 echo "==> Using Android SDK: $ANDROID_HOME"
 
-# 2. Sync latest frontend files to APK assets
+# 3. Sync latest frontend files to APK assets
 echo "==> Syncing latest PWA frontend assets into APK..."
 rm -rf "$APK_PROJECT_DIR/app/src/main/assets"/*
 mkdir -p "$APK_PROJECT_DIR/app/src/main/assets"
