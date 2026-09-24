@@ -1340,12 +1340,16 @@ async function mountLandingMenuShowcase() {
   const clearBtn = container.querySelector("#landing-menu-search-clear");
   const startOrderBtn = container.querySelector("#btn-landing-menu-start-order");
 
-  // Collect unique categories
-  const categoriesSet = new Set();
-  allMenuItems.forEach(it => {
-    if (it.category) categoriesSet.add(it.category.trim());
-  });
-  const categories = await _sortCategoriesByAdminOrder(categoriesSet);
+  // Strictly follow the PC DB Server's defined category list and order
+  const adminCategories = await api.getMenuCategories();
+  let categories = adminCategories.filter(cat =>
+    allMenuItems.some(it => (it.category || "").trim().toLowerCase() === cat.trim().toLowerCase())
+  );
+  if (!categories.length) {
+    const fallbackSet = new Set();
+    allMenuItems.forEach(it => { if (it.category) fallbackSet.add(it.category.trim()); });
+    categories = Array.from(fallbackSet).sort();
+  }
   const catRankMap = new Map(categories.map((c, idx) => [String(c).toLowerCase().trim(), idx]));
 
   const activePill = catBar ? catBar.querySelector(".kiosk-cat-pill.active") : null;
