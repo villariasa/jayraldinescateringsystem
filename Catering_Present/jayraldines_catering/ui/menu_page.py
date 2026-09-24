@@ -1985,6 +1985,7 @@ class MenuPage(QWidget):
     def _mark_dirty(self):
         """Flag that the cached data is stale and should be reloaded on next show."""
         self._dirty = True
+        self._cat_cache = None
 
     def _has_active_search(self) -> bool:
         """True while the user has a non-empty search filter applied."""
@@ -1995,6 +1996,7 @@ class MenuPage(QWidget):
         reload while a search is active so it doesn't yank results out from
         under the user (the deferred reload runs when the search clears)."""
         self._dirty = True
+        self._cat_cache = None
         # Defer background rebuilds while the user is actively searching.
         if self._has_active_search():
             self._reload_deferred = True
