@@ -289,6 +289,14 @@ function showOwnerSettingsModal(initialTab = "bookings") {
     title: `${icon("shield")} Admin &amp; Owner Management Access`,
     large: true,
     bodyHtml: (body) => renderTabs(body, initialTab),
+    // Re-mount the showcase whenever the settings panel is dismissed so any
+    // category-order change made during the session is visible immediately
+    // without requiring the user to reopen the app.
+    onClose: () => {
+      if (typeof window.mountLandingMenuShowcase === "function") {
+        window.mountLandingMenuShowcase();
+      }
+    },
   });
 }
 
@@ -1260,9 +1268,13 @@ function openCategoryReorderModal(categories, onSaved) {
       toast("Category order saved successfully!", "success");
       closeModal(formId);
       if (onSaved) onSaved();
-      window.dispatchEvent(new CustomEvent("kiosk:categories-changed", { detail: { order } }));
+      // Pass the explicit new order in the event payload so the app-level
+      // listener can render the showcase immediately without re-reading from
+      // SQLite (avoids the race with a background sync that may still hold
+      // the old server order at this moment).
+      window.dispatchEvent(new CustomEvent("kiosk:categories-changed", { detail: { order, categories: order } }));
       if (typeof window.mountLandingMenuShowcase === "function") {
-        window.mountLandingMenuShowcase();
+        window.mountLandingMenuShowcase(order); // pass order directly — no SQLite round-trip
       }
     } catch (err) {
       toast(err.message, "error");
