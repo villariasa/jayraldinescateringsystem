@@ -662,7 +662,7 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
                 pg_cur.execute("""
                     INSERT INTO menu_categories (mc_name, mc_sort)
                     VALUES (%s, %s)
-                    ON CONFLICT (mc_name) DO UPDATE SET mc_sort = EXCLUDED.mc_sort
+                    ON CONFLICT (mc_name) DO NOTHING
                 """, (c_name, int(lc.get("mc_sort") or 0)))
             except Exception:
                 pass
