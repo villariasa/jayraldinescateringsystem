@@ -371,21 +371,24 @@ function seedDefaults() {
     console.warn("[SQLite] Package items seed note:", err);
   }
 
-  // Seed Default Menu Categories if empty (admin-defined mc_sort order —
-  // see Settings > Menu Categories drag-and-drop)
+  // Seed Menu Categories strictly from existing menu items only if empty (NO predefined categories!)
   try {
+    // Clean up any stale predefined categories if they have no dishes in menu_items
+    const stalePredefined = ["Beef", "Pork", "Chicken", "Fish & Seafood", "Pasta & Noodles", "Vegetables", "Dessert", "Beverage", "Add-on"];
+    for (const cat of stalePredefined) {
+      const cnt = db.exec("SELECT COUNT(*) FROM menu_items WHERE mi_category = ?", [cat])[0]?.values[0][0] || 0;
+      if (cnt === 0) {
+        db.run("DELETE FROM menu_categories WHERE mc_name = ?", [cat]);
+      }
+    }
+
     if (countOf("menu_categories") === 0) {
-      const defaultCats = ["Beef", "Pork", "Chicken", "Fish & Seafood", "Pasta & Noodles", "Vegetables", "Dessert", "Beverage", "Add-on"];
-      defaultCats.forEach((cat, i) => {
-        db.run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", [cat, i]);
-      });
-      // Any category already present on a seeded/imported menu item but not
-      // in the defaults list gets appended so it isn't silently hidden.
-      const existingCats = db.exec("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND mi_category != ''")[0]?.values || [];
-      let nextSort = defaultCats.length;
+      const existingCats = db.exec("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND TRIM(mi_category) != ''")[0]?.values || [];
+      let nextSort = 0;
       for (const [cat] of existingCats) {
-        if (!defaultCats.includes(cat)) {
-          db.run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", [cat, nextSort++]);
+        const c = String(cat || "").trim();
+        if (c) {
+          db.run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort, mc_is_active) VALUES (?, ?, 1)", [c, nextSort++]);
         }
       }
     }
@@ -529,7 +532,7 @@ export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], pa
         if (!name) continue;
         const id = p.pkg_id || p.id;
         const desc = p.pkg_description || p.description || "";
-        const price = Number(p.pkg_price_per_pax ?? p.price_per_pax) || 0;
+        const price = p.pkg_price_per_pax != null ? Number(p.pkg_price_per_pax) : (p.price_per_pax != null ? Number(p.price_per_pax) : 0);
         const minPax = Number(p.pkg_min_pax ?? p.min_pax) || 30;
         const img = p.image || p.pkg_image || "";
         if (id) {
