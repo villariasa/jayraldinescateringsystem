@@ -557,8 +557,13 @@ window.addEventListener("kiosk:landing-images-changed", () => {
   }
 });
 
-window.addEventListener("kiosk:categories-changed", () => {
-  mountLandingMenuShowcase();
+window.addEventListener("kiosk:categories-changed", (e) => {
+  // Forward the explicit new order so the showcase re-renders immediately
+  // without re-reading from SQLite (which may still hold the old server
+  // value if the background sync hasn't settled yet).
+  const explicitCats = (e && e.detail && Array.isArray(e.detail.categories) && e.detail.categories.length)
+    ? e.detail.categories : null;
+  mountLandingMenuShowcase(explicitCats);
 });
 
 window.addEventListener("jayraldines:sync-completed", () => {
@@ -1322,7 +1327,11 @@ async function _sortCategoriesByAdminOrder(cats) {
   });
 }
 
-async function mountLandingMenuShowcase() {
+// explicitCategories: when the caller already knows the new order (e.g. right
+// after a drag-and-drop reorder save) it passes the array directly so we
+// never hit the race where a background sync returns the *old* server order
+// and overwrites SQLite before we read it.
+async function mountLandingMenuShowcase(explicitCategories = null) {
   const container = document.getElementById("kiosk-menu-showcase");
   if (!container) return;
 
@@ -1340,8 +1349,14 @@ async function mountLandingMenuShowcase() {
   const clearBtn = container.querySelector("#landing-menu-search-clear");
   const startOrderBtn = container.querySelector("#btn-landing-menu-start-order");
 
-  // Strictly follow the PC DB Server's defined category list and order
-  const adminCategories = await api.getMenuCategories();
+  // Use the caller-supplied list when available (avoids SQLite round-trip race);
+  // otherwise fall back to the authoritative DB query.
+  let adminCategories;
+  if (explicitCategories && Array.isArray(explicitCategories) && explicitCategories.length > 0) {
+    adminCategories = explicitCategories;
+  } else {
+    adminCategories = await api.getMenuCategories();
+  }
   let categories = adminCategories.filter(cat =>
     allMenuItems.some(it => (it.category || "").trim().toLowerCase() === cat.trim().toLowerCase())
   );
@@ -1542,7 +1557,7 @@ async function mountLandingMenuShowcase() {
     }
   }
 }
-window.mountLandingMenuShowcase = mountLandingMenuShowcase;
+window.mountLandingMenuShowcase = mountLandingMenuShowcase; // accepts optional explicitCategories[]
 
 
 // ── Quick Option: Menu Viewing Modal ──────────────────────────────────
