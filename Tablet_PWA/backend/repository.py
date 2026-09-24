@@ -109,23 +109,23 @@ def get_packages() -> list[dict]:
     ]
 
 
-def add_package(name: str, description: str = "", price_per_pax: float = 350.0, min_pax: int = 30) -> int:
+def add_package(name: str, description: str = "", price_per_pax: float = 0.0, min_pax: int = 30) -> int:
     name = (name or "").strip()
     if not name:
         raise ValueError("Package name is required.")
     return db.execute(
         "INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
-        (name, (description or "").strip(), float(price_per_pax or 0.0), int(min_pax or 30)),
+        (name, (description or "").strip(), float(price_per_pax if price_per_pax is not None else 0.0), int(min_pax or 30)),
     )
 
 
-def update_package(pkg_id: int, name: str, description: str = "", price_per_pax: float = 350.0, min_pax: int = 30) -> bool:
+def update_package(pkg_id: int, name: str, description: str = "", price_per_pax: float = 0.0, min_pax: int = 30) -> bool:
     name = (name or "").strip()
     if not name or not pkg_id:
         return False
     db.execute(
         "UPDATE packages SET pkg_name = ?, pkg_description = ?, pkg_price_per_pax = ?, pkg_min_pax = ? WHERE pkg_id = ?",
-        (name, (description or "").strip(), float(price_per_pax or 0.0), int(min_pax or 30), pkg_id),
+        (name, (description or "").strip(), float(price_per_pax if price_per_pax is not None else 0.0), int(min_pax or 30), pkg_id),
     )
     return True
 
