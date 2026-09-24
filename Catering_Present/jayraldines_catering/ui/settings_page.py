@@ -380,6 +380,8 @@ class SettingsPage(QWidget):
             # so this connection silently never fired; payments recorded on a
             # remote client never refreshed Settings' audit log until now.
             ev.payment_recorded.connect(self._mark_dirty_and_reload)
+            ev.menu_saved.connect(self._mark_dirty_and_reload)
+            ev.sync_completed.connect(self._mark_dirty_and_reload)
         except Exception:
             pass
 
@@ -387,12 +389,13 @@ class SettingsPage(QWidget):
         """Slot for app-wide data-change signals.
 
         Marks the page dirty and, only if it's currently visible, reloads
-        settings + audit log immediately. When hidden, the reload is deferred to
+        settings + menu categories + audit log immediately. When hidden, the reload is deferred to
         the next showEvent (avoids doing work for an off-screen page).
         """
         self._dirty = True
         if self.isVisible():
             self._load_all_settings_async()
+            self._load_menu_categories()
             self._load_audit_log()
 
     def showEvent(self, event):
@@ -401,12 +404,14 @@ class SettingsPage(QWidget):
         if getattr(self, "_dirty", True):
             self._dirty = False  # clear before loading so we don't reload twice
             self._load_all_settings_async()
+            self._load_menu_categories()
             self._load_audit_log()
 
     def reload(self):
         """Force an immediate settings + audit-log reload regardless of dirty state."""
         self._dirty = False
         self._load_all_settings_async()
+        self._load_menu_categories()
         self._load_audit_log()
 
     @staticmethod
