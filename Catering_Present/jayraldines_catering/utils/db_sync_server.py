@@ -2289,11 +2289,24 @@ def perform_server_sync(payload: dict) -> dict:
             for r in mc_raw if r.get("mc_name") and str(r["mc_name"]).strip()
         ]
         if not menu_categories:
-            cat_rows = db.fetchall("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND TRIM(mi_category) != '' ORDER BY mi_category") or []
+            cat_names = repo.get_all_menu_categories()
             menu_categories = [
-                {"mc_id": idx + 1, "mc_name": str(r["mi_category"]).strip(), "mc_sort": idx, "mc_is_active": 1}
-                for idx, r in enumerate(cat_rows) if r.get("mi_category")
+                {"mc_id": idx + 1, "mc_name": str(c).strip(), "mc_sort": idx, "mc_is_active": 1}
+                for idx, c in enumerate(cat_names) if str(c).strip()
             ]
+        else:
+            existing_names = {r["mc_name"].lower() for r in menu_categories}
+            all_dish_cats = repo.get_all_menu_categories()
+            for c in all_dish_cats:
+                clean_c = str(c).strip()
+                if clean_c and clean_c.lower() not in existing_names:
+                    menu_categories.append({
+                        "mc_id": len(menu_categories) + 1,
+                        "mc_name": clean_c,
+                        "mc_sort": len(menu_categories),
+                        "mc_is_active": 1
+                    })
+                    existing_names.add(clean_c.lower())
     except Exception as mce:
         logger.warning(f"[SyncServer] Failed to fetch menu_categories: {mce}")
         menu_categories = []
