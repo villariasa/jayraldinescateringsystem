@@ -589,7 +589,9 @@ def _ensure_pg_places_and_auth(conn) -> None:
             "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_quantity INT DEFAULT 1;",
             "ALTER TABLE customers ADD COLUMN IF NOT EXISTS cus_total_spent NUMERIC(12, 2) DEFAULT 0.00;",
             "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_date DATE;",
-            "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_expense_date DATE;"
+            "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS exp_expense_date DATE;",
+            "ALTER TABLE packages DROP CONSTRAINT IF EXISTS packages_pkg_price_per_pax_check;",
+            "ALTER TABLE packages ADD CONSTRAINT packages_pkg_price_per_pax_check CHECK (pkg_price_per_pax >= 0);"
         ]:
             try:
                 with conn.cursor() as cur:
