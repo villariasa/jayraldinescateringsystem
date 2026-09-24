@@ -927,6 +927,11 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             if isinstance(ordered_names, list) and ordered_names:
                 repo.reorder_menu_categories(ordered_names)
                 bump_db_version()
+                try:
+                    from utils.app_events import app_events
+                    app_events().menu_saved.emit()
+                except Exception:
+                    pass
                 self._set_cors_headers(200)
                 self.wfile.write(json.dumps({"ok": True, "version": get_db_version()}).encode("utf-8"))
                 return
