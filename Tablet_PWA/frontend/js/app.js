@@ -1340,6 +1340,14 @@ async function mountLandingMenuShowcase() {
   const clearBtn = container.querySelector("#landing-menu-search-clear");
   const startOrderBtn = container.querySelector("#btn-landing-menu-start-order");
 
+  // Collect unique categories
+  const categoriesSet = new Set();
+  allMenuItems.forEach(it => {
+    if (it.category) categoriesSet.add(it.category.trim());
+  });
+  const categories = await _sortCategoriesByAdminOrder(categoriesSet);
+  const catRankMap = new Map(categories.map((c, idx) => [String(c).toLowerCase().trim(), idx]));
+
   const activePill = catBar ? catBar.querySelector(".kiosk-cat-pill.active") : null;
   const prevCat = activePill ? activePill.dataset.cat : null;
   let selectedCat = (prevCat && (prevCat === "ALL" || categories.some(c => c.toLowerCase() === prevCat.toLowerCase()))) ? prevCat : "ALL";
@@ -1363,14 +1371,6 @@ async function mountLandingMenuShowcase() {
     }, { passive: true });
     checkStuck();
   }
-
-  // Collect unique categories
-  const categoriesSet = new Set();
-  allMenuItems.forEach(it => {
-    if (it.category) categoriesSet.add(it.category.trim());
-  });
-  const categories = await _sortCategoriesByAdminOrder(categoriesSet);
-  const catRankMap = new Map(categories.map((c, idx) => [String(c).toLowerCase().trim(), idx]));
 
   // Render category chips
   if (catBar) {
