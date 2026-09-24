@@ -83,6 +83,10 @@ class MenuItemIn(BaseModel):
     description: str = ""
 
 
+class MenuCategoryReorderIn(BaseModel):
+    ordered_names: list[str]
+
+
 class MenuSelectionIn(BaseModel):
     menu_item_id: Optional[int] = None
     item_name: str
@@ -223,6 +227,14 @@ def list_menu_items_grouped():
 @app.get("/api/menu-categories")
 def list_menu_categories():
     return repo.get_menu_categories()
+
+
+@app.post("/api/menu-categories/reorder")
+def reorder_menu_categories(payload: MenuCategoryReorderIn):
+    ok = repo.reorder_menu_categories(payload.ordered_names)
+    if not ok:
+        raise HTTPException(400, "Reorder failed.")
+    return {"ok": True}
 
 
 @app.post("/api/menu-items")
@@ -491,6 +503,14 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
             ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_notes TEXT DEFAULT '';
             ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_cancellation_reason TEXT DEFAULT '';
 
+            CREATE TABLE IF NOT EXISTS menu_categories (
+                mc_id SERIAL PRIMARY KEY,
+                mc_name VARCHAR(100) NOT NULL UNIQUE,
+                mc_is_active INT DEFAULT 1,
+                mc_sort INT DEFAULT 0
+            );
+            ALTER TABLE menu_categories ADD COLUMN IF NOT EXISTS mc_sort INT DEFAULT 0;
+
             CREATE TABLE IF NOT EXISTS occasions (
                 occ_id SERIAL PRIMARY KEY,
                 occ_name VARCHAR(100) NOT NULL UNIQUE,
@@ -627,6 +647,27 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
 
         pg_conn.commit()
 
+        # 2b. Push this kiosk's own category reorder (Settings > Menu
+        # Categories drag-and-drop) up to Central PostgreSQL BEFORE pulling —
+        # same race-avoidance reasoning as the packages push below.
+        try:
+            local_cats = db.fetchall("SELECT mc_name, mc_sort FROM menu_categories ORDER BY COALESCE(mc_sort, 0), mc_id") or []
+        except Exception:
+            local_cats = []
+        for lc in local_cats:
+            c_name = (lc.get("mc_name") or "").strip()
+            if not c_name:
+                continue
+            try:
+                pg_cur.execute("""
+                    INSERT INTO menu_categories (mc_name, mc_sort)
+                    VALUES (%s, %s)
+                    ON CONFLICT (mc_name) DO UPDATE SET mc_sort = EXCLUDED.mc_sort
+                """, (c_name, int(lc.get("mc_sort") or 0)))
+            except Exception:
+                pass
+        pg_conn.commit()
+
         # 3. Push locally-edited packages (this kiosk's own price/name/min-pax
         # edits, made via PUT /api/packages/{id}) up to Central PostgreSQL
         # BEFORE pulling — otherwise a price edit (even a legitimate 0) is
@@ -731,6 +772,20 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
             except Exception:
                 pass
 
+        # Pull the authoritative category order back down (reflects this
+        # kiosk's own just-pushed reorder plus any reorder made on the
+        # desktop app or another tablet).
+        pg_cur.execute("SELECT mc_name, mc_sort FROM menu_categories WHERE mc_is_active = 1 OR mc_is_active IS NULL ORDER BY COALESCE(mc_sort, 0), mc_id")
+        menu_categories = [dict(r) for r in pg_cur.fetchall()]
+        for c in menu_categories:
+            try:
+                db.execute("""
+                    INSERT INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)
+                    ON CONFLICT(mc_name) DO UPDATE SET mc_sort = excluded.mc_sort
+                """, (c["mc_name"], int(c.get("mc_sort") or 0)))
+            except Exception:
+                pass
+
         # Also pull package_items if table exists
         package_items = []
         try:
@@ -771,6 +826,7 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
         "pulled_menu": len(menu_items),
         "packages": pkgs,
         "menu_items": menu_items,
+        "menu_categories": [c["mc_name"] for c in menu_categories],
         "package_items": package_items,
         "synced_booking_refs": synced_booking_refs,
         "synced_customer_names": synced_customer_names,
