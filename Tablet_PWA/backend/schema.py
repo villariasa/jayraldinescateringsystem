@@ -318,35 +318,19 @@ def init_db(conn: sqlite3.Connection) -> None:
             for b in barangays:
                 cur.execute("INSERT INTO address_barangays (ab_city_id, ab_name) VALUES (?, ?)", (city_id, b))
 
-    cur.execute("SELECT COUNT(*) FROM packages")
-    if cur.fetchone()[0] == 0:
-        for name, desc, price, min_pax in _DEFAULT_PACKAGES:
-            cur.execute(
-                "INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
-                (name, desc, price, min_pax),
-            )
-
-    # Clean up stale predefined categories if they have no dishes
-    stale_predefined = ["Beef", "Pork", "Chicken", "Fish & Seafood", "Pasta & Noodles", "Vegetables", "Dessert", "Beverage", "Add-on"]
-    for sc in stale_predefined:
-        cur.execute("SELECT COUNT(*) FROM menu_items WHERE mi_category = ?", (sc,))
-        if cur.fetchone()[0] == 0:
-            cur.execute("DELETE FROM menu_categories WHERE mc_name = ?", (sc,))
-
-    cur.execute("SELECT COUNT(*) FROM menu_categories")
-    if cur.fetchone()[0] == 0:
-        cur.execute("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND TRIM(mi_category) != ''")
-        for i, row in enumerate(cur.fetchall()):
-            cat_name = str(row[0]).strip()
-            if cat_name:
-                cur.execute("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", (cat_name, i))
-
-    cur.execute("SELECT COUNT(*) FROM menu_items")
-    if cur.fetchone()[0] == 0:
-        for name, category, price, status, desc in _DEFAULT_MENU_ITEMS:
-            cur.execute(
-                "INSERT INTO menu_items (mi_name, mi_category, mi_price, mi_status, mi_description) VALUES (?, ?, ?, ?, ?)",
-                (name, category, price, status, desc),
-            )
+    # Clean up any stale categories that have no dishes
+    try:
+        cur.execute("SELECT COUNT(*) FROM menu_items")
+        if cur.fetchone()[0] > 0:
+            cur.execute("""
+                DELETE FROM menu_categories
+                WHERE LOWER(TRIM(mc_name)) NOT IN (
+                    SELECT DISTINCT LOWER(TRIM(mi_category))
+                    FROM menu_items
+                    WHERE mi_category IS NOT NULL AND TRIM(mi_category) != ''
+                )
+            """)
+    except Exception:
+        pass
 
     conn.commit()
