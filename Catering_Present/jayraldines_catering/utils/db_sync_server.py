@@ -835,8 +835,231 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self._handle_menu_image_upload()
             return
 
+        if path == "/api/menu-categories/reorder":
+            self._handle_menu_categories_reorder()
+            return
+
+        if path == "/api/packages":
+            self._handle_package_create()
+            return
+
+        if path == "/api/menu-items":
+            self._handle_menu_item_create()
+            return
+
+        if path.startswith("/api/packages/"):
+            try:
+                pkg_id = int(path.split("/")[-1])
+                self._handle_package_update(pkg_id)
+                return
+            except Exception:
+                pass
+
+        if path.startswith("/api/menu-items/"):
+            try:
+                mi_id = int(path.split("/")[-1])
+                self._handle_menu_item_update(mi_id)
+                return
+            except Exception:
+                pass
+
         self._set_cors_headers(404)
         self.wfile.write(json.dumps({"error": "Not Found"}).encode("utf-8"))
+
+    def do_PUT(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path.startswith("/api/packages/"):
+            try:
+                pkg_id = int(path.split("/")[-1])
+                self._handle_package_update(pkg_id)
+                return
+            except Exception as e:
+                self._set_cors_headers(400)
+                self.wfile.write(json.dumps({"error": f"Invalid pkg_id: {e}"}).encode("utf-8"))
+                return
+
+        if path.startswith("/api/menu-items/"):
+            try:
+                mi_id = int(path.split("/")[-1])
+                self._handle_menu_item_update(mi_id)
+                return
+            except Exception as e:
+                self._set_cors_headers(400)
+                self.wfile.write(json.dumps({"error": f"Invalid mi_id: {e}"}).encode("utf-8"))
+                return
+
+        self._set_cors_headers(404)
+        self.wfile.write(json.dumps({"error": "Not Found"}).encode("utf-8"))
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path.startswith("/api/packages/"):
+            try:
+                pkg_id = int(path.split("/")[-1])
+                self._handle_package_delete(pkg_id)
+                return
+            except Exception as e:
+                self._set_cors_headers(400)
+                self.wfile.write(json.dumps({"error": f"Invalid pkg_id: {e}"}).encode("utf-8"))
+                return
+
+        if path.startswith("/api/menu-items/"):
+            try:
+                mi_id = int(path.split("/")[-1])
+                self._handle_menu_item_delete(mi_id)
+                return
+            except Exception as e:
+                self._set_cors_headers(400)
+                self.wfile.write(json.dumps({"error": f"Invalid mi_id: {e}"}).encode("utf-8"))
+                return
+
+        self._set_cors_headers(404)
+        self.wfile.write(json.dumps({"error": "Not Found"}).encode("utf-8"))
+
+    def _handle_menu_categories_reorder(self):
+        try:
+            payload = self._read_json_body()
+            ordered_names = payload.get("ordered_names") or []
+            if isinstance(ordered_names, list) and ordered_names:
+                repo.reorder_menu_categories(ordered_names)
+                bump_db_version()
+                self._set_cors_headers(200)
+                self.wfile.write(json.dumps({"ok": True, "version": get_db_version()}).encode("utf-8"))
+                return
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": "ordered_names must be a non-empty list"}).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] Menu categories reorder error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_package_create(self):
+        try:
+            payload = self._read_json_body()
+            name = (payload.get("name") or payload.get("pkg_name") or "").strip()
+            if not name:
+                self._set_cors_headers(400)
+                self.wfile.write(json.dumps({"error": "Package name is required"}).encode("utf-8"))
+                return
+            price_val = payload.get("price_per_pax") if payload.get("price_per_pax") is not None else (payload.get("pkg_price_per_pax") if payload.get("pkg_price_per_pax") is not None else 0.0)
+            data = {
+                "name": name,
+                "description": payload.get("description", "") or "",
+                "price_per_pax": float(price_val),
+                "min_pax": int(payload.get("min_pax") or payload.get("pkg_min_pax") or 1),
+                "image": payload.get("image", "") or "",
+            }
+            pkg_id = repo.add_package(data)
+            bump_db_version()
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({"ok": True, "id": pkg_id, "pkg_id": pkg_id, "version": get_db_version()}).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] Package create error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_package_update(self, pkg_id: int):
+        try:
+            payload = self._read_json_body()
+            name = (payload.get("name") or payload.get("pkg_name") or "").strip()
+            if not name:
+                self._set_cors_headers(400)
+                self.wfile.write(json.dumps({"error": "Package name is required"}).encode("utf-8"))
+                return
+            price_val = payload.get("price_per_pax") if payload.get("price_per_pax") is not None else (payload.get("pkg_price_per_pax") if payload.get("pkg_price_per_pax") is not None else 0.0)
+            data = {
+                "name": name,
+                "description": payload.get("description", "") or "",
+                "price_per_pax": float(price_val),
+                "min_pax": int(payload.get("min_pax") or payload.get("pkg_min_pax") or 1),
+                "image": payload.get("image", "") or "",
+            }
+            repo.update_package(pkg_id, data)
+            bump_db_version()
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({"ok": True, "pkg_id": pkg_id, "version": get_db_version()}).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] Package update error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_package_delete(self, pkg_id: int):
+        try:
+            repo.delete_package(pkg_id)
+            bump_db_version()
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({"ok": True, "version": get_db_version()}).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] Package delete error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_menu_item_create(self):
+        try:
+            payload = self._read_json_body()
+            name = (payload.get("name") or payload.get("mi_name") or "").strip()
+            if not name:
+                self._set_cors_headers(400)
+                self.wfile.write(json.dumps({"error": "Menu item name is required"}).encode("utf-8"))
+                return
+            price_val = payload.get("price") if payload.get("price") is not None else (payload.get("mi_price") if payload.get("mi_price") is not None else 0.0)
+            data = {
+                "name": name,
+                "category": payload.get("category") or payload.get("mi_category") or "Main Course",
+                "price": float(price_val),
+                "status": payload.get("status") or payload.get("mi_status") or "Available",
+                "description": payload.get("description", "") or "",
+                "image": payload.get("image", "") or "",
+            }
+            mi_id = repo.add_menu_item(data)
+            bump_db_version()
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({"ok": True, "id": mi_id, "mi_id": mi_id, "version": get_db_version()}).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] Menu item create error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_menu_item_update(self, mi_id: int):
+        try:
+            payload = self._read_json_body()
+            name = (payload.get("name") or payload.get("mi_name") or "").strip()
+            if not name:
+                self._set_cors_headers(400)
+                self.wfile.write(json.dumps({"error": "Menu item name is required"}).encode("utf-8"))
+                return
+            price_val = payload.get("price") if payload.get("price") is not None else (payload.get("mi_price") if payload.get("mi_price") is not None else 0.0)
+            data = {
+                "name": name,
+                "category": payload.get("category") or payload.get("mi_category") or "Main Course",
+                "price": float(price_val),
+                "status": payload.get("status") or payload.get("mi_status") or "Available",
+                "description": payload.get("description", "") or "",
+                "image": payload.get("image", "") or "",
+            }
+            repo.update_menu_item(mi_id, data)
+            bump_db_version()
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({"ok": True, "mi_id": mi_id, "version": get_db_version()}).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] Menu item update error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_menu_item_delete(self, mi_id: int):
+        try:
+            repo.delete_menu_item(mi_id)
+            bump_db_version()
+            self._set_cors_headers(200)
+            self.wfile.write(json.dumps({"ok": True, "version": get_db_version()}).encode("utf-8"))
+        except Exception as exc:
+            logger.error(f"[SyncServer] Menu item delete error: {exc}", exc_info=True)
+            self._set_cors_headers(500)
+            self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
 
     def _handle_lan_status(self, parsed):
         db_online = False
@@ -1128,10 +1351,11 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             return
 
         try:
+            price_val = pkg.get("price_per_pax") if pkg.get("price_per_pax") is not None else (pkg.get("pkg_price_per_pax") if pkg.get("pkg_price_per_pax") is not None else 0.0)
             data = {
                 "name": name,
                 "description": pkg.get("description", "") or "",
-                "price_per_pax": float(pkg.get("price_per_pax") or pkg.get("pkg_price_per_pax") or 0.0),
+                "price_per_pax": float(price_val),
                 "min_pax": int(pkg.get("min_pax") or pkg.get("pkg_min_pax") or 1),
                 "image": "",
             }
@@ -1141,11 +1365,20 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             if raw_id:
                 try:
                     pkg_id = int(raw_id)
-                    repo.update_package(pkg_id, data)
+                    chk = db.fetchone("SELECT pkg_id FROM packages WHERE pkg_id = %s" if db.get_engine_type() == "postgres" else "SELECT pkg_id FROM packages WHERE pkg_id = ?", (pkg_id,))
+                    if chk:
+                        repo.update_package(pkg_id, data)
+                    else:
+                        pkg_id = None
                 except Exception:
                     pkg_id = None
             if not pkg_id:
-                pkg_id = repo.add_package(data)
+                chk_name = db.fetchone("SELECT pkg_id FROM packages WHERE LOWER(pkg_name) = LOWER(%s)" if db.get_engine_type() == "postgres" else "SELECT pkg_id FROM packages WHERE LOWER(pkg_name) = LOWER(?)", (name,))
+                if chk_name:
+                    pkg_id = chk_name["pkg_id"]
+                    repo.update_package(pkg_id, data)
+                else:
+                    pkg_id = repo.add_package(data)
             if not pkg_id:
                 self._set_cors_headers(500)
                 self.wfile.write(json.dumps({"error": "Failed to create or update the package."}).encode("utf-8"))
@@ -1775,7 +2008,7 @@ def perform_server_sync(payload: dict) -> dict:
     try:
         pkgs_raw = db.fetchall("""
             SELECT pkg_id, pkg_name, COALESCE(pkg_description, '') AS pkg_description,
-                   COALESCE(pkg_price_per_pax, 350.0) AS pkg_price_per_pax,
+                   COALESCE(pkg_price_per_pax, 0.0) AS pkg_price_per_pax,
                    COALESCE(pkg_min_pax, 30) AS pkg_min_pax,
                    COALESCE(pkg_image, '') AS pkg_image
             FROM packages
@@ -1786,7 +2019,7 @@ def perform_server_sync(payload: dict) -> dict:
                 "pkg_id": r["pkg_id"],
                 "pkg_name": r["pkg_name"],
                 "pkg_description": r.get("pkg_description", ""),
-                "pkg_price_per_pax": float(r.get("pkg_price_per_pax") or 350.0),
+                "pkg_price_per_pax": float(r["pkg_price_per_pax"]) if r.get("pkg_price_per_pax") is not None else 0.0,
                 "pkg_min_pax": int(r.get("pkg_min_pax") or 30),
                 "pkg_image": r.get("pkg_image", ""),
                 "image": _image_to_data_uri(r.get("pkg_image", ""))
@@ -1934,10 +2167,38 @@ def perform_server_sync(payload: dict) -> dict:
         logger.warning(f"[SyncServer] Failed to fetch occasions: {oe}")
         occasions = []
 
+    # Pull latest menu categories in admin-defined sort order
+    menu_categories = []
+    try:
+        mc_raw = db.fetchall("""
+            SELECT mc_id, mc_name, COALESCE(mc_sort, 0) AS mc_sort, COALESCE(mc_is_active, 1) AS mc_is_active
+            FROM menu_categories
+            WHERE mc_is_active = 1 OR mc_is_active IS NULL
+            ORDER BY COALESCE(mc_sort, 0), mc_id
+        """) or []
+        menu_categories = [
+            {
+                "mc_id": r["mc_id"],
+                "mc_name": str(r["mc_name"]).strip(),
+                "mc_sort": int(r.get("mc_sort") or 0),
+                "mc_is_active": int(r.get("mc_is_active") or 1)
+            }
+            for r in mc_raw if r.get("mc_name") and str(r["mc_name"]).strip()
+        ]
+        if not menu_categories:
+            cat_rows = db.fetchall("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND TRIM(mi_category) != '' ORDER BY mi_category") or []
+            menu_categories = [
+                {"mc_id": idx + 1, "mc_name": str(r["mi_category"]).strip(), "mc_sort": idx, "mc_is_active": 1}
+                for idx, r in enumerate(cat_rows) if r.get("mi_category")
+            ]
+    except Exception as mce:
+        logger.warning(f"[SyncServer] Failed to fetch menu_categories: {mce}")
+        menu_categories = []
+
     if pushed_bookings > 0 or pushed_customers > 0:
         bump_db_version()
 
-    msg = f"Sync successful! Pushed {pushed_bookings} booking(s) and {pushed_customers} customer(s). Sent {len(pkgs)} package(s), {len(menu_items)} dish(es), and {len(customers)} customer(s)."
+    msg = f"Sync successful! Pushed {pushed_bookings} booking(s) and {pushed_customers} customer(s). Sent {len(pkgs)} package(s), {len(menu_items)} dish(es), {len(menu_categories)} category/ies, and {len(customers)} customer(s)."
     return {
         "status": "success",
         "message": msg,
@@ -1945,6 +2206,7 @@ def perform_server_sync(payload: dict) -> dict:
         "pushed_customers": pushed_customers,
         "packages": pkgs,
         "menu_items": menu_items,
+        "menu_categories": menu_categories,
         "package_items": package_items,
         "package_buckets": package_buckets,
         "customers": customers,
