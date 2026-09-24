@@ -1120,9 +1120,9 @@ function openCategoryReorderModal(categories, onSaved) {
     title: `${icon("layers")} Reorder Menu Categories`,
     bodyHtml: `
       <p style="color:var(--text-muted); font-size:13px; margin:0 0 12px;">
-        Drag by the handle to change the order dishes appear in on the Dashboard and Order screens.
+        Tap or click anywhere on a category card and drag to reorder how dishes appear on the Dashboard and Order screens.
       </p>
-      <ul id="cat-reorder-list" style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px;"></ul>
+      <ul id="cat-reorder-list" style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px;"></ul>
     `,
     footerHtml: `
       <button class="btn btn-secondary" data-close>Cancel</button>
@@ -1135,22 +1135,41 @@ function openCategoryReorderModal(categories, onSaved) {
 
   function renderList() {
     list.innerHTML = order.map((name, i) => `
-      <li class="management-card" data-cat-row="${i}" style="display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:default;">
-        <span class="drag-handle" style="cursor:grab; touch-action:none; color:var(--text-muted); display:flex;">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+      <li class="management-card" data-cat-row="${i}" style="display:flex; align-items:center; gap:12px; padding:12px 16px; cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; border-radius:10px; border:1.5px solid var(--border,#cbd5e1); transition:transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;">
+        <span class="drag-handle" style="cursor:grab; touch-action:none; color:var(--text-muted,#94a3b8); display:flex; align-items:center; pointer-events:none;">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
         </span>
-        <span style="flex:1; font-weight:600;">${escapeHtml(name)}</span>
+        <span style="flex:1; font-weight:600; font-size:14px; pointer-events:none;">${escapeHtml(name)}</span>
+        <span style="font-size:11px; font-weight:700; color:var(--text-muted,#94a3b8); background:var(--bg-subtle,rgba(0,0,0,0.05)); padding:3px 9px; border-radius:12px; pointer-events:none;">#${i + 1}</span>
       </li>
     `).join("");
 
-    list.querySelectorAll(".drag-handle").forEach((handle) => {
-      handle.addEventListener("pointerdown", (e) => startDrag(e, handle));
+    list.querySelectorAll("[data-cat-row]").forEach((row) => {
+      row.addEventListener("pointerdown", (e) => startDrag(e, row));
     });
   }
 
   function markDragging(index) {
     list.querySelectorAll("[data-cat-row]").forEach((r, i) => {
-      r.style.opacity = i === index ? "0.6" : "";
+      if (i === index) {
+        r.style.background = "var(--primary-subtle, #eff6ff)";
+        r.style.borderColor = "var(--primary, #2563eb)";
+        r.style.boxShadow = "0 8px 24px rgba(37, 99, 235, 0.25)";
+        r.style.transform = "scale(1.025)";
+        r.style.cursor = "grabbing";
+        r.style.zIndex = "10";
+        const h = r.querySelector(".drag-handle");
+        if (h) h.style.color = "var(--primary, #2563eb)";
+      } else {
+        r.style.background = "";
+        r.style.borderColor = "";
+        r.style.boxShadow = "";
+        r.style.transform = "";
+        r.style.cursor = "grab";
+        r.style.zIndex = "";
+        const h = r.querySelector(".drag-handle");
+        if (h) h.style.color = "";
+      }
     });
   }
 
@@ -1159,9 +1178,10 @@ function openCategoryReorderModal(categories, onSaved) {
   // an element-bound listener would go dead the moment its node is replaced.
   // The dragged item's position is tracked via `curIndex` in this closure,
   // not by re-locating a DOM node, for the same reason.
-  function startDrag(e, handle) {
+  function startDrag(e, rowEl) {
     e.preventDefault();
-    const row = handle.closest("[data-cat-row]");
+    const row = rowEl.closest("[data-cat-row]");
+    if (!row) return;
     let curIndex = Number(row.dataset.catRow);
     markDragging(curIndex);
 
@@ -1185,7 +1205,16 @@ function openCategoryReorderModal(categories, onSaved) {
     function onUp() {
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
-      list.querySelectorAll("[data-cat-row]").forEach((r) => (r.style.opacity = ""));
+      list.querySelectorAll("[data-cat-row]").forEach((r) => {
+        r.style.background = "";
+        r.style.borderColor = "";
+        r.style.boxShadow = "";
+        r.style.transform = "";
+        r.style.cursor = "grab";
+        r.style.zIndex = "";
+        const h = r.querySelector(".drag-handle");
+        if (h) h.style.color = "";
+      });
     }
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp, { once: true });
@@ -1199,6 +1228,7 @@ function openCategoryReorderModal(categories, onSaved) {
       toast("Category order saved!", "success");
       closeModal(formId);
       if (onSaved) onSaved();
+      window.dispatchEvent(new CustomEvent("kiosk:categories-changed", { detail: { order } }));
     } catch (err) {
       toast(err.message, "error");
     }
