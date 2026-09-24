@@ -1259,8 +1259,8 @@ function openCategoryReorderModal(categories, onSaved) {
       closeModal(formId);
       if (onSaved) onSaved();
       window.dispatchEvent(new CustomEvent("kiosk:categories-changed", { detail: { order } }));
-      if (typeof mountLandingMenuShowcase === "function") {
-        mountLandingMenuShowcase();
+      if (typeof window.mountLandingMenuShowcase === "function") {
+        window.mountLandingMenuShowcase();
       }
     } catch (err) {
       toast(err.message, "error");
