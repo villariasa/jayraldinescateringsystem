@@ -1,4 +1,5 @@
 import { icon } from "./icons.js";
+import { api } from "./api.js";
 
 export const DEFAULT_HERO_IMAGES = [
   "images/hero-buffet-1.jpg",
@@ -9,6 +10,7 @@ export const DEFAULT_HERO_IMAGES = [
 const STORAGE_KEY = "jc_landing_images";
 const INTERVAL_KEY = "jc_slider_interval";
 const DEFAULT_INTERVAL = 5000;
+let _serverSyncAttempted = false;
 
 export function getLandingImages() {
   try {
@@ -23,15 +25,45 @@ export function getLandingImages() {
   return [...DEFAULT_HERO_IMAGES];
 }
 
+export async function syncLandingImagesFromServer() {
+  try {
+    if (typeof api !== "undefined" && api.getLandingSliderImages) {
+      const res = await api.getLandingSliderImages();
+      if (res && res.status === "ok" && Array.isArray(res.images) && res.images.length > 0) {
+        const sanitized = res.images.filter(Boolean).slice(0, 3);
+        const currentStored = localStorage.getItem(STORAGE_KEY);
+        const newStored = JSON.stringify(sanitized);
+        if (currentStored !== newStored) {
+          localStorage.setItem(STORAGE_KEY, newStored);
+          if (res.interval) {
+            localStorage.setItem(INTERVAL_KEY, String(res.interval));
+          }
+          window.dispatchEvent(new CustomEvent("kiosk:landing-images-changed"));
+        }
+        return sanitized;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
 export function saveLandingImages(images) {
   const sanitized = (images || []).filter(Boolean).slice(0, 3);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized.length ? sanitized : DEFAULT_HERO_IMAGES));
+  const toSave = sanitized.length ? sanitized : DEFAULT_HERO_IMAGES;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   window.dispatchEvent(new CustomEvent("kiosk:landing-images-changed"));
+
+  if (typeof api !== "undefined" && api.saveLandingSliderImages) {
+    api.saveLandingSliderImages(toSave, getSliderInterval()).catch(() => {});
+  }
 }
 
 export function resetLandingImages() {
   localStorage.removeItem(STORAGE_KEY);
   window.dispatchEvent(new CustomEvent("kiosk:landing-images-changed"));
+  if (typeof api !== "undefined" && api.saveLandingSliderImages) {
+    api.saveLandingSliderImages(DEFAULT_HERO_IMAGES, DEFAULT_INTERVAL).catch(() => {});
+  }
   return [...DEFAULT_HERO_IMAGES];
 }
 
@@ -43,6 +75,9 @@ export function getSliderInterval() {
 export function setSliderInterval(ms) {
   localStorage.setItem(INTERVAL_KEY, String(ms));
   window.dispatchEvent(new CustomEvent("kiosk:landing-images-changed"));
+  if (typeof api !== "undefined" && api.saveLandingSliderImages) {
+    api.saveLandingSliderImages(getLandingImages(), ms).catch(() => {});
+  }
 }
 
 /**
@@ -51,6 +86,11 @@ export function setSliderInterval(ms) {
 export function mountLandingSlider(target) {
   const container = typeof target === "string" ? document.getElementById(target) : target;
   if (!container) return;
+
+  if (!_serverSyncAttempted) {
+    _serverSyncAttempted = true;
+    syncLandingImagesFromServer().catch(() => {});
+  }
 
   const images = getLandingImages();
   const intervalMs = getSliderInterval();
