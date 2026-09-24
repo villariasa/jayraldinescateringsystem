@@ -1538,6 +1538,8 @@ async function mountLandingMenuShowcase() {
     }
   }
 }
+window.mountLandingMenuShowcase = mountLandingMenuShowcase;
+
 
 // ── Quick Option: Menu Viewing Modal ──────────────────────────────────
 async function openQuickMenuModal({ initialCategory = "ALL", initialSearch = "" } = {}) {
