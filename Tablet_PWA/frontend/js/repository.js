@@ -276,21 +276,23 @@ export function getPackages() {
   }));
 }
 
-export function addPackage(name, description = "", pricePerPax = 350.0, minPax = 30, imageData = null) {
+export function addPackage(name, description = "", pricePerPax = 0.0, minPax = 30, imageData = null) {
   name = (name || "").trim();
   if (!name) throw new Error("Package name is required.");
   const img = imageData || "";
+  const priceVal = pricePerPax != null ? Number(pricePerPax) : 0;
   const pkgId = run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image) VALUES (?, ?, ?, ?, ?, ?)",
-    [name, (description || "").trim(), Number(pricePerPax) || 0, Number(minPax) || 30, img, img]);
+    [name, (description || "").trim(), priceVal, Number(minPax) || 30, img, img]);
   if (imageData) saveEntityImage("package", pkgId, imageData);
   return pkgId;
 }
 
-export function updatePackage(pkgId, name, description = "", pricePerPax = 350.0, minPax = 30, imageData = undefined) {
+export function updatePackage(pkgId, name, description = "", pricePerPax = 0.0, minPax = 30, imageData = undefined) {
   name = (name || "").trim();
   if (!name || !pkgId) return false;
+  const priceVal = pricePerPax != null ? Number(pricePerPax) : 0;
   run("UPDATE packages SET pkg_name=?, pkg_description=?, pkg_price_per_pax=?, pkg_min_pax=? WHERE pkg_id=?",
-    [name, (description || "").trim(), Number(pricePerPax) || 0, Number(minPax) || 30, pkgId]);
+    [name, (description || "").trim(), priceVal, Number(minPax) || 30, pkgId]);
   if (imageData !== undefined) {
     const img = imageData || "";
     run("UPDATE packages SET pkg_image = ?, image = ? WHERE pkg_id = ?", [img, img, pkgId]);
@@ -503,8 +505,8 @@ export function getMenuCategories() {
 }
 
 export function reorderMenuCategories(orderedNames) {
-  (orderedNames || []).forEach((name, i) => {
-    name = (name || "").trim();
+  (orderedNames || []).forEach((item, i) => {
+    const name = (typeof item === "string" ? item : (item?.mc_name || item?.name || "")).trim();
     if (!name) return;
     run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", [name, i]);
     run("UPDATE menu_categories SET mc_sort = ? WHERE mc_name = ?", [i, name]);
@@ -899,7 +901,19 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
   }
 
   if (menuCategories && menuCategories.length > 0) {
-    try { reorderMenuCategories(menuCategories); } catch (_) {}
+    try {
+      run("DELETE FROM menu_categories");
+      menuCategories.forEach((catObj, i) => {
+        const name = (typeof catObj === "string" ? catObj : (catObj?.mc_name || catObj?.name || "")).trim();
+        const sort = typeof catObj === "object" && catObj?.mc_sort != null ? Number(catObj.mc_sort) : i;
+        const active = typeof catObj === "object" && catObj?.mc_is_active != null ? Number(catObj.mc_is_active) : 1;
+        if (name) {
+          run("INSERT INTO menu_categories (mc_name, mc_sort, mc_is_active) VALUES (?, ?, ?)", [name, sort, active]);
+        }
+      });
+    } catch (err) {
+      console.warn("[repo] sync menuCategories note:", err);
+    }
   }
 
   if (occasions && occasions.length > 0) {
