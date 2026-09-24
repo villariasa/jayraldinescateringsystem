@@ -2277,7 +2277,7 @@ def perform_server_sync(payload: dict) -> dict:
             SELECT mc_id, mc_name, COALESCE(mc_sort, 0) AS mc_sort, COALESCE(mc_is_active, 1) AS mc_is_active
             FROM menu_categories
             WHERE mc_is_active = 1 OR mc_is_active IS NULL
-            ORDER BY COALESCE(mc_sort, 0), mc_id
+            ORDER BY COALESCE(mc_sort, 999) ASC, mc_id ASC
         """) or []
         menu_categories = [
             {
