@@ -490,23 +490,7 @@ export function deleteMenuItem(miId) {
 }
 
 export function getMenuCategories() {
-  // 1. Check local stored order fallback first if saved recently
-  let cachedRank = null;
-  let cachedNames = [];
-  if (typeof localStorage !== "undefined") {
-    try {
-      const raw = localStorage.getItem("jc_category_order");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          cachedNames = parsed.map((c) => String(c).trim()).filter(Boolean);
-          cachedRank = new Map(cachedNames.map((c, i) => [c.toLowerCase(), i]));
-        }
-      }
-    } catch (_) {}
-  }
-
-  // 2. Query categories from DB table
+  // 1. Query categories from DB table (authoritative order from PC server or tablet save)
   let dbRows = [];
   try {
     dbRows = fetchAll(`
@@ -517,7 +501,7 @@ export function getMenuCategories() {
     `);
   } catch (_) {}
 
-  // 3. Query distinct categories from menu items
+  // 2. Query distinct categories from menu items
   let itemRows = [];
   try {
     itemRows = fetchAll(`
@@ -540,6 +524,7 @@ export function getMenuCategories() {
     }
   }
 
+  // Any dish category not yet in dbRows gets appended at the end
   if (itemRows && itemRows.length > 0) {
     for (const r of itemRows) {
       const name = String(r.cat_name || "").trim();
@@ -550,16 +535,25 @@ export function getMenuCategories() {
     }
   }
 
-  // If cachedRank has custom user order, enforce that rank
-  if (cachedRank && res.length > 0) {
-    res.sort((a, b) => {
-      const ka = a.toLowerCase();
-      const kb = b.toLowerCase();
-      const ra = cachedRank.has(ka) ? cachedRank.get(ka) : 999;
-      const rb = cachedRank.has(kb) ? cachedRank.get(kb) : 999;
-      if (ra !== rb) return ra - rb;
-      return a.localeCompare(b);
-    });
+  // If DB table was empty, only then fall back to localStorage order
+  if ((!dbRows || dbRows.length === 0) && res.length > 0 && typeof localStorage !== "undefined") {
+    try {
+      const raw = localStorage.getItem("jc_category_order");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const cachedRank = new Map(parsed.map((c, i) => [String(c).toLowerCase().trim(), i]));
+          res.sort((a, b) => {
+            const ka = a.toLowerCase();
+            const kb = b.toLowerCase();
+            const ra = cachedRank.has(ka) ? cachedRank.get(ka) : 999;
+            const rb = cachedRank.has(kb) ? cachedRank.get(kb) : 999;
+            if (ra !== rb) return ra - rb;
+            return a.localeCompare(b);
+          });
+        }
+      }
+    } catch (_) {}
   }
 
   return res;
@@ -979,8 +973,13 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
   if (menuCategories && menuCategories.length > 0) {
     try {
       run("DELETE FROM menu_categories");
+      const sortedIncoming = [...menuCategories].sort((a, b) => {
+        const sa = typeof a === "object" && a?.mc_sort != null ? Number(a.mc_sort) : 999;
+        const sb = typeof b === "object" && b?.mc_sort != null ? Number(b.mc_sort) : 999;
+        return sa - sb;
+      });
       const savedNames = [];
-      menuCategories.forEach((catObj, i) => {
+      sortedIncoming.forEach((catObj, i) => {
         const name = (typeof catObj === "string" ? catObj : (catObj?.mc_name || catObj?.name || "")).trim();
         const sort = typeof catObj === "object" && catObj?.mc_sort != null ? Number(catObj.mc_sort) : i;
         const active = typeof catObj === "object" && catObj?.mc_is_active != null ? Number(catObj.mc_is_active) : 1;
