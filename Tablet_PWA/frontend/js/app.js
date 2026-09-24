@@ -551,7 +551,7 @@ window.addEventListener("kiosk:home", async (e) => {
 
 // React live when landing images or categories change in settings
 window.addEventListener("kiosk:landing-images-changed", () => {
-  const sliderContainer = document.getElementById("landing-hero-slider-container");
+  const sliderContainer = document.getElementById("landing-slider-mount") || document.getElementById("landing-hero-slider-container");
   if (sliderContainer) {
     mountLandingSlider(sliderContainer);
   }
