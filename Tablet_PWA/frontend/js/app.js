@@ -549,12 +549,20 @@ window.addEventListener("kiosk:home", async (e) => {
   }
 });
 
-// React live when landing images change in settings
+// React live when landing images or categories change in settings
 window.addEventListener("kiosk:landing-images-changed", () => {
   const sliderContainer = document.getElementById("landing-hero-slider-container");
   if (sliderContainer) {
     mountLandingSlider(sliderContainer);
   }
+});
+
+window.addEventListener("kiosk:categories-changed", () => {
+  mountLandingMenuShowcase();
+});
+
+window.addEventListener("jayraldines:sync-completed", () => {
+  mountLandingMenuShowcase();
 });
 
 renderHome();
@@ -1303,12 +1311,14 @@ async function _sortCategoriesByAdminOrder(cats) {
   } catch (err) {
     console.warn("[app] Failed to fetch admin category order, falling back to alphabetical:", err);
   }
-  const rank = new Map(adminOrder.map((name, i) => [name.toLowerCase(), i]));
+  const rank = new Map(adminOrder.map((name, i) => [String(name).toLowerCase().trim(), i]));
   return Array.from(cats).sort((a, b) => {
-    const ra = rank.has(a.toLowerCase()) ? rank.get(a.toLowerCase()) : Infinity;
-    const rb = rank.has(b.toLowerCase()) ? rank.get(b.toLowerCase()) : Infinity;
+    const keyA = String(a).toLowerCase().trim();
+    const keyB = String(b).toLowerCase().trim();
+    const ra = rank.has(keyA) ? rank.get(keyA) : 999;
+    const rb = rank.has(keyB) ? rank.get(keyB) : 999;
     if (ra !== rb) return ra - rb;
-    return a.localeCompare(b);
+    return String(a).localeCompare(String(b));
   });
 }
 
@@ -1358,6 +1368,7 @@ async function mountLandingMenuShowcase() {
     if (it.category) categoriesSet.add(it.category.trim());
   });
   const categories = await _sortCategoriesByAdminOrder(categoriesSet);
+  const catRankMap = new Map(categories.map((c, idx) => [String(c).toLowerCase().trim(), idx]));
 
   // Render category chips
   if (catBar) {
@@ -1397,6 +1408,17 @@ async function mountLandingMenuShowcase() {
       const cat = (it.category || "").toLowerCase();
       return name.includes(q) || desc.includes(q) || cat.includes(q);
     });
+
+    if (selectedCat === "ALL") {
+      filtered.sort((a, b) => {
+        const catA = String(a.category || "").toLowerCase().trim();
+        const catB = String(b.category || "").toLowerCase().trim();
+        const ra = catRankMap.has(catA) ? catRankMap.get(catA) : 999;
+        const rb = catRankMap.has(catB) ? catRankMap.get(catB) : 999;
+        if (ra !== rb) return ra - rb;
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      });
+    }
 
     if (!filtered.length) {
       grid.innerHTML = `
