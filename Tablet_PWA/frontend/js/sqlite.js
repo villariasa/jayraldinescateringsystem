@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS customers (
     cus_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS menu_categories (
+    mc_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mc_name TEXT NOT NULL UNIQUE,
+    mc_is_active INTEGER DEFAULT 1,
+    mc_sort INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS menu_items (
     mi_id INTEGER PRIMARY KEY AUTOINCREMENT,
     mi_name TEXT NOT NULL,
@@ -362,6 +369,28 @@ function seedDefaults() {
     }
   } catch (err) {
     console.warn("[SQLite] Package items seed note:", err);
+  }
+
+  // Seed Default Menu Categories if empty (admin-defined mc_sort order —
+  // see Settings > Menu Categories drag-and-drop)
+  try {
+    if (countOf("menu_categories") === 0) {
+      const defaultCats = ["Beef", "Pork", "Chicken", "Fish & Seafood", "Pasta & Noodles", "Vegetables", "Dessert", "Beverage", "Add-on"];
+      defaultCats.forEach((cat, i) => {
+        db.run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", [cat, i]);
+      });
+      // Any category already present on a seeded/imported menu item but not
+      // in the defaults list gets appended so it isn't silently hidden.
+      const existingCats = db.exec("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND mi_category != ''")[0]?.values || [];
+      let nextSort = defaultCats.length;
+      for (const [cat] of existingCats) {
+        if (!defaultCats.includes(cat)) {
+          db.run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", [cat, nextSort++]);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[SQLite] Menu categories seed note:", err);
   }
 
   // Seed Default Occasions if empty
