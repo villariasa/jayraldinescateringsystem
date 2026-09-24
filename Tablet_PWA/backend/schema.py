@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS customers (
     cus_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS menu_categories (
+    mc_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mc_name TEXT NOT NULL UNIQUE,
+    mc_is_active INTEGER DEFAULT 1,
+    mc_sort INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS menu_items (
     mi_id INTEGER PRIMARY KEY AUTOINCREMENT,
     mi_name TEXT NOT NULL,
@@ -262,6 +269,10 @@ _DEFAULT_PACKAGES = [
     ("Gold Buffet", "Premium buffet package — 6 main dishes, dessert, drinks.", 450.0, 60),
     ("Platinum Buffet", "Deluxe buffet package with VIP table service.", 600.0, 100),
 ]
+_DEFAULT_MENU_CATEGORIES = [
+    "Beef", "Pork", "Chicken", "Fish & Seafood", "Pasta & Noodles",
+    "Vegetables", "Dessert", "Beverage", "Add-on",
+]
 _DEFAULT_MENU_ITEMS = [
     ("Beef Caldereta", "Beef", 0.0, "Available", ""),
     ("Pork Sisig", "Pork", 0.0, "Available", ""),
@@ -314,6 +325,11 @@ def init_db(conn: sqlite3.Connection) -> None:
                 "INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
                 (name, desc, price, min_pax),
             )
+
+    cur.execute("SELECT COUNT(*) FROM menu_categories")
+    if cur.fetchone()[0] == 0:
+        for i, cat in enumerate(_DEFAULT_MENU_CATEGORIES):
+            cur.execute("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", (cat, i))
 
     cur.execute("SELECT COUNT(*) FROM menu_items")
     if cur.fetchone()[0] == 0:
