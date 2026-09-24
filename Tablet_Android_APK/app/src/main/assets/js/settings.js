@@ -764,28 +764,55 @@ async function openPackageForm(content, pkg) {
   const selectedItemIds = new Set(existingItems.map((it) => Number(it.menu_item_id)).filter(Boolean));
   const selectedItemNames = new Set(existingItems.map((it) => String(it.item_name || it.name || "").trim().toLowerCase()).filter(Boolean));
 
-  const catOptionsHtml = (selected) => allCategories
-    .map((c) => `<option value="${escapeHtml(c)}" ${selected && selected.map(String).includes(String(c)) ? "selected" : ""}>${escapeHtml(c)}</option>`)
-    .join("");
+  const catChipsHtml = (selectedCats) => {
+    const selSet = new Set((selectedCats || []).map((c) => String(c).trim().toLowerCase()));
+    if (!allCategories.length) {
+      return `<p style="color:var(--text-muted); font-size:12px; margin:4px 0;">No categories loaded from server.</p>`;
+    }
+    return `
+      <div class="b-cat-chips-wrap" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; max-height:150px; overflow-y:auto; padding:8px; border:1px solid var(--border,#cbd5e1); border-radius:8px; background:var(--bg-subtle,rgba(0,0,0,0.02));">
+        ${allCategories.map((c) => {
+          const isSelected = selSet.has(String(c).trim().toLowerCase());
+          return `
+            <button type="button" class="btn-touch-chip ${isSelected ? "selected" : ""}" data-cat="${escapeHtml(c)}"
+              style="padding:6px 12px; border-radius:20px; font-size:12px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px; border:1.5px solid ${isSelected ? "var(--primary,#2563eb)" : "var(--border,#cbd5e1)"}; background:${isSelected ? "var(--primary,#2563eb)" : "var(--card-bg,#ffffff)"}; color:${isSelected ? "#ffffff" : "var(--text,#1e293b)"}; transition:all 0.15s ease;">
+              <span class="chip-icon" style="font-size:12px; font-weight:700;">${isSelected ? "✓" : "+"}</span>
+              <span>${escapeHtml(c)}</span>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    `;
+  };
 
   const bucketRowHtml = (b, idx) => `
-    <div class="pkg-bucket-row" data-bidx="${idx}" style="border:1px solid var(--border,#e2e8f0); border-radius:10px; padding:10px; margin-bottom:8px;">
-      <div class="grid-2" style="gap:8px;">
+    <div class="pkg-bucket-row" data-bidx="${idx}" style="border:1.5px solid var(--border,#cbd5e1); border-radius:12px; padding:12px; margin-bottom:12px; background:var(--card-bg,#fff); box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+      <div class="grid-2" style="gap:10px;">
         <div class="form-group" style="margin:0;">
-          <label>Bucket Name</label>
-          <input type="text" class="form-control b-name" value="${escapeHtml(b.name || "")}" placeholder="e.g. Dishes">
+          <label style="font-weight:600; font-size:13px;">Bucket Name</label>
+          <input type="text" class="form-control b-name" value="${escapeHtml(b.name || "")}" placeholder="e.g. Dishes or Dessert">
         </div>
         <div class="form-group" style="margin:0;">
-          <label>Max Selectable</label>
-          <input type="number" class="form-control b-limit" min="0" value="${Number(b.limit || 1)}">
+          <label style="font-weight:600; font-size:13px;">Max Pick Limit</label>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <button type="button" class="btn btn-secondary b-limit-minus" style="padding:6px 14px; font-weight:700; font-size:15px;">-</button>
+            <input type="number" class="form-control b-limit" min="1" max="50" value="${Number(b.limit || 1)}" style="text-align:center; font-weight:700; font-size:15px;">
+            <button type="button" class="btn btn-secondary b-limit-plus" style="padding:6px 14px; font-weight:700; font-size:15px;">+</button>
+          </div>
         </div>
       </div>
-      <div class="form-group" style="margin:6px 0 0;">
-        <label>Categories in this bucket (Ctrl/Cmd-click for multiple)</label>
-        <select class="form-control b-cats" multiple size="4">${catOptionsHtml(b.categories || [])}</select>
+      <div class="form-group" style="margin:10px 0 0;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <label style="margin:0; font-weight:600; font-size:13px;">Categories in this Bucket <span style="font-size:11px; font-weight:400; color:var(--text-muted);">(Tap to select/unselect)</span></label>
+          <div style="display:flex; gap:6px;">
+            <button type="button" class="btn btn-ghost b-select-all" style="font-size:11px; padding:2px 8px; border:1px solid var(--border,#e2e8f0); border-radius:4px;">Select All</button>
+            <button type="button" class="btn btn-ghost b-clear-all" style="font-size:11px; padding:2px 8px; border:1px solid var(--border,#e2e8f0); border-radius:4px;">Clear</button>
+          </div>
+        </div>
+        ${catChipsHtml(b.categories || [])}
       </div>
-      <div style="text-align:right; margin-top:6px;">
-        <button type="button" class="btn btn-ghost b-remove">${icon("trash")} Remove Bucket</button>
+      <div style="text-align:right; margin-top:8px;">
+        <button type="button" class="btn btn-ghost b-remove" style="color:var(--danger,#ef4444); font-size:12px;">${icon("trash")} Remove Bucket</button>
       </div>
     </div>`;
 
@@ -820,7 +847,7 @@ async function openPackageForm(content, pkg) {
       <div class="grid-2">
         <div class="form-group">
           <label>Price Per Pax (₱)</label>
-          <input type="number" class="form-control" id="f-price" step="0.01" value="${pkg?.price_per_pax ?? 350}">
+          <input type="number" class="form-control" id="f-price" step="0.01" min="0" value="${pkg?.price_per_pax != null ? Number(pkg.price_per_pax) : 350}">
         </div>
         <div class="form-group">
           <label>Minimum Pax</label>
@@ -844,7 +871,7 @@ async function openPackageForm(content, pkg) {
       <hr style="border:none; border-top:1px solid var(--border,#e2e8f0); margin:14px 0;">
       <div class="form-group" style="margin-bottom:6px;">
         <label style="font-size:14px; font-weight:700;">Selection Limits (Buckets)</label>
-        <p style="color:var(--text-muted); font-size:12px; margin:2px 0 8px;">Each bucket limits how many dishes a customer may pick from its categories (e.g. Dishes = 4, Dessert = 1). Leave empty for no limits.</p>
+        <p style="color:var(--text-muted); font-size:12px; margin:2px 0 8px;">Each bucket limits how many dishes a customer may pick from its categories (e.g. Dishes = 4, Dessert = 1). Tap categories below to include or exclude them.</p>
       </div>
       <div id="pkg-buckets-list">${buckets.map((b, i) => bucketRowHtml(b, i)).join("")}</div>
       <button type="button" class="btn btn-secondary" id="add-bucket-btn" style="margin-bottom:6px;">${icon("plus")} Add Bucket</button>
@@ -869,17 +896,73 @@ async function openPackageForm(content, pkg) {
   const previewWrap = modal.querySelector("#pkg-img-preview-wrap");
   const bucketsList = modal.querySelector("#pkg-buckets-list");
 
-  // Bucket add/remove wiring (re-bound after each re-render).
-  const wireBucketRemovals = () => {
-    bucketsList.querySelectorAll(".b-remove").forEach((btn) => {
-      btn.onclick = () => { btn.closest(".pkg-bucket-row")?.remove(); };
+  // Bucket interactions wiring (minus/plus, chip toggles, select/clear all, remove)
+  const wireBucketInteractions = () => {
+    bucketsList.querySelectorAll(".pkg-bucket-row").forEach((row) => {
+      const removeBtn = row.querySelector(".b-remove");
+      if (removeBtn) {
+        removeBtn.onclick = () => row.remove();
+      }
+
+      const limitInput = row.querySelector(".b-limit");
+      const minusBtn = row.querySelector(".b-limit-minus");
+      const plusBtn = row.querySelector(".b-limit-plus");
+      if (minusBtn && limitInput) {
+        minusBtn.onclick = () => {
+          limitInput.value = Math.max(1, (Number(limitInput.value) || 1) - 1);
+        };
+      }
+      if (plusBtn && limitInput) {
+        plusBtn.onclick = () => {
+          limitInput.value = (Number(limitInput.value) || 0) + 1;
+        };
+      }
+
+      row.querySelectorAll(".btn-touch-chip").forEach((chip) => {
+        chip.onclick = () => {
+          const isSelected = chip.classList.toggle("selected");
+          chip.style.border = `1.5px solid ${isSelected ? "var(--primary,#2563eb)" : "var(--border,#cbd5e1)"}`;
+          chip.style.background = isSelected ? "var(--primary,#2563eb)" : "var(--card-bg,#ffffff)";
+          chip.style.color = isSelected ? "#ffffff" : "var(--text,#1e293b)";
+          const iconSpan = chip.querySelector(".chip-icon");
+          if (iconSpan) iconSpan.textContent = isSelected ? "✓" : "+";
+        };
+      });
+
+      const selectAllBtn = row.querySelector(".b-select-all");
+      const clearAllBtn = row.querySelector(".b-clear-all");
+      if (selectAllBtn) {
+        selectAllBtn.onclick = () => {
+          row.querySelectorAll(".btn-touch-chip").forEach((chip) => {
+            chip.classList.add("selected");
+            chip.style.border = "1.5px solid var(--primary,#2563eb)";
+            chip.style.background = "var(--primary,#2563eb)";
+            chip.style.color = "#ffffff";
+            const iconSpan = chip.querySelector(".chip-icon");
+            if (iconSpan) iconSpan.textContent = "✓";
+          });
+        };
+      }
+      if (clearAllBtn) {
+        clearAllBtn.onclick = () => {
+          row.querySelectorAll(".btn-touch-chip").forEach((chip) => {
+            chip.classList.remove("selected");
+            chip.style.border = "1.5px solid var(--border,#cbd5e1)";
+            chip.style.background = "var(--card-bg,#ffffff)";
+            chip.style.color = "var(--text,#1e293b)";
+            const iconSpan = chip.querySelector(".chip-icon");
+            if (iconSpan) iconSpan.textContent = "+";
+          });
+        };
+      }
     });
   };
-  wireBucketRemovals();
+  wireBucketInteractions();
+
   modal.querySelector("#add-bucket-btn").addEventListener("click", () => {
     const idx = bucketsList.querySelectorAll(".pkg-bucket-row").length;
     bucketsList.insertAdjacentHTML("beforeend", bucketRowHtml({ name: "", limit: 1, categories: [] }, idx));
-    wireBucketRemovals();
+    wireBucketInteractions();
   });
 
   chooseBtn.addEventListener("click", () => fileInput.click());
@@ -910,13 +993,13 @@ async function openPackageForm(content, pkg) {
     const name = modal.querySelector("#f-name").value.trim();
     if (!name) { toast("Package Name is required.", "error"); return; }
 
-    // Collect buckets
+    // Collect buckets with category chip selections
     const outBuckets = [];
     bucketsList.querySelectorAll(".pkg-bucket-row").forEach((row) => {
       const bn = row.querySelector(".b-name").value.trim();
       if (!bn) return;
-      const limit = Number(row.querySelector(".b-limit").value || 0);
-      const cats = Array.from(row.querySelector(".b-cats").selectedOptions).map((o) => o.value);
+      const limit = Math.max(1, Number(row.querySelector(".b-limit").value || 1));
+      const cats = Array.from(row.querySelectorAll(".btn-touch-chip.selected")).map((el) => el.dataset.cat);
       outBuckets.push({ name: bn, limit, categories: cats });
     });
 
@@ -931,11 +1014,14 @@ async function openPackageForm(content, pkg) {
       });
     });
 
+    const rawPrice = modal.querySelector("#f-price").value;
+    const pricePerPax = rawPrice !== "" && !isNaN(Number(rawPrice)) ? Math.max(0, Number(rawPrice)) : 0;
+
     const pkgPayload = {
       id: pkg?.id,
       name,
       description: modal.querySelector("#f-desc").value,
-      price_per_pax: Number(modal.querySelector("#f-price").value || 0),
+      price_per_pax: pricePerPax,
       min_pax: Number(modal.querySelector("#f-min").value || 30),
     };
     if (imageChanged || (!pkg && currentImage)) {
