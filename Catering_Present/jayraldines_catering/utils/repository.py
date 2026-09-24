@@ -731,10 +731,28 @@ _DEFAULT_MENU_CATEGORIES = ["Main Course", "Noodles", "Soup", "Vegetables", "Des
 
 
 def get_all_menu_categories() -> list[str]:
-    """Category names in ADMIN-DEFINED display order (mc_sort, then mc_id as a
-    tiebreak for categories never explicitly reordered). This order is what
-    every dish-grouped view (order-time pickers, package bucket editor, etc.)
-    should show categories in — see reorder_menu_categories()."""
+    """Category names in ADMIN-DEFINED display order (mc_sort, then mi_category as a tiebreak).
+    Strictly reads categories that exist on dishes, ordered by the admin mc_sort.
+    Prevents empty predefined categories from showing up."""
+    try:
+        sql = """
+            SELECT mi_cat.cat_name
+            FROM (
+                SELECT DISTINCT mi_category AS cat_name
+                FROM menu_items
+                WHERE mi_category IS NOT NULL AND TRIM(mi_category) != ''
+            ) mi_cat
+            LEFT JOIN menu_categories mc ON LOWER(TRIM(mc.mc_name)) = LOWER(TRIM(mi_cat.cat_name))
+            ORDER BY COALESCE(mc.mc_sort, 999) ASC, mi_cat.cat_name ASC
+        """
+        rows = db.fetchall(sql)
+        if rows:
+            res = [str(r["cat_name"]).strip() for r in rows if r.get("cat_name") and str(r["cat_name"]).strip()]
+            if res:
+                return res
+    except Exception as exc:
+        print(f"[repository] get_all_menu_categories error: {exc}")
+
     try:
         rows = db.fetchall(
             "SELECT mc_name AS name FROM menu_categories WHERE mc_is_active = 1 OR mc_is_active IS NULL "
@@ -744,15 +762,9 @@ def get_all_menu_categories() -> list[str]:
             res = [str(r["name"]).strip() for r in rows if r.get("name") and str(r["name"]).strip()]
             if res:
                 return res
-    except Exception as exc:
-        print(f"[repository] get_all_menu_categories error: {exc}")
-
-    try:
-        for i, d in enumerate(_DEFAULT_MENU_CATEGORIES):
-            db.execute("INSERT INTO menu_categories (mc_name, mc_is_active, mc_sort) VALUES (%s, 1, %s) ON CONFLICT (mc_name) DO NOTHING", (d, i))
     except Exception:
         pass
-    return list(_DEFAULT_MENU_CATEGORIES)
+    return []
 
 
 def get_category_sort_map() -> dict:
@@ -767,11 +779,34 @@ def reorder_menu_categories(ordered_names: list[str]) -> bool:
     Settings > Menu Categories). ``ordered_names`` is the full category list
     in its new top-to-bottom order; each gets mc_sort = its position."""
     try:
-        for i, name in enumerate(ordered_names or []):
-            name = str(name or "").strip()
-            if not name:
-                continue
-            db.execute("UPDATE menu_categories SET mc_sort = %s WHERE mc_name = %s", (i, name))
+        names = [str(n or "").strip() for n in (ordered_names or []) if str(n or "").strip()]
+        for i, name in enumerate(names):
+            if db.get_engine_type() == "postgres":
+                sql = """
+                    INSERT INTO menu_categories (mc_name, mc_is_active, mc_sort)
+                    VALUES (%s, 1, %s)
+                    ON CONFLICT (mc_name) DO UPDATE SET mc_sort = %s, mc_is_active = 1
+                """
+                db.execute(sql, (name, i, i))
+            else:
+                sql = """
+                    INSERT INTO menu_categories (mc_name, mc_is_active, mc_sort)
+                    VALUES (?, 1, ?)
+                    ON CONFLICT(mc_name) DO UPDATE SET mc_sort = ?, mc_is_active = 1
+                """
+                db.execute(sql, (name, i, i))
+            db.execute("UPDATE menu_categories SET mc_sort = %s, mc_is_active = 1 WHERE LOWER(TRIM(mc_name)) = LOWER(TRIM(%s))", (i, name))
+
+        # Push any remaining categories not in names to the end so no collisions occur
+        next_sort = len(names)
+        existing = db.fetchall("SELECT mc_id, mc_name FROM menu_categories") or []
+        in_order_set = {n.lower() for n in names}
+        for r in existing:
+            cat_name = str(r.get("mc_name") or "").strip()
+            if cat_name.lower() not in in_order_set:
+                db.execute("UPDATE menu_categories SET mc_sort = %s WHERE mc_id = %s", (next_sort, r["mc_id"]))
+                next_sort += 1
+
         write_audit_log(action="UPDATE", table_name="menu_categories", record_id=0,
                         new_value={"order": list(ordered_names or [])})
         return True
