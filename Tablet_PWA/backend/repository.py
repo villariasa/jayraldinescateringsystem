@@ -179,45 +179,50 @@ def delete_menu_item(mi_id: int) -> bool:
 
 
 def get_menu_categories() -> list[str]:
-    """Category names in ADMIN-DEFINED display order (mc_sort, then mc_id as
-    a tiebreak) — mirrors Catering_Present's get_all_menu_categories(). This
-    is the order the dashboard/ordering views and Settings reorder UI use."""
+    """Category names in ADMIN-DEFINED display order (mc_sort, then mi_category as a tiebreak).
+    Strictly reads categories that exist on dishes, ordered by the admin mc_sort.
+    Prevents empty predefined categories from showing up."""
+    try:
+        sql = """
+            SELECT mi_cat.cat_name
+            FROM (
+                SELECT DISTINCT mi_category AS cat_name
+                FROM menu_items
+                WHERE mi_category IS NOT NULL AND TRIM(mi_category) != ''
+            ) mi_cat
+            LEFT JOIN menu_categories mc ON LOWER(TRIM(mc.mc_name)) = LOWER(TRIM(mi_cat.cat_name))
+            ORDER BY COALESCE(mc.mc_sort, 999) ASC, mi_cat.cat_name ASC
+        """
+        rows = db.fetchall(sql)
+        if rows:
+            res = [str(r["cat_name"]).strip() for r in rows if r.get("cat_name") and str(r["cat_name"]).strip()]
+            if res:
+                return res
+    except Exception as exc:
+        print(f"[repository] get_menu_categories error: {exc}")
+
     rows = db.fetchall(
         "SELECT mc_name AS name FROM menu_categories WHERE mc_is_active = 1 OR mc_is_active IS NULL "
         "ORDER BY COALESCE(mc_sort, 0), mc_id"
     )
-    cats = [r["name"] for r in rows if r.get("name")]
-
-    # Any category only present on a menu item (e.g. imported data) but not
-    # yet in menu_categories gets appended so it isn't silently hidden.
-    extra_rows = db.fetchall("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND mi_category != ''")
-    known_lower = {c.lower() for c in cats}
-    next_sort = len(cats)
-    for r in extra_rows:
-        cat = r["mi_category"]
-        if cat and cat.lower() not in known_lower:
-            cats.append(cat)
-            known_lower.add(cat.lower())
-            try:
-                db.execute("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", (cat, next_sort))
-                next_sort += 1
-            except Exception:
-                pass
-    return cats
+    return [str(r["name"]).strip() for r in rows if r.get("name") and str(r["name"]).strip()]
 
 
 def reorder_menu_categories(ordered_names: list[str]) -> bool:
-    """Persist a new admin-defined category display order (drag-and-drop in
-    Tablet Settings > Menu Categories). ``ordered_names`` is the full
-    category list in its new top-to-bottom order; each gets mc_sort = its
-    position."""
     try:
-        for i, name in enumerate(ordered_names or []):
-            name = (name or "").strip()
-            if not name:
-                continue
-            db.execute("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", (name, i))
-            db.execute("UPDATE menu_categories SET mc_sort = ? WHERE mc_name = ?", (i, name))
+        names = [str(n or "").strip() for n in (ordered_names or []) if str(n or "").strip()]
+        for i, name in enumerate(names):
+            db.execute("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort, mc_is_active) VALUES (?, ?, 1)", (name, i))
+            db.execute("UPDATE menu_categories SET mc_sort = ?, mc_is_active = 1 WHERE LOWER(TRIM(mc_name)) = LOWER(TRIM(?))", (i, name))
+
+        next_sort = len(names)
+        existing = db.fetchall("SELECT mc_id, mc_name FROM menu_categories") or []
+        in_order_set = {n.lower() for n in names}
+        for r in existing:
+            cat_name = str(r.get("mc_name") or "").strip()
+            if cat_name.lower() not in in_order_set:
+                db.execute("UPDATE menu_categories SET mc_sort = ? WHERE mc_id = ?", (next_sort, r["mc_id"]))
+                next_sort += 1
         return True
     except Exception as exc:
         print(f"[repository] reorder_menu_categories failed: {exc}")
@@ -226,7 +231,13 @@ def reorder_menu_categories(ordered_names: list[str]) -> bool:
 
 def get_package_menu_choices() -> dict[str, list[dict]]:
     grouped: dict[str, list[dict]] = {}
-    all_items = db.fetchall("SELECT * FROM menu_items WHERE mi_status = 'Available' ORDER BY mi_category, mi_name")
+    all_items = db.fetchall("""
+        SELECT mi.*, COALESCE(mc.mc_sort, 999) AS cat_sort
+        FROM menu_items mi
+        LEFT JOIN menu_categories mc ON LOWER(TRIM(mc.mc_name)) = LOWER(TRIM(mi.mi_category))
+        WHERE mi.mi_status = 'Available'
+        ORDER BY cat_sort ASC, mi.mi_category ASC, mi.mi_name ASC
+    """)
     for r in all_items:
         cat = r["mi_category"] or "Main Dish"
         grouped.setdefault(cat, []).append({
