@@ -1044,7 +1044,9 @@ async function openPackageForm(content, pkg) {
 
 async function renderMenuTab(content) {
   content.innerHTML = `<p style="color:var(--text-muted); padding:20px; text-align:center;">Loading menu…</p>`;
-  const [items, categories] = await Promise.all([api.getMenuItems(), api.getMenuCategories()]);
+  const [items, allCategories] = await Promise.all([api.getMenuItems(), api.getMenuCategories()]);
+  const itemCats = new Set(items.map(it => (it.category || "").trim().toLowerCase()));
+  const categories = allCategories.filter(c => itemCats.has(c.trim().toLowerCase()));
   content.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:12px;">
       <select id="cat-filter" class="form-control" style="max-width:220px;">
