@@ -1168,7 +1168,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 ("occasions",                  "SELECT * FROM occasions ORDER BY occ_id"),
                 ("users",                      "SELECT * FROM users ORDER BY id"),
                 ("user_permissions",           "SELECT * FROM user_permissions ORDER BY id"),
-                ("menu_categories",            "SELECT * FROM menu_categories ORDER BY mc_id"),
+                ("menu_categories",            "SELECT * FROM menu_categories ORDER BY COALESCE(mc_sort, 0), mc_id"),
                 ("menu_items",                 "SELECT * FROM menu_items ORDER BY mi_id"),
                 ("packages",                   "SELECT * FROM packages ORDER BY pkg_id"),
                 ("package_items",              "SELECT * FROM package_items ORDER BY pi_id"),
