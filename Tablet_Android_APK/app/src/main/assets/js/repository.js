@@ -477,11 +477,39 @@ export function deleteMenuItem(miId) {
 }
 
 export function getMenuCategories() {
-  const rows = fetchAll("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND mi_category != '' ORDER BY mi_category");
-  const cats = rows.map((r) => r.mi_category);
-  const defaults = ["Beef", "Pork", "Chicken", "Fish & Seafood", "Pasta & Noodles", "Vegetables", "Dessert", "Beverage", "Add-on"];
-  for (const d of defaults) if (!cats.includes(d)) cats.push(d);
+  // Admin-defined display order (mc_sort, then mc_id as tiebreak) — this is
+  // what the dashboard/ordering category bars and Settings > Menu
+  // Categories reorder UI both read.
+  const rows = fetchAll(
+    "SELECT mc_name FROM menu_categories WHERE mc_is_active = 1 OR mc_is_active IS NULL "
+    + "ORDER BY COALESCE(mc_sort, 0), mc_id"
+  );
+  const cats = rows.map((r) => r.mc_name);
+  const known = new Set(cats.map((c) => c.toLowerCase()));
+
+  // Any category only present on a menu item (e.g. imported data) but not
+  // yet in menu_categories gets appended so it isn't silently hidden.
+  const extra = fetchAll("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND mi_category != ''");
+  let nextSort = cats.length;
+  for (const r of extra) {
+    const cat = r.mi_category;
+    if (cat && !known.has(cat.toLowerCase())) {
+      cats.push(cat);
+      known.add(cat.toLowerCase());
+      try { run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", [cat, nextSort++]); } catch (_) {}
+    }
+  }
   return cats;
+}
+
+export function reorderMenuCategories(orderedNames) {
+  (orderedNames || []).forEach((name, i) => {
+    name = (name || "").trim();
+    if (!name) return;
+    run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", [name, i]);
+    run("UPDATE menu_categories SET mc_sort = ? WHERE mc_name = ?", [i, name]);
+  });
+  return true;
 }
 
 export function getPackageMenuChoices() {
@@ -832,7 +860,7 @@ export function markRecordsSynced(bookingRefs = [], customerNames = []) {
   }
 }
 
-export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = [], occasions = [], packageBuckets = []) {
+export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = [], occasions = [], packageBuckets = [], menuCategories = []) {
   const pendingPackageImages = getPendingPackageImageMap();
   const pendingMenuItemImages = getPendingMenuItemImageMap();
 
@@ -868,6 +896,10 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
         saveEntityImage("menu_item", miId, img);
       } catch (_) {}
     }
+  }
+
+  if (menuCategories && menuCategories.length > 0) {
+    try { reorderMenuCategories(menuCategories); } catch (_) {}
   }
 
   if (occasions && occasions.length > 0) {
