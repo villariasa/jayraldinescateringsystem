@@ -1293,6 +1293,25 @@ async function openQuickEventTypesModal() {
 }
 
 // ── Landing Page Live Menu Showcase ──────────────────────────────────
+// Sorts a set/array of category names by the admin-defined order from
+// Settings > Menu Categories (mc_sort), falling back to alphabetical for any
+// category not yet known to that order (e.g. freshly imported data).
+async function _sortCategoriesByAdminOrder(cats) {
+  let adminOrder = [];
+  try {
+    adminOrder = await api.getMenuCategories();
+  } catch (err) {
+    console.warn("[app] Failed to fetch admin category order, falling back to alphabetical:", err);
+  }
+  const rank = new Map(adminOrder.map((name, i) => [name.toLowerCase(), i]));
+  return Array.from(cats).sort((a, b) => {
+    const ra = rank.has(a.toLowerCase()) ? rank.get(a.toLowerCase()) : Infinity;
+    const rb = rank.has(b.toLowerCase()) ? rank.get(b.toLowerCase()) : Infinity;
+    if (ra !== rb) return ra - rb;
+    return a.localeCompare(b);
+  });
+}
+
 async function mountLandingMenuShowcase() {
   const container = document.getElementById("kiosk-menu-showcase");
   if (!container) return;
@@ -1338,7 +1357,7 @@ async function mountLandingMenuShowcase() {
   allMenuItems.forEach(it => {
     if (it.category) categoriesSet.add(it.category.trim());
   });
-  const categories = Array.from(categoriesSet).sort();
+  const categories = await _sortCategoriesByAdminOrder(categoriesSet);
 
   // Render category chips
   if (catBar) {
@@ -1505,7 +1524,7 @@ async function openQuickMenuModal({ initialCategory = "ALL", initialSearch = "" 
   items.forEach(i => {
     if (i.category) categoriesSet.add(i.category.trim());
   });
-  const categories = Array.from(categoriesSet).sort();
+  const categories = await _sortCategoriesByAdminOrder(categoriesSet);
 
   openModal({
     id: "quick-menu-modal",
