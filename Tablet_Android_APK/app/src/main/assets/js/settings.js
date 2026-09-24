@@ -1120,7 +1120,7 @@ function openCategoryReorderModal(categories, onSaved) {
     title: `${icon("layers")} Reorder Menu Categories`,
     bodyHtml: `
       <p style="color:var(--text-muted); font-size:13px; margin:0 0 12px;">
-        Tap or click anywhere on a category card and drag to reorder how dishes appear on the Dashboard and Order screens.
+        The number indicates which category comes first on the Tablet Menu and Order screens. Use the <b>▲ Up</b> and <b>▼ Down</b> buttons or drag any category card to re-arrange.
       </p>
       <ul id="cat-reorder-list" style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px;"></ul>
     `,
@@ -1136,16 +1136,51 @@ function openCategoryReorderModal(categories, onSaved) {
   function renderList() {
     list.innerHTML = order.map((name, i) => `
       <li class="management-card" data-cat-row="${i}" style="display:flex; align-items:center; gap:12px; padding:12px 16px; cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; border-radius:10px; border:1.5px solid var(--border,#cbd5e1); transition:transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;">
+        <span class="cat-order-num" style="display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; background:var(--primary,#2563eb); color:#fff; font-size:13px; font-weight:800; flex-shrink:0; pointer-events:none;">${i + 1}</span>
         <span class="drag-handle" style="cursor:grab; touch-action:none; color:var(--text-muted,#94a3b8); display:flex; align-items:center; pointer-events:none;">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
         </span>
-        <span style="flex:1; font-weight:600; font-size:14px; pointer-events:none;">${escapeHtml(name)}</span>
-        <span style="font-size:11px; font-weight:700; color:var(--text-muted,#94a3b8); background:var(--bg-subtle,rgba(0,0,0,0.05)); padding:3px 9px; border-radius:12px; pointer-events:none;">#${i + 1}</span>
+        <span style="flex:1; font-weight:700; font-size:15px; pointer-events:none;">${escapeHtml(name)}</span>
+        <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
+          <button type="button" class="btn btn-secondary btn-sm cat-move-up-btn" data-idx="${i}" ${i === 0 ? "disabled" : ""} title="Move Up" style="padding:6px 12px; font-size:12px; font-weight:700; border-radius:6px; line-height:1; display:inline-flex; align-items:center; gap:4px;">
+            ▲ <span style="font-size:11px;">Up</span>
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm cat-move-down-btn" data-idx="${i}" ${i === order.length - 1 ? "disabled" : ""} title="Move Down" style="padding:6px 12px; font-size:12px; font-weight:700; border-radius:6px; line-height:1; display:inline-flex; align-items:center; gap:4px;">
+            ▼ <span style="font-size:11px;">Down</span>
+          </button>
+        </div>
       </li>
     `).join("");
 
+    list.querySelectorAll(".cat-move-up-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const idx = Number(btn.dataset.idx);
+        if (idx > 0) {
+          const [moved] = order.splice(idx, 1);
+          order.splice(idx - 1, 0, moved);
+          renderList();
+        }
+      });
+    });
+
+    list.querySelectorAll(".cat-move-down-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const idx = Number(btn.dataset.idx);
+        if (idx < order.length - 1) {
+          const [moved] = order.splice(idx, 1);
+          order.splice(idx + 1, 0, moved);
+          renderList();
+        }
+      });
+    });
+
     list.querySelectorAll("[data-cat-row]").forEach((row) => {
-      row.addEventListener("pointerdown", (e) => startDrag(e, row));
+      row.addEventListener("pointerdown", (e) => {
+        if (e.target.closest("button")) return;
+        startDrag(e, row);
+      });
     });
   }
 
@@ -1173,11 +1208,6 @@ function openCategoryReorderModal(categories, onSaved) {
     });
   }
 
-  // Uses document-level listeners (not listeners on the dragged element)
-  // because renderList() rebuilds the <li> nodes on every reorder step —
-  // an element-bound listener would go dead the moment its node is replaced.
-  // The dragged item's position is tracked via `curIndex` in this closure,
-  // not by re-locating a DOM node, for the same reason.
   function startDrag(e, rowEl) {
     e.preventDefault();
     const row = rowEl.closest("[data-cat-row]");
@@ -1225,10 +1255,13 @@ function openCategoryReorderModal(categories, onSaved) {
   modal.querySelector("#save-cat-order").addEventListener("click", async () => {
     try {
       await api.reorderMenuCategories(order);
-      toast("Category order saved!", "success");
+      toast("Category order saved successfully!", "success");
       closeModal(formId);
       if (onSaved) onSaved();
       window.dispatchEvent(new CustomEvent("kiosk:categories-changed", { detail: { order } }));
+      if (typeof mountLandingMenuShowcase === "function") {
+        mountLandingMenuShowcase();
+      }
     } catch (err) {
       toast(err.message, "error");
     }
