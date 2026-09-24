@@ -633,7 +633,12 @@ export const api = {
         ordered_names: orderedNames || [],
       });
     } catch (_) {}
-    api.autoSyncPendingRecords().catch(() => {});
+    // NOTE: Do NOT call autoSyncPendingRecords() here. The direct push above
+    // already updates the server synchronously. Calling a full sync right
+    // after creates a race where the server may return the old category list
+    // (if it hasn't committed the push yet), which updateMasterDataFromSync
+    // would then write back to SQLite — silently undoing the user's reorder.
+    // The regular 60-second sync interval will handle any further propagation.
     return { ok, pushed };
   },
 
