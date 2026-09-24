@@ -479,49 +479,62 @@ export function deleteMenuItem(miId) {
 }
 
 export function getMenuCategories() {
-  // Admin-defined display order (mc_sort, then mc_id as tiebreak) — this is
-  // what the dashboard/ordering category bars and Settings > Menu
-  // Categories reorder UI both read.
-  const rows = fetchAll(
+  // Admin-defined display order: strictly fetch distinct categories present in menu_items
+  // joined with menu_categories to get their custom mc_sort order.
+  // This guarantees NO stale/predefined empty categories appear, and dishes always follow admin order.
+  const rows = fetchAll(`
+    SELECT mi_cat.cat_name, COALESCE(mc.mc_sort, 999) AS cat_sort
+    FROM (
+      SELECT DISTINCT mi_category AS cat_name
+      FROM menu_items
+      WHERE mi_category IS NOT NULL AND TRIM(mi_category) != ''
+    ) mi_cat
+    LEFT JOIN menu_categories mc ON LOWER(TRIM(mc.mc_name)) = LOWER(TRIM(mi_cat.cat_name))
+    ORDER BY cat_sort ASC, mi_cat.cat_name ASC
+  `);
+  if (rows && rows.length > 0) {
+    return rows.map((r) => r.cat_name);
+  }
+  const fallback = fetchAll(
     "SELECT mc_name FROM menu_categories WHERE mc_is_active = 1 OR mc_is_active IS NULL "
     + "ORDER BY COALESCE(mc_sort, 0), mc_id"
   );
-  const cats = rows.map((r) => r.mc_name);
-  const known = new Set(cats.map((c) => c.toLowerCase()));
-
-  // Any category only present on a menu item (e.g. imported data) but not
-  // yet in menu_categories gets appended so it isn't silently hidden.
-  const extra = fetchAll("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND mi_category != ''");
-  let nextSort = cats.length;
-  for (const r of extra) {
-    const cat = r.mi_category;
-    if (cat && !known.has(cat.toLowerCase())) {
-      cats.push(cat);
-      known.add(cat.toLowerCase());
-      try { run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", [cat, nextSort++]); } catch (_) {}
-    }
-  }
-  return cats;
+  return fallback.map((r) => r.mc_name);
 }
 
 export function reorderMenuCategories(orderedNames) {
-  (orderedNames || []).forEach((item, i) => {
-    const name = (typeof item === "string" ? item : (item?.mc_name || item?.name || "")).trim();
-    if (!name) return;
-    run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", [name, i]);
-    run("UPDATE menu_categories SET mc_sort = ? WHERE mc_name = ?", [i, name]);
+  const names = (orderedNames || [])
+    .map((item) => (typeof item === "string" ? item : (item?.mc_name || item?.name || "")).trim())
+    .filter(Boolean);
+
+  names.forEach((name, i) => {
+    run("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort, mc_is_active) VALUES (?, ?, 1)", [name, i]);
+    run("UPDATE menu_categories SET mc_sort = ?, mc_is_active = 1 WHERE LOWER(TRIM(mc_name)) = LOWER(TRIM(?))", [i, name]);
   });
+
+  // Push any existing categories in menu_categories not in ordered list after them
+  const nextSort = names.length;
+  const existing = fetchAll("SELECT mc_id, mc_name FROM menu_categories");
+  const inOrderSet = new Set(names.map((n) => n.toLowerCase()));
+  let extraSort = nextSort;
+  for (const r of existing) {
+    if (!inOrderSet.has(String(r.mc_name || "").toLowerCase().trim())) {
+      run("UPDATE menu_categories SET mc_sort = ? WHERE mc_id = ?", [extraSort++, r.mc_id]);
+    }
+  }
   return true;
 }
 
 export function getPackageMenuChoices() {
   const grouped = {};
   const rows = fetchAll(`
-    SELECT mi.*, COALESCE(NULLIF(ei.image_data, ''), NULLIF(mi.image, ''), NULLIF(mi.mi_image, '')) AS image
+    SELECT mi.*, COALESCE(NULLIF(ei.image_data, ''), NULLIF(mi.image, ''), NULLIF(mi.mi_image, '')) AS image,
+           COALESCE(mc.mc_sort, 999) AS cat_sort
     FROM menu_items mi
     LEFT JOIN entity_images ei ON ei.entity_type = 'menu_item' AND ei.entity_id = mi.mi_id
+    LEFT JOIN menu_categories mc ON LOWER(TRIM(mc.mc_name)) = LOWER(TRIM(mi_category))
     WHERE mi.mi_status = 'Available'
-    ORDER BY mi.mi_category, mi.mi_name
+    ORDER BY cat_sort ASC, mi.mi_category ASC, mi.mi_name ASC
   `);
   for (const r of rows) {
     const cat = r.mi_category || "Main Dish";
