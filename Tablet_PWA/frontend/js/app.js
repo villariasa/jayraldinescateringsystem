@@ -1340,8 +1340,10 @@ async function mountLandingMenuShowcase() {
   const clearBtn = container.querySelector("#landing-menu-search-clear");
   const startOrderBtn = container.querySelector("#btn-landing-menu-start-order");
 
-  let selectedCat = "ALL";
-  let searchQuery = "";
+  const activePill = catBar ? catBar.querySelector(".kiosk-cat-pill.active") : null;
+  const prevCat = activePill ? activePill.dataset.cat : null;
+  let selectedCat = (prevCat && (prevCat === "ALL" || categories.some(c => c.toLowerCase() === prevCat.toLowerCase()))) ? prevCat : "ALL";
+  let searchQuery = searchInput?.value || "";
 
   // Toggle a `.is-stuck` class on the sticky showcase head (heading/search/
   // actions + category bar) once it has actually pinned to the top, so it
@@ -1373,13 +1375,14 @@ async function mountLandingMenuShowcase() {
   // Render category chips
   if (catBar) {
     catBar.innerHTML = `
-      <button class="kiosk-cat-pill active" data-cat="ALL">
+      <button class="kiosk-cat-pill ${selectedCat === 'ALL' ? 'active' : ''}" data-cat="ALL">
         ${icon("utensils")} All Dishes (${allMenuItems.length})
       </button>
       ${categories.map(cat => {
         const count = allMenuItems.filter(it => (it.category || "").trim().toLowerCase() === cat.toLowerCase()).length;
+        const isActive = selectedCat.toLowerCase() === cat.toLowerCase();
         return `
-          <button class="kiosk-cat-pill" data-cat="${escapeHtml(cat)}">
+          <button class="kiosk-cat-pill ${isActive ? 'active' : ''}" data-cat="${escapeHtml(cat)}">
             ${escapeHtml(cat)} (${count})
           </button>
         `;
@@ -1500,32 +1503,35 @@ async function mountLandingMenuShowcase() {
 
   renderDishes();
 
-  if (searchInput) {
-    searchInput.addEventListener("input", () => {
-      searchQuery = searchInput.value;
-      if (clearBtn) {
-        clearBtn.style.display = searchQuery ? "flex" : "none";
-      }
-      renderDishes();
-    });
-  }
+  if (!container._searchWired) {
+    container._searchWired = true;
+    if (searchInput) {
+      searchInput.addEventListener("input", () => {
+        searchQuery = searchInput.value;
+        if (clearBtn) {
+          clearBtn.style.display = searchQuery ? "flex" : "none";
+        }
+        renderDishes();
+      });
+    }
 
-  if (clearBtn) {
-    clearBtn.addEventListener("click", () => {
-      if (searchInput) {
-        searchInput.value = "";
-        searchInput.focus();
-      }
-      searchQuery = "";
-      clearBtn.style.display = "none";
-      renderDishes();
-    });
-  }
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        if (searchInput) {
+          searchInput.value = "";
+          searchInput.focus();
+        }
+        searchQuery = "";
+        clearBtn.style.display = "none";
+        renderDishes();
+      });
+    }
 
-  if (startOrderBtn) {
-    startOrderBtn.addEventListener("click", () => {
-      openTermsModal();
-    });
+    if (startOrderBtn) {
+      startOrderBtn.addEventListener("click", () => {
+        openTermsModal();
+      });
+    }
   }
 }
 
