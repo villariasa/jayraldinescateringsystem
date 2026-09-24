@@ -780,14 +780,39 @@ def reorder_menu_categories(ordered_names: list[str]) -> bool:
     in its new top-to-bottom order; each gets mc_sort = its position."""
     try:
         names = [str(n or "").strip() for n in (ordered_names or []) if str(n or "").strip()]
+        if not names:
+            return False
+
+        # Ensure menu_categories table exists
+        is_pg = (db.get_engine_type() == "postgres")
+        if is_pg:
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS menu_categories (
+                    mc_id SERIAL PRIMARY KEY,
+                    mc_name VARCHAR(100) NOT NULL UNIQUE,
+                    mc_is_active SMALLINT DEFAULT 1,
+                    mc_sort INT DEFAULT 0
+                )
+            """)
+        else:
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS menu_categories (
+                    mc_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    mc_name TEXT NOT NULL UNIQUE,
+                    mc_is_active INTEGER DEFAULT 1,
+                    mc_sort INTEGER DEFAULT 0
+                )
+            """)
+
         for i, name in enumerate(names):
-            if db.get_engine_type() == "postgres":
+            if is_pg:
                 sql = """
                     INSERT INTO menu_categories (mc_name, mc_is_active, mc_sort)
                     VALUES (%s, 1, %s)
                     ON CONFLICT (mc_name) DO UPDATE SET mc_sort = %s, mc_is_active = 1
                 """
                 db.execute(sql, (name, i, i))
+                db.execute("UPDATE menu_categories SET mc_sort = %s, mc_is_active = 1 WHERE LOWER(TRIM(mc_name)) = LOWER(TRIM(%s))", (i, name))
             else:
                 sql = """
                     INSERT INTO menu_categories (mc_name, mc_is_active, mc_sort)
@@ -795,7 +820,7 @@ def reorder_menu_categories(ordered_names: list[str]) -> bool:
                     ON CONFLICT(mc_name) DO UPDATE SET mc_sort = ?, mc_is_active = 1
                 """
                 db.execute(sql, (name, i, i))
-            db.execute("UPDATE menu_categories SET mc_sort = %s, mc_is_active = 1 WHERE LOWER(TRIM(mc_name)) = LOWER(TRIM(%s))", (i, name))
+                db.execute("UPDATE menu_categories SET mc_sort = ?, mc_is_active = 1 WHERE LOWER(TRIM(mc_name)) = LOWER(TRIM(?))", (i, name))
 
         # Push any remaining categories not in names to the end so no collisions occur
         next_sort = len(names)
@@ -804,11 +829,19 @@ def reorder_menu_categories(ordered_names: list[str]) -> bool:
         for r in existing:
             cat_name = str(r.get("mc_name") or "").strip()
             if cat_name.lower() not in in_order_set:
-                db.execute("UPDATE menu_categories SET mc_sort = %s WHERE mc_id = %s", (next_sort, r["mc_id"]))
+                if is_pg:
+                    db.execute("UPDATE menu_categories SET mc_sort = %s WHERE mc_id = %s", (next_sort, r["mc_id"]))
+                else:
+                    db.execute("UPDATE menu_categories SET mc_sort = ? WHERE mc_id = ?", (next_sort, r["mc_id"]))
                 next_sort += 1
 
         write_audit_log(action="UPDATE", table_name="menu_categories", record_id=0,
                         new_value={"order": list(ordered_names or [])})
+        try:
+            from utils.db_sync_server import bump_db_version
+            bump_db_version()
+        except Exception:
+            pass
         return True
     except Exception as exc:
         print(f"[repository] reorder_menu_categories failed: {exc}")
@@ -829,6 +862,11 @@ def add_menu_category(name: str) -> None:
         (clean_name, next_sort),
     )
     write_audit_log(action="CREATE", table_name="menu_categories", record_id=0, new_value={"name": clean_name})
+    try:
+        from utils.db_sync_server import bump_db_version
+        bump_db_version()
+    except Exception:
+        pass
 
 
 def update_menu_category(old_name: str, new_name: str) -> None:
@@ -851,6 +889,11 @@ def update_menu_category(old_name: str, new_name: str) -> None:
         old_value={"name": old_name.strip()},
         new_value={"name": new_name.strip()}
     )
+    try:
+        from utils.db_sync_server import bump_db_version
+        bump_db_version()
+    except Exception:
+        pass
 
 
 def delete_menu_category(name: str) -> None:
@@ -863,6 +906,11 @@ def delete_menu_category(name: str) -> None:
         record_id=0,
         old_value={"name": name.strip()}
     )
+    try:
+        from utils.db_sync_server import bump_db_version
+        bump_db_version()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -2995,19 +3043,84 @@ def get_downpayment_received() -> float:
 def get_dashboard_kpis() -> dict:
     row = db.fetchone("SELECT * FROM v_dashboard_kpis")
     dp_rec = get_downpayment_received()
-    if not row:
-        return {
-            "todays_events": 0, "pending_bookings": 0,
-            "weekly_revenue": 0, "unpaid_invoices": 0, "todays_pax": 0,
-            "downpayment_received": dp_rec,
-        }
+
+    # Query all-time aggregate totals for All Time view
+    try:
+        all_row = db.fetchone("""
+            SELECT
+                COUNT(*) AS total_bookings,
+                COALESCE(SUM(bk_pax), 0) AS total_pax,
+                COALESCE(SUM(bk_total_amount), 0.0) AS total_sales,
+                COALESCE(SUM(
+                    CASE 
+                        WHEN bk_amount_paid > 0 THEN bk_amount_paid
+                        WHEN bk_down_payment > 0 THEN bk_down_payment
+                        ELSE 0.0 
+                    END
+                ), 0.0) AS total_dp
+            FROM bookings
+            WHERE bk_status != 'CANCELLED'
+        """)
+    except Exception:
+        all_row = None
+
+    total_bookings = int(all_row["total_bookings"] if all_row and all_row.get("total_bookings") is not None else 0)
+    total_pax = int(all_row["total_pax"] if all_row and all_row.get("total_pax") is not None else 0)
+    total_sales = float(all_row["total_sales"] if all_row and all_row.get("total_sales") is not None else 0.0)
+    total_dp = float(all_row["total_dp"] if all_row and all_row.get("total_dp") is not None else 0.0)
+
+    try:
+        pay_row = db.fetchone("SELECT COALESCE(SUM(pr_amount), 0.0) AS total_paid FROM payment_records")
+        total_paid = float(pay_row["total_paid"] if pay_row and pay_row.get("total_paid") is not None else 0.0)
+    except Exception:
+        total_paid = 0.0
+
+    try:
+        exp_row = db.fetchone("SELECT COALESCE(SUM(exp_amount), 0.0) AS total_expenses FROM expenses")
+        total_exp = float(exp_row["total_expenses"] if exp_row and exp_row.get("total_expenses") is not None else 0.0)
+    except Exception:
+        total_exp = 0.0
+
+    try:
+        inv_row = db.fetchone("""
+            SELECT COALESCE(SUM(
+                CASE 
+                    WHEN inv_balance IS NOT NULL AND inv_balance > 0 THEN inv_balance
+                    WHEN (inv_total_amount - inv_amount_paid) > 0 THEN ROUND(inv_total_amount - inv_amount_paid, 2)
+                    ELSE 0.0 
+                END
+            ), 0.0) AS total_unpaid
+            FROM invoices
+            WHERE CAST(inv_status AS TEXT) != 'Paid'
+              AND CAST(inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
+        """)
+        total_unpaid = float(inv_row["total_unpaid"] if inv_row and inv_row.get("total_unpaid") is not None else 0.0)
+    except Exception:
+        total_unpaid = 0.0
+
+    effective_revenue = total_paid if total_paid > 0 else total_sales
+
+    todays_events = int(row["todays_events"]) if row and row.get("todays_events") is not None else 0
+    pending_bookings = int(row["pending_bookings"]) if row and row.get("pending_bookings") is not None else 0
+    weekly_revenue = float(row["weekly_revenue"]) if row and row.get("weekly_revenue") is not None else 0.0
+    unpaid_invoices = float(row["unpaid_invoices"]) if row and row.get("unpaid_invoices") is not None else total_unpaid
+    todays_pax = int(row["todays_pax"]) if row and row.get("todays_pax") is not None else 0
+
     return {
-        "todays_events":         int(row["todays_events"]),
-        "pending_bookings":      int(row["pending_bookings"]),
-        "weekly_revenue":        float(row["weekly_revenue"]),
-        "unpaid_invoices":       float(row["unpaid_invoices"]),
-        "todays_pax":            int(row["todays_pax"]),
-        "downpayment_received":  dp_rec,
+        "todays_events":         todays_events,
+        "pending_bookings":      pending_bookings,
+        "weekly_revenue":        weekly_revenue,
+        "unpaid_invoices":       unpaid_invoices,
+        "todays_pax":            todays_pax,
+        "downpayment_received":  dp_rec if dp_rec > 0 else total_dp,
+        # All-time metrics
+        "total_bookings":        total_bookings,
+        "total_pax":             total_pax,
+        "total_revenue":         effective_revenue,
+        "total_expenses":        total_exp,
+        "total_downpayments":    total_dp if total_dp > 0 else dp_rec,
+        "total_unpaid":          total_unpaid,
+        "all_time_net_income":   effective_revenue - total_exp,
     }
 
 
@@ -3105,7 +3218,7 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
     }
 
 
-def get_upcoming_events(limit: int = 10, date_start: str = None, date_end: str = None) -> list[dict]:
+def get_upcoming_events(limit: int = 10, date_start: str = None, date_end: str = None, all_time: bool = False) -> list[dict]:
     if date_start and date_end:
         rows = db.fetchall("""
             SELECT
@@ -3128,6 +3241,16 @@ def get_upcoming_events(limit: int = 10, date_start: str = None, date_end: str =
             ORDER BY b.bk_event_date ASC, b.bk_event_time ASC
             LIMIT %s
         """, (date_start, limit))
+    elif all_time:
+        rows = db.fetchall("""
+            SELECT
+                b.bk_id, b.bk_booking_ref, b.bk_customer_name, b.bk_occasion,
+                b.bk_venue, b.bk_event_date, b.bk_event_time, b.bk_pax, b.bk_status
+            FROM bookings b
+            WHERE b.bk_status != 'CANCELLED'
+            ORDER BY b.bk_event_date DESC, b.bk_id DESC
+            LIMIT %s
+        """, (limit,))
     else:
         rows = db.fetchall("SELECT * FROM v_upcoming_events LIMIT %s", (limit,))
     if not rows:
