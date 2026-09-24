@@ -566,6 +566,41 @@ export const api = {
     return { ok: true };
   },
 
+  // Landing Slider Images (Central Server Persistence)
+  async getLandingSliderImages() {
+    try {
+      let host = _getStoredSyncHost();
+      if (!host) host = await api.autoDiscoverServer().catch(() => "");
+      if (!host) host = localStorage.getItem("jayraldines_lan_host") || localStorage.getItem("jayraldines_central_ip") || (typeof window !== "undefined" && window.location && window.location.hostname ? window.location.hostname : "192.168.1.10");
+      const baseUrls = _getSyncBaseUrls(host, 8000);
+      if (!baseUrls.some(u => u.includes("192.168.1.10"))) {
+        baseUrls.push("http://192.168.1.10:8000");
+      }
+      for (const base of baseUrls) {
+        try {
+          const controller = new AbortController();
+          const tid = setTimeout(() => controller.abort(), 4000);
+          const res = await fetch(`${base}/api/landing/slider-images`, {
+            headers: { Accept: "application/json", "ngrok-skip-browser-warning": "69420" },
+            signal: controller.signal,
+          });
+          clearTimeout(tid);
+          if (res.ok) {
+            return await res.json();
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return null;
+  },
+
+  async saveLandingSliderImages(images, interval = 5000) {
+    return _proxyPackageWrite("POST", "/api/landing/slider-images", {
+      images: images || [],
+      interval: interval || 5000,
+    });
+  },
+
   // Menu items (Offline-first: returns local SQLite menu items)
   async getMenuItems() {
     await ready();
