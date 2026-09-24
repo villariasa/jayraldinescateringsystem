@@ -2416,6 +2416,19 @@ class SettingsPage(QWidget):
 
         if can_edit or can_delete:
             btn_row = QHBoxLayout()
+            if can_edit:
+                up_btn = QPushButton("  ▲ Move Up")
+                up_btn.setObjectName("secondaryButton")
+                up_btn.setFixedHeight(30)
+                up_btn.clicked.connect(self._move_menu_category_up)
+                btn_row.addWidget(up_btn)
+
+                down_btn = QPushButton("  ▼ Move Down")
+                down_btn.setObjectName("secondaryButton")
+                down_btn.setFixedHeight(30)
+                down_btn.clicked.connect(self._move_menu_category_down)
+                btn_row.addWidget(down_btn)
+
             btn_row.addStretch()
             if can_edit:
                 edit_btn = QPushButton("  Rename")
@@ -2433,15 +2446,30 @@ class SettingsPage(QWidget):
 
         return card
 
+    def _move_menu_category_up(self):
+        row = self._mc_list.currentRow()
+        if row > 0:
+            item = self._mc_list.takeItem(row)
+            self._mc_list.insertItem(row - 1, item)
+            self._mc_list.setCurrentRow(row - 1)
+            self._on_menu_categories_reordered()
+
+    def _move_menu_category_down(self):
+        row = self._mc_list.currentRow()
+        if row >= 0 and row < self._mc_list.count() - 1:
+            item = self._mc_list.takeItem(row)
+            self._mc_list.insertItem(row + 1, item)
+            self._mc_list.setCurrentRow(row + 1)
+            self._on_menu_categories_reordered()
+
     def _load_menu_categories(self):
         """Asynchronously fetch all menu categories and refresh the list widget."""
         from utils.data_loader import run_async
         run_async(self, repo.get_all_menu_categories, self._on_menu_categories_loaded)
 
     def _on_menu_categories_loaded(self, categories):
-        """UI-thread callback: repopulate the menu-categories list from fetched names."""
+        """UI-thread callback: repopulate the menu-categories list with numbered labels."""
         try:
-            # Ignore results arriving after the page was destroyed.
             from shiboken6 import isValid
             if not isValid(self):
                 return
@@ -2449,16 +2477,39 @@ class SettingsPage(QWidget):
             pass
         if hasattr(self, "_mc_list"):
             self._mc_list.clear()
-            for name in (categories or []):
-                self._mc_list.addItem(QListWidgetItem(name))
+            for idx, name in enumerate(categories or []):
+                clean = str(name).strip()
+                item = QListWidgetItem(f"{idx + 1}.  {clean}")
+                item.setData(Qt.UserRole, clean)
+                self._mc_list.addItem(item)
 
     def _on_menu_categories_reordered(self, *_args):
-        """Persist the list's current top-to-bottom order after a drag-drop
-        move. Qt has already reordered the QListWidgetItems by the time this
-        signal fires, so reading the list back out gives the new order."""
-        names = [self._mc_list.item(i).text() for i in range(self._mc_list.count())]
+        """Persist the list's current top-to-bottom order after a drag-drop or move button click."""
+        import re
+        names = []
+        for i in range(self._mc_list.count()):
+            item = self._mc_list.item(i)
+            raw = item.data(Qt.UserRole)
+            if not raw:
+                raw = re.sub(r'^\d+\.\s*', '', item.text()).strip()
+            if raw:
+                names.append(raw)
+
+        # Refresh numbered labels in UI
+        self._mc_list.blockSignals(True)
+        for i, name in enumerate(names):
+            item = self._mc_list.item(i)
+            item.setText(f"{i + 1}.  {name}")
+            item.setData(Qt.UserRole, name)
+        self._mc_list.blockSignals(False)
+
         if names:
             repo.reorder_menu_categories(names)
+            try:
+                from utils.db_sync_server import bump_db_version
+                bump_db_version()
+            except Exception:
+                pass
             app_events().menu_saved.emit()
 
     def _add_menu_category(self):
@@ -2470,6 +2521,11 @@ class SettingsPage(QWidget):
         if ok and text.strip():
             try:
                 repo.add_menu_category(text.strip())
+                try:
+                    from utils.db_sync_server import bump_db_version
+                    bump_db_version()
+                except Exception:
+                    pass
                 self._load_menu_categories()
                 app_events().menu_saved.emit()
             except Exception as e:
@@ -2477,6 +2533,7 @@ class SettingsPage(QWidget):
 
     def _edit_menu_category(self):
         """Rename the selected menu category in place (requires edit permission)."""
+        import re
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "edit"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot edit menu categories.")
             return
@@ -2484,11 +2541,16 @@ class SettingsPage(QWidget):
         if not item:
             QMessageBox.information(self, "Select", "Please select a category to rename.")
             return
-        old_name = item.text()
+        old_name = item.data(Qt.UserRole) or re.sub(r'^\d+\.\s*', '', item.text()).strip()
         text, ok = QInputDialog.getText(self, "Rename Menu Category", "New name:", text=old_name)
         if ok and text.strip() and text.strip() != old_name:
             try:
                 repo.update_menu_category(old_name, text.strip())
+                try:
+                    from utils.db_sync_server import bump_db_version
+                    bump_db_version()
+                except Exception:
+                    pass
                 self._load_menu_categories()
                 app_events().menu_saved.emit()
             except Exception as e:
@@ -2496,6 +2558,7 @@ class SettingsPage(QWidget):
 
     def _delete_menu_category(self):
         """Delete the selected menu category after confirmation (requires delete permission)."""
+        import re
         if not SessionManager.is_admin() and not SessionManager.has_permission("settings", "delete"):
             QMessageBox.warning(self, "Access Denied", "View-only permission: You cannot delete menu categories.")
             return
@@ -2503,7 +2566,7 @@ class SettingsPage(QWidget):
         if not item:
             QMessageBox.information(self, "Select", "Please select a category to delete.")
             return
-        name = item.text()
+        name = item.data(Qt.UserRole) or re.sub(r'^\d+\.\s*', '', item.text()).strip()
         reply = QMessageBox.question(
             self, "Delete Menu Category",
             f"Delete '{name}'? Existing menu items using this category will keep it as free text until re-edited.",
@@ -2512,6 +2575,11 @@ class SettingsPage(QWidget):
         if reply == QMessageBox.Yes:
             try:
                 repo.delete_menu_category(name)
+                try:
+                    from utils.db_sync_server import bump_db_version
+                    bump_db_version()
+                except Exception:
+                    pass
                 self._load_menu_categories()
                 app_events().menu_saved.emit()
             except Exception as e:
