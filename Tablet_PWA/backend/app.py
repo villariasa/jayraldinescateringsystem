@@ -709,7 +709,7 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
         # made elsewhere, so the local cache stays authoritative post-sync)
         pg_cur.execute(f"""
             SELECT pkg_id, pkg_name, COALESCE(pkg_description, '') AS pkg_description,
-                   COALESCE({price_col}, 350.0) AS pkg_price_per_pax,
+                   COALESCE({price_col}, 0.0) AS pkg_price_per_pax,
                    COALESCE(pkg_min_pax, 30) AS pkg_min_pax
             FROM packages
             WHERE {"pkg_is_active IS NOT FALSE" if "pkg_is_active" in pkg_cols else "1=1"}
@@ -727,7 +727,7 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
                         pkg_min_pax = excluded.pkg_min_pax
                 """, (
                     p["pkg_name"], p.get("pkg_description", ""),
-                    float(p["pkg_price_per_pax"]) if p.get("pkg_price_per_pax") is not None else 350.0,
+                    float(p["pkg_price_per_pax"]) if p.get("pkg_price_per_pax") is not None else 0.0,
                     int(p.get("pkg_min_pax") or 30),
                 ))
             except Exception:
