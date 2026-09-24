@@ -77,7 +77,7 @@ CREATE UNIQUE INDEX uq_customers_name_contact ON customers (cus_name, cus_contac
 CREATE TABLE packages (
     pkg_id              SERIAL          PRIMARY KEY,
     pkg_name            VARCHAR(100)    NOT NULL UNIQUE,
-    pkg_price_per_pax   NUMERIC(10,2)   NOT NULL CHECK (pkg_price_per_pax > 0),
+    pkg_price_per_pax   NUMERIC(10,2)   NOT NULL CHECK (pkg_price_per_pax >= 0),
     pkg_min_pax         INT             NOT NULL DEFAULT 1 CHECK (pkg_min_pax >= 1),
     pkg_description     TEXT,
     pkg_image           TEXT            NOT NULL DEFAULT ''
