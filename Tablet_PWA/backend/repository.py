@@ -179,13 +179,49 @@ def delete_menu_item(mi_id: int) -> bool:
 
 
 def get_menu_categories() -> list[str]:
-    rows = db.fetchall("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND mi_category != '' ORDER BY mi_category")
-    cats = [r["mi_category"] for r in rows]
-    defaults = ["Beef", "Pork", "Chicken", "Fish & Seafood", "Pasta & Noodles", "Vegetables", "Dessert", "Beverage", "Add-on"]
-    for d in defaults:
-        if d not in cats:
-            cats.append(d)
+    """Category names in ADMIN-DEFINED display order (mc_sort, then mc_id as
+    a tiebreak) — mirrors Catering_Present's get_all_menu_categories(). This
+    is the order the dashboard/ordering views and Settings reorder UI use."""
+    rows = db.fetchall(
+        "SELECT mc_name AS name FROM menu_categories WHERE mc_is_active = 1 OR mc_is_active IS NULL "
+        "ORDER BY COALESCE(mc_sort, 0), mc_id"
+    )
+    cats = [r["name"] for r in rows if r.get("name")]
+
+    # Any category only present on a menu item (e.g. imported data) but not
+    # yet in menu_categories gets appended so it isn't silently hidden.
+    extra_rows = db.fetchall("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND mi_category != ''")
+    known_lower = {c.lower() for c in cats}
+    next_sort = len(cats)
+    for r in extra_rows:
+        cat = r["mi_category"]
+        if cat and cat.lower() not in known_lower:
+            cats.append(cat)
+            known_lower.add(cat.lower())
+            try:
+                db.execute("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", (cat, next_sort))
+                next_sort += 1
+            except Exception:
+                pass
     return cats
+
+
+def reorder_menu_categories(ordered_names: list[str]) -> bool:
+    """Persist a new admin-defined category display order (drag-and-drop in
+    Tablet Settings > Menu Categories). ``ordered_names`` is the full
+    category list in its new top-to-bottom order; each gets mc_sort = its
+    position."""
+    try:
+        for i, name in enumerate(ordered_names or []):
+            name = (name or "").strip()
+            if not name:
+                continue
+            db.execute("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", (name, i))
+            db.execute("UPDATE menu_categories SET mc_sort = ? WHERE mc_name = ?", (i, name))
+        return True
+    except Exception as exc:
+        print(f"[repository] reorder_menu_categories failed: {exc}")
+        return False
 
 
 def get_package_menu_choices() -> dict[str, list[dict]]:
