@@ -141,17 +141,40 @@ def auto_increment_version(curr: str) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Auto-Version Installer Builder for Jayraldine's Catering")
     parser.add_argument("-v", "--version", type=str, help="Override version string (e.g. 4.2.0)", default=None)
+    parser.add_argument("--major", action="store_true", help="Bump 1st digit (Major)")
+    parser.add_argument("--module", action="store_true", help="Bump 2nd digit (Module)")
+    parser.add_argument("--even", "--db", action="store_true", help="Bump 3rd digit to next EVEN (DB/data model)")
+    parser.add_argument("--odd", "--fix", action="store_true", help="Bump 3rd digit to next ODD (Bug fix)")
     args = parser.parse_args()
 
     curr = get_current_version()
-    next_ver = auto_increment_version(curr)
+
+    # Try office 3-digit version detector
+    root_proj = ROOT.parent.parent
+    sys.path.insert(0, str(root_proj))
+    try:
+        from bump_version import compute_new_version, detect_change_type, run_git
+        last_commit = run_git(["log", "-n", "1", "--pretty=format:%H", "--", str(ROOT / "version.py")])
+        if args.major:
+            b_type = "major"
+        elif args.module:
+            b_type = "module"
+        elif getattr(args, "even", False) or getattr(args, "db", False):
+            b_type = "even"
+        elif getattr(args, "odd", False) or getattr(args, "fix", False):
+            b_type = "odd"
+        else:
+            b_type, _ = detect_change_type(last_commit, "Catering_Present")
+        next_ver = compute_new_version(curr, b_type)
+    except Exception:
+        next_ver = auto_increment_version(curr)
 
     if args.version:
         ver = args.version.strip()
     else:
         ver = next_ver
         print("\n=============================================================")
-        print("  JAYRALDINE'S CATERING — AUTO-INCREMENT INSTALLER BUILDER")
+        print("  JAYRALDINE'S CATERING — OFFICE 3-DIGIT INSTALLER BUILDER")
         print("=============================================================")
         print(f"  Previous Version : v{curr}")
         print(f"  Target Version   : v{ver} (Auto-Incremented)")
