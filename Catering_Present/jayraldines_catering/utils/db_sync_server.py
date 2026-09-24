@@ -40,6 +40,16 @@ def _desktop_menu_image_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "assets" / "images" / "menu"
 
 
+def _desktop_slider_image_dir() -> Path:
+    d = Path(__file__).resolve().parent.parent / "assets" / "images" / "slider"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _slider_config_file() -> Path:
+    return _desktop_slider_image_dir() / "slider_config.json"
+
+
 def _image_ext_from_mime(mime: str) -> str:
     mime = (mime or "").lower().strip()
     if mime == "image/png":
@@ -403,6 +413,10 @@ class SyncServerHandler(BaseHTTPRequestHandler):
 
         if path == "/api/bookings/by-month":
             self._handle_bookings_by_month(query_params=query_params)
+            return
+
+        if path in ("/api/landing/slider-images", "/api/sync/slider-images"):
+            self._handle_get_slider_images()
             return
 
         self._set_cors_headers(404)
@@ -839,6 +853,10 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             self._handle_menu_categories_reorder()
             return
 
+        if path in ("/api/landing/slider-images", "/api/sync/slider-images"):
+            self._handle_save_slider_images()
+            return
+
         if path == "/api/packages":
             self._handle_package_create()
             return
@@ -941,6 +959,86 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             logger.error(f"[SyncServer] Menu categories reorder error: {exc}", exc_info=True)
             self._set_cors_headers(500)
             self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+
+    def _handle_get_slider_images(self):
+        """
+        GET /api/landing/slider-images
+        Returns custom landing slider images and interval saved on Central PC Server.
+        """
+        self._set_cors_headers(200)
+        cfg_file = _slider_config_file()
+        if cfg_file.exists():
+            try:
+                data = json.loads(cfg_file.read_text(encoding="utf-8"))
+                self.wfile.write(json.dumps({
+                    "status": "ok",
+                    "images": data.get("images", []),
+                    "interval": data.get("interval", 5000),
+                    "updated_at": data.get("updated_at", "")
+                }).encode("utf-8"))
+                return
+            except Exception as e:
+                logger.warning(f"[SyncServer] Error reading slider config: {e}")
+
+        self.wfile.write(json.dumps({
+            "status": "ok",
+            "images": [],
+            "interval": 5000,
+            "updated_at": ""
+        }).encode("utf-8"))
+
+    def _handle_save_slider_images(self):
+        """
+        POST /api/landing/slider-images
+        Body: {"images": ["data:image/jpeg;base64,...", ...], "interval": 5000}
+        Saves custom slider images permanently on the central PC server.
+        """
+        try:
+            payload = self._read_json_body()
+        except Exception as e:
+            self._set_cors_headers(400)
+            self.wfile.write(json.dumps({"error": f"Bad JSON: {e}"}).encode("utf-8"))
+            return
+
+        images = payload.get("images") or []
+        interval = payload.get("interval") or 5000
+        slider_dir = _desktop_slider_image_dir()
+
+        saved_images = []
+        for idx, item in enumerate(images[:3]):
+            item_str = str(item or "").strip()
+            if item_str.startswith("data:image/"):
+                try:
+                    data, _mime, ext = _decode_image_data_uri(item_str)
+                    filename = f"slide_{idx + 1}_{int(time.time())}{ext}"
+                    filepath = slider_dir / filename
+                    with open(filepath, "wb") as f:
+                        f.write(data)
+                    saved_images.append(item_str)
+                except Exception as e:
+                    logger.warning(f"[SyncServer] Error saving slider image {idx}: {e}")
+                    saved_images.append(item_str)
+            else:
+                saved_images.append(item_str)
+
+        cfg_file = _slider_config_file()
+        config_data = {
+            "images": saved_images,
+            "interval": interval,
+            "updated_at": datetime.now().isoformat()
+        }
+        try:
+            cfg_file.write_text(json.dumps(config_data), encoding="utf-8")
+        except Exception as e:
+            logger.error(f"[SyncServer] Failed to write slider config: {e}")
+
+        self._set_cors_headers(200)
+        self.wfile.write(json.dumps({
+            "status": "ok",
+            "message": "Slider images saved successfully on Central Server",
+            "images": saved_images,
+            "interval": interval
+        }).encode("utf-8"))
 
     def _handle_package_create(self):
         try:
