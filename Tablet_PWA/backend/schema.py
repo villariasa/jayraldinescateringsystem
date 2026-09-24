@@ -326,10 +326,20 @@ def init_db(conn: sqlite3.Connection) -> None:
                 (name, desc, price, min_pax),
             )
 
+    # Clean up stale predefined categories if they have no dishes
+    stale_predefined = ["Beef", "Pork", "Chicken", "Fish & Seafood", "Pasta & Noodles", "Vegetables", "Dessert", "Beverage", "Add-on"]
+    for sc in stale_predefined:
+        cur.execute("SELECT COUNT(*) FROM menu_items WHERE mi_category = ?", (sc,))
+        if cur.fetchone()[0] == 0:
+            cur.execute("DELETE FROM menu_categories WHERE mc_name = ?", (sc,))
+
     cur.execute("SELECT COUNT(*) FROM menu_categories")
     if cur.fetchone()[0] == 0:
-        for i, cat in enumerate(_DEFAULT_MENU_CATEGORIES):
-            cur.execute("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", (cat, i))
+        cur.execute("SELECT DISTINCT mi_category FROM menu_items WHERE mi_category IS NOT NULL AND TRIM(mi_category) != ''")
+        for i, row in enumerate(cur.fetchall()):
+            cat_name = str(row[0]).strip()
+            if cat_name:
+                cur.execute("INSERT OR IGNORE INTO menu_categories (mc_name, mc_sort) VALUES (?, ?)", (cat_name, i))
 
     cur.execute("SELECT COUNT(*) FROM menu_items")
     if cur.fetchone()[0] == 0:
