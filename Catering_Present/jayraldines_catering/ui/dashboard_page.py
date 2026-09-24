@@ -1019,10 +1019,10 @@ class DashboardPage(QWidget):
         v_title = QVBoxLayout()
         self._welcome_title = QLabel("Welcome back, Owner")
         self._welcome_title.setObjectName("h1")
-        sub = QLabel("Here's what's happening at Jayraldine's Catering today.")
-        sub.setObjectName("subtitle")
+        self._header_sub = QLabel("Here's what's happening at Jayraldine's Catering today.")
+        self._header_sub.setObjectName("subtitle")
         v_title.addWidget(self._welcome_title)
-        v_title.addWidget(sub)
+        v_title.addWidget(self._header_sub)
         header_row.addLayout(v_title)
         header_row.addStretch()
 
@@ -1146,12 +1146,12 @@ class DashboardPage(QWidget):
         cap_head = QHBoxLayout()
         cap_v = QVBoxLayout()
         cap_v.setSpacing(2)
-        cap_title = QLabel("Daily Capacity")
-        cap_title.setObjectName("h3")
-        cap_sub = QLabel("Pax booked today")
-        cap_sub.setObjectName("subtitle")
-        cap_v.addWidget(cap_title)
-        cap_v.addWidget(cap_sub)
+        self._cap_title = QLabel("Daily Capacity")
+        self._cap_title.setObjectName("h3")
+        self._cap_sub = QLabel("Pax booked today")
+        self._cap_sub.setObjectName("subtitle")
+        cap_v.addWidget(self._cap_title)
+        cap_v.addWidget(self._cap_sub)
         cap_head.addLayout(cap_v)
         cap_head.addStretch()
         self._pax_lbl = QLabel('—')
@@ -1183,9 +1183,9 @@ class DashboardPage(QWidget):
         self._ev_lay.setSpacing(0)
 
         ev_head = QHBoxLayout()
-        ev_title = QLabel("Upcoming Events")
-        ev_title.setObjectName("h3")
-        ev_head.addWidget(ev_title)
+        self._ev_title = QLabel("Upcoming Events")
+        self._ev_title.setObjectName("h3")
+        ev_head.addWidget(self._ev_title)
         ev_head.addStretch()
         self._ev_lay.addLayout(ev_head)
 
@@ -1509,6 +1509,8 @@ class DashboardPage(QWidget):
             self._filter_end = None
             self._filter_date = None
             self._filter_status_lbl.setText("Showing: All Time Overview")
+            from utils.data_cache import DataCache
+            DataCache.invalidate("dashboard_data")
 
         # Visual button states — highlight the active preset, restyle the rest,
         # and re-polish so the QSS object-name swap takes effect immediately.
@@ -1567,7 +1569,7 @@ class DashboardPage(QWidget):
             events = repo.get_upcoming_events(limit=20, date_start=d_start, date_end=d_end)
         else:
             kpis = repo.get_dashboard_kpis()
-            events = repo.get_upcoming_events(limit=20)
+            events = repo.get_upcoming_events(limit=20, all_time=True)
 
         return {
             "kpis":        kpis,
@@ -1685,6 +1687,11 @@ class DashboardPage(QWidget):
                 self._kpi_profit.update_value(f"₱ {net_income:,.0f}")
                 self._kpi_profit.update_trend(f"Rev ₱{revenue:,.0f} − Exp ₱{expenses:,.0f}")
 
+                if hasattr(self, "_header_sub"):
+                    self._header_sub.setText("Here's what's happening at Jayraldine's Catering today.")
+                if hasattr(self, "_ev_title"):
+                    self._ev_title.setText("Today's Events")
+
             elif mode == "week":
                 self._kpi_today.update_title("This Week's Events")
                 self._kpi_today.update_value(str(todays))
@@ -1705,6 +1712,11 @@ class DashboardPage(QWidget):
                 self._kpi_profit.update_title("Net Profit (This Week)")
                 self._kpi_profit.update_value(f"₱ {net_income:,.0f}")
                 self._kpi_profit.update_trend(f"Rev ₱{revenue:,.0f} − Exp ₱{expenses:,.0f}")
+
+                if hasattr(self, "_header_sub"):
+                    self._header_sub.setText("Here's what's happening at Jayraldine's Catering this week.")
+                if hasattr(self, "_ev_title"):
+                    self._ev_title.setText("This Week's Events")
 
             elif mode == "month":
                 self._kpi_today.update_title("This Month's Events")
@@ -1727,46 +1739,114 @@ class DashboardPage(QWidget):
                 self._kpi_profit.update_value(f"₱ {net_income:,.0f}")
                 self._kpi_profit.update_trend(f"Rev ₱{revenue:,.0f} − Exp ₱{expenses:,.0f}")
 
-            else:
-                self._kpi_today.update_title("Today's Events")
+                if hasattr(self, "_header_sub"):
+                    self._header_sub.setText(f"Here's what's happening at Jayraldine's Catering in {datetime.now().strftime('%B %Y')}.")
+                if hasattr(self, "_ev_title"):
+                    self._ev_title.setText("This Month's Events")
+
+            elif mode == "custom":
+                c_date = getattr(self, "_filter_date", "")
+                self._kpi_today.update_title(f"Events ({c_date})")
                 self._kpi_today.update_value(str(todays))
-                self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} today")
+                self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} on date")
+
+                self._kpi_downpayment.update_title("Downpayments")
+                self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
+                self._kpi_downpayment.update_trend("Collected on date")
+
+                self._kpi_revenue.update_title("Revenue (Date)")
+                self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
+                self._kpi_revenue.update_trend("Sales & collections on date")
+
+                self._kpi_unpaid.update_title("Unpaid (Date)")
+                self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
+                self._kpi_unpaid.update_trend("Balance on date")
+
+                self._kpi_profit.update_title("Net Profit (Date)")
+                self._kpi_profit.update_value(f"₱ {net_income:,.0f}")
+                self._kpi_profit.update_trend(f"Rev ₱{revenue:,.0f} − Exp ₱{expenses:,.0f}")
+
+                if hasattr(self, "_header_sub"):
+                    self._header_sub.setText(f"Here's what's happening at Jayraldine's Catering on {c_date}.")
+                if hasattr(self, "_ev_title"):
+                    self._ev_title.setText(f"Events ({c_date})")
+
+            else:
+                total_bks = int(kpis.get("total_bookings") or todays)
+                total_pax = int(kpis.get("total_pax") or pax)
+                all_rev   = float(kpis.get("total_revenue") or revenue or 0.0)
+                all_dp    = float(kpis.get("total_downpayments") or dp_rec or 0.0)
+                all_unpaid = float(kpis.get("total_unpaid") or unpaid or 0.0)
+                all_net   = float(kpis.get("all_time_net_income") or 0.0)
+                all_exp   = float(kpis.get("total_expenses") or expenses or 0.0)
+
+                self._kpi_today.update_title("All Time Bookings")
+                self._kpi_today.update_value(str(total_bks))
+                self._kpi_today.update_trend(f"{total_bks} total bookings ({total_pax:,} pax)")
 
                 self._kpi_downpayment.update_title("Downpayment Received")
-                self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
-                self._kpi_downpayment.update_trend("From upcoming events")
+                self._kpi_downpayment.update_value(f"₱ {all_dp:,.2f}")
+                self._kpi_downpayment.update_trend("All-time collections")
 
-                self._kpi_revenue.update_title("Weekly Revenue")
-                self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-                self._kpi_revenue.update_trend("This week's revenue")
+                self._kpi_revenue.update_title("Total Revenue")
+                self._kpi_revenue.update_value(f"₱ {all_rev:,.0f}")
+                self._kpi_revenue.update_trend("All-time gross revenue")
 
                 self._kpi_unpaid.update_title("Unpaid Invoices")
-                self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
-                self._kpi_unpaid.update_trend("Outstanding balance")
+                self._kpi_unpaid.update_value(f"₱ {all_unpaid:,.0f}")
+                self._kpi_unpaid.update_trend("All-time outstanding balance")
 
-                # All-time view derives YTD net profit from the profit summary rows.
-                try:
-                    total_rev = sum(r["revenue"] for r in profit_data)
-                    total_exp = sum(r["expense"] for r in profit_data)
-                    net = total_rev - total_exp
-                    self._kpi_profit.update_title("Net Profit (YTD)")
-                    self._kpi_profit.update_value(f"₱ {net:,.0f}")
-                    self._kpi_profit.update_trend(f"Rev ₱{total_rev:,.0f} − Exp ₱{total_exp:,.0f}")
-                except Exception:
-                    self._kpi_profit.update_title("Net Profit (YTD)")
-                    self._kpi_profit.update_value("—")
-                    self._kpi_profit.update_trend("No expense data")
+                # Derive all-time net profit if not already computed
+                if all_net == 0.0 and profit_data:
+                    try:
+                        total_rev_p = sum(r["revenue"] for r in profit_data)
+                        total_exp_p = sum(r["expense"] for r in profit_data)
+                        all_net = total_rev_p - total_exp_p
+                        if all_rev == 0.0:
+                            all_rev = total_rev_p
+                        if all_exp == 0.0:
+                            all_exp = total_exp_p
+                    except Exception:
+                        pass
+
+                self._kpi_profit.update_title("Net Profit (All Time)")
+                self._kpi_profit.update_value(f"₱ {all_net:,.0f}")
+                self._kpi_profit.update_trend(f"Rev ₱{all_rev:,.0f} − Exp ₱{all_exp:,.0f}")
+
+                if hasattr(self, "_header_sub"):
+                    self._header_sub.setText("Here's an all-time overview of Jayraldine's Catering.")
+                if hasattr(self, "_ev_title"):
+                    self._ev_title.setText("All Time Bookings")
 
             _pax_color = "#F9FAFB" if ThemeManager().is_dark() else "#101828"
-            self._pax_lbl.setText(
-                f'<span style="font-size:28px;font-weight:800;color:{_pax_color};">{pax}</span>'
-                f'<span style="color:#7A879E;font-size:16px;"> / 600</span>'
-            )
-            # Daily-capacity gauge against the fixed 600-pax cap.
-            self.prog.setValue(min(pax, 600))
-            pct = round((pax / 600) * 100, 1)
-            self._cap_pct_lbl.setText(f"{pct}% Capacity")
-            self._cap_rem_lbl.setText(f"{max(0, 600 - pax)} slots remaining")
+            if mode == "all":
+                total_bks = int(kpis.get("total_bookings") or todays)
+                total_pax = int(kpis.get("total_pax") or pax)
+                if hasattr(self, "_cap_title"):
+                    self._cap_title.setText("Total Pax Served")
+                if hasattr(self, "_cap_sub"):
+                    self._cap_sub.setText("All-time guests catered")
+                self._pax_lbl.setText(
+                    f'<span style="font-size:28px;font-weight:800;color:{_pax_color};">{total_pax:,}</span>'
+                    f'<span style="color:#7A879E;font-size:16px;"> pax</span>'
+                )
+                self.prog.setValue(600)
+                self._cap_pct_lbl.setText(f"{total_bks} Total Bookings")
+                self._cap_rem_lbl.setText("All-time confirmed & completed")
+            else:
+                if hasattr(self, "_cap_title"):
+                    self._cap_title.setText("Daily Capacity")
+                if hasattr(self, "_cap_sub"):
+                    self._cap_sub.setText("Pax booked today")
+                self._pax_lbl.setText(
+                    f'<span style="font-size:28px;font-weight:800;color:{_pax_color};">{pax}</span>'
+                    f'<span style="color:#7A879E;font-size:16px;"> / 600</span>'
+                )
+                # Daily-capacity gauge against the fixed 600-pax cap.
+                self.prog.setValue(min(pax, 600))
+                pct = round((pax / 600) * 100, 1)
+                self._cap_pct_lbl.setText(f"{pct}% Capacity")
+                self._cap_rem_lbl.setText(f"{max(0, 600 - pax)} slots remaining")
 
             self.summary_card.render_chart(chart_data)
 
