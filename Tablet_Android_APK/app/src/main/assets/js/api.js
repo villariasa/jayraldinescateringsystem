@@ -278,27 +278,46 @@ async function _flushPendingMenuItemImageUploads(host, port = 8000) {
 }
 
 async function _proxyPackageWrite(method, path, body) {
-  // Unlike _proxyServerWrite (which POSTs raw SQL to a "/api/db/write" route
-  // that was never implemented on this kiosk's own backend and always
-  // failed silently), this calls the REAL package REST endpoints that
-  // backend/app.py exposes (PUT/POST/DELETE /api/packages...), so edits
-  // actually reach the kiosk server's local DB and survive the next sync.
+  // Calls the REAL REST endpoints on the Central Server PC (port 8000)
+  // so edits reach the Central DB server directly and immediately.
   try {
-    const host = _getStoredSyncHost();
-    if (!host) return false;
+    let host = _getStoredSyncHost();
+    if (!host) {
+      host = await api.autoDiscoverServer().catch(() => "");
+    }
+    if (!host) {
+      host = localStorage.getItem("jayraldines_lan_host") || localStorage.getItem("jayraldines_central_ip") || (typeof window !== "undefined" && window.location && window.location.hostname ? window.location.hostname : "192.168.1.10");
+    }
     const baseUrls = _getSyncBaseUrls(host, 8000);
+    if (!baseUrls.some(u => u.includes("192.168.1.10"))) {
+      baseUrls.push("http://192.168.1.10:8000");
+    }
+    const dev = _getTabletDeviceInfo();
     for (const base of baseUrls) {
       try {
         const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 5000);
+        const tid = setTimeout(() => controller.abort(), 6000);
         const res = await fetch(`${base}${path}`, {
           method,
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "ngrok-skip-browser-warning": "69420",
+            "X-Device-Id": dev.device_id,
+            "X-Device-Host": dev.hostname,
+            "X-Device-OS": dev.os_info,
+          },
           body: body !== undefined ? JSON.stringify(body) : undefined,
           signal: controller.signal,
         });
         clearTimeout(tid);
-        if (res.ok) return true;
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (data.version) {
+            _knownServerDbVersion = Math.max(_knownServerDbVersion || 0, Number(data.version) || 0);
+          }
+          return true;
+        }
       } catch (_) {}
     }
   } catch (_) {}
@@ -573,11 +592,19 @@ export const api = {
   async reorderMenuCategories(orderedNames) {
     await ready();
     const ok = repo.reorderMenuCategories(orderedNames);
-    await _proxyPackageWrite("POST", "/api/menu-categories/reorder", {
+    const pushed = await _proxyPackageWrite("POST", "/api/menu-categories/reorder", {
       ordered_names: orderedNames || [],
-    }).catch(() => {});
+    }).catch(() => false);
+    if (!pushed) {
+      for (let i = 0; i < (orderedNames || []).length; i++) {
+        const name = (orderedNames[i] || "").trim();
+        if (name) {
+          await _proxyServerWrite("UPDATE menu_categories SET mc_sort = ?, mc_is_active = 1 WHERE LOWER(TRIM(mc_name)) = LOWER(TRIM(?))", [i, name]).catch(() => {});
+        }
+      }
+    }
     api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Category reorder sync note:", e));
-    return { ok };
+    return { ok, pushed };
   },
 
   async createMenuItem(data) {
