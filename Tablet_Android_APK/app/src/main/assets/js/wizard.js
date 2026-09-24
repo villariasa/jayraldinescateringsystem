@@ -1429,10 +1429,11 @@ async function renderStepMenu(card) {
           All Dishes (${totalAll})
           <span class="pill pill-partial" style="padding:2px 7px; font-size:11px;" id="all-selected-count">${totalAll}</span>
         </button>
-        ${visibleCategories.map((cat) => {
+        ${visibleCategories.map((cat, idx) => {
           const catTotal = (menuGroupedCache[cat] || []).length;
           return `
             <button type="button" class="kiosk-cat-pill" data-cat="${escapeHtml(cat)}">
+              <span class="cat-pill-order-badge" style="display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; padding:0 5px; border-radius:10px; background:rgba(0,0,0,0.08); font-size:11px; font-weight:800; margin-right:6px;">${idx + 1}</span>
               ${escapeHtml(cat)} (${catTotal})
               <span class="pill pill-partial" style="padding:2px 7px; font-size:11px;" data-pill-count="${escapeHtml(cat)}" data-cat-total="${catTotal}">${catTotal}</span>
             </button>
@@ -1450,10 +1451,13 @@ async function renderStepMenu(card) {
     </div>
 
     <div id="menu-categories-container">
-      ${visibleEntries.map(([cat, items]) => `
+      ${visibleEntries.map(([cat, items], idx) => `
         <div class="kiosk-category-section" id="cat-sec-${escapeHtml(cat.replace(/[^a-zA-Z0-9]/g, "-"))}" data-category-name="${escapeHtml(cat.toLowerCase())}" style="margin-bottom:28px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1.5px solid var(--border); padding-bottom:8px;">
-            <h4 style="margin:0; font-size:17px; font-weight:800; color:var(--text);">${escapeHtml(cat)}</h4>
+            <h4 style="margin:0; font-size:17px; font-weight:800; color:var(--text); display:flex; align-items:center; gap:8px;">
+              <span style="display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:var(--primary,#2563eb); color:#fff; font-size:12px; font-weight:800;">${idx + 1}</span>
+              ${escapeHtml(cat)}
+            </h4>
             <span class="pill pill-partial" data-count-for="${escapeHtml(cat)}">0 Selected</span>
           </div>
           <div class="kiosk-grid">
