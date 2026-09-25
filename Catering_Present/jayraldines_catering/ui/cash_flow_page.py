@@ -24,6 +24,7 @@ from components.loading_overlay import LoadingOverlay
 from utils.session import SessionManager
 from utils.signals import app_events
 from utils.data_loader import run_async
+from utils.animations import animate_dialog_open, create_soft_shadow
 
 
 _DEFAULT_PARTICULARS = [
@@ -31,7 +32,6 @@ _DEFAULT_PARTICULARS = [
     "GCash",
     "Maya",
     "UnionBank",
-    "BDO Personal Savings (SAVINGS)",
     "BDO Personal Savings (DOWN PAYMENT)",
     "BDO Personal Checking (CAFE)",
     "BDO Jayraldine's Catering (CATERING)",
@@ -40,56 +40,237 @@ _DEFAULT_PARTICULARS = [
 
 
 class TransactionModal(QDialog):
-    def __init__(self, parent=None, tx_data: dict = None):
+    def __init__(self, parent=None, tx_data: dict = None, default_classification: str = None):
         super().__init__(parent)
         self._tx = tx_data or {}
+        self._default_classification = default_classification
         self.setWindowTitle("Edit Transaction" if self._tx else "Add Cash Flow Transaction")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(480)
+        self.setFixedWidth(620)
         self.setModal(True)
+
+        dep = float(self._tx.get("deposit") or 0.0)
+        withd = float(self._tx.get("withdrawal") or 0.0)
+        if withd > 0 and dep == 0:
+            self._tx_type = "withdrawal"
+            self._initial_amount = withd
+        else:
+            self._tx_type = "deposit"
+            self._initial_amount = dep if dep > 0 else 0.0
+
         self._build_ui()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        animate_dialog_open(self, duration=240, auto_center=True)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.reject()
+            return
+        super().keyPressEvent(event)
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
 
         container = QFrame()
-        container.setObjectName("card")
+        container.setObjectName("modalCard")
+        create_soft_shadow(container, radius=32, y_offset=8, opacity=50)
         lay = QVBoxLayout(container)
-        lay.setContentsMargins(24, 24, 24, 24)
-        lay.setSpacing(16)
+        lay.setContentsMargins(26, 22, 26, 22)
+        lay.setSpacing(14)
 
-        # Header
+        # ── 1. Header ─────────────────────────────────────────────
         header = QHBoxLayout()
-        title_text = "Edit Transaction" if self._tx else "Add Transaction"
+        header.setSpacing(12)
+
+        is_edit = bool(self._tx)
+        icon_badge = QFrame()
+        icon_badge.setFixedSize(40, 40)
+        if is_edit:
+            icon_badge.setStyleSheet(
+                "background: rgba(56, 189, 248, 0.15); border: 1.5px solid rgba(56, 189, 248, 0.4); border-radius: 20px;"
+            )
+        else:
+            icon_badge.setStyleSheet(
+                "background: rgba(34, 197, 94, 0.15); border: 1.5px solid rgba(34, 197, 94, 0.4); border-radius: 20px;"
+            )
+        ib_lay = QVBoxLayout(icon_badge)
+        ib_lay.setContentsMargins(0, 0, 0, 0)
+        ib_lay.setAlignment(Qt.AlignCenter)
+        ib_lbl = QLabel("✎" if is_edit else "+")
+        ib_lbl.setStyleSheet(f"font-size: 19px; font-weight: 800; color: {'#38BDF8' if is_edit else '#22C55E'};")
+        ib_lay.addWidget(ib_lbl)
+        header.addWidget(icon_badge)
+
+        v_head = QVBoxLayout()
+        v_head.setSpacing(2)
+        title_text = "Edit Cash Flow Transaction" if is_edit else "Add Cash Flow Transaction"
         title = QLabel(title_text)
         title.setObjectName("h3")
-        header.addWidget(title)
-        header.addStretch()
+        title.setStyleSheet("font-size: 16px; font-weight: 700; color: #F9FAFB;")
+        sub_text = (
+            f"Update reference #{self._tx.get('check_no') or self._tx.get('id')}"
+            if is_edit
+            else "Record money movement, deposits, withdrawals, and bank reconciliations."
+        )
+        sub = QLabel(sub_text)
+        sub.setObjectName("subtitle")
+        sub.setStyleSheet("font-size: 12px; color: #9CA3AF;")
+        v_head.addWidget(title)
+        v_head.addWidget(sub)
+        header.addLayout(v_head, 1)
 
         close_btn = QPushButton()
-        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
+        close_btn.setIcon(get_icon("close", color="#9CA3AF", size=QSize(14, 14)))
         close_btn.setIconSize(QSize(14, 14))
         close_btn.setFixedSize(28, 28)
-        close_btn.setStyleSheet("background: transparent; border: none;")
+        close_btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none; border-radius: 14px; }"
+            "QPushButton:hover { background: rgba(255, 255, 255, 0.1); }"
+        )
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self.reject)
-        header.addWidget(close_btn)
+        header.addWidget(close_btn, alignment=Qt.AlignTop)
         lay.addLayout(header)
 
         div = QFrame()
         div.setObjectName("divider")
         lay.addWidget(div)
 
-        form = QFormLayout()
-        form.setSpacing(14)
-        form.setLabelAlignment(Qt.AlignRight)
+        # ── 2. Segmented Transaction Type Pill ────────────────────
+        type_box = QHBoxLayout()
+        type_box.setSpacing(10)
 
-        # Date
+        self._btn_type_dep = QPushButton("  📥 Deposit (Money In)")
+        self._btn_type_dep.setCursor(Qt.PointingHandCursor)
+        self._btn_type_dep.setFixedHeight(38)
+        self._btn_type_dep.clicked.connect(lambda: self._set_tx_type("deposit"))
+
+        self._btn_type_withd = QPushButton("  📤 Withdrawal (Money Out)")
+        self._btn_type_withd.setCursor(Qt.PointingHandCursor)
+        self._btn_type_withd.setFixedHeight(38)
+        self._btn_type_withd.clicked.connect(lambda: self._set_tx_type("withdrawal"))
+
+        type_box.addWidget(self._btn_type_dep, 1)
+        type_box.addWidget(self._btn_type_withd, 1)
+        lay.addLayout(type_box)
+
+        self._lbl_type_hint = QLabel()
+        self._lbl_type_hint.setStyleSheet("font-size: 11px; font-weight: 600; margin-left: 2px;")
+        lay.addWidget(self._lbl_type_hint)
+
+        # ── 3. Amount Input & Quick Presets ───────────────────────
+        amt_card = QFrame()
+        amt_card.setStyleSheet(
+            "QFrame { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; }"
+        )
+        amt_lay = QVBoxLayout(amt_card)
+        amt_lay.setContentsMargins(14, 12, 14, 12)
+        amt_lay.setSpacing(8)
+
+        self._lbl_amount_title = QLabel("Transaction Amount *")
+        self._lbl_amount_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF; text-transform: uppercase;")
+        amt_lay.addWidget(self._lbl_amount_title)
+
+        self._amount_f = QDoubleSpinBox()
+        self._amount_f.setRange(0, 999999999)
+        self._amount_f.setDecimals(2)
+        self._amount_f.setPrefix("₱ ")
+        self._amount_f.setValue(self._initial_amount)
+        self._amount_f.setFixedHeight(46)
+        amt_lay.addWidget(self._amount_f)
+
+        # Quick preset buttons
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(6)
+        for label, val in [("+₱500", 500), ("+₱1k", 1000), ("+₱5k", 5000), ("+₱10k", 10000), ("+₱50k", 50000)]:
+            p_btn = QPushButton(label)
+            p_btn.setCursor(Qt.PointingHandCursor)
+            p_btn.setFixedHeight(26)
+            p_btn.setStyleSheet(
+                "QPushButton { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: #E5E7EB; border-radius: 6px; font-size: 11px; font-weight: 600; padding: 0 8px; }"
+                "QPushButton:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.25); color: #FFFFFF; }"
+            )
+            p_btn.clicked.connect(lambda _, add_val=val: self._add_preset(add_val))
+            preset_row.addWidget(p_btn)
+
+        clear_btn = QPushButton("↺ Clear")
+        clear_btn.setCursor(Qt.PointingHandCursor)
+        clear_btn.setFixedHeight(26)
+        clear_btn.setStyleSheet(
+            "QPushButton { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #FCA5A5; border-radius: 6px; font-size: 11px; font-weight: 600; padding: 0 8px; }"
+            "QPushButton:hover { background: rgba(239, 68, 68, 0.2); border-color: #EF4444; color: #FFFFFF; }"
+        )
+        clear_btn.clicked.connect(lambda: self._amount_f.setValue(0.0))
+        preset_row.addWidget(clear_btn)
+        preset_row.addStretch()
+        amt_lay.addLayout(preset_row)
+
+        lay.addWidget(amt_card)
+
+        # ── 4. Particulars / Account Classification ───────────────
+        v_part = QVBoxLayout()
+        v_part.setSpacing(8)
+        lbl_part = QLabel("Account / Classification *")
+        lbl_part.setStyleSheet("font-size: 12px; font-weight: 700; color: #D1D5DB; padding-top: 4px; padding-bottom: 2px;")
+        v_part.addWidget(lbl_part)
+
+        self._part_f = QComboBox()
+        self._part_f.setEditable(True)
+        self._part_f.setFixedHeight(40)
+        self._part_f.setStyleSheet(
+            "QComboBox { font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; }"
+            "QComboBox::drop-down { width: 28px; border: none; background: transparent; }"
+            "QComboBox::down-arrow { image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid #9CA3AF; width: 0; height: 0; margin-right: 8px; }"
+        )
+        self._part_f.addItems(_DEFAULT_PARTICULARS)
+
+        target_account = self._tx.get("particulars") or self._default_classification
+        if target_account:
+            idx = self._part_f.findText(target_account)
+            if idx >= 0:
+                self._part_f.setCurrentIndex(idx)
+            else:
+                self._part_f.setEditText(target_account)
+        v_part.addWidget(self._part_f)
+
+        # Quick account chips
+        chips_row = QHBoxLayout()
+        chips_row.setSpacing(8)
+        chips_row.setContentsMargins(0, 2, 0, 2)
+        for chip_name in ["Cash on Hand", "GCash", "Maya", "UnionBank", "BDO Jayraldine's Catering (CATERING)"]:
+            short_lbl = chip_name.replace("BDO Jayraldine's Catering (CATERING)", "BDO Catering")
+            c_btn = QPushButton(short_lbl)
+            c_btn.setCursor(Qt.PointingHandCursor)
+            c_btn.setFixedHeight(28)
+            c_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+            c_btn.setStyleSheet(
+                "QPushButton { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); color: #D1D5DB; border-radius: 14px; font-size: 11px; font-weight: 600; padding: 2px 14px; }"
+                "QPushButton:hover { background: rgba(56, 189, 248, 0.15); border-color: #38BDF8; color: #38BDF8; }"
+            )
+            c_btn.clicked.connect(lambda _, name=chip_name: self._set_account_chip(name))
+            chips_row.addWidget(c_btn)
+        chips_row.addStretch()
+        v_part.addLayout(chips_row)
+        lay.addLayout(v_part)
+
+        # ── 5. Two-column Row: Date & Check # ─────────────────────
+        date_ref_row = QHBoxLayout()
+        date_ref_row.setSpacing(12)
+
+        v_date = QVBoxLayout()
+        v_date.setSpacing(6)
+        lbl_date = QLabel("Transaction Date *")
+        lbl_date.setStyleSheet("font-size: 12px; font-weight: 700; color: #D1D5DB;")
+        v_date.addWidget(lbl_date)
+
         self._date_f = QDateEdit()
         self._date_f.setCalendarPopup(True)
         self._date_f.setDisplayFormat("MMM dd, yyyy")
+        self._date_f.setFixedHeight(38)
         if self._tx.get("date"):
             try:
                 qd = QDate.fromString(str(self._tx["date"]), "yyyy-MM-dd")
@@ -100,76 +281,132 @@ class TransactionModal(QDialog):
                 self._date_f.setDate(QDate.currentDate())
         else:
             self._date_f.setDate(QDate.currentDate())
+        v_date.addWidget(self._date_f)
+        date_ref_row.addLayout(v_date, 1)
 
-        # Check #
+        v_check = QVBoxLayout()
+        v_check.setSpacing(6)
+        lbl_check = QLabel("Check # / Ref #")
+        lbl_check.setStyleSheet("font-size: 12px; font-weight: 700; color: #D1D5DB;")
+        v_check.addWidget(lbl_check)
+
         self._check_f = QLineEdit(self._tx.get("check_no", "") or "")
-        self._check_f.setPlaceholderText("e.g. CHK-001, GCASH-101, or —")
+        self._check_f.setPlaceholderText("e.g. GCASH-101, REF-882, CHK-001")
+        self._check_f.setFixedHeight(38)
+        v_check.addWidget(self._check_f)
+        date_ref_row.addLayout(v_check, 1)
 
-        # Particulars
-        self._part_f = QComboBox()
-        self._part_f.setEditable(True)
-        self._part_f.addItems(_DEFAULT_PARTICULARS)
-        if self._tx.get("particulars"):
-            idx = self._part_f.findText(self._tx["particulars"])
-            if idx >= 0:
-                self._part_f.setCurrentIndex(idx)
-            else:
-                self._part_f.setEditText(self._tx["particulars"])
+        lay.addLayout(date_ref_row)
 
-        # Deposit
-        self._dep_f = QDoubleSpinBox()
-        self._dep_f.setRange(0, 99999999)
-        self._dep_f.setDecimals(2)
-        self._dep_f.setPrefix("₱ ")
-        self._dep_f.setValue(float(self._tx.get("deposit") or 0.0))
+        # ── 6. Notes & Optional Actual Sales ──────────────────────
+        opt_row = QHBoxLayout()
+        opt_row.setSpacing(12)
 
-        # Withdrawal
-        self._withd_f = QDoubleSpinBox()
-        self._withd_f.setRange(0, 99999999)
-        self._withd_f.setDecimals(2)
-        self._withd_f.setPrefix("₱ ")
-        self._withd_f.setValue(float(self._tx.get("withdrawal") or 0.0))
+        v_notes = QVBoxLayout()
+        v_notes.setSpacing(6)
+        lbl_notes = QLabel("Notes / Description")
+        lbl_notes.setStyleSheet("font-size: 12px; font-weight: 700; color: #D1D5DB;")
+        v_notes.addWidget(lbl_notes)
+        self._notes_f = QLineEdit(self._tx.get("notes", "") or "")
+        self._notes_f.setPlaceholderText("Optional description or purpose...")
+        self._notes_f.setFixedHeight(38)
+        self._notes_f.returnPressed.connect(self._save)
+        v_notes.addWidget(self._notes_f)
+        opt_row.addLayout(v_notes, 2)
 
-        # Actual Sales (Optional)
+        v_sales = QVBoxLayout()
+        v_sales.setSpacing(6)
+        lbl_sales = QLabel("Actual Sales (Optional)")
+        lbl_sales.setStyleSheet("font-size: 12px; font-weight: 700; color: #9CA3AF;")
+        v_sales.addWidget(lbl_sales)
         self._actual_sales_f = QDoubleSpinBox()
-        self._actual_sales_f.setRange(0, 99999999)
+        self._actual_sales_f.setRange(0, 999999999)
         self._actual_sales_f.setDecimals(2)
         self._actual_sales_f.setPrefix("₱ ")
         self._actual_sales_f.setValue(float(self._tx.get("actual_sales") or 0.0))
+        self._actual_sales_f.setFixedHeight(38)
+        v_sales.addWidget(self._actual_sales_f)
+        opt_row.addLayout(v_sales, 1)
 
-        # Notes / Remarks
-        self._notes_f = QLineEdit(self._tx.get("notes", "") or "")
-        self._notes_f.setPlaceholderText("Optional description or reference...")
+        lay.addLayout(opt_row)
 
-        form.addRow(QLabel("Transaction Date:"), self._date_f)
-        form.addRow(QLabel("Check / Ref #:"), self._check_f)
-        form.addRow(QLabel("Particulars / Account:"), self._part_f)
-        form.addRow(QLabel("Deposit (Money In):"), self._dep_f)
-        form.addRow(QLabel("Withdrawal (Money Out):"), self._withd_f)
-        form.addRow(QLabel("Actual Sales (Optional):"), self._actual_sales_f)
-        form.addRow(QLabel("Notes / Purpose:"), self._notes_f)
-
-        lay.addLayout(form)
-
-        # Buttons
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
+        # ── 7. Footer Action Row ──────────────────────────────────
+        foot_row = QHBoxLayout()
+        foot_row.setContentsMargins(0, 8, 0, 0)
+        lbl_lock = QLabel("🔒 Balances recalculate automatically")
+        lbl_lock.setStyleSheet("font-size: 11px; color: #6B7280;")
+        foot_row.addWidget(lbl_lock)
+        foot_row.addStretch()
 
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setObjectName("secondaryButton")
         cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setFixedHeight(38)
+        cancel_btn.setMinimumWidth(90)
         cancel_btn.clicked.connect(self.reject)
 
-        save_btn = QPushButton("Save Transaction")
+        save_btn = QPushButton("  Save Transaction" if not is_edit else "  Update Transaction")
         save_btn.setObjectName("primaryButton")
+        save_btn.setIcon(btn_icon_primary("check"))
+        save_btn.setIconSize(QSize(14, 14))
         save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.setFixedHeight(38)
+        save_btn.setMinimumWidth(155)
         save_btn.clicked.connect(self._save)
 
-        btn_row.addWidget(cancel_btn)
-        btn_row.addWidget(save_btn)
-        lay.addLayout(btn_row)
+        foot_row.addWidget(cancel_btn)
+        foot_row.addWidget(save_btn)
+        lay.addLayout(foot_row)
 
         outer.addWidget(container)
+        self._update_type_ui()
+
+    def _set_tx_type(self, tx_type: str):
+        self._tx_type = tx_type
+        self._update_type_ui()
+
+    def _update_type_ui(self):
+        if self._tx_type == "deposit":
+            self._btn_type_dep.setStyleSheet(
+                "QPushButton { background: rgba(34, 197, 94, 0.2); border: 2px solid #22C55E; color: #22C55E; font-weight: 700; border-radius: 9px; padding: 8px 14px; font-size: 13px; }"
+            )
+            self._btn_type_withd.setStyleSheet(
+                "QPushButton { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: #9CA3AF; font-weight: 600; border-radius: 9px; padding: 8px 14px; font-size: 13px; }"
+                "QPushButton:hover { background: rgba(239, 68, 68, 0.1); color: #FCA5A5; }"
+            )
+            self._lbl_amount_title.setText("Deposit Amount (Money In) *")
+            self._lbl_type_hint.setText("🟢 Money In: Increases balance in the selected account.")
+            self._lbl_type_hint.setStyleSheet("font-size: 11px; font-weight: 600; color: #22C55E; margin-left: 2px;")
+            self._amount_f.setStyleSheet(
+                "QDoubleSpinBox { font-size: 22px; font-weight: 800; color: #22C55E; padding: 4px 12px; border: 1.5px solid rgba(34, 197, 94, 0.4); border-radius: 8px; background: rgba(34, 197, 94, 0.05); }"
+                "QDoubleSpinBox:focus { border: 2px solid #22C55E; }"
+            )
+        else:
+            self._btn_type_withd.setStyleSheet(
+                "QPushButton { background: rgba(239, 68, 68, 0.2); border: 2px solid #EF4444; color: #EF4444; font-weight: 700; border-radius: 9px; padding: 8px 14px; font-size: 13px; }"
+            )
+            self._btn_type_dep.setStyleSheet(
+                "QPushButton { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: #9CA3AF; font-weight: 600; border-radius: 9px; padding: 8px 14px; font-size: 13px; }"
+                "QPushButton:hover { background: rgba(34, 197, 94, 0.1); color: #86EFAC; }"
+            )
+            self._lbl_amount_title.setText("Withdrawal Amount (Money Out) *")
+            self._lbl_type_hint.setText("🔴 Money Out: Deducts funds from the selected account.")
+            self._lbl_type_hint.setStyleSheet("font-size: 11px; font-weight: 600; color: #EF4444; margin-left: 2px;")
+            self._amount_f.setStyleSheet(
+                "QDoubleSpinBox { font-size: 22px; font-weight: 800; color: #EF4444; padding: 4px 12px; border: 1.5px solid rgba(239, 68, 68, 0.4); border-radius: 8px; background: rgba(239, 68, 68, 0.05); }"
+                "QDoubleSpinBox:focus { border: 2px solid #EF4444; }"
+            )
+
+    def _add_preset(self, val: float):
+        curr = self._amount_f.value()
+        self._amount_f.setValue(curr + val)
+
+    def _set_account_chip(self, name: str):
+        idx = self._part_f.findText(name)
+        if idx >= 0:
+            self._part_f.setCurrentIndex(idx)
+        else:
+            self._part_f.setEditText(name)
 
     def _save(self):
         part = self._part_f.currentText().strip()
@@ -177,13 +414,19 @@ class TransactionModal(QDialog):
             QMessageBox.warning(self, "Validation Error", "Please provide a valid account or particulars description.")
             return
 
-        dep = self._dep_f.value()
-        withd = self._withd_f.value()
+        amt = self._amount_f.value()
         actual_sales = self._actual_sales_f.value()
 
-        if dep == 0 and withd == 0 and actual_sales == 0:
-            QMessageBox.warning(self, "Validation Error", "Please enter at least a Deposit, Withdrawal, or Actual Sales amount.")
+        if amt <= 0 and actual_sales <= 0:
+            QMessageBox.warning(self, "Validation Error", "Please enter a valid Transaction Amount greater than ₱ 0.00.")
             return
+
+        if self._tx_type == "deposit":
+            dep = amt
+            withd = 0.0
+        else:
+            dep = 0.0
+            withd = amt
 
         payload = {
             "date": self._date_f.date().toString("yyyy-MM-dd"),
@@ -208,6 +451,8 @@ class CashFlowPage(QWidget):
         super().__init__(parent)
         self._dirty = True  # Load on first show
         self._filter_date = None
+        self._filter_classification = None
+        self._classification_balances = {}
         self._search_text = ""
         self._reload_deferred = False
         self._transactions = []
@@ -374,31 +619,57 @@ class CashFlowPage(QWidget):
         f_lay.setContentsMargins(16, 12, 16, 12)
         f_lay.setSpacing(12)
 
-        f_lay.addWidget(QLabel("Search / Account:"))
+        lbl_cls = QLabel("Classification:")
+        lbl_cls.setStyleSheet("font-weight: 600; font-size: 12px; color: #9CA3AF;")
+        f_lay.addWidget(lbl_cls)
+
+        self._combo_classification = QComboBox()
+        self._combo_classification.setFixedHeight(36)
+        self._combo_classification.setMinimumWidth(240)
+        self._combo_classification.addItem("📁 All Accounts / Classifications", None)
+        for p in _DEFAULT_PARTICULARS:
+            self._combo_classification.addItem(p, p)
+        self._combo_classification.currentIndexChanged.connect(self._on_classification_changed)
+        f_lay.addWidget(self._combo_classification)
+
+        self._lbl_account_badge = QLabel("📁 Total Balance: ₱ 0.00")
+        self._lbl_account_badge.setFixedHeight(36)
+        self._lbl_account_badge.setStyleSheet(
+            "background: rgba(56, 189, 248, 0.12); color: #38BDF8; font-weight: 700; font-size: 12px; padding: 4px 12px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.28);"
+        )
+        f_lay.addWidget(self._lbl_account_badge)
+
+        f_lay.addSpacing(6)
+        lbl_search = QLabel("Search:")
+        lbl_search.setStyleSheet("font-weight: 600; font-size: 12px; color: #9CA3AF;")
+        f_lay.addWidget(lbl_search)
         self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Filter particulars (e.g. GCash, Maya, BDO)...")
-        self._search_input.setFixedHeight(34)
+        self._search_input.setPlaceholderText("Filter check #, notes, or details...")
+        self._search_input.setFixedHeight(36)
         self._search_input.textChanged.connect(self._on_search_changed)
         f_lay.addWidget(self._search_input, 2)
 
-        f_lay.addSpacing(10)
-        f_lay.addWidget(QLabel("Date Filter:"))
+        f_lay.addSpacing(6)
+        lbl_date = QLabel("Date:")
+        lbl_date.setStyleSheet("font-weight: 600; font-size: 12px; color: #9CA3AF;")
+        f_lay.addWidget(lbl_date)
+
         self._btn_all_dates = QPushButton("All Dates")
         self._btn_all_dates.setObjectName("primaryButton")
-        self._btn_all_dates.setFixedHeight(34)
+        self._btn_all_dates.setFixedHeight(36)
         self._btn_all_dates.clicked.connect(lambda: self._set_date_filter(None))
         f_lay.addWidget(self._btn_all_dates)
 
         self._btn_today = QPushButton("Today")
         self._btn_today.setObjectName("secondaryButton")
-        self._btn_today.setFixedHeight(34)
+        self._btn_today.setFixedHeight(36)
         self._btn_today.clicked.connect(lambda: self._set_date_filter(datetime.now().strftime("%Y-%m-%d")))
         f_lay.addWidget(self._btn_today)
 
         self._spec_date = QDateEdit(QDate.currentDate())
         self._spec_date.setCalendarPopup(True)
         self._spec_date.setDisplayFormat("MMM dd, yyyy")
-        self._spec_date.setFixedHeight(34)
+        self._spec_date.setFixedHeight(36)
         self._spec_date.dateChanged.connect(lambda qd: self._set_date_filter(qd.toString("yyyy-MM-dd")))
         f_lay.addWidget(self._spec_date)
 
@@ -487,11 +758,39 @@ class CashFlowPage(QWidget):
         t_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF; text-transform: uppercase;")
         v_lbl = QLabel(val)
         v_lbl.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {color};")
+        card._title_lbl = t_lbl
         card._val_lbl = v_lbl
 
         lay.addWidget(t_lbl)
         lay.addWidget(v_lbl)
         return card
+
+    def _on_classification_changed(self, idx: int):
+        val = self._combo_classification.currentData()
+        self._filter_classification = val
+        self._load_data()
+
+    def _update_combo_item_balances(self, balances: dict, total_balance: float):
+        self._combo_classification.blockSignals(True)
+        try:
+            all_str = f"₱ {total_balance:,.2f}" if total_balance >= 0 else f"(₱ {abs(total_balance):,.2f})"
+            self._combo_classification.setItemText(0, f"📁 All Accounts ({all_str})")
+
+            for i in range(1, self._combo_classification.count()):
+                acc_name = self._combo_classification.itemData(i)
+                if acc_name:
+                    acc_bal = balances.get(acc_name, 0.0)
+                    bal_str = f"₱ {acc_bal:,.2f}" if acc_bal >= 0 else f"(₱ {abs(acc_bal):,.2f})"
+                    self._combo_classification.setItemText(i, f"{acc_name} ({bal_str})")
+
+            # Add any extra distinct accounts from DB that aren't already in combo
+            existing = {self._combo_classification.itemData(i) for i in range(self._combo_classification.count())}
+            for acc_name, acc_bal in balances.items():
+                if acc_name and acc_name not in existing and acc_name.lower() != "bdo personal savings (savings)".lower():
+                    bal_str = f"₱ {acc_bal:,.2f}" if acc_bal >= 0 else f"(₱ {abs(acc_bal):,.2f})"
+                    self._combo_classification.addItem(f"{acc_name} ({bal_str})", acc_name)
+        finally:
+            self._combo_classification.blockSignals(False)
 
     def _on_search_changed(self, text: str):
         self._search_text = text.strip()
@@ -531,7 +830,7 @@ class CashFlowPage(QWidget):
         self._cached_remainder = None
 
         from utils.data_cache import DataCache
-        if not self._filter_date and not self._search_text:
+        if not self._filter_date and not self._search_text and not self._filter_classification:
             cached = DataCache.get("cash_flow_data")
             if cached is not None and not getattr(self, "_has_loaded_once", False):
                 self._has_loaded_once = True
@@ -564,13 +863,17 @@ class CashFlowPage(QWidget):
             QTimer.singleShot(0, self._load_data)
 
     def _fetch_data(self):
-        # Page 0 only + a lightweight aggregate summary that stays accurate
-        # regardless of how many pages get loaded into the table.
+        # Page 0 only + aggregate summary filtered by classification if active
         txs = repo.get_cash_flow_transactions_page(
-            0, self._page_size, filter_date=self._filter_date, search=self._search_text
+            0, self._page_size, filter_date=self._filter_date, search=self._search_text,
+            classification=self._filter_classification
         )
-        summary = repo.get_cash_flow_summary()
-        return {"transactions": txs, "summary": summary}
+        summary = repo.get_cash_flow_summary(
+            filter_date=self._filter_date, search=self._search_text,
+            classification=self._filter_classification
+        )
+        balances = repo.get_cash_flow_classification_balances()
+        return {"transactions": txs, "summary": summary, "balances": balances}
 
     def _on_data_ready(self, data):
         try:
@@ -580,6 +883,8 @@ class CashFlowPage(QWidget):
                 self._has_more = False
             summary = data.get("summary", {})
             self._summary = summary
+            balances = data.get("balances", {})
+            self._classification_balances = balances
 
             dep = summary.get("total_deposits", 0.0)
             withd = summary.get("total_withdrawals", 0.0)
@@ -587,17 +892,59 @@ class CashFlowPage(QWidget):
             sales = summary.get("total_actual_sales", 0.0)
             diff = summary.get("total_difference", bal - sales)
 
+            # Update Stat Cards dynamically
+            cls_name = self._filter_classification
+            if cls_name and cls_name not in ("All Accounts", "All Accounts / Classifications", "All"):
+                self._card_deposit._title_lbl.setText(f"{cls_name} Deposits (In)")
+                self._card_withd._title_lbl.setText(f"{cls_name} Withdrawals (Out)")
+                self._card_balance._title_lbl.setText(f"{cls_name} Balance")
+            else:
+                self._card_deposit._title_lbl.setText("Total Deposits (In)")
+                self._card_withd._title_lbl.setText("Total Withdrawals (Out)")
+                self._card_balance._title_lbl.setText("Running Balance")
+
             self._card_deposit._val_lbl.setText(f"₱ {dep:,.2f}")
             self._card_withd._val_lbl.setText(f"₱ {withd:,.2f}")
             bal_color = "#22C55E" if bal >= 0 else "#EF4444"
             self._card_balance._val_lbl.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {bal_color};")
-            self._card_balance._val_lbl.setText(f"₱ {bal:,.2f}")
+            bal_str = f"₱ {bal:,.2f}" if bal >= 0 else f"(₱ {abs(bal):,.2f})"
+            self._card_balance._val_lbl.setText(bal_str)
 
             self._card_sales._val_lbl.setText(f"₱ {sales:,.2f}")
             diff_color = "#22C55E" if diff >= 0 else "#EF4444"
             diff_str = f"₱ {diff:,.2f}" if diff >= 0 else f"(₱ {abs(diff):,.2f})"
             self._card_diff._val_lbl.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {diff_color};")
             self._card_diff._val_lbl.setText(diff_str)
+
+            # Update Live Account Badge
+            if cls_name and cls_name not in ("All Accounts", "All Accounts / Classifications", "All"):
+                self._lbl_account_badge.setText(f"● {cls_name} Balance: {bal_str}")
+                badge_bg = "rgba(34, 197, 94, 0.12)" if bal >= 0 else "rgba(239, 68, 68, 0.12)"
+                badge_border = "rgba(34, 197, 94, 0.3)" if bal >= 0 else "rgba(239, 68, 68, 0.3)"
+                self._lbl_account_badge.setStyleSheet(
+                    f"background: {badge_bg}; color: {bal_color}; font-weight: 700; font-size: 12px; "
+                    f"padding: 4px 12px; border-radius: 8px; border: 1px solid {badge_border};"
+                )
+            else:
+                self._lbl_account_badge.setText(f"📁 Total Balance: {bal_str}")
+                self._lbl_account_badge.setStyleSheet(
+                    "background: rgba(56, 189, 248, 0.12); color: #38BDF8; font-weight: 700; font-size: 12px; "
+                    "padding: 4px 12px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.28);"
+                )
+
+            # Update dropdown item texts with live balances
+            all_current_bal = bal if not cls_name else repo.get_cash_flow_summary().get("current_balance", 0.0)
+            self._update_combo_item_balances(balances, all_current_bal)
+
+            # _populate_table() kicks off async batch rendering; the loader is
+            # hidden by _render_next_batch once the LAST batch finishes (which
+            # also covers the empty/zero-row case), not here.
+            self._populate_table()
+        except Exception:
+            if hasattr(self, "_loader"):
+                self._loader.hide_overlay()
+            self._reload_finished()
+            raise
 
             # _populate_table() kicks off async batch rendering; the loader is
             # hidden by _render_next_batch once the LAST batch finishes (which
@@ -696,7 +1043,7 @@ class CashFlowPage(QWidget):
             return
         run_async(self, repo.get_cash_flow_transactions_page, self._on_more_loaded,
                   None, len(self._transactions), self._page_size,
-                  self._filter_date, self._search_text)
+                  self._filter_date, self._search_text, self._filter_classification)
 
     def _on_more_loaded(self, data):
         try:
@@ -913,7 +1260,10 @@ class CashFlowPage(QWidget):
         if not SessionManager.has_permission("cashflow", "create"):
             error(self, title="Access Denied", message="You do not have permission to add transactions.")
             return
-        dlg = TransactionModal(self)
+        default_cls = self._filter_classification
+        if default_cls in ("All Accounts", "All Accounts / Classifications", "All"):
+            default_cls = None
+        dlg = TransactionModal(self, default_classification=default_cls)
         if dlg.exec():
             self._load_data()
             try:
