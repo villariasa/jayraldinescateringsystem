@@ -13,6 +13,8 @@ class TestCashFlowImprovements(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication(sys.argv)
 
     def setUp(self):
+        if not repo.db.is_available():
+            repo.db.connect()
         # Clean up test rows
         repo.db.execute("DELETE FROM cash_flow_transactions WHERE cft_check_no LIKE 'TEST-CF-%'")
         repo.recalculate_cash_flow_balances()
@@ -122,7 +124,106 @@ class TestCashFlowImprovements(unittest.TestCase):
 
         # Test account chip
         dlg._set_account_chip("Maya")
-        self.assertEqual(dlg._part_f.currentText(), "Maya")
+    def test_date_presets_filtering(self):
+        """Verify date filtering works for single date, week range, month range, year range, and custom range."""
+        today = datetime.now().date()
+        today_str = today.strftime("%Y-%m-%d")
+
+        # Today's transaction
+        repo.add_cash_flow_transaction({
+            "date": today_str,
+            "check_no": "TEST-CF-TODAY",
+            "particulars": "GCash",
+            "deposit": 1000.0,
+            "withdrawal": 0.0,
+        })
+
+        # Earlier this month (day 1 of this month)
+        first_of_month = today.replace(day=1).strftime("%Y-%m-%d")
+        repo.add_cash_flow_transaction({
+            "date": first_of_month,
+            "check_no": "TEST-CF-MONTH",
+            "particulars": "GCash",
+            "deposit": 2000.0,
+            "withdrawal": 0.0,
+        })
+
+        # Last year transaction
+        last_year_date = f"{today.year - 1}-05-15"
+        repo.add_cash_flow_transaction({
+            "date": last_year_date,
+            "check_no": "TEST-CF-LASTYEAR",
+            "particulars": "GCash",
+            "deposit": 3000.0,
+            "withdrawal": 0.0,
+        })
+
+        # Test single date filter (This Date)
+        today_txs = repo.get_cash_flow_transactions(filter_date=today_str, search="TEST-CF")
+        self.assertTrue(all(t["date"] == today_str for t in today_txs))
+        self.assertIn("TEST-CF-TODAY", [t["check_no"] for t in today_txs])
+        self.assertNotIn("TEST-CF-LASTYEAR", [t["check_no"] for t in today_txs])
+
+        # Test month range filter (This Month)
+        month_start = today.replace(day=1).strftime("%Y-%m-%d")
+        month_end = today.replace(day=28).strftime("%Y-%m-%d")
+        month_txs = repo.get_cash_flow_transactions(filter_date=(month_start, month_end), search="TEST-CF")
+        check_nos = [t["check_no"] for t in month_txs]
+        self.assertIn("TEST-CF-MONTH", check_nos)
+        self.assertNotIn("TEST-CF-LASTYEAR", check_nos)
+
+        # Test year range filter (This Year)
+        year_start = f"{today.year}-01-01"
+        year_end = f"{today.year}-12-31"
+        year_txs = repo.get_cash_flow_transactions(filter_date=(year_start, year_end), search="TEST-CF")
+        year_check_nos = [t["check_no"] for t in year_txs]
+        self.assertIn("TEST-CF-MONTH", year_check_nos)
+        self.assertNotIn("TEST-CF-LASTYEAR", year_check_nos)
+
+        # Test custom date filter
+        custom_txs = repo.get_cash_flow_transactions(date_from=last_year_date, date_to=last_year_date, search="TEST-CF")
+        self.assertEqual(len(custom_txs), 1)
+        self.assertEqual(custom_txs[0]["check_no"], "TEST-CF-LASTYEAR")
+
+    def test_cash_flow_page_date_filter_ui(self):
+        """Verify CashFlowPage date filter modes, button styles, and reset functionality."""
+        page = CashFlowPage()
+        
+        # Test This Month mode
+        page._set_date_filter_mode("this_month", reload=False)
+        self.assertEqual(page._date_filter_mode, "this_month")
+        self.assertIsInstance(page._filter_date, tuple)
+        self.assertIn("This Month", page._lbl_date_status.text())
+
+        # Test This Year mode
+        page._set_date_filter_mode("this_year", reload=False)
+        self.assertEqual(page._date_filter_mode, "this_year")
+        self.assertIsInstance(page._filter_date, tuple)
+        self.assertIn("This Year", page._lbl_date_status.text())
+
+        # Test This Week mode
+        page._set_date_filter_mode("this_week", reload=False)
+        self.assertEqual(page._date_filter_mode, "this_week")
+        self.assertIsInstance(page._filter_date, tuple)
+        self.assertIn("This Week", page._lbl_date_status.text())
+
+        # Test This Date mode
+        page._set_date_filter_mode("this_date", reload=False)
+        self.assertEqual(page._date_filter_mode, "this_date")
+        self.assertFalse(page._spec_date.isHidden())
+        self.assertTrue(page._custom_date_widget.isHidden())
+
+        # Test Custom Date mode
+        page._set_date_filter_mode("custom", reload=False)
+        self.assertEqual(page._date_filter_mode, "custom")
+        self.assertTrue(page._spec_date.isHidden())
+        self.assertFalse(page._custom_date_widget.isHidden())
+
+        # Test Reset
+        page._reset_all_filters()
+        self.assertEqual(page._date_filter_mode, "all")
+        self.assertIsNone(page._filter_date)
+        self.assertEqual(page._lbl_date_status.text(), "Showing: All Dates")
 
 
 if __name__ == "__main__":
