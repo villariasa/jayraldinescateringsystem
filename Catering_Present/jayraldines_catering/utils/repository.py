@@ -5569,16 +5569,8 @@ def recalculate_cash_flow_balances():
         db.execute("UPDATE cash_flow_transactions SET cft_balance = %s WHERE cft_id = %s", (running, r["cft_id"]))
 
 
-def get_cash_flow_transactions(filter_date=None, search=None) -> list[dict]:
-    """Fetch cash flow transactions with running balance and formatting."""
-    query = """
-        SELECT cft_id AS id, cft_date AS date, cft_check_no AS check_no,
-               cft_particulars AS particulars, cft_deposit AS deposit,
-               cft_withdrawal AS withdrawal, cft_balance AS balance,
-               COALESCE(cft_actual_sales, 0.0) AS actual_sales,
-               cft_notes AS notes
-        FROM cash_flow_transactions
-    """
+def get_cash_flow_transactions(filter_date=None, search=None, classification=None) -> list[dict]:
+    """Fetch cash flow transactions with running balance and formatting (newest entries first)."""
     params = []
     conds = []
     if filter_date:
@@ -5588,29 +5580,55 @@ def get_cash_flow_transactions(filter_date=None, search=None) -> list[dict]:
         s = f"%{search.strip().lower()}%"
         conds.append("(LOWER(cft_particulars) LIKE %s OR LOWER(cft_check_no) LIKE %s OR LOWER(cft_notes) LIKE %s)")
         params.extend([s, s, s])
-    if conds:
-        query += " WHERE " + " AND ".join(conds)
-    query += " ORDER BY cft_date ASC, cft_id ASC"
-    
-    rows = db.fetchall(query, tuple(params) if params else None) or []
+
+    clean_cls = str(classification or "").strip()
+    if clean_cls and clean_cls not in ("All Accounts", "All Accounts / Classifications", "All"):
+        inner_conds = ["LOWER(TRIM(cft_particulars)) = LOWER(TRIM(%s))"]
+        inner_params = [clean_cls]
+        where_inner = " WHERE " + " AND ".join(inner_conds)
+        query = f"""
+            WITH ranked AS (
+                SELECT cft_id AS id, cft_date AS date, cft_check_no AS check_no,
+                       cft_particulars AS particulars, cft_deposit AS deposit,
+                       cft_withdrawal AS withdrawal,
+                       SUM(cft_deposit - cft_withdrawal) OVER (ORDER BY cft_date ASC, cft_id ASC) AS balance,
+                       COALESCE(cft_actual_sales, 0.0) AS actual_sales,
+                       cft_notes AS notes,
+                       cft_particulars, cft_check_no, cft_notes, cft_date
+                FROM cash_flow_transactions
+                {where_inner}
+            )
+            SELECT id, date, check_no, particulars, deposit, withdrawal, balance, actual_sales, notes
+            FROM ranked
+        """
+        all_params = list(inner_params)
+        if conds:
+            query += " WHERE " + " AND ".join(conds)
+            all_params.extend(params)
+        query += " ORDER BY date DESC, id DESC"
+        rows = db.fetchall(query, tuple(all_params) if all_params else None) or []
+    else:
+        query = """
+            SELECT cft_id AS id, cft_date AS date, cft_check_no AS check_no,
+                   cft_particulars AS particulars, cft_deposit AS deposit,
+                   cft_withdrawal AS withdrawal, cft_balance AS balance,
+                   COALESCE(cft_actual_sales, 0.0) AS actual_sales,
+                   cft_notes AS notes
+            FROM cash_flow_transactions
+        """
+        if conds:
+            query += " WHERE " + " AND ".join(conds)
+        query += " ORDER BY cft_date DESC, cft_id DESC"
+        rows = db.fetchall(query, tuple(params) if params else None) or []
+
     return rows
 
 
 def get_cash_flow_transactions_page(offset: int = 0, limit: int = 50,
-                                    filter_date=None, search=None) -> list[dict]:
-    """Fetch one page of cash flow transactions (oldest first, matching the
-    ledger display order) for incremental/lazy loading. Mirrors the row-shaping
-    of get_cash_flow_transactions but with LIMIT/OFFSET so the UI only pulls the
-    rows it's about to render. Running balances are pre-stored per row (cft_balance),
-    so paging does not affect balance correctness."""
-    query = """
-        SELECT cft_id AS id, cft_date AS date, cft_check_no AS check_no,
-               cft_particulars AS particulars, cft_deposit AS deposit,
-               cft_withdrawal AS withdrawal, cft_balance AS balance,
-               COALESCE(cft_actual_sales, 0.0) AS actual_sales,
-               cft_notes AS notes
-        FROM cash_flow_transactions
-    """
+                                    filter_date=None, search=None,
+                                    classification=None) -> list[dict]:
+    """Fetch one page of cash flow transactions (newest first) for incremental/lazy loading.
+    When filtered by classification, recalculates chronological balance for that account."""
     params = []
     conds = []
     if filter_date:
@@ -5620,12 +5638,50 @@ def get_cash_flow_transactions_page(offset: int = 0, limit: int = 50,
         s = f"%{search.strip().lower()}%"
         conds.append("(LOWER(cft_particulars) LIKE %s OR LOWER(cft_check_no) LIKE %s OR LOWER(cft_notes) LIKE %s)")
         params.extend([s, s, s])
-    if conds:
-        query += " WHERE " + " AND ".join(conds)
-    query += " ORDER BY cft_date ASC, cft_id ASC LIMIT %s OFFSET %s"
-    params.extend([limit, offset])
 
-    rows = db.fetchall(query, tuple(params)) or []
+    clean_cls = str(classification or "").strip()
+    if clean_cls and clean_cls not in ("All Accounts", "All Accounts / Classifications", "All"):
+        inner_conds = ["LOWER(TRIM(cft_particulars)) = LOWER(TRIM(%s))"]
+        inner_params = [clean_cls]
+        where_inner = " WHERE " + " AND ".join(inner_conds)
+        query = f"""
+            WITH ranked AS (
+                SELECT cft_id AS id, cft_date AS date, cft_check_no AS check_no,
+                       cft_particulars AS particulars, cft_deposit AS deposit,
+                       cft_withdrawal AS withdrawal,
+                       SUM(cft_deposit - cft_withdrawal) OVER (ORDER BY cft_date ASC, cft_id ASC) AS balance,
+                       COALESCE(cft_actual_sales, 0.0) AS actual_sales,
+                       cft_notes AS notes,
+                       cft_particulars, cft_check_no, cft_notes, cft_date
+                FROM cash_flow_transactions
+                {where_inner}
+            )
+            SELECT id, date, check_no, particulars, deposit, withdrawal, balance, actual_sales, notes
+            FROM ranked
+        """
+        all_params = list(inner_params)
+        if conds:
+            query += " WHERE " + " AND ".join(conds)
+            all_params.extend(params)
+        query += " ORDER BY date DESC, id DESC LIMIT %s OFFSET %s"
+        all_params.extend([limit, offset])
+        rows = db.fetchall(query, tuple(all_params)) or []
+    else:
+        query = """
+            SELECT cft_id AS id, cft_date AS date, cft_check_no AS check_no,
+                   cft_particulars AS particulars, cft_deposit AS deposit,
+                   cft_withdrawal AS withdrawal, cft_balance AS balance,
+                   COALESCE(cft_actual_sales, 0.0) AS actual_sales,
+                   cft_notes AS notes
+            FROM cash_flow_transactions
+        """
+        if conds:
+            query += " WHERE " + " AND ".join(conds)
+        query += " ORDER BY cft_date DESC, cft_id DESC LIMIT %s OFFSET %s"
+        all_params = list(params)
+        all_params.extend([limit, offset])
+        rows = db.fetchall(query, tuple(all_params)) or []
+
     return rows
 
 
@@ -5699,6 +5755,11 @@ def add_cash_flow_transaction(data: dict, check_duplicate: bool = False) -> bool
         new_id = last_row["id"] if last_row else None
 
     recalculate_cash_flow_balances()
+    try:
+        from utils.data_cache import DataCache
+        DataCache.invalidate("cash_flow_data")
+    except Exception:
+        pass
     cft_type = "Deposit" if deposit > 0 else ("Withdrawal" if withdrawal > 0 else "Sales")
     write_audit_log(
         action="CREATE",
@@ -5730,6 +5791,11 @@ def update_cash_flow_transaction(cft_id: int, data: dict) -> bool:
         WHERE cft_id = %s
     """, (t_date, check_no, particulars, deposit, withdrawal, actual_sales, notes, cft_id))
     recalculate_cash_flow_balances()
+    try:
+        from utils.data_cache import DataCache
+        DataCache.invalidate("cash_flow_data")
+    except Exception:
+        pass
     write_audit_log(
         action="UPDATE",
         table_name="cash_flow",
@@ -5753,6 +5819,11 @@ def delete_cash_flow_transaction(cft_id: int) -> bool:
         pass
     db.execute("DELETE FROM cash_flow_transactions WHERE cft_id = %s", (cft_id,))
     recalculate_cash_flow_balances()
+    try:
+        from utils.data_cache import DataCache
+        DataCache.invalidate("cash_flow_data")
+    except Exception:
+        pass
     write_audit_log(
         action="DELETE",
         table_name="cash_flow",
@@ -5772,17 +5843,40 @@ def delete_cash_flow_transactions(cft_ids: list[int]) -> int:
     placeholders = ",".join(["%s"] * len(clean_ids))
     db.execute(f"DELETE FROM cash_flow_transactions WHERE cft_id IN ({placeholders})", tuple(clean_ids))
     recalculate_cash_flow_balances()
+    try:
+        from utils.data_cache import DataCache
+        DataCache.invalidate("cash_flow_data")
+    except Exception:
+        pass
     return len(clean_ids)
 
 
-def get_cash_flow_summary() -> dict:
-    """Return total deposits, total withdrawals, current ending balance, and total actual sales."""
-    row = db.fetchone("""
+def get_cash_flow_summary(filter_date=None, search=None, classification=None) -> dict:
+    """Return total deposits, total withdrawals, current ending balance, and total actual sales,
+    optionally filtered by date, search term, or classification/account."""
+    query = """
         SELECT COALESCE(SUM(cft_deposit), 0.0) AS total_deposits,
                COALESCE(SUM(cft_withdrawal), 0.0) AS total_withdrawals,
                COALESCE(SUM(cft_actual_sales), 0.0) AS total_actual_sales
         FROM cash_flow_transactions
-    """)
+    """
+    conds = []
+    params = []
+    if filter_date:
+        conds.append("cft_date = %s")
+        params.append(str(filter_date))
+    clean_cls = str(classification or "").strip()
+    if clean_cls and clean_cls not in ("All Accounts", "All Accounts / Classifications", "All"):
+        conds.append("LOWER(TRIM(cft_particulars)) = LOWER(TRIM(%s))")
+        params.append(clean_cls)
+    if search:
+        s = f"%{search.strip().lower()}%"
+        conds.append("(LOWER(cft_particulars) LIKE %s OR LOWER(cft_check_no) LIKE %s OR LOWER(cft_notes) LIKE %s)")
+        params.extend([s, s, s])
+    if conds:
+        query += " WHERE " + " AND ".join(conds)
+
+    row = db.fetchone(query, tuple(params) if params else None)
     dep = float(row["total_deposits"] if row and row.get("total_deposits") is not None else 0.0)
     withd = float(row["total_withdrawals"] if row and row.get("total_withdrawals") is not None else 0.0)
     act_sales = float(row["total_actual_sales"] if row and row.get("total_actual_sales") is not None else 0.0)
@@ -5795,6 +5889,26 @@ def get_cash_flow_summary() -> dict:
         "total_actual_sales": act_sales,
         "total_difference": diff,
     }
+
+
+def get_cash_flow_classification_balances() -> dict:
+    """Return dictionary of {particulars: current_balance} for all accounts,
+    excluding deprecated accounts like 'BDO Personal Savings (SAVINGS)'."""
+    rows = db.fetchall("""
+        SELECT cft_particulars,
+               COALESCE(SUM(cft_deposit), 0.0) - COALESCE(SUM(cft_withdrawal), 0.0) AS balance
+        FROM cash_flow_transactions
+        GROUP BY cft_particulars
+    """) or []
+    res = {}
+    for r in rows:
+        name = str(r["cft_particulars"] or "").strip()
+        if not name:
+            continue
+        if name.lower() == "bdo personal savings (savings)".lower():
+            continue
+        res[name] = float(r["balance"] or 0.0)
+    return res
 
 
 # ---------------------------------------------------------------------------
