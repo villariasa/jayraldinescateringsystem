@@ -34,6 +34,25 @@
 <script src="vendor/jspdf.umd.min.js" defer></script>
 <script src="vendor/xlsx.full.min.js" defer></script>
 <script>
+  window.addEventListener('error', (e) => {
+    console.error('[Kiosk Window Error]', e.message, e.filename, e.lineno);
+    const appEl = document.getElementById("app");
+    if (appEl && (!appEl.hasChildNodes() || appEl.innerHTML.trim() === "")) {
+      const splash = document.getElementById("app-splash");
+      if (splash) splash.remove();
+      appEl.innerHTML = '<div style="padding:40px;color:#fff;background:#0F172A;font-family:sans-serif;min-height:100vh;box-sizing:border-box;">'
+        + '<h2 style="color:#EF4444;margin-top:0;">⚠️ Kiosk Initialization Error</h2>'
+        + '<p style="color:#CBD5E1;font-size:14px;">An error occurred while loading the app:</p>'
+        + '<pre style="background:#1E293B;padding:16px;border-radius:8px;color:#FCA5A5;white-space:pre-wrap;font-size:12px;">'
+        + (e.message || 'Unknown error') + '\nLine: ' + (e.lineno || '?') + ' in ' + (e.filename || 'unknown')
+        + '</pre>'
+        + '<button onclick="location.reload()" style="background:#2563EB;color:#fff;border:none;padding:10px 20px;border-radius:6px;font-weight:700;cursor:pointer;margin-top:12px;">Retry</button>'
+        + '</div>';
+    }
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    console.error('[Kiosk Unhandled Rejection]', e.reason);
+  });
   // Fail-safe auto-dismiss: ensure splash screen NEVER traps the user on a blank screen
   window.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
