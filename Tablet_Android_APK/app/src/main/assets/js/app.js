@@ -13,9 +13,15 @@ import "./keyboard-scroll.js";
 const app = document.getElementById("app");
 
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/service-worker.js").catch(() => {});
-  });
+  if (api.isInstalledApp()) {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      for (const reg of regs) reg.unregister().catch(() => {});
+    }).catch(() => {});
+  } else {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+    });
+  }
 }
 
 // Mount vibrant catering animation on initial loading screen (no static app logo)
@@ -1497,7 +1503,8 @@ async function mountLandingMenuShowcase(explicitCategories = null) {
           </div>
         </div>
       </div>
-    `).join("");
+    `;
+    }).join("");
 
     grid.querySelectorAll(".btn-dish-detail").forEach(btn => {
       btn.addEventListener("click", (e) => {
