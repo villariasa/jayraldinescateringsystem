@@ -7,7 +7,8 @@ Deposit, Withdrawal, and Running Balance.
 """
 
 import csv
-from datetime import datetime
+import calendar
+from datetime import datetime, timedelta, date
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog, QFormLayout,
@@ -451,6 +452,7 @@ class CashFlowPage(QWidget):
         super().__init__(parent)
         self._dirty = True  # Load on first show
         self._filter_date = None
+        self._date_filter_mode = "all"
         self._filter_classification = None
         self._classification_balances = {}
         self._search_text = ""
@@ -612,68 +614,142 @@ class CashFlowPage(QWidget):
         summary_row.addWidget(self._card_diff)
         root.addLayout(summary_row)
 
-        # Filter & Search Toolbar
+        # Filter & Search Toolbar (2-Row Modern Clean Layout)
         filter_card = QFrame()
         filter_card.setObjectName("card")
-        f_lay = QHBoxLayout(filter_card)
+        f_lay = QVBoxLayout(filter_card)
         f_lay.setContentsMargins(16, 12, 16, 12)
-        f_lay.setSpacing(12)
+        f_lay.setSpacing(10)
+
+        # Row 1: Classification & Search
+        row1 = QHBoxLayout()
+        row1.setSpacing(12)
 
         lbl_cls = QLabel("Classification:")
         lbl_cls.setStyleSheet("font-weight: 600; font-size: 12px; color: #9CA3AF;")
-        f_lay.addWidget(lbl_cls)
+        row1.addWidget(lbl_cls)
 
         self._combo_classification = QComboBox()
-        self._combo_classification.setFixedHeight(36)
+        self._combo_classification.setFixedHeight(34)
         self._combo_classification.setMinimumWidth(240)
         self._combo_classification.addItem("📁 All Accounts / Classifications", None)
         for p in _DEFAULT_PARTICULARS:
             self._combo_classification.addItem(p, p)
         self._combo_classification.currentIndexChanged.connect(self._on_classification_changed)
-        f_lay.addWidget(self._combo_classification)
+        row1.addWidget(self._combo_classification)
 
         self._lbl_account_badge = QLabel("📁 Total Balance: ₱ 0.00")
-        self._lbl_account_badge.setFixedHeight(36)
+        self._lbl_account_badge.setFixedHeight(34)
         self._lbl_account_badge.setStyleSheet(
-            "background: rgba(56, 189, 248, 0.12); color: #38BDF8; font-weight: 700; font-size: 12px; padding: 4px 12px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.28);"
+            "background: rgba(56, 189, 248, 0.12); color: #38BDF8; font-weight: 700; font-size: 12px; "
+            "padding: 4px 12px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.28);"
         )
-        f_lay.addWidget(self._lbl_account_badge)
+        row1.addWidget(self._lbl_account_badge)
 
-        f_lay.addSpacing(6)
+        row1.addSpacing(14)
         lbl_search = QLabel("Search:")
         lbl_search.setStyleSheet("font-weight: 600; font-size: 12px; color: #9CA3AF;")
-        f_lay.addWidget(lbl_search)
+        row1.addWidget(lbl_search)
+
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Filter check #, notes, or details...")
-        self._search_input.setFixedHeight(36)
+        self._search_input.setFixedHeight(34)
         self._search_input.textChanged.connect(self._on_search_changed)
-        f_lay.addWidget(self._search_input, 2)
+        row1.addWidget(self._search_input, 1)
 
-        f_lay.addSpacing(6)
-        lbl_date = QLabel("Date:")
+        self._btn_reset_filters = QPushButton("↺ Reset Filters")
+        self._btn_reset_filters.setCursor(Qt.PointingHandCursor)
+        self._btn_reset_filters.setFixedHeight(34)
+        self._btn_reset_filters.setStyleSheet(
+            "QPushButton { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #CBD5E1; "
+            "padding: 4px 12px; border-radius: 6px; font-weight: 600; font-size: 12px; }"
+            "QPushButton:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.25); color: #FFFFFF; }"
+        )
+        self._btn_reset_filters.clicked.connect(self._reset_all_filters)
+        row1.addWidget(self._btn_reset_filters)
+
+        f_lay.addLayout(row1)
+
+        # Row 2: Date Filters (All Dates, This Date, This Week, This Month, This Year, Custom Date)
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
+
+        lbl_date = QLabel("Date Filter:")
         lbl_date.setStyleSheet("font-weight: 600; font-size: 12px; color: #9CA3AF;")
-        f_lay.addWidget(lbl_date)
+        row2.addWidget(lbl_date)
 
-        self._btn_all_dates = QPushButton("All Dates")
-        self._btn_all_dates.setObjectName("primaryButton")
-        self._btn_all_dates.setFixedHeight(36)
-        self._btn_all_dates.clicked.connect(lambda: self._set_date_filter(None))
-        f_lay.addWidget(self._btn_all_dates)
+        self._date_buttons = {}
+        for mode_key, mode_label in [
+            ("all", "All Dates"),
+            ("this_date", "This Date"),
+            ("this_week", "This Week"),
+            ("this_month", "This Month"),
+            ("this_year", "This Year"),
+            ("custom", "Custom Date"),
+        ]:
+            btn = QPushButton(mode_label)
+            btn.setFixedHeight(30)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _, m=mode_key: self._set_date_filter_mode(m))
+            self._date_buttons[mode_key] = btn
+            row2.addWidget(btn)
 
-        self._btn_today = QPushButton("Today")
-        self._btn_today.setObjectName("secondaryButton")
-        self._btn_today.setFixedHeight(36)
-        self._btn_today.clicked.connect(lambda: self._set_date_filter(datetime.now().strftime("%Y-%m-%d")))
-        f_lay.addWidget(self._btn_today)
+        # Backwards compatibility handles
+        self._btn_all_dates = self._date_buttons["all"]
+        self._btn_today = self._date_buttons["this_date"]
 
+        row2.addSpacing(6)
+
+        # Single date picker (for "this_date")
         self._spec_date = QDateEdit(QDate.currentDate())
         self._spec_date.setCalendarPopup(True)
         self._spec_date.setDisplayFormat("MMM dd, yyyy")
-        self._spec_date.setFixedHeight(36)
-        self._spec_date.dateChanged.connect(lambda qd: self._set_date_filter(qd.toString("yyyy-MM-dd")))
-        f_lay.addWidget(self._spec_date)
+        self._spec_date.setFixedHeight(30)
+        self._spec_date.dateChanged.connect(lambda: self._on_date_picker_changed())
+        self._spec_date.setVisible(False)
+        row2.addWidget(self._spec_date)
 
-        f_lay.addStretch()
+        # Custom date range widget (for "custom")
+        self._custom_date_widget = QWidget()
+        c_lay = QHBoxLayout(self._custom_date_widget)
+        c_lay.setContentsMargins(0, 0, 0, 0)
+        c_lay.setSpacing(6)
+
+        lbl_from = QLabel("From:")
+        lbl_from.setStyleSheet("font-size: 11px; color: #94A3B8; font-weight: 600;")
+        self._dt_from = QDateEdit(QDate.currentDate().addMonths(-1))
+        self._dt_from.setCalendarPopup(True)
+        self._dt_from.setDisplayFormat("MMM dd, yyyy")
+        self._dt_from.setFixedHeight(30)
+        self._dt_from.dateChanged.connect(lambda: self._on_date_picker_changed())
+
+        lbl_to = QLabel("To:")
+        lbl_to.setStyleSheet("font-size: 11px; color: #94A3B8; font-weight: 600;")
+        self._dt_to = QDateEdit(QDate.currentDate())
+        self._dt_to.setCalendarPopup(True)
+        self._dt_to.setDisplayFormat("MMM dd, yyyy")
+        self._dt_to.setFixedHeight(30)
+        self._dt_to.dateChanged.connect(lambda: self._on_date_picker_changed())
+
+        c_lay.addWidget(lbl_from)
+        c_lay.addWidget(self._dt_from)
+        c_lay.addWidget(lbl_to)
+        c_lay.addWidget(self._dt_to)
+        self._custom_date_widget.setVisible(False)
+        row2.addWidget(self._custom_date_widget)
+
+        self._lbl_date_status = QLabel("Showing: All Dates")
+        self._lbl_date_status.setFixedHeight(28)
+        self._lbl_date_status.setStyleSheet(
+            "background: rgba(56, 189, 248, 0.1); color: #38BDF8; font-weight: 600; font-size: 11px; "
+            "padding: 2px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.2);"
+        )
+        row2.addWidget(self._lbl_date_status)
+
+        row2.addStretch()
+        f_lay.addLayout(row2)
+
+        self._apply_date_button_styles("all")
         root.addWidget(filter_card)
 
         # Cash Flow Ledger Table Card
@@ -798,20 +874,120 @@ class CashFlowPage(QWidget):
         # every single keystroke was the actual cause of laggy search here.
         self._search_timer.start(500)
 
+    def _apply_date_button_styles(self, active_mode: str):
+        active_style = (
+            "QPushButton { background: #0284C7; color: #FFFFFF; font-weight: 700; "
+            "font-size: 12px; border-radius: 6px; padding: 2px 12px; border: 1px solid #38BDF8; }"
+        )
+        inactive_style = (
+            "QPushButton { background: rgba(255, 255, 255, 0.05); color: #94A3B8; font-weight: 600; "
+            "font-size: 12px; border-radius: 6px; padding: 2px 12px; border: 1px solid rgba(255, 255, 255, 0.1); }"
+            "QPushButton:hover { background: rgba(255, 255, 255, 0.12); color: #F8FAFC; border-color: rgba(255, 255, 255, 0.22); }"
+        )
+        for k, btn in getattr(self, "_date_buttons", {}).items():
+            btn.setStyleSheet(active_style if k == active_mode else inactive_style)
+
+    def _set_date_filter_mode(self, mode: str, reload: bool = True):
+        self._date_filter_mode = mode
+        self._apply_date_button_styles(mode)
+        today = datetime.now().date()
+
+        if mode == "this_date":
+            self._spec_date.setVisible(True)
+            self._custom_date_widget.setVisible(False)
+            d_str = self._spec_date.date().toString("yyyy-MM-dd")
+            self._filter_date = d_str
+            d_pretty = self._spec_date.date().toString("MMM dd, yyyy")
+            self._lbl_date_status.setText(f"Showing: Date ({d_pretty})")
+        elif mode == "this_week":
+            self._spec_date.setVisible(False)
+            self._custom_date_widget.setVisible(False)
+            start_d = today - timedelta(days=today.weekday())
+            end_d = start_d + timedelta(days=6)
+            start_str = start_d.strftime("%Y-%m-%d")
+            end_str = end_d.strftime("%Y-%m-%d")
+            self._filter_date = (start_str, end_str)
+            self._lbl_date_status.setText(f"Showing: This Week ({start_d.strftime('%b %d')} – {end_d.strftime('%b %d, %Y')})")
+        elif mode == "this_month":
+            self._spec_date.setVisible(False)
+            self._custom_date_widget.setVisible(False)
+            start_d = today.replace(day=1)
+            last_day = calendar.monthrange(today.year, today.month)[1]
+            end_d = today.replace(day=last_day)
+            start_str = start_d.strftime("%Y-%m-%d")
+            end_str = end_d.strftime("%Y-%m-%d")
+            self._filter_date = (start_str, end_str)
+            self._lbl_date_status.setText(f"Showing: This Month ({today.strftime('%B %Y')})")
+        elif mode == "this_year":
+            self._spec_date.setVisible(False)
+            self._custom_date_widget.setVisible(False)
+            start_d = today.replace(month=1, day=1)
+            end_d = today.replace(month=12, day=31)
+            start_str = start_d.strftime("%Y-%m-%d")
+            end_str = end_d.strftime("%Y-%m-%d")
+            self._filter_date = (start_str, end_str)
+            self._lbl_date_status.setText(f"Showing: This Year ({today.year})")
+        elif mode == "custom":
+            self._spec_date.setVisible(False)
+            self._custom_date_widget.setVisible(True)
+            from_str = self._dt_from.date().toString("yyyy-MM-dd")
+            to_str = self._dt_to.date().toString("yyyy-MM-dd")
+            self._filter_date = (from_str, to_str)
+            from_pretty = self._dt_from.date().toString("MMM dd, yyyy")
+            to_pretty = self._dt_to.date().toString("MMM dd, yyyy")
+            self._lbl_date_status.setText(f"Showing: Custom ({from_pretty} – {to_pretty})")
+        else:  # "all"
+            self._spec_date.setVisible(False)
+            self._custom_date_widget.setVisible(False)
+            self._filter_date = None
+            self._lbl_date_status.setText("Showing: All Dates")
+
+        if reload:
+            self._load_data()
+
+    def _on_date_picker_changed(self):
+        if self._date_filter_mode == "this_date":
+            d_str = self._spec_date.date().toString("yyyy-MM-dd")
+            self._filter_date = d_str
+            d_pretty = self._spec_date.date().toString("MMM dd, yyyy")
+            self._lbl_date_status.setText(f"Showing: Date ({d_pretty})")
+            self._load_data()
+        elif self._date_filter_mode == "custom":
+            from_str = self._dt_from.date().toString("yyyy-MM-dd")
+            to_str = self._dt_to.date().toString("yyyy-MM-dd")
+            self._filter_date = (from_str, to_str)
+            from_pretty = self._dt_from.date().toString("MMM dd, yyyy")
+            to_pretty = self._dt_to.date().toString("MMM dd, yyyy")
+            self._lbl_date_status.setText(f"Showing: Custom ({from_pretty} – {to_pretty})")
+            self._load_data()
+
+    def _reset_all_filters(self):
+        self._combo_classification.blockSignals(True)
+        self._combo_classification.setCurrentIndex(0)
+        self._combo_classification.blockSignals(False)
+        self._filter_classification = None
+
+        self._search_input.blockSignals(True)
+        self._search_input.clear()
+        self._search_input.blockSignals(False)
+        self._search_text = ""
+
+        self._set_date_filter_mode("all", reload=True)
+
     def _set_date_filter(self, date_str: str = None):
-        self._filter_date = date_str
+        """Backwards compatibility adapter."""
         if not date_str:
-            self._btn_all_dates.setObjectName("primaryButton")
-            self._btn_today.setObjectName("secondaryButton")
+            self._set_date_filter_mode("all", reload=True)
         else:
-            self._btn_all_dates.setObjectName("secondaryButton")
-            self._btn_today.setObjectName("primaryButton" if date_str == datetime.now().strftime("%Y-%m-%d") else "secondaryButton")
-
-        for btn in [self._btn_all_dates, self._btn_today]:
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
-
-        self._load_data()
+            try:
+                qd = QDate.fromString(date_str, "yyyy-MM-dd")
+                if qd.isValid():
+                    self._spec_date.blockSignals(True)
+                    self._spec_date.setDate(qd)
+                    self._spec_date.blockSignals(False)
+            except Exception:
+                pass
+            self._set_date_filter_mode("this_date", reload=True)
 
     def _load_data(self):
         # Coalesce overlapping reloads: if a reload (fetch + batch-render) is
@@ -894,14 +1070,17 @@ class CashFlowPage(QWidget):
 
             # Update Stat Cards dynamically
             cls_name = self._filter_classification
-            if cls_name and cls_name not in ("All Accounts", "All Accounts / Classifications", "All"):
+            is_date_filtered = bool(self._filter_date)
+            has_cls = bool(cls_name and cls_name not in ("All Accounts", "All Accounts / Classifications", "All"))
+
+            if has_cls:
                 self._card_deposit._title_lbl.setText(f"{cls_name} Deposits (In)")
                 self._card_withd._title_lbl.setText(f"{cls_name} Withdrawals (Out)")
-                self._card_balance._title_lbl.setText(f"{cls_name} Balance")
+                self._card_balance._title_lbl.setText(f"{cls_name} Net Movement" if is_date_filtered else f"{cls_name} Balance")
             else:
                 self._card_deposit._title_lbl.setText("Total Deposits (In)")
                 self._card_withd._title_lbl.setText("Total Withdrawals (Out)")
-                self._card_balance._title_lbl.setText("Running Balance")
+                self._card_balance._title_lbl.setText("Net Period Movement" if is_date_filtered else "Running Balance")
 
             self._card_deposit._val_lbl.setText(f"₱ {dep:,.2f}")
             self._card_withd._val_lbl.setText(f"₱ {withd:,.2f}")
@@ -916,24 +1095,30 @@ class CashFlowPage(QWidget):
             self._card_diff._val_lbl.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {diff_color};")
             self._card_diff._val_lbl.setText(diff_str)
 
-            # Update Live Account Badge
-            if cls_name and cls_name not in ("All Accounts", "All Accounts / Classifications", "All"):
-                self._lbl_account_badge.setText(f"● {cls_name} Balance: {bal_str}")
-                badge_bg = "rgba(34, 197, 94, 0.12)" if bal >= 0 else "rgba(239, 68, 68, 0.12)"
-                badge_border = "rgba(34, 197, 94, 0.3)" if bal >= 0 else "rgba(239, 68, 68, 0.3)"
+            # Update Live Account Badge with true overall live balances
+            if has_cls:
+                live_bal = balances.get(cls_name, bal)
+                live_color = "#22C55E" if live_bal >= 0 else "#EF4444"
+                live_str = f"₱ {live_bal:,.2f}" if live_bal >= 0 else f"(₱ {abs(live_bal):,.2f})"
+                self._lbl_account_badge.setText(f"● {cls_name} Balance: {live_str}")
+                badge_bg = "rgba(34, 197, 94, 0.12)" if live_bal >= 0 else "rgba(239, 68, 68, 0.12)"
+                badge_border = "rgba(34, 197, 94, 0.3)" if live_bal >= 0 else "rgba(239, 68, 68, 0.3)"
                 self._lbl_account_badge.setStyleSheet(
-                    f"background: {badge_bg}; color: {bal_color}; font-weight: 700; font-size: 12px; "
+                    f"background: {badge_bg}; color: {live_color}; font-weight: 700; font-size: 12px; "
                     f"padding: 4px 12px; border-radius: 8px; border: 1px solid {badge_border};"
                 )
             else:
-                self._lbl_account_badge.setText(f"📁 Total Balance: {bal_str}")
+                total_live = sum(balances.values()) if balances else bal
+                total_color = "#38BDF8" if total_live >= 0 else "#EF4444"
+                total_str = f"₱ {total_live:,.2f}" if total_live >= 0 else f"(₱ {abs(total_live):,.2f})"
+                self._lbl_account_badge.setText(f"📁 Total Balance: {total_str}")
                 self._lbl_account_badge.setStyleSheet(
                     "background: rgba(56, 189, 248, 0.12); color: #38BDF8; font-weight: 700; font-size: 12px; "
                     "padding: 4px 12px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.28);"
                 )
 
             # Update dropdown item texts with live balances
-            all_current_bal = bal if not cls_name else repo.get_cash_flow_summary().get("current_balance", 0.0)
+            all_current_bal = sum(balances.values()) if balances else bal
             self._update_combo_item_balances(balances, all_current_bal)
 
             # _populate_table() kicks off async batch rendering; the loader is
@@ -1345,7 +1530,10 @@ class CashFlowPage(QWidget):
         if not path:
             return
         from utils.exporter import export_cash_flow_pdf
-        smry = repo.get_cash_flow_summary()
+        smry = repo.get_cash_flow_summary(
+            filter_date=self._filter_date, search=self._search_text,
+            classification=self._filter_classification
+        )
         ok = export_cash_flow_pdf(path, transactions=self._transactions, summary=smry)
         if ok:
             prompt_file_saved(self, path, title="Cash Flow PDF Generated", message="Cash flow PDF report generated successfully.")
