@@ -197,46 +197,66 @@ def load_item_pixmap(image_path: str, size: int = 48) -> QPixmap:
 
 
 class MenuItemDialog(QDialog):
-    """Add/Edit dialog for a single menu item (dish), including photo upload.
-
-    Passing `item_data` (a dict) switches the dialog into edit mode and
-    pre-fills every field; passing None makes it an add dialog. The dialog does
-    NOT persist anything itself — on save it stashes a result dict retrievable
-    via get_result(); the caller performs the repo write.
+    """Add/Edit dialog for a single menu item (dish), redesigned to mirror the
+    modern two-column PackageDialog layout with prominent photo preview on the left
+    and clean structured fields on the right.
     """
     def __init__(self, parent=None, item_data=None):
         super().__init__(parent)
-        # Edit vs. add is inferred purely from whether existing data was passed.
         self._edit_mode = item_data is not None
         self._item_data = item_data or {}
         self._image_path = self._item_data.get("image", "") or ""
         self.setWindowTitle("Edit Menu Item" if self._edit_mode else "Add Menu Item")
-        # Frameless + translucent so the custom rounded "card" frame provides
-        # the entire visible chrome (the OS title bar is hidden).
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(440)
         self.setModal(True)
-        self._result = None   # populated on successful _save()
+
+        from PySide6.QtWidgets import QApplication
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            target_w = min(860, max(750, int(avail.width() * 0.72)))
+            target_h = min(620, max(500, int(avail.height() * 0.70)))
+            self.resize(target_w, target_h)
+            self.setMinimumSize(min(720, target_w), min(480, target_h))
+            self.setMaximumSize(avail.width(), avail.height())
+        else:
+            self.resize(840, 560)
+            self.setMinimumSize(720, 480)
+
+        self._result = None
         self._build_ui()
 
+    def showEvent(self, event):
+        """Runs the open animation (fade/scale) and centers the dialog on first show."""
+        super().showEvent(event)
+        animate_dialog_open(self, duration=240, auto_center=True)
+
     def _build_ui(self):
-        """Constructs the dialog's card layout: header, form fields, image
-        upload row, error label, and Cancel/Save buttons."""
+        """Constructs the two-column layout: left = large photo preview + thumbnail
+        action strip; right = organized form fields and Save/Cancel buttons."""
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setContentsMargins(12, 12, 12, 12)
 
         container = QFrame()
         container.setObjectName("card")
         lay = QVBoxLayout(container)
-        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setContentsMargins(24, 20, 24, 20)
         lay.setSpacing(14)
 
+        # Header
         header = QHBoxLayout()
+        v_title = QVBoxLayout()
+        v_title.setSpacing(2)
         title = QLabel("Edit Menu Item" if self._edit_mode else "Add Menu Item")
         title.setObjectName("h3")
-        header.addWidget(title)
+        sub = QLabel("Configure dish details, category, pricing, and photo.")
+        sub.setStyleSheet("color: #94A3B8; font-size: 11.5px;")
+        v_title.addWidget(title)
+        v_title.addWidget(sub)
+        header.addLayout(v_title)
         header.addStretch()
+
         close_btn = QPushButton()
         close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
         close_btn.setIconSize(QSize(14, 14))
@@ -252,105 +272,197 @@ class MenuItemDialog(QDialog):
         div.setFixedHeight(1)
         lay.addWidget(div)
 
-        form = QFormLayout()
-        form.setSpacing(12)
-        form.setLabelAlignment(Qt.AlignRight)
+        _is_light = not ThemeManager().is_dark()
+        _fld_lbl = "color: #374151; font-size: 12px; font-weight: 700;" if _is_light \
+                   else "color: #E5E7EB; font-size: 12px; font-weight: 700;"
 
+        # ================= Two-column content ==================
+        content = QHBoxLayout()
+        content.setSpacing(22)
+
+        # ---------- LEFT: Dish Photo Preview + Thumbnail Action Strip ----------
+        left_w = QWidget()
+        left_w.setFixedWidth(360)
+        left = QVBoxLayout(left_w)
+        left.setContentsMargins(0, 0, 0, 0)
+        left.setSpacing(10)
+
+        _ph_border = "#E2E8F0" if _is_light else "#334155"
+        self._img_holder = QFrame()
+        self._img_holder.setObjectName("card")
+        self._img_holder.setStyleSheet(
+            f"#card {{ border: 1px solid {_ph_border}; border-radius: 12px; "
+            f"background: {'#F1F5F9' if _is_light else '#0B1220'}; }}"
+        )
+        self._img_holder.setMinimumHeight(300)
+        self._img_holder.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        holder_lay = QVBoxLayout(self._img_holder)
+        holder_lay.setContentsMargins(0, 0, 0, 0)
+
+        self.img_preview = QLabel()
+        self.img_preview.setAlignment(Qt.AlignCenter)
+        self.img_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.img_preview.setStyleSheet("border: none; background: transparent; color: #64748B; font-size: 13px;")
+        holder_lay.addWidget(self.img_preview)
+
+        # Floating chip overlaid on the image (top-left)
+        self._img_chip = QLabel("🍽  Dish Photo", self._img_holder)
+        self._img_chip.setStyleSheet(
+            "background: rgba(15,23,42,0.78); color: #F8FAFC; font-size: 12px; "
+            "font-weight: 600; padding: 6px 12px; border-radius: 8px;"
+        )
+        self._img_chip.move(14, 14)
+        self._img_chip.adjustSize()
+        self._img_chip.raise_()
+
+        left.addWidget(self._img_holder, 1)
+
+        # Thumbnail strip: current photo + Upload tile + Remove button
+        thumb_row = QHBoxLayout()
+        thumb_row.setSpacing(8)
+
+        self._thumb_lbl = QLabel()
+        self._thumb_lbl.setFixedSize(96, 72)
+        self._thumb_lbl.setAlignment(Qt.AlignCenter)
+        self._thumb_lbl.setStyleSheet(
+            f"border: 2px solid #2563EB; border-radius: 8px; background: {'#F1F5F9' if _is_light else '#0B1220'};"
+        )
+        thumb_row.addWidget(self._thumb_lbl)
+
+        upload_tile = QPushButton("＋\nUpload\nImage")
+        upload_tile.setFixedSize(96, 72)
+        upload_tile.setCursor(Qt.PointingHandCursor)
+        upload_tile.setStyleSheet(
+            f"QPushButton {{ border: 1.5px dashed {'#94A3B8' if _is_light else '#475569'}; "
+            f"border-radius: 8px; color: {'#475569' if _is_light else '#94A3B8'}; font-size: 11px; "
+            f"background: transparent; }} QPushButton:hover {{ border-color: #2563EB; color: #2563EB; }}"
+        )
+        upload_tile.clicked.connect(self._browse_image)
+        thumb_row.addWidget(upload_tile)
+
+        self.remove_img_btn = QPushButton("Remove")
+        self.remove_img_btn.setCursor(Qt.PointingHandCursor)
+        self.remove_img_btn.setStyleSheet("background: transparent; border: none; color: #EF4444; font-size: 11px; font-weight: 600;")
+        self.remove_img_btn.clicked.connect(self._remove_image)
+        thumb_row.addWidget(self.remove_img_btn)
+        thumb_row.addStretch()
+        left.addLayout(thumb_row)
+
+        content.addWidget(left_w)
+
+        # ---------- RIGHT: Structured Form Fields ----------
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(12)
+
+        _nm_lbl = QLabel("Item / Dish Name *")
+        _nm_lbl.setStyleSheet(_fld_lbl)
+        right.addWidget(_nm_lbl)
         self.item_field = QLineEdit()
-        self.item_field.setPlaceholderText("e.g. Lechon de Leche")
+        self.item_field.setPlaceholderText("e.g. Special Pork Humba, Beef Caldereta...")
+        self.item_field.setMinimumHeight(38)
         if self._edit_mode:
             self.item_field.setText(self._item_data.get("item", ""))
+        right.addWidget(self.item_field)
 
-        self.desc_field = QLineEdit()
-        self.desc_field.setPlaceholderText("Short description")
-        if self._edit_mode:
-            self.desc_field.setText(self._item_data.get("description", ""))
+        # Row: Category & Package tier
+        cat_pkg_row = QHBoxLayout()
+        cat_pkg_row.setSpacing(14)
 
+        cat_col = QVBoxLayout()
+        cat_col.setSpacing(4)
+        _cat_lbl = QLabel("Category *")
+        _cat_lbl.setStyleSheet(_fld_lbl)
+        cat_col.addWidget(_cat_lbl)
         self.cat_field = QComboBox()
         self.cat_field.addItems(_get_categories())
+        self.cat_field.setMinimumHeight(38)
         if self._edit_mode:
             idx = self.cat_field.findText(self._item_data.get("category", ""))
             if idx >= 0:
                 self.cat_field.setCurrentIndex(idx)
+        cat_col.addWidget(self.cat_field)
+        cat_pkg_row.addLayout(cat_col, 1)
 
+        pkg_col = QVBoxLayout()
+        pkg_col.setSpacing(4)
+        _pkg_lbl = QLabel("Package Tier")
+        _pkg_lbl.setStyleSheet(_fld_lbl)
+        pkg_col.addWidget(_pkg_lbl)
         self.pkg_field = QComboBox()
         self.pkg_field.addItems(_PACKAGES)
+        self.pkg_field.setMinimumHeight(38)
         if self._edit_mode:
             idx = self.pkg_field.findText(self._item_data.get("package", ""))
             if idx >= 0:
                 self.pkg_field.setCurrentIndex(idx)
+        pkg_col.addWidget(self.pkg_field)
+        cat_pkg_row.addLayout(pkg_col, 1)
+        right.addLayout(cat_pkg_row)
 
+        # Row: Price & Status
+        pr_st_row = QHBoxLayout()
+        pr_st_row.setSpacing(14)
+
+        price_col = QVBoxLayout()
+        price_col.setSpacing(4)
+        _pr_lbl = QLabel("Price (₱) *")
+        _pr_lbl.setStyleSheet(_fld_lbl)
+        price_col.addWidget(_pr_lbl)
         self.price_field = QDoubleSpinBox()
         self.price_field.setPrefix("₱ ")
-        self.price_field.setRange(0, 999999)
+        self.price_field.setRange(0.00, 9999999.00)
         self.price_field.setDecimals(2)
-        self.price_field.setSingleStep(100)
+        self.price_field.setSingleStep(50)
+        self.price_field.setMinimumHeight(38)
         if self._edit_mode:
             self.price_field.setValue(float(self._item_data.get("price", 0)))
+        price_col.addWidget(self.price_field)
+        pr_st_row.addLayout(price_col, 1)
 
+        status_col = QVBoxLayout()
+        status_col.setSpacing(4)
+        _st_lbl = QLabel("Availability Status")
+        _st_lbl.setStyleSheet(_fld_lbl)
+        status_col.addWidget(_st_lbl)
         self.status_field = QComboBox()
         self.status_field.addItems(_STATUSES)
+        self.status_field.setMinimumHeight(38)
         if self._edit_mode:
             idx = self.status_field.findText(self._item_data.get("status", "Available"))
             if idx >= 0:
                 self.status_field.setCurrentIndex(idx)
+        status_col.addWidget(self.status_field)
+        pr_st_row.addLayout(status_col, 1)
+        right.addLayout(pr_st_row)
 
-        # Image Upload Row
-        img_row = QHBoxLayout()
-        img_row.setSpacing(12)
-
-        self.img_preview = QLabel()
-        self.img_preview.setFixedSize(54, 54)
-        self.img_preview.setAlignment(Qt.AlignCenter)
-        img_row.addWidget(self.img_preview)
-
-        img_btns = QVBoxLayout()
-        img_btns.setSpacing(4)
-
-        browse_btn = QPushButton("📷 Upload Image")
-        browse_btn.setObjectName("secondaryButton")
-        browse_btn.setFixedHeight(28)
-        browse_btn.setCursor(Qt.PointingHandCursor)
-        browse_btn.clicked.connect(self._browse_image)
-        img_btns.addWidget(browse_btn)
-
-        self.remove_img_btn = QPushButton("Remove Image")
-        self.remove_img_btn.setFixedHeight(22)
-        self.remove_img_btn.setStyleSheet("background: transparent; border: none; color: #EF4444; font-size: 11px; text-align: left;")
-        self.remove_img_btn.setCursor(Qt.PointingHandCursor)
-        self.remove_img_btn.clicked.connect(self._remove_image)
-        img_btns.addWidget(self.remove_img_btn)
-
-        img_row.addLayout(img_btns)
-        img_row.addStretch()
-
-        self._update_preview()
-
-        for lbl, widget in [
-            ("Item Name *",  self.item_field),
-            ("Description",  self.desc_field),
-            ("Category",     self.cat_field),
-            ("Package",      self.pkg_field),
-            ("Price",        self.price_field),
-            ("Status",       self.status_field),
-            ("Dish Photo",   img_row),
-        ]:
-            form.addRow(QLabel(lbl), widget)
-
-        lay.addLayout(form)
+        # Description
+        _ds_lbl = QLabel("Description / Inclusions")
+        _ds_lbl.setStyleSheet(_fld_lbl)
+        right.addWidget(_ds_lbl)
+        self.desc_field = QTextEdit()
+        self.desc_field.setPlaceholderText("Short description, taste profile, dietary notes, or preparation details...")
+        self.desc_field.setMinimumHeight(100)
+        if self._edit_mode:
+            self.desc_field.setPlainText(self._item_data.get("description", ""))
+        right.addWidget(self.desc_field, 1)
 
         self._err = QLabel("")
-        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
+        self._err.setStyleSheet("color: #E11D48; font-size: 12px; font-weight: 600;")
         self._err.hide()
-        lay.addWidget(self._err)
+        right.addWidget(self._err)
 
+        content.addLayout(right, 1)
+        lay.addLayout(content, 1)
+
+        # Footer Buttons
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         cancel = QPushButton("Cancel")
         cancel.setObjectName("secondaryButton")
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(self.reject)
-        label = "Save Changes" if self._edit_mode else "  Save Item"
+        label = "  Save Changes" if self._edit_mode else "  Save Menu Item"
         save = QPushButton(label)
         save.setObjectName("primaryButton")
         save.setIcon(btn_icon_primary("check"))
@@ -362,27 +474,67 @@ class MenuItemDialog(QDialog):
         lay.addLayout(btn_row)
 
         outer.addWidget(container)
+        self._update_preview()
+
+    def _raw_pixmap(self) -> QPixmap:
+        p = (self._image_path or "").strip()
+        if not p:
+            return QPixmap()
+        full = p
+        if not os.path.isabs(full):
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            full = os.path.join(base, p)
+        if os.path.exists(full):
+            pm = QPixmap(full)
+            if not pm.isNull():
+                return pm
+        data = _fetch_and_cache_remote_image(p, full)
+        if data:
+            pm = QPixmap()
+            if pm.loadFromData(data):
+                return pm
+        return QPixmap()
 
     def _update_preview(self):
-        """Refreshes the small image thumbnail. Shows the picked/loaded image
-        (with the remove button) if one resolves, otherwise a dashed
-        'No Image' placeholder."""
-        if self._image_path:
-            pm = load_item_pixmap(self._image_path, size=54)
-            if not pm.isNull():
-                self.img_preview.setPixmap(pm)
-                self.img_preview.setStyleSheet("border: 1.5px solid #E11D48; border-radius: 8px; background: transparent;")
-                if hasattr(self, "remove_img_btn"):
-                    self.remove_img_btn.show()
-                return
-        self.img_preview.setText("No Image")
-        self.img_preview.setStyleSheet("border: 1.5px dashed #4B5563; border-radius: 8px; color: #6B7280; font-size: 10px; background: rgba(255,255,255,0.03);")
+        """Rescales and shows the dish photo across the big holder and the
+        small thumbnail, or shows an empty-state prompt; also toggles the Remove button."""
+        pm = self._raw_pixmap()
+        has_img = not pm.isNull()
+
+        holder = getattr(self, "_img_holder", None)
+        tw = holder.width() - 4 if holder and holder.width() > 20 else 350
+        th = holder.height() - 4 if holder and holder.height() > 20 else 300
+        if has_img:
+            self.img_preview.setPixmap(pm.scaled(max(tw, 40), max(th, 40),
+                                                 Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.img_preview.setText("")
+        else:
+            self.img_preview.setPixmap(QPixmap())
+            self.img_preview.setText("No dish photo yet\nClick “Upload Image” below")
+
+        if hasattr(self, "_thumb_lbl"):
+            if has_img:
+                self._thumb_lbl.setPixmap(pm.scaled(96, 72, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
+                self._thumb_lbl.setText("")
+                self._thumb_lbl.show()
+            else:
+                self._thumb_lbl.setPixmap(QPixmap())
+                self._thumb_lbl.hide()
         if hasattr(self, "remove_img_btn"):
-            self.remove_img_btn.hide()
+            self.remove_img_btn.setVisible(has_img)
+        if hasattr(self, "_img_chip"):
+            self._img_chip.raise_()
+
+    def resizeEvent(self, event):
+        """Re-fit the dish photo preview whenever the dialog is resized."""
+        super().resizeEvent(event)
+        try:
+            self._update_preview()
+        except Exception:
+            pass
 
     def _browse_image(self):
-        """Opens a file picker and stores the chosen image path (not yet copied
-        into the project — that happens on save)."""
+        """Opens a file picker and stores the chosen image path."""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Dish Image",
@@ -394,25 +546,23 @@ class MenuItemDialog(QDialog):
             self._update_preview()
 
     def _remove_image(self):
-        """Clears the selected image and refreshes the preview to the placeholder."""
+        """Clears the selected image and refreshes the preview to placeholder."""
         self._image_path = ""
         self._update_preview()
 
     def _save(self):
-        """Validates the required name field, copies the image into the project,
-        and builds the result dict; rejects (with an inline error) if empty."""
+        """Validates required name, copies image to assets/images/menu/, and stores result dict."""
         name = self.item_field.text().strip()
         if not name:
             self._err.setText("Item name is required.")
             self._err.show()
             self.item_field.setStyleSheet("border: 1px solid #E11D48;")
             return
-        # Only touch the filesystem at save time (so a cancelled edit copies
-        # nothing). Empty path -> empty stored value.
+        desc = self.desc_field.toPlainText().strip() if hasattr(self.desc_field, "toPlainText") else self.desc_field.text().strip()
         saved_img = save_uploaded_image(self._image_path, "menu") if self._image_path else ""
         self._result = {
             "item":        name,
-            "description": self.desc_field.text().strip(),
+            "description": desc,
             "category":    self.cat_field.currentText(),
             "package":     self.pkg_field.currentText(),
             "price":       self.price_field.value(),
@@ -426,130 +576,10 @@ class MenuItemDialog(QDialog):
         return self._result
 
 
-class AddMenuItemDialog(QDialog):
-    """Slimmer add-only dialog for a menu item (no image, no description).
-
-    Like MenuItemDialog, it only builds a result dict (get_result); the caller
-    persists it. Kept separate from MenuItemDialog as a lighter add form.
-    """
+class AddMenuItemDialog(MenuItemDialog):
+    """Add-only dialog for a menu item, sharing the modern 2-column layout of MenuItemDialog."""
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Add Menu Item")
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(420)
-        self.setModal(True)
-        self._result = None
-        self._build_ui()
-
-    def _build_ui(self):
-        """Builds the add-item card: header, form fields, error label, buttons."""
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 16, 16, 16)
-
-        container = QFrame()
-        container.setObjectName("card")
-
-        lay = QVBoxLayout(container)
-        lay.setContentsMargins(24, 24, 24, 24)
-        lay.setSpacing(16)
-
-        header = QHBoxLayout()
-        title = QLabel("Add Menu Item")
-        title.setObjectName("h3")
-        header.addWidget(title)
-        header.addStretch()
-        close_btn = QPushButton()
-        close_btn.setIcon(get_icon("close", color="#6B7280", size=QSize(14, 14)))
-        close_btn.setIconSize(QSize(14, 14))
-        close_btn.setFixedSize(28, 28)
-        close_btn.setStyleSheet("background: transparent; border: none;")
-        close_btn.setCursor(Qt.PointingHandCursor)
-        close_btn.clicked.connect(self.reject)
-        header.addWidget(close_btn)
-        lay.addLayout(header)
-
-        div = QFrame()
-        div.setObjectName("divider")
-        div.setFixedHeight(1)
-        lay.addWidget(div)
-
-        form = QFormLayout()
-        form.setSpacing(12)
-        form.setLabelAlignment(Qt.AlignRight)
-
-        self.item_field = QLineEdit()
-        self.item_field.setPlaceholderText("e.g. Lechon de Leche")
-
-        self.cat_field = QComboBox()
-        self.cat_field.addItems(_get_categories())
-
-        self.pkg_field = QComboBox()
-        self.pkg_field.addItems(_PACKAGES)
-
-        self.price_field = QDoubleSpinBox()
-        self.price_field.setPrefix("₱ ")
-        self.price_field.setRange(0, 999999)
-        self.price_field.setDecimals(2)
-        self.price_field.setSingleStep(100)
-
-        self.status_field = QComboBox()
-        self.status_field.addItems(_STATUSES)
-
-        for lbl, widget in [
-            ("Item Name *", self.item_field),
-            ("Category",    self.cat_field),
-            ("Package",     self.pkg_field),
-            ("Price",       self.price_field),
-            ("Status",      self.status_field),
-        ]:
-            form.addRow(QLabel(lbl), widget)
-
-        lay.addLayout(form)
-
-        self._err = QLabel("")
-        self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
-        self._err.hide()
-        lay.addWidget(self._err)
-
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel = QPushButton("Cancel")
-        cancel.setObjectName("secondaryButton")
-        cancel.setCursor(Qt.PointingHandCursor)
-        cancel.clicked.connect(self.reject)
-        save = QPushButton("  Save Item")
-        save.setObjectName("primaryButton")
-        save.setIcon(btn_icon_primary("check"))
-        save.setIconSize(QSize(15, 15))
-        save.setCursor(Qt.PointingHandCursor)
-        save.clicked.connect(self._save)
-        btn_row.addWidget(cancel)
-        btn_row.addWidget(save)
-        lay.addLayout(btn_row)
-
-        outer.addWidget(container)
-
-    def _save(self):
-        """Validates the name and stores the result dict (no image field)."""
-        name = self.item_field.text().strip()
-        if not name:
-            self._err.setText("Item name is required.")
-            self._err.show()
-            self.item_field.setStyleSheet("border: 1px solid #E11D48;")
-            return
-        self._result = {
-            "item":     name,
-            "category": self.cat_field.currentText(),
-            "package":  self.pkg_field.currentText(),
-            "price":    self.price_field.value(),
-            "status":   self.status_field.currentText(),
-        }
-        self.accept()
-
-    def get_result(self):
-        """Returns the collected item dict after Accept, or None if cancelled."""
-        return self._result
+        super().__init__(parent, item_data=None)
 
 
 class QuickAddDishDialog(QDialog):
