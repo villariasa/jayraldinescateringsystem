@@ -5569,13 +5569,50 @@ def recalculate_cash_flow_balances():
         db.execute("UPDATE cash_flow_transactions SET cft_balance = %s WHERE cft_id = %s", (running, r["cft_id"]))
 
 
-def get_cash_flow_transactions(filter_date=None, search=None, classification=None) -> list[dict]:
+def _build_cash_flow_date_conditions(filter_date=None, date_from=None, date_to=None):
+    conds = []
+    params = []
+    d_start = str(date_from).strip() if date_from else None
+    d_end = str(date_to).strip() if date_to else None
+
+    if isinstance(filter_date, (list, tuple)) and len(filter_date) == 2:
+        if filter_date[0]:
+            d_start = str(filter_date[0]).strip()
+        if filter_date[1]:
+            d_end = str(filter_date[1]).strip()
+    elif filter_date and not d_start and not d_end:
+        d_single = str(filter_date).strip()
+        if d_single and d_single.lower() not in ("none", "all", "all dates"):
+            conds.append("cft_date = %s")
+            params.append(d_single)
+            return conds, params
+
+    if d_start and d_end:
+        if d_start == d_end:
+            conds.append("cft_date = %s")
+            params.append(d_start)
+        else:
+            conds.append("cft_date >= %s AND cft_date <= %s")
+            params.extend([d_start, d_end])
+    elif d_start:
+        conds.append("cft_date >= %s")
+        params.append(d_start)
+    elif d_end:
+        conds.append("cft_date <= %s")
+        params.append(d_end)
+
+    return conds, params
+
+
+def get_cash_flow_transactions(filter_date=None, search=None, classification=None,
+                               date_from=None, date_to=None) -> list[dict]:
     """Fetch cash flow transactions with running balance and formatting (newest entries first)."""
     params = []
     conds = []
-    if filter_date:
-        conds.append("cft_date = %s")
-        params.append(str(filter_date))
+    d_conds, d_params = _build_cash_flow_date_conditions(filter_date=filter_date, date_from=date_from, date_to=date_to)
+    conds.extend(d_conds)
+    params.extend(d_params)
+
     if search:
         s = f"%{search.strip().lower()}%"
         conds.append("(LOWER(cft_particulars) LIKE %s OR LOWER(cft_check_no) LIKE %s OR LOWER(cft_notes) LIKE %s)")
@@ -5610,10 +5647,10 @@ def get_cash_flow_transactions(filter_date=None, search=None, classification=Non
     else:
         query = """
             SELECT cft_id AS id, cft_date AS date, cft_check_no AS check_no,
-                   cft_particulars AS particulars, cft_deposit AS deposit,
-                   cft_withdrawal AS withdrawal, cft_balance AS balance,
-                   COALESCE(cft_actual_sales, 0.0) AS actual_sales,
-                   cft_notes AS notes
+                    cft_particulars AS particulars, cft_deposit AS deposit,
+                    cft_withdrawal AS withdrawal, cft_balance AS balance,
+                    COALESCE(cft_actual_sales, 0.0) AS actual_sales,
+                    cft_notes AS notes
             FROM cash_flow_transactions
         """
         if conds:
@@ -5626,14 +5663,16 @@ def get_cash_flow_transactions(filter_date=None, search=None, classification=Non
 
 def get_cash_flow_transactions_page(offset: int = 0, limit: int = 50,
                                     filter_date=None, search=None,
-                                    classification=None) -> list[dict]:
+                                    classification=None,
+                                    date_from=None, date_to=None) -> list[dict]:
     """Fetch one page of cash flow transactions (newest first) for incremental/lazy loading.
     When filtered by classification, recalculates chronological balance for that account."""
     params = []
     conds = []
-    if filter_date:
-        conds.append("cft_date = %s")
-        params.append(str(filter_date))
+    d_conds, d_params = _build_cash_flow_date_conditions(filter_date=filter_date, date_from=date_from, date_to=date_to)
+    conds.extend(d_conds)
+    params.extend(d_params)
+
     if search:
         s = f"%{search.strip().lower()}%"
         conds.append("(LOWER(cft_particulars) LIKE %s OR LOWER(cft_check_no) LIKE %s OR LOWER(cft_notes) LIKE %s)")
@@ -5851,9 +5890,10 @@ def delete_cash_flow_transactions(cft_ids: list[int]) -> int:
     return len(clean_ids)
 
 
-def get_cash_flow_summary(filter_date=None, search=None, classification=None) -> dict:
+def get_cash_flow_summary(filter_date=None, search=None, classification=None,
+                          date_from=None, date_to=None) -> dict:
     """Return total deposits, total withdrawals, current ending balance, and total actual sales,
-    optionally filtered by date, search term, or classification/account."""
+    optionally filtered by date (single date or range), search term, or classification/account."""
     query = """
         SELECT COALESCE(SUM(cft_deposit), 0.0) AS total_deposits,
                COALESCE(SUM(cft_withdrawal), 0.0) AS total_withdrawals,
@@ -5862,9 +5902,10 @@ def get_cash_flow_summary(filter_date=None, search=None, classification=None) ->
     """
     conds = []
     params = []
-    if filter_date:
-        conds.append("cft_date = %s")
-        params.append(str(filter_date))
+    d_conds, d_params = _build_cash_flow_date_conditions(filter_date=filter_date, date_from=date_from, date_to=date_to)
+    conds.extend(d_conds)
+    params.extend(d_params)
+
     clean_cls = str(classification or "").strip()
     if clean_cls and clean_cls not in ("All Accounts", "All Accounts / Classifications", "All"):
         conds.append("LOWER(TRIM(cft_particulars)) = LOWER(TRIM(%s))")
