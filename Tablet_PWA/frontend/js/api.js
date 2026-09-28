@@ -1073,11 +1073,17 @@ export const api = {
         _knownServerDbVersion = Math.max(_knownServerDbVersion || 0, sVer);
       }
 
-      if (res.packages || res.menu_items || res.customers || res.occasions || res.menu_categories) {
-        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || [], res.occasions || [], res.package_buckets || [], res.menu_categories || []);
-      }
+      // Flip just-pushed pending rows to 'synced' BEFORE re-importing the
+      // server's master list. Otherwise a pending customer survives the
+      // "DELETE WHERE sync_status='synced'" in replaceMasterTablesWithDbIds and
+      // its local autoincrement cus_id collides with the server's cus_id on
+      // re-insert ("UNIQUE constraint failed: customers.cus_id"), which aborts
+      // the entire sync (bookings included) and also leaves duplicate customers.
       if (res.synced_booking_refs || res.synced_customer_names) {
         repo.markRecordsSynced(res.synced_booking_refs || [], res.synced_customer_names || []);
+      }
+      if (res.packages || res.menu_items || res.customers || res.occasions || res.menu_categories) {
+        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || [], res.occasions || [], res.package_buckets || [], res.menu_categories || []);
       }
       if (res.deleted_booking_refs && res.deleted_booking_refs.length > 0) {
         repo.purgeDeletedBookings(res.deleted_booking_refs);
