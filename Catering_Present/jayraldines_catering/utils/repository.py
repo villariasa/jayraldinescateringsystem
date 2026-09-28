@@ -5933,23 +5933,32 @@ def get_cash_flow_summary(filter_date=None, search=None, classification=None,
 
 
 def get_cash_flow_classification_balances() -> dict:
-    """Return dictionary of {particulars: current_balance} for all accounts,
-    excluding deprecated accounts like 'BDO Personal Savings (SAVINGS)'."""
+    """Return dictionary of {particulars: current_balance} for all accounts.
+
+    Account names are merged case- and whitespace-insensitively so that
+    free-typed variants (e.g. 'maya', 'Maya ', 'MAYA') collapse into a single
+    account instead of fragmenting into separate zero-ish balances. This keeps
+    grouping consistent with the LOWER(TRIM(...)) matching used everywhere else
+    (filtering, summary). The sum of the returned balances equals the overall
+    running balance from get_cash_flow_summary() - no account is excluded.
+    """
     rows = db.fetchall("""
         SELECT cft_particulars,
                COALESCE(SUM(cft_deposit), 0.0) - COALESCE(SUM(cft_withdrawal), 0.0) AS balance
         FROM cash_flow_transactions
         GROUP BY cft_particulars
     """) or []
-    res = {}
+    merged: dict = {}
     for r in rows:
         name = str(r["cft_particulars"] or "").strip()
         if not name:
             continue
-        if name.lower() == "bdo personal savings (savings)".lower():
-            continue
-        res[name] = float(r["balance"] or 0.0)
-    return res
+        key = name.lower()
+        if key in merged:
+            merged[key]["balance"] += float(r["balance"] or 0.0)
+        else:
+            merged[key] = {"name": name, "balance": float(r["balance"] or 0.0)}
+    return {m["name"]: m["balance"] for m in merged.values()}
 
 
 # ---------------------------------------------------------------------------
