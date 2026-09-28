@@ -40,6 +40,32 @@ _DEFAULT_PARTICULARS = [
 ]
 
 
+def _canonical_account_name(name: str) -> str:
+    """Snap a free-typed account name to an existing canonical one when it
+    matches case/whitespace-insensitively, so that 'maya', 'Maya ' or 'MAYA'
+    all resolve to the single existing 'Maya' account instead of creating a
+    duplicate fragment. Genuinely new account names pass through (trimmed)."""
+    cleaned = str(name or "").strip()
+    target = cleaned.lower()
+    if not target:
+        return cleaned
+
+    # 1. Prefer a predefined canonical name.
+    for p in _DEFAULT_PARTICULARS:
+        if p.strip().lower() == target:
+            return p
+
+    # 2. Otherwise snap to an existing account already stored in the DB.
+    try:
+        for existing in repo.get_cash_flow_classification_balances().keys():
+            if str(existing or "").strip().lower() == target:
+                return str(existing)
+    except Exception:
+        pass
+
+    return cleaned
+
+
 class TransactionModal(QDialog):
     def __init__(self, parent=None, tx_data: dict = None, default_classification: str = None):
         super().__init__(parent)
@@ -410,7 +436,7 @@ class TransactionModal(QDialog):
             self._part_f.setEditText(name)
 
     def _save(self):
-        part = self._part_f.currentText().strip()
+        part = _canonical_account_name(self._part_f.currentText())
         if not part:
             QMessageBox.warning(self, "Validation Error", "Please provide a valid account or particulars description.")
             return
@@ -816,7 +842,10 @@ class CashFlowPage(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(44)
         self.table.verticalHeader().setVisible(False)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.table.setMinimumHeight(450)
+        # Keep the minimum modest so the table (and its bottom scrollbar/last row)
+        # always fits inside the window instead of being pushed below the visible
+        # area on shorter screens - the table scrolls internally regardless.
+        self.table.setMinimumHeight(240)
         t_lay.addWidget(self.table, 1)
         # Infinite scroll: append the next page when the user nears the bottom.
         self.table.verticalScrollBar().valueChanged.connect(self._on_scroll_near_bottom)
@@ -846,6 +875,24 @@ class CashFlowPage(QWidget):
         self._filter_classification = val
         self._load_data()
 
+    def _balance_for(self, name, balances: dict = None) -> float:
+        """Look up an account balance case/whitespace-insensitively.
+
+        The classification dropdown stores canonical names (e.g. 'Maya') while
+        the DB may hold free-typed variants ('maya', 'Maya '). An exact dict
+        lookup would miss those and wrongly report 0, so match on the normalized
+        key instead.
+        """
+        if balances is None:
+            balances = self._classification_balances or {}
+        target = str(name or "").strip().lower()
+        if not target:
+            return 0.0
+        for k, v in balances.items():
+            if str(k or "").strip().lower() == target:
+                return float(v or 0.0)
+        return 0.0
+
     def _update_combo_item_balances(self, balances: dict, total_balance: float):
         self._combo_classification.blockSignals(True)
         try:
@@ -855,16 +902,23 @@ class CashFlowPage(QWidget):
             for i in range(1, self._combo_classification.count()):
                 acc_name = self._combo_classification.itemData(i)
                 if acc_name:
-                    acc_bal = balances.get(acc_name, 0.0)
+                    acc_bal = self._balance_for(acc_name, balances)
                     bal_str = f"₱ {acc_bal:,.2f}" if acc_bal >= 0 else f"(₱ {abs(acc_bal):,.2f})"
                     self._combo_classification.setItemText(i, f"{acc_name} ({bal_str})")
 
-            # Add any extra distinct accounts from DB that aren't already in combo
-            existing = {self._combo_classification.itemData(i) for i in range(self._combo_classification.count())}
+            # Add any extra distinct accounts from DB that aren't already in combo.
+            # Compare on the normalized name so a free-typed variant of an
+            # existing account isn't added again as a duplicate row.
+            existing = {
+                str(self._combo_classification.itemData(i) or "").strip().lower()
+                for i in range(self._combo_classification.count())
+            }
             for acc_name, acc_bal in balances.items():
-                if acc_name and acc_name not in existing and acc_name.lower() != "bdo personal savings (savings)".lower():
+                norm = str(acc_name or "").strip().lower()
+                if acc_name and norm and norm not in existing:
                     bal_str = f"₱ {acc_bal:,.2f}" if acc_bal >= 0 else f"(₱ {abs(acc_bal):,.2f})"
                     self._combo_classification.addItem(f"{acc_name} ({bal_str})", acc_name)
+                    existing.add(norm)
         finally:
             self._combo_classification.blockSignals(False)
 
@@ -1097,7 +1151,7 @@ class CashFlowPage(QWidget):
 
             # Update Live Account Badge with true overall live balances
             if has_cls:
-                live_bal = balances.get(cls_name, bal)
+                live_bal = self._balance_for(cls_name, balances)
                 live_color = "#22C55E" if live_bal >= 0 else "#EF4444"
                 live_str = f"₱ {live_bal:,.2f}" if live_bal >= 0 else f"(₱ {abs(live_bal):,.2f})"
                 self._lbl_account_badge.setText(f"● {cls_name} Balance: {live_str}")
