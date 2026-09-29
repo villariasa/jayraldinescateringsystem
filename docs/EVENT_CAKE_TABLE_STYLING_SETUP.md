@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Wedding & Debut Cake Table Setup Standards
 
 ## 1. Setup Guidelines
