@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Manual Security Fix Guide — Jayraldine's Catering System
 
 **Purpose:** This is a standalone, do-it-yourself reference. If you're offline or out of AI credits, you (or any developer) can apply every fix below with a plain text editor — no AI assistance required. Each entry gives the exact file, exact lines, the vulnerable code as it exists today, and the replacement code.
