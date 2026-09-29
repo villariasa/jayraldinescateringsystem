@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Kitchen & Event First Aid Safety Runbook
 
 ## 1. First Aid Kit Inventory
