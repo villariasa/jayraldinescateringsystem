@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Catering Equipment Tracking & Damage Fee Specification
 
 ## 1. Tracked Assets
