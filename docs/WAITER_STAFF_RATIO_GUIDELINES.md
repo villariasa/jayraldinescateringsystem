@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Staffing Ratios & Service Standard Guidelines
 
 ## 1. Standard Staffing Multipliers
