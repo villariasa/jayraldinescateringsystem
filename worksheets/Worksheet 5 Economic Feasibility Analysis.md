@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PC 317: Systems Analysis and Design
 ## Worksheet No. 5: Economic Feasibility Analysis
 
