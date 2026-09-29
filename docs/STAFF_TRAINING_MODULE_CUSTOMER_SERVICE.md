@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Staff Service Etiquette & VIP Customer Care
 
 ## 1. Service Standards
