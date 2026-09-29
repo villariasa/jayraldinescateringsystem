@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Audio-Visual (AV) Equipment Specifications
 
 ## 1. AV Fleet Configuration
