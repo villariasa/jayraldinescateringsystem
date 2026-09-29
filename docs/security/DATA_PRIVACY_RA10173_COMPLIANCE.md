@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Philippine Data Privacy Act (RA 10173) Compliance Guide
 
 ## 1. Personal Data Collected
