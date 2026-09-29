@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Petty Cash & Operating Expense Classification
 
 ## 1. Expense Taxonomies
