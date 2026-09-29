@@ -1360,12 +1360,14 @@ class BookingModal(QDialog):
         # Decide which dishes start checked, in priority order:
         # cached user selection -> dishes from the booking being edited -> package defaults.
         if hasattr(self, "_pkg_selected_dishes") and pkg_id in self._pkg_selected_dishes:
-            prechecked = {s.strip().lower() for s in self._pkg_selected_dishes[pkg_id] if s}
+            prechecked_original = [s for s in self._pkg_selected_dishes[pkg_id] if s]
+            prechecked = {s.strip().lower() for s in prechecked_original}
         elif getattr(self, "_edit_mode", False) and self._booking_data and self._booking_data.get("dishes"):
-            booked_names = {d.get("name", "").strip().lower() for d in self._booking_data["dishes"] if d.get("name")}
-            prechecked = booked_names
+            prechecked_original = [d.get("name", "") for d in self._booking_data["dishes"] if d.get("name")]
+            prechecked = {s.strip().lower() for s in prechecked_original}
         else:
-            prechecked = default_names
+            prechecked_original = [p["item_name"] for p in default_items if p.get("item_name")]
+            prechecked = set(default_names)
 
         # Seed cache if not yet set
         if not hasattr(self, "_pkg_selected_dishes"):
@@ -1415,6 +1417,7 @@ class BookingModal(QDialog):
         _cat_sort = repo.get_category_sort_map()
         sorted_cats = sorted(by_cat.keys(), key=lambda c: _cat_sort.get(str(c).strip().lower(), 999))
 
+        shown_names = set()
         for cat in sorted_cats:
             b_id = self._cat_to_bucket.get(str(cat).strip().lower()) if buckets_active else None
             hdr_txt = f"● {cat.upper()}"
@@ -1432,6 +1435,7 @@ class BookingModal(QDialog):
                 row.setContentsMargins(6, 2, 6, 2)
                 row.setSpacing(10)
 
+                shown_names.add(i_name.strip().lower())
                 chk = QCheckBox(i_name)
                 chk.setStyleSheet(_checkbox_item_style())
                 if i_name.strip().lower() in prechecked:
@@ -1454,6 +1458,37 @@ class BookingModal(QDialog):
 
                 self._pkg_dish_checks.append((chk, item))
                 self._pkg_dishes_list_lay.addLayout(row)
+
+        # Carry-over: any previously-selected dish that has no checkbox in the
+        # current package view (its category is outside this package's buckets,
+        # or the menu item was since removed) would otherwise be silently
+        # dropped on save - _on_pkg_dish_toggled rebuilds the selection from the
+        # visible checkboxes only. Render such dishes as pre-checked rows so they
+        # stay selected, visible, and editable instead of being lost.
+        missing = [n for n in prechecked_original if n.strip().lower() not in shown_names]
+        seen_missing = set()
+        added_carryover = False
+        for m_name in missing:
+            key = m_name.strip().lower()
+            if not key or key in seen_missing:
+                continue
+            seen_missing.add(key)
+            if not added_carryover:
+                carry_hdr = QLabel("● PREVIOUSLY SELECTED")
+                carry_hdr.setStyleSheet("font-size: 11px; font-weight: 700; color: #E11D48; margin-top: 8px; margin-bottom: 2px; letter-spacing: 0.5px;")
+                self._pkg_dishes_list_lay.addWidget(carry_hdr)
+                added_carryover = True
+            row = QHBoxLayout()
+            row.setContentsMargins(6, 2, 6, 2)
+            row.setSpacing(10)
+            chk = QCheckBox(m_name.strip())
+            chk.setStyleSheet(_checkbox_item_style())
+            chk.setChecked(True)
+            chk.toggled.connect(self._on_pkg_dish_toggled)
+            row.addWidget(chk)
+            row.addStretch()
+            self._pkg_dish_checks.append((chk, {"item": m_name.strip()}))
+            self._pkg_dishes_list_lay.addLayout(row)
 
         self._pkg_dishes_box.setVisible(True)
         self._on_pkg_dish_toggled()
@@ -2136,16 +2171,28 @@ class BookingModal(QDialog):
         pax = self.f_pay_pax.value() if hasattr(self, "f_pay_pax") else self.f_pax.value()
         
         # Collect custom add-ons and calculate total add-on amount.
-        # (Iterates the checkbox-style add-on rows in _extra_addon_rows, if present.)
+        # Reads the editable add-on rows tracked in _addon_items (row_widget,
+        # name_edit, amount_edit) - the same list _update_cost() sums for the
+        # live breakdown, so the saved total matches what the user sees.
         addon_summary_list = []
         addons_total = 0.0
-        for chk, spin, cat, name, price in getattr(self, "_extra_addon_rows", []):
-            if chk.isChecked():
-                qty = spin.value()
-                amt = price * qty
-                addons_total += amt
-                qty_str = f" x{qty}" if qty > 1 else ""
-                addon_summary_list.append(f"{name}{qty_str} (₱{amt:,.0f})")
+        for _row_w, n_edit, a_edit in getattr(self, "_addon_items", []):
+            name = n_edit.text().strip()
+            amt_txt = a_edit.text().strip().replace(",", "")
+            try:
+                amt = float(amt_txt) if amt_txt else 0.0
+            except ValueError:
+                amt = 0.0
+            if not name and amt == 0.0:
+                continue
+            addons_total += amt
+            label = name or "Custom Add-on"
+            # Serialize with an explicit sign so the parse-back in _build_step3
+            # restores discounts (negative amounts) correctly on edit.
+            if amt < 0:
+                addon_summary_list.append(f"{label} (-₱{abs(amt):,.0f})")
+            else:
+                addon_summary_list.append(f"{label} (₱{amt:,.0f})")
 
         # Package base total: prefer the manually-editable field, else pax x rate.
         if hasattr(self, "f_pay_package_total") and self.f_pay_package_total.value() > 0:
