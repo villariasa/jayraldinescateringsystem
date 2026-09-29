@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # HTML5 Canvas Digital Signature Capture Specification
 
 ## 1. Canvas Dimensions & Smoothness
