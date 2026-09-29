@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Customer Outbound Webhook Architecture
 
 ## 1. Webhook Events
