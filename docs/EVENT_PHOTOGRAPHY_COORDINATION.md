@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Photography Coordination & Food Staging Guide
 
 ## 1. Pre-Opening Photo Window
