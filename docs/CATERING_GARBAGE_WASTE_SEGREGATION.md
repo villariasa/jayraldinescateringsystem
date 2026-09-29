@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Catering Waste Segregation & Environmental Management
 
 ## 1. Waste Management Hierarchy
