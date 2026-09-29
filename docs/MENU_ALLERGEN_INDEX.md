@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Culinary Allergen Classification & Dietary Taxonomy
 
 ## 1. Standard Allergen Classifications
