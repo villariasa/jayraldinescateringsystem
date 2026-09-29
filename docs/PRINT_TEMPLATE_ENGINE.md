@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Print Template Engine & Invoice Generation Guide
 
 ## 1. Template Rendering Engine
