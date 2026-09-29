@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Table Linen & Backdrop Fabric Inventory Management
 
 ## 1. Fabric Asset Management
