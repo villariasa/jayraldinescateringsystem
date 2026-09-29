@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Customer Loyalty Tier Calculation Algorithm
 
 ## 1. Loyalty Progression Metrics
