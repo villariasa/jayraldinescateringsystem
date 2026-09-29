@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 Create a **Tablet App** for Jayraldine’s Catering System.
 
 This tablet app is a **new application** and currently does not exist. Its purpose is to allow staff to create customer orders from the tablet, preview the order, print the customer receipt, and export the completed order so it can be transferred/imported into the main PC application.
