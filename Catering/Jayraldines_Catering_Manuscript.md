@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # JAYRALDINE'S CATERING MANAGEMENT SYSTEM
 
 **A Capstone Project**
