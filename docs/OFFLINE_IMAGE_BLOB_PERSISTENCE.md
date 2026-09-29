@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Offline Image Blob Persistence & Camera Capture Pipeline
 
 ## 1. Device Capture Architecture
