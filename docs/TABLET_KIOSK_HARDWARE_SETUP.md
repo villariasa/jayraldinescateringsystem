@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Tablet Kiosk Hardware Deployment & Peripheral Setup Guide
 
 ## 1. Hardware Checklist
