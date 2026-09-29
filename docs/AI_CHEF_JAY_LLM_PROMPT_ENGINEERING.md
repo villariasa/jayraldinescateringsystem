@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # AI Chef Jay LLM Prompt Engineering & Culinary Rules
 
 ## 1. Prompt System Architecture
