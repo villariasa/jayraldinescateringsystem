@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Multi-Language Localization Dictionary (English / Tagalog / Cebuano)
 
 ## 1. Key Terminology Mappings
