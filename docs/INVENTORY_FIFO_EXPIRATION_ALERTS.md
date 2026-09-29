@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # First-In-First-Out (FIFO) Inventory Rotation & Expiration Alerts
 
 ## 1. Inventory Control
