@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PRD — Jayraldine's Catering Management System
 ## Detailed Feature Checklist & Task Breakdown
 
