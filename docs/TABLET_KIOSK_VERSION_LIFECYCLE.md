@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Tablet Kiosk Version Lifecycle & OTA Management
 
 ## 1. Version Numbering Scheme
