@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Corporate Repeat Client Loyalty & Tiered Discounting Program
 
 ## 1. Loyalty Tiers
