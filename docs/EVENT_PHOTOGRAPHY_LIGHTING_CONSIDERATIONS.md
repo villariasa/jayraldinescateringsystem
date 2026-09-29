@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Buffet Table Illumination & Food Presentation Lighting
 
 ## 1. Lighting Specifications
