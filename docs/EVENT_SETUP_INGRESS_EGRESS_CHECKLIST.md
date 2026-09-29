@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Ingress & Egress Operational Checklists
 
 ## 1. Ingress Phase (T - 2.5 Hours)
