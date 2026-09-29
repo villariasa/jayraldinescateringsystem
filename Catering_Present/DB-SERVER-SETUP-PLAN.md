@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Centralized DB Server Setup Plan
 
 Client requirement: one PC acts as the single PostgreSQL DB server. Other
