@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Halal Food Preparation & Segregated Storage Specification
 
 ## 1. Procurement Verification
