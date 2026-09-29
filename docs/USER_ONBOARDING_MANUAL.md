@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Staff Quick-Start Onboarding Manual
 
 ## 1. Welcome to Jayraldine's Catering System
