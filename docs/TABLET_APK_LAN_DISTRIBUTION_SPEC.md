@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Standalone Android Tablet APK LAN Distribution Specification
 
 ## 1. Executive Summary
