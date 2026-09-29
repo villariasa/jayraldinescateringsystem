@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Staff Uniform & Grooming Standards
 
 ## 1. Dress Code Specifications
