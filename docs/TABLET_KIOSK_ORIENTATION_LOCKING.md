@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Tablet Kiosk Screen Orientation & Touch Gesture Rejection
 
 ## 1. Kiosk Display Configurations
