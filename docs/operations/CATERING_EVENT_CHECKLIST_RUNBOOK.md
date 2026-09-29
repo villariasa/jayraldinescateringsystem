@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Catering Operational Event Checklist Runbook
 
 ## 1. Pre-Event (T-24 Hours)
