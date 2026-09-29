@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Background DB Server Service Guide
 
 ## 1. Architectural Role
