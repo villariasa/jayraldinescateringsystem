@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PWA Service Worker Lifecycle & Offline Asset Management
 
 ## 1. Cache Storage Strategy
