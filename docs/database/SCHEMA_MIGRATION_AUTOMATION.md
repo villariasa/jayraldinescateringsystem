@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Automated Schema Migration Execution Guide
 
 ## 1. Migration Pipeline
