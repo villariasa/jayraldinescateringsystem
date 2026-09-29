@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # HTTP Sync Server Request Throttling Specification
 
 ## 1. Thread Pool Architecture
