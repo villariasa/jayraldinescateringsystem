@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Event Calendar Conflict Resolution Specification
 
 ## 1. Venue & Slot Management
