@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Staff Timekeeping & Payroll Export Formatting
 
 ## 1. Shift Wage Computation
