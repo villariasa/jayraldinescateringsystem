@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Image Optimization & Base64 Compression Standards
 
 ## 1. Image Processing Workflow
