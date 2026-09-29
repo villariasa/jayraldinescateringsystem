@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Leftover Food Packaging & Liability Waiver Policy
 
 ## 1. Packaging Protocol
