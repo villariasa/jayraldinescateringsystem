@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Customer Testimonial Collection & Feedback Analytics
 
 ## 1. Post-Event Feedback System
