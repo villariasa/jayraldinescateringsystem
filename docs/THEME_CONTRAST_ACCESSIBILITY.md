@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # WCAG 2.1 AA Color Contrast Compliance Evaluation
 
 ## 1. Compliance Audit
