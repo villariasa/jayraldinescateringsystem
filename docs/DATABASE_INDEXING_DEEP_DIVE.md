@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Relational Database Indexing Strategy & Optimization
 
 ## 1. Key Indexes
