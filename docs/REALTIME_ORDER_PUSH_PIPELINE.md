@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Real-Time Order Dispatch Pipeline & Billing Triggers
 
 ## 1. Transaction Flow
