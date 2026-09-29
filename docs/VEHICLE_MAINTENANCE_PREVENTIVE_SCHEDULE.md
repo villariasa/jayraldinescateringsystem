@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Catering Fleet Preventive Maintenance Schedule
 
 ## 1. Maintenance Intervals
