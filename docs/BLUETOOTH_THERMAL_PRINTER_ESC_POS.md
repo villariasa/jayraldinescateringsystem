@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # ESC/POS Thermal Receipt Printer Specifications
 
 ## 1. Byte Sequence Protocol
