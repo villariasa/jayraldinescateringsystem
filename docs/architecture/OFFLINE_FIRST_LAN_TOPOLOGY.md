@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Offline-First LAN Topology Specification
 
 ## 1. Physical Architecture
