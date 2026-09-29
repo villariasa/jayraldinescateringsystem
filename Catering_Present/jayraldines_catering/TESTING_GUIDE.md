@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # 📋 Jayraldine's Catering System — Manual Testing & Verification Guide
 
 This document provides step-by-step instructions to verify that payment calculations, down payments, remaining balances, order statuses, data exports, and diagnostic reports are operating correctly.
