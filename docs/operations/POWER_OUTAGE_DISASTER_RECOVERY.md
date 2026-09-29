@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Power Outage & Disaster Recovery Runbook
 
 ## 1. Auto-Recovery Mechanism
