@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Emergency Data Extraction & Database Rescue Runbook
 
 ## 1. Standalone Recovery Scripts
