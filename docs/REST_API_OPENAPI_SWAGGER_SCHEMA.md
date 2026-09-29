@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # OpenAPI 3.1 REST API Schema Specification
 
 ## 1. Core Endpoints
