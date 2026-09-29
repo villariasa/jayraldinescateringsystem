@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Food Tasting Evaluation Matrix & Dish Customization Log
 
 ## 1. Tasting Evaluation Criteria
