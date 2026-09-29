@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # REST API v2 Endpoints & Schema Contracts Specification
 
 ## 1. Endpoints Overview
