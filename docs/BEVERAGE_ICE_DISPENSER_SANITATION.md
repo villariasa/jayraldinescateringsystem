@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Commercial Ice Machine Sanitation & Filtration Standards
 
 ## 1. Sanitation Protocol
