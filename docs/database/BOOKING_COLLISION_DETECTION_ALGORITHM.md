@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Booking Collision Detection Algorithm Specification
 
 ## 1. Conflict Criteria
