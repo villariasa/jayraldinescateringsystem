@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # ReportLab PDF Contract Vector Layout Specification
 
 ## 1. Document Structure
