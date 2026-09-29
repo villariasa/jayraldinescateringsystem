@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # HACCP Food Safety & Temperature Logging Controls
 
 ## 1. Critical Temperature Standards
