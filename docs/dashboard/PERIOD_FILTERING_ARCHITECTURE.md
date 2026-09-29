@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Dashboard Dynamic Period Filtering Architecture
 
 ## 1. Overview
