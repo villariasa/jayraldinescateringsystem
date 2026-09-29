@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Multi-Access-Point Network Configuration Guide
 
 ## 1. Network Layout
