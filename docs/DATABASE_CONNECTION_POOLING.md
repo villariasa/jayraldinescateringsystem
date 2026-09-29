@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PostgreSQL Connection Pooling & Keep-Alive Specification
 
 ## 1. Connection Pool Parameters
