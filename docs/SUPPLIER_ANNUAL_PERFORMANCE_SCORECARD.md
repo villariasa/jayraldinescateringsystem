@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Vendor Reliability KPI Scorecard & Quality Assessment
 
 ## 1. Scorecard Metrics
