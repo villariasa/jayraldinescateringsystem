@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Local Port Ingress Audit & Firewall Hardening Guide
 
 ## 1. Open Ports Verification
