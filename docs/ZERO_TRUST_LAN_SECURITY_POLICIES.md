@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Zero-Trust LAN Security & API Authorization Policies
 
 ## 1. Network Boundary Controls
