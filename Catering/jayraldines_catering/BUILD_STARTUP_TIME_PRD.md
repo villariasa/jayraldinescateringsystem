@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PRD: Faster Startup After Build
 
 Date: 2026-05-06
