@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Post-Event Customer Feedback & Sentiment Analysis Pipeline
 
 ## 1. Survey Dispatch
