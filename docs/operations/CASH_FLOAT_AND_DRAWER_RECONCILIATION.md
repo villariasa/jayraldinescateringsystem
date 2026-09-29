@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # End-of-Day Cash Drawer Reconciliation Specification
 
 ## 1. Balancing Equation
