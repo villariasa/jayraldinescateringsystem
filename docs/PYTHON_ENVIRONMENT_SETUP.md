@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Python 3.11 Virtual Environment & Dependency Setup Guide
 
 ## 1. Environment Bootstrap
