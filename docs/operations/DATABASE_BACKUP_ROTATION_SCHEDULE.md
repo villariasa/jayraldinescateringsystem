@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Automated Database Backup Retention Schedule
 
 ## 1. Schedule
