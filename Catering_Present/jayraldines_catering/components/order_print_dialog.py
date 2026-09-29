@@ -531,6 +531,13 @@ class OrderPrintDialog(QDialog):
         pax_lbl = "SET" if is_food_set else "PAX"
         contact = str(booking.get("contact") or "")
 
+        def _peso_amt(v):
+            try:
+                return f"₱{float(str(v).replace('₱', '').replace(',', '').strip()):,.2f}"
+            except Exception:
+                return "₱0.00"
+        total_amount_str = _peso_amt(booking.get("total_amount") or booking.get("total") or 0)
+
         notes_str = str(booking.get("notes") or "").strip()
         clean_notes = re.sub(r"\n?\[Add-ons:\s*.*?\]", "", notes_str, flags=re.IGNORECASE).strip()
 
@@ -600,6 +607,16 @@ class OrderPrintDialog(QDialog):
                 <td style="padding:{strip_pad}; text-align:center; color:#000000; width:18%; vertical-align:middle;">
                     <div style="font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; line-height:1.0; margin:0;">{pax_lbl}</div>
                     <div style="font-size:{strip_val}; font-weight:800; line-height:1.1; margin-top:1px;">{pax}</div>
+                </td>
+            </tr>
+        </table>
+
+        <!-- Total Amount bar -->
+        <table width="100%" style="width:100%; border-collapse:collapse; border:1.5px solid #000000; border-top:none;">
+            <tr>
+                <td style="padding:{strip_pad}; text-align:center; color:#000000; vertical-align:middle;">
+                    <div style="font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; line-height:1.0; margin:0;">TOTAL AMOUNT</div>
+                    <div style="font-size:{strip_val}; font-weight:900; line-height:1.1; margin-top:1px;">{total_amount_str}</div>
                 </td>
             </tr>
         </table>
