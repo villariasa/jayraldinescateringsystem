@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # LAN Multi-Terminal Network Topology Guide
 
 ## 1. Network Diagram
