@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Android Studio Gradle Build & Release Packaging Guide
 
 ## 1. Build Environment
