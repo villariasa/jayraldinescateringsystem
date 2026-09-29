@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Grandfather-Father-Son (GFS) Database Backup Retention Policy
 
 ## 1. Backup Schedule & Lifespan
