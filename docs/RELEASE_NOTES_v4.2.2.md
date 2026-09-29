@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Jayraldine's Catering System — Release Notes v4.2.2
 **Release Date:** September 15, 2026  
 **Build Target:** Desktop Windows Suite & Mobile Tablet Kiosk  
