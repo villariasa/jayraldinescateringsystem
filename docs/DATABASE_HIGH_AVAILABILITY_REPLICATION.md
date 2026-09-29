@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Database High Availability & Disaster Failover Architecture
 
 ## 1. Dual-Mode Topology
