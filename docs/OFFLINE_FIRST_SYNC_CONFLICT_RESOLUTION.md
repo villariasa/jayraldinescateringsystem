@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Offline-First Synchronization & Conflict Resolution
 
 ## 1. Concurrency Model
