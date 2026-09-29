@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PostgreSQL High-Availability Streaming Replication & Failover
 
 ## 1. Failover Topology
