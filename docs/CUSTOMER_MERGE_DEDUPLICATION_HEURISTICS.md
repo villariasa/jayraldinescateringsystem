@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Customer Deduplication & Levenshtein Name Distance Heuristics
 
 ## 1. Matching Heuristics
