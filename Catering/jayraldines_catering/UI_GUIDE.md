@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Jayraldine's Catering — UI & CSS Modification Guide
 
 This guide covers every module, their key files, CSS classes, colors, and how to modify them without breaking the app.
