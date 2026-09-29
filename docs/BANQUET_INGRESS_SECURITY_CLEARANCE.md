@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Venue Ingress Security Clearance & Logistics Compliance
 
 ## 1. Venue Coordination Rules
