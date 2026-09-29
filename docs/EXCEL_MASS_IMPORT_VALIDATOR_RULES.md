@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Excel Mass Import Schema Validation & Duplicate Prevention
 
 ## 1. Validation Rules
