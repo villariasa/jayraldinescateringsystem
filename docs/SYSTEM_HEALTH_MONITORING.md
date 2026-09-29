@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # System Health Telemetry & Resource Monitoring Specification
 
 ## 1. Monitored Telemetry
