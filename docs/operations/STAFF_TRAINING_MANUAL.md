@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Staff Quick-Start Training Manual
 
 ## 1. Core Steps for Tablet Operators
