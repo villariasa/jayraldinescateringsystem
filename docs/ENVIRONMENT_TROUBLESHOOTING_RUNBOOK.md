@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # System Troubleshooting & Technical Diagnostic Runbook
 
 ## 1. Common Diagnostics
