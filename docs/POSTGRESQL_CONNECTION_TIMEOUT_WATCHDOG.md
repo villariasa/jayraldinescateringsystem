@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PostgreSQL Connection Pool Idle Reaper Watchdog
 
 ## 1. Reaper Logic
