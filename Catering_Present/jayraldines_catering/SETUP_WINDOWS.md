@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Windows Setup Guide — Brand New PC
 
 This guide walks you through installing **Jayraldine's Catering** on a Windows
