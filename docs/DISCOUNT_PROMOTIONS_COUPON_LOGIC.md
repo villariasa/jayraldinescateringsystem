@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Promotional Discount Engine & Coupon Validation Rules
 
 ## 1. Discount Engine Rules
