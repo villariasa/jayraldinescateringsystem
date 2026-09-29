@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Tablet Kiosk Service Worker Asset Caching Guide
 
 ## 1. Cache-First Strategy
