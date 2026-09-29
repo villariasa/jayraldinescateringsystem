@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Standalone Installer Packaging & Footprint Analysis
 
 ## 1. The 205MB Package Size Breakdown
