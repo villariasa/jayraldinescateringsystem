@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Catering Contract Legal Provisions & Force Majeure Guidelines
 
 ## 1. Contract Terms
