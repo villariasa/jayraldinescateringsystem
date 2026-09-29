@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Downpayment Validation & Cancellation Terms
 
 ## 1. Reservation Deposit Policy
