@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Food Cost Percentage Calculation Engine Specification
 
 ## 1. Core Formula
