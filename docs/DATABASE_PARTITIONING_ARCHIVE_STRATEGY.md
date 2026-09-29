@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PostgreSQL Declarative Table Partitioning & Archiving Strategy
 
 ## 1. Partitioning Hierarchy
