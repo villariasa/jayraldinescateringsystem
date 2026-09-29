@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Catering Equipment Maintenance & Burner Safety Runbook
 
 ## 1. Chafing Dish Care
