@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Dynamic Catering Package Builder & Customization Guide
 
 ## 1. Overview
