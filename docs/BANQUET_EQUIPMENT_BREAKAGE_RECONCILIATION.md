@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Equipment & Breakage Reconciliation Engine
 
 ## 1. Inventory & Breakage Tracking
