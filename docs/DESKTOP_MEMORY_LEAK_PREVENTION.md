@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PySide6 C++ QWidget Lifecycle & Memory Leak Prevention
 
 ## 1. Memory Management Standards
