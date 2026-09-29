@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Installer Executable Packaging & Code Signing Guide
 
 ## 1. Packaging Toolchain
