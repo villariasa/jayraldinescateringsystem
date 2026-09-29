@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # In-Browser SQLite WASM Page Fragmentation & VACUUM Maintenance
 
 ## 1. Maintenance Strategy
