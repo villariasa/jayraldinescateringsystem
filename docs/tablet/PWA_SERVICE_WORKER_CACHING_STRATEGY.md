@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PWA Service Worker Offline Caching Strategy
 
 ## 1. Cache Tiers
