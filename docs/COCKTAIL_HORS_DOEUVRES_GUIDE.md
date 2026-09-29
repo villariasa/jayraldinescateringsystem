@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Roaming Butler Cocktail & Hors d'Oeuvres Service Guide
 
 ## 1. Butler Service Rules
