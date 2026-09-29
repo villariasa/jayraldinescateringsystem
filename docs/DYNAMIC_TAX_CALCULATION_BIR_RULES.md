@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Philippine Bureau of Internal Revenue (BIR) Tax Calculation Rules
 
 ## 1. Tax Computation Formulas
