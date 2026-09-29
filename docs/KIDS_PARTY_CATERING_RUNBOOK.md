@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Children's Party & Milestone Celebration Catering Runbook
 
 ## 1. Kid-Friendly Menu Selections
