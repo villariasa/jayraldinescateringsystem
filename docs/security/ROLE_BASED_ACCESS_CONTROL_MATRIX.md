@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Role-Based Access Control (RBAC) Matrix
 
 | Module / Action | Owner / Admin | Cashier / Staff | Tablet Kiosk |
