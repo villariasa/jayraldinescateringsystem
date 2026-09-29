@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PostgreSQL Stored Functions & Trigger Automations
 
 ## 1. Automated Invoice Trigger
