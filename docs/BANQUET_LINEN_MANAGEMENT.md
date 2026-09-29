@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Table Linens Inventory & Care Standards
 
 ## 1. Standard Linen Sizes
