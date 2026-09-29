@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Jayraldine's Catering — Setup Guide
 
 This is the general reference for getting the app running on **any** machine
