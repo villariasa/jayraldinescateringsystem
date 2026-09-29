@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # AI Menu Pairing & Nutritional Balance Estimation
 
 ## 1. Nutritional Modeling
