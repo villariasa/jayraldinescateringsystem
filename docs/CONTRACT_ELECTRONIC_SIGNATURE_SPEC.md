@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # HTML5 Canvas Electronic Signature Capture & PDF Embedding
 
 ## 1. Digital Signature Pipeline
