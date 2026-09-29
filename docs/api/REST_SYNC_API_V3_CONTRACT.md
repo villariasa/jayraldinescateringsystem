@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # REST Synchronization API v3 Contract
 
 ## 1. Endpoints
