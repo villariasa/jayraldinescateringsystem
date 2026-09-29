@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Standard Catering Agreement Legal Provisions & Terms
 
 ## 1. Contractual Terms
