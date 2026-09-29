@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PySide6 Memory Leak Prevention & Lifecycle Rules
 
 ## 1. Best Practices
