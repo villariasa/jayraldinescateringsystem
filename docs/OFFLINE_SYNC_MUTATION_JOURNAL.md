@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Offline Sync Mutation Journal & Idempotency Tokens
 
 ## 1. Journaling Architecture
