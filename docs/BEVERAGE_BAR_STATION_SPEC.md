@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Beverage Station & Bottomless Drink Logistics Specification
 
 ## 1. Equipment Staging
