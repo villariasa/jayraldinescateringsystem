@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Multi-Terminal Concurrency & Conflict Resolution Guide
 
 ## 1. Optimistic Locking Protocol
