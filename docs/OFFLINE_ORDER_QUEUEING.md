@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # FIFO Offline Order Queueing & Synchronization Specification
 
 ## 1. Queue Architecture
