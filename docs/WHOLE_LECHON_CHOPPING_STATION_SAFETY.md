@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Lechon de Cebu Live Chopping Station Safety Protocols
 
 ## 1. Live Carving Safety
