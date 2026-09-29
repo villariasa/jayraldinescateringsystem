@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Owner PIN Elevation & Rate-Limiting Policy
 
 ## 1. Triggers
