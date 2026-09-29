@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Catering Fleet Dispatch & Vehicle Load Capacity Planning
 
 ## 1. Fleet Capacity Matrix
