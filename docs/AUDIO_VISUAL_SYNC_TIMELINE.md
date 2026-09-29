@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Program Flow & Audio-Visual Synchronization Guide
 
 ## 1. Program Milestones
