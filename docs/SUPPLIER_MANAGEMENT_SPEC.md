@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Supplier Directory & Purchase Order Management Specification
 
 ## 1. Supplier Records
