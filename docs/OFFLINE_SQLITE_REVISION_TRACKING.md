@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Offline SQLite Change Tracking & Tombstone Reconciliation
 
 ## 1. Change Tracking Architecture
