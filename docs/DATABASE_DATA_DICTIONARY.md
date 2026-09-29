@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Relational Database Data Dictionary
 
 ## 1. Core Tables
