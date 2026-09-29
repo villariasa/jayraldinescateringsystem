@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Beverage Station Consumption Metrics & Refill Protocols
 
 ## 1. Consumption Estimation
