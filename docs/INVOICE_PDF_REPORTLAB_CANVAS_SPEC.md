@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # ReportLab PDF Layout Specification for Official Invoices
 
 ## 1. Page Layout Metrics
