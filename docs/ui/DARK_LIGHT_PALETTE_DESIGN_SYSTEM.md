@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Dark & Light Mode Design System Specification
 
 ## 1. Design Tokens
