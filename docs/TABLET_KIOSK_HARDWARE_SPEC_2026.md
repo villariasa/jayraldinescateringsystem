@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Tablet Kiosk Hardware Specifications (2026 Standards)
 
 ## 1. Recommended Hardware Configuration
