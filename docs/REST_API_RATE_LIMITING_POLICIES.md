@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # REST API Rate Limiting & Denial-of-Service Safeguards
 
 ## 1. Rate Limiting Parameters
