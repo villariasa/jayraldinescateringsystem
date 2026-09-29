@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PostgreSQL Automated Backup & WAL Archiving Policy
 
 ## 1. Backup Strategies
