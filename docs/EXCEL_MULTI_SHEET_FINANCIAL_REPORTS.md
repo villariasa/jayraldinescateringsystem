@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # OpenPyXL Multi-Sheet Financial Workbook Architecture
 
 ## 1. Workbook Structure
