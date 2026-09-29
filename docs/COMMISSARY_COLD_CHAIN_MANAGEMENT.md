@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Commissary Cold Chain Logistics & HACCP Temperature Rules
 
 ## 1. Temperature Thresholds
