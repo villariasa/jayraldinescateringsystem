@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Data Export Schemas & Formatting Specification
 
 ## 1. Supported Export Types
