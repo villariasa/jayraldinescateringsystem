@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Jayraldine's Catering — Kiosk PWA
 
 An installable, **fully offline** web app for the tablet the owner takes to
