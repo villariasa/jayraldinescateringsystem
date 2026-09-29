@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # GCash & Maya Digital Wallet Dynamic QR Code Generation Specification
 
 ## 1. Dynamic QR Generation
