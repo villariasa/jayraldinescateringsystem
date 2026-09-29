@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Raw Ingredient Yield Rates & Recipe Cost Modeling
 
 ## 1. Culinary Yield Standards
