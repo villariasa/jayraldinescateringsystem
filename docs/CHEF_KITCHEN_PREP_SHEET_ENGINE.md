@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Chef Kitchen Prep Sheet Engine & Batch Scaling
 
 ## 1. Batch Calculation Formula
