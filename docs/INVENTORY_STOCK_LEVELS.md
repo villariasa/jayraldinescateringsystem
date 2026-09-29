@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Inventory Minimum Stock Thresholds & Reorder Triggers
 
 ## 1. Threshold Configuration
