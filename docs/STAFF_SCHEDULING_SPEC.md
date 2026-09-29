@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Staff Allocation & Shift Scheduling Specification
 
 ## 1. Staffing Ratio Standard
