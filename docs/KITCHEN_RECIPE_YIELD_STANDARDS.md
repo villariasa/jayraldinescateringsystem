@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Standardized Recipe Yield Cards & Commissary Batch Scaling
 
 ## 1. Recipe Multiplier Algorithm
