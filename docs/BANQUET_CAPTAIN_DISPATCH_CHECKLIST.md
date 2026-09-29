@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Banquet Captain Pre-Dispatch Truck Manifest Checklist
 
 ## 1. Pre-Departure Verification
