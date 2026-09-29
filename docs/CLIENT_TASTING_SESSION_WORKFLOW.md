@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Client Food Tasting Session Protocol & Customization Workflow
 
 ## 1. Tasting Session Setup
