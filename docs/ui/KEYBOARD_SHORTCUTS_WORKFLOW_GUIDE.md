@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Cashier Desktop Keyboard Accelerators Guide
 
 ## 1. Registered Shortcuts
