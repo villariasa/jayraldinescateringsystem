@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Operational Runbook: Emergency Crash Recovery & System Failover
 
 ## 1. Crash Triage Steps
