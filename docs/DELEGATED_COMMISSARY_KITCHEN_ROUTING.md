@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Delegated Kitchen Order Routing & Station Distribution
 
 ## 1. Routing Taxonomy
