@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Git Branching & Conventional Commits Guide
 
 ## 1. Commit Prefix Standards
