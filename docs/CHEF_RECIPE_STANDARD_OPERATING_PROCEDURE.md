@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Commissary Master Recipe SOP & Portioning Standards
 
 ## 1. Recipe Standardization Controls
