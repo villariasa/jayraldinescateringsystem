@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Owner Authentication Dialog Specification
 
 ## 1. Overview
