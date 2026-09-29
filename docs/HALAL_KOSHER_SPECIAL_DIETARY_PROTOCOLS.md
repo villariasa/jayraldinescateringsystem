@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Special Dietary Protocols & Utensil Segregation
 
 ## 1. Segregation Standards
