@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Catering Transport Logistics & Vehicle Loading Specification
 
 ## 1. Fleet Routing
