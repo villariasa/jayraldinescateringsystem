@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Android Dedicated Device Mode (COSU) & Kiosk Launcher Specification
 
 ## 1. Dedicated Kiosk Mode
