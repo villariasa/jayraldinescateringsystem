@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Database Schema Migration Pipeline Specification
 
 ## 1. Migration Architecture
