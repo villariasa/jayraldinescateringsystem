@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # ReportLab Custom Font Registration & Unicode Support
 
 ## 1. Font Embedding Procedure
