@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # HACCP Food Safety & Temperature Monitoring Guide
 
 ## 1. Temperature Standards
