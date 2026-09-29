@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Tablet Kiosk Battery Health & Thermal Management Policies
 
 ## 1. Operating Parameters
