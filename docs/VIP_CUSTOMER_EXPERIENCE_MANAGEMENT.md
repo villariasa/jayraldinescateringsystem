@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # VIP Customer Experience & Relationship Management
 
 ## 1. VIP Concierge Standards
