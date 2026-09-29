@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Ledger Transaction Isolation & ACID Compliance
 
 ## 1. Atomic Payment Processing
