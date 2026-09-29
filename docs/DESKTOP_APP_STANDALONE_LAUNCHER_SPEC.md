@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Desktop Application Standalone Launcher & Mutex Lock
 
 ## 1. Process Management
