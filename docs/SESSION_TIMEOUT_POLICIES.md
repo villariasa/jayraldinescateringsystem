@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Session Timeout Policies & Terminal Locking Specification
 
 ## 1. Inactivity Thresholds
