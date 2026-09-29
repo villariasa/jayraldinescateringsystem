@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # SMS Notification Queue & Transactional Dispatch
 
 ## 1. Message Dispatch Pipeline
