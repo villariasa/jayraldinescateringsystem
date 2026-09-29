@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Network Jitter Mitigation & Exponential Retry Backoff
 
 ## 1. Retry Algorithm
