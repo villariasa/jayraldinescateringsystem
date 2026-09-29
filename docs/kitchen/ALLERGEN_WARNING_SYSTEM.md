@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Allergen Tracking & Dietary Tagging System
 
 ## 1. Standard Allergen Flags
