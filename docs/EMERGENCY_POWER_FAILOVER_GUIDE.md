@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Emergency Electrical Failover & Generator Operation Guide
 
 ## 1. Backup Equipment
