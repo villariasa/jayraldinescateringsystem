@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Surcharge & Ancillary Fee Calculation Rules
 
 ## 1. Surcharge Categories
