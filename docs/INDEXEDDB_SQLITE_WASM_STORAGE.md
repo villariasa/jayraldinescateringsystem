@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # In-Browser SQLite WASM & IndexedDB Binary Persistence
 
 ## 1. Storage Architecture
