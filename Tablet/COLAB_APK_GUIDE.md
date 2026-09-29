@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # 📱 Google Colab Guide: Build Android APK for Jayraldine's Catering
 
 Follow these steps to build the Android `.apk` installer using **Google Colab** (free cloud Linux environment):
