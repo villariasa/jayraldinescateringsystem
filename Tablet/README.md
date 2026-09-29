@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Jayraldine's Catering — Tablet App
 
 A small, touch-first order-entry client for tablets, per `Tablet-mode.md`.
