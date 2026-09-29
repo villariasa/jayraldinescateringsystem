@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Event Venue Floor Plan Layout & Buffet Placement Standards
 
 ## 1. Layout Architectural Guidelines
