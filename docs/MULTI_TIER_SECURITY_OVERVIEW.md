@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Multi-Tier Security Architecture & Threat Mitigation Guide
 
 ## 1. Security Layers
