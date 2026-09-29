@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Commercial Invoice Numbering & Void Auditing Standards
 
 ## 1. Numbering Scheme
