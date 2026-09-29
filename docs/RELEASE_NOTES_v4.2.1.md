@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Official Release Notes — Version 4.2.1
 
 ## Release Summary
