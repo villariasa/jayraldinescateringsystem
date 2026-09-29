@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Outdoor Garden Wedding Contingency Runbook
 
 ## 1. Weather Contingency Plans
