@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Touchscreen Virtual Numpad Component Specification
 
 ## 1. UX Design
