@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Environmental Sustainability & Waste Segregation Policy
 
 ## 1. Waste Sorting
