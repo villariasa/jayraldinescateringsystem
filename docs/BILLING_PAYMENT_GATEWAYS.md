@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Billing, Split Payments & Digital Wallet Integration Guide
 
 ## 1. Payment Lifecycle
