@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Android Tablet Kiosk Mode Lockdown Guide
 
 ## 1. Configuration
