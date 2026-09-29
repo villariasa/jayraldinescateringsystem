@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # PySide6 QSS Design System Tokens & Styling Standards
 
 ## 1. Design Tokens
