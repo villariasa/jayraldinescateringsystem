@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 Implement the following final client-requested changes in the **Jayraldine’s Catering System**. The previous issues are already working correctly, so **do not unnecessarily modify existing working features**. Focus only on the changes below and make sure existing data and functionality are not broken.
 
 ## 1. Deleted or Cancelled Orders Must Not Remain in Billing
