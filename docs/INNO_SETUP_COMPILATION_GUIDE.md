@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Inno Setup 6 Automated Packaging & Uninstaller Logic
 
 ## 1. Compiler Configuration
