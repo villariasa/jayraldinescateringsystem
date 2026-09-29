@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Standalone PySide6 Windows Executable Packaging Specification
 
 ## 1. PyInstaller Build Options
