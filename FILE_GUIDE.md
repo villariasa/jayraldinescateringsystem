@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # File Guide — Jayraldine's Catering System
 
 **Purpose:** a map of the entire codebase so that when a client asks for an add-on, fix, or change, you know exactly which file(s) to open — without needing AI help to figure it out. Read this offline with any text editor.
