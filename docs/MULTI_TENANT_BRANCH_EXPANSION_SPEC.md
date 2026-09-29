@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Multi-Branch Commissary Architecture & Partitioning
 
 ## 1. Regional Hierarchy
