@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Monthly Commissary Inventory Cycle Counts & Auditing Policy
 
 ## 1. Cycle Count Frequency
