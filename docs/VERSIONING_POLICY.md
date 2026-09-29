@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Semantic Versioning & Release Policy
 
 ## Format: `vMAJOR.MINOR.PATCH`
