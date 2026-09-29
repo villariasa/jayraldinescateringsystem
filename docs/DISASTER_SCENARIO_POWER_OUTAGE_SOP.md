@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Event Venue Power Outage Contingency Standard Operating Procedure
 
 ## 1. Contingency Action Plan
