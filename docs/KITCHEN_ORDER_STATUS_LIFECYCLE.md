@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Kitchen Order Status Lifecycle & Production Stages
 
 ## 1. Order Status Progression
