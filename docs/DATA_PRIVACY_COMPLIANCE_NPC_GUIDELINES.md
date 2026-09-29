@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Data Privacy Compliance (RA 10173 / NPC Guidelines)
 
 ## 1. Compliance Controls
