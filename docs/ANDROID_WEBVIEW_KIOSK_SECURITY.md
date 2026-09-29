@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Android WebView Kiosk Security Specifications
 
 ## 1. Security Architecture
