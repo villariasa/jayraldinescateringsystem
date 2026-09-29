@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Live Roast Carving Station Operation Specification
 
 ## 1. Station Layout
