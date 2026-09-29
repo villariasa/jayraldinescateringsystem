@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # Internationalization (i18n) Resource Dictionary Specification
 
 ## 1. Architecture
