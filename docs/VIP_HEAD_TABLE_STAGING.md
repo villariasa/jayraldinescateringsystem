@@ -1,3 +1,5 @@
+> **Note:** Reviewed & updated 2026-09-29 — Jayraldine's Catering System.
+
 # VIP Presidential Head Table Setup & Silver Service Standards
 
 ## 1. Table Topography
