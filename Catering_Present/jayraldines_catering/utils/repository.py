@@ -9,6 +9,7 @@ expects, so no UI code needs to change.
 from __future__ import annotations
 from datetime import date, time, datetime, timedelta
 from typing import Optional
+import re
 import utils.db as db
 import utils.menu_store as menu_store
 
@@ -1785,7 +1786,13 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
         d["dishes"] = []
 
     # Fetch itemized additional add-on charges
-    d["additional_charges"] = get_additional_charges(db_id)
+    raw_charges = get_additional_charges(db_id)
+    raw_notes = d.get("notes") or ""
+    chgs, clean_n = extract_and_clean_addons(raw_notes, raw_charges)
+    d["additional_charges"] = chgs
+    d["notes"] = clean_n
+    d["special_notes"] = clean_n
+    d["special_instructions"] = clean_n
     return d
 
 
@@ -1931,6 +1938,23 @@ def create_booking(data: dict) -> Optional[dict]:
                 except Exception as bmie:
                     print(f"[repository] create_booking save dishes note: {bmie}")
 
+            # Save additional charges (add-ons) if present
+            add_charges = data.get("additional_charges")
+            if not add_charges:
+                add_charges, _ = extract_and_clean_addons(data.get("notes", ""))
+            if add_charges and b_id:
+                try:
+                    for chg in add_charges:
+                        c_desc = str(chg.get("description") or chg.get("ac_description") or "").strip()
+                        c_amt = float(chg.get("amount") or chg.get("ac_amount") or 0.0)
+                        if c_desc:
+                            db.execute("""
+                                INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
+                                VALUES (%s, %s, %s, CURRENT_DATE, 'Staff')
+                            """, (b_id, c_desc, c_amt))
+                except Exception as che:
+                    print(f"[repository] create_booking save charges note: {che}")
+
             write_audit_log(
                 action="CREATE",
                 table_name="bookings",
@@ -2053,6 +2077,20 @@ def update_booking(db_id: int, data: dict) -> None:
                         """, (db_id, i_id, i_name, i_cat))
             except Exception as bmie:
                 print(f"[repository] update_booking save dishes note: {bmie}")
+
+        if "additional_charges" in data:
+            try:
+                db.execute("DELETE FROM booking_additional_charges WHERE ac_booking_id = %s", (db_id,))
+                for chg in data.get("additional_charges") or []:
+                    c_desc = str(chg.get("description") or chg.get("ac_description") or "").strip()
+                    c_amt = float(chg.get("amount") or chg.get("ac_amount") or 0.0)
+                    if c_desc:
+                        db.execute("""
+                            INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
+                            VALUES (%s, %s, %s, CURRENT_DATE, 'Staff')
+                        """, (db_id, c_desc, c_amt))
+            except Exception as che:
+                print(f"[repository] update_booking save charges note: {che}")
 
         write_audit_log(
             action="UPDATE",
@@ -5238,6 +5276,67 @@ def _parse_amount(s) -> float:
         return float(cleaned)
     except ValueError:
         return 0.0
+
+
+def extract_and_clean_addons(notes_str: Any, existing_charges: list = None) -> tuple[list[dict], str]:
+    """Extract any add-on items embedded in notes (bracketed or unbracketed) and strip them from notes.
+
+    Handles formats such as:
+      - [Add-ons: Shrimp and tahong w/ chili corn (₱2,500), Extra Rice (₱500)]
+      - [Add-ons: Shrimp and tahong w/ chili corn:]
+      - Add-ons: Shrimp and tahong w/ chili corn:
+      - Special Instructions: Add-ons: Shrimp and tahong w/ chili corn
+      - Multi-line notes where one line starts with Add-ons: / Addon: / Addons:
+
+    Returns:
+        (combined_charges, clean_notes)
+    """
+    charges = [dict(c) for c in (existing_charges or [])]
+    notes_str = str(notes_str or "").strip()
+    if not notes_str:
+        return charges, ""
+
+    extracted_chunks = []
+
+    # 1. Bracketed pattern: [Add-ons: ...] or [Addon: ...] or [Add-on: ...] etc.
+    bracket_pat = r"\[(?:Special\s+Instructions\s*:\s*)?(?:Add[\s\-_]*ons?|Addons?)\s*:\s*(.*?)\]"
+    for m in re.finditer(bracket_pat, notes_str, flags=re.IGNORECASE | re.DOTALL):
+        extracted_chunks.append(m.group(1).strip())
+    clean_notes = re.sub(bracket_pat, "", notes_str, flags=re.IGNORECASE | re.DOTALL).strip()
+
+    # 2. Line-based or prefix pattern: Add-ons: ... or Addon: ... (until newline with non-indented text or end)
+    line_pat = r"(?:^|\n)\s*(?:Special\s+Instructions\s*:\s*)?(?:Add[\s\-_]*ons?|Addons?)\s*:\s*(.*?)(?=\n\S|\Z)"
+    for m in re.finditer(line_pat, clean_notes, flags=re.IGNORECASE | re.DOTALL):
+        extracted_chunks.append(m.group(1).strip())
+    clean_notes = re.sub(line_pat, "", clean_notes, flags=re.IGNORECASE | re.DOTALL).strip()
+
+    # Clean leftover empty lines or artifact whitespace
+    clean_notes = "\n".join(ln.strip() for ln in clean_notes.splitlines() if ln.strip()).strip()
+
+    existing_descs = {str(c.get("description") or c.get("ac_description") or "").strip().lower() for c in charges}
+    for chunk in extracted_chunks:
+        # Split on commas outside parens or newlines
+        parts = re.split(r"(?<=\))\s*,\s*|(?<!\()\s*,\s*(?![^\(]*\))|\n+", chunk)
+        for p in parts:
+            item = p.strip().strip(":").strip()
+            if not item:
+                continue
+            amt = 0.0
+            m_amt = re.search(r"\((?:PHP|₱)?\s*([+-]?[\d,]+(?:\.\d+)?)\s*\)", item, re.IGNORECASE)
+            if m_amt:
+                try:
+                    amt = float(m_amt.group(1).replace(",", ""))
+                except ValueError:
+                    amt = 0.0
+                desc = re.sub(r"\s*\((?:PHP|₱)?\s*[+-]?[\d,]+(?:\.\d+)?\s*\)", "", item).strip()
+            else:
+                desc = item
+            desc = desc.strip(":").strip()
+            if desc and desc.lower() not in existing_descs:
+                charges.append({"description": desc, "amount": amt})
+                existing_descs.add(desc.lower())
+
+    return charges, clean_notes
 
 # ---------------------------------------------------------------------------
 # ANALYTICS (year-parameterized — requires analytics_functions_migration.sql)
