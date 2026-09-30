@@ -86,7 +86,7 @@ class DataWarmupWorker(QThread):
                 dash_data = {
                     "kpis":       repo.get_dashboard_kpis(),
                     "profit":     repo.get_profit_summary(),
-                    "events":     repo.get_upcoming_events(limit=20),
+                    "events":     repo.get_upcoming_events(limit=10),
                     "activity":   repo.get_recent_activity(limit=10),
                     "chart_data": chart_data,
                     "followups":  repo.get_todays_follow_ups(),

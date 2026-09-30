@@ -1194,14 +1194,14 @@ class DashboardPage(QWidget):
         self._ev_lay.addWidget(ev_div)
         self._ev_lay.addSpacing(4)
 
-        # Event rows live in a capped scroll area so a long list scrolls inside
-        # the card (~10 rows visible) instead of stretching the whole page and
-        # pushing Recent Activity / Follow-ups below the fold.
+        # Event rows live in a scroll area sized dynamically to fit up to 10 rows
+        # without squishing or cutting off entries into a single-row scroll box.
         self._ev_scroll = QScrollArea()
         self._ev_scroll.setWidgetResizable(True)
         self._ev_scroll.setFrameShape(QFrame.NoFrame)
         self._ev_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._ev_scroll.setMaximumHeight(470)
+        self._ev_scroll.setMinimumHeight(60)
+        self._ev_scroll.setMaximumHeight(540)
         self._ev_items_container = QWidget()
         self._ev_items_lay = QVBoxLayout(self._ev_items_container)
         self._ev_items_lay.setContentsMargins(0, 0, 6, 0)
@@ -1211,6 +1211,7 @@ class DashboardPage(QWidget):
 
         mid_row.addWidget(self.cap_card, 1)
         mid_row.addWidget(self.events_card, 1)
+        mid_row.setAlignment(self.cap_card, Qt.AlignTop)
         self.lay.addLayout(mid_row)
 
         bot_row = QHBoxLayout()
@@ -1566,10 +1567,10 @@ class DashboardPage(QWidget):
         # KPIs/events honour the active date range when one is set; else all-time.
         if d_start and d_end:
             kpis = repo.get_dashboard_kpis_filtered(d_start, d_end)
-            events = repo.get_upcoming_events(limit=20, date_start=d_start, date_end=d_end)
+            events = repo.get_upcoming_events(limit=10, date_start=d_start, date_end=d_end)
         else:
             kpis = repo.get_dashboard_kpis()
-            events = repo.get_upcoming_events(limit=20, all_time=True)
+            events = repo.get_upcoming_events(limit=10, all_time=True)
 
         return {
             "kpis":        kpis,
@@ -1903,14 +1904,15 @@ class DashboardPage(QWidget):
         if events is None:
             events = getattr(self, "_cached_events", None)
         if events is None:
-            events = repo.get_upcoming_events(limit=20)
-        if not events:
+            events = repo.get_upcoming_events(limit=10)
+        events_to_show = (events or [])[:10]
+        if not events_to_show:
             empty = QLabel("No upcoming events.")
             empty.setObjectName("subtitle")
             empty.setContentsMargins(0, 8, 0, 8)
             self._ev_items_lay.addWidget(empty)
         else:
-            for ev in events:
+            for ev in events_to_show:
                 raw_date = ev.get("event_date")
                 raw_time = ev.get("event_time")
                 if raw_date:
@@ -1951,6 +1953,14 @@ class DashboardPage(QWidget):
                 sep.setObjectName("divider")
                 self._ev_items_lay.addWidget(sep)
         self._ev_items_lay.addStretch()
+
+        # Dynamically size scroll area so all up-to-10 rows are fully visible without squishing
+        self._ev_items_container.adjustSize()
+        content_h = self._ev_items_container.sizeHint().height()
+        target_h = max(60, min(content_h + 8, 540))
+        self._ev_scroll.setFixedHeight(target_h)
+        self.events_card.setMinimumHeight(self.events_card.sizeHint().height())
+        self.events_card.updateGeometry()
 
     def _rebuild_activity(self, activities=None):
         """Rebuild the Recent Activity list below its fixed header.
