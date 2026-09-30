@@ -167,6 +167,14 @@ class OrderPrintDialog(QDialog):
 
         if not data:
             data = {}
+        else:
+            data = dict(data)
+            raw_n = data.get("notes") or data.get("special_instructions") or data.get("special_notes") or ""
+            chgs, clean_n = repo.extract_and_clean_addons(raw_n, data.get("additional_charges") or [])
+            data["additional_charges"] = chgs
+            data["notes"] = clean_n
+            data["special_instructions"] = clean_n
+            data["special_notes"] = clean_n
         return data
 
     def _build_ui(self):
@@ -424,26 +432,17 @@ class OrderPrintDialog(QDialog):
 
     def _get_clean_addons(self, booking: dict) -> list[str]:
         """Extract all additional add-ons strictly without price amounts."""
+        raw_n = booking.get("notes") or booking.get("special_instructions") or ""
+        chgs, _ = repo.extract_and_clean_addons(raw_n, booking.get("additional_charges") or [])
         add_ons = []
-        raw_charges = booking.get("additional_charges") or []
-        for chg in raw_charges:
-            desc = str(chg.get("description") or "").strip()
+        for chg in chgs:
+            desc = str(chg.get("description") or chg.get("ac_description") or "").strip()
             if desc:
                 clean_desc = re.sub(r"\s*\([+-]?[^\)]*[\d,.]+[^\)]*\)\s*$", "", desc).strip()
                 clean_desc = re.sub(r"[+-]?[₱P]\s*[\d,.]+", "", clean_desc).strip()
+                clean_desc = clean_desc.strip(":").strip()
                 if clean_desc and clean_desc not in add_ons:
                     add_ons.append(clean_desc)
-
-        notes_str = str(booking.get("notes") or "").strip()
-        m_addons = re.search(r"\[Add-ons:\s*(.*?)\]", notes_str, re.IGNORECASE)
-        if m_addons:
-            raw_addons = re.split(r"(?<=\))\s*,\s*", m_addons.group(1))
-            for a in raw_addons:
-                clean_a = re.sub(r"\s*\([+-]?[^\)]*[\d,.]+[^\)]*\)\s*$", "", a).strip()
-                clean_a = re.sub(r"[+-]?[₱P]\s*[\d,.]+", "", clean_a).strip()
-                if clean_a and clean_a not in add_ons:
-                    add_ons.append(clean_a)
-
         return add_ons
 
     def _build_dishes_table_2col(self, booking: dict, compact: bool = False, pad_scale: float = 1.0) -> str:
@@ -538,8 +537,8 @@ class OrderPrintDialog(QDialog):
                 return "₱0.00"
         total_amount_str = _peso_amt(booking.get("total_amount") or booking.get("total") or 0)
 
-        notes_str = str(booking.get("notes") or "").strip()
-        clean_notes = re.sub(r"\n?\[Add-ons:\s*.*?\]", "", notes_str, flags=re.IGNORECASE).strip()
+        notes_str = str(booking.get("notes") or booking.get("special_instructions") or "").strip()
+        _, clean_notes = repo.extract_and_clean_addons(notes_str, booking.get("additional_charges") or [])
 
         add_ons = self._get_clean_addons(booking)
         foods_grid_html = self._build_dishes_table_2col(booking, compact=compact, pad_scale=pad_scale)
@@ -761,7 +760,11 @@ class OrderPrintDialog(QDialog):
         pax = str(booking.get("pax") or 0)
         pkg_name = html.escape(str(booking.get("package_name") or booking.get("menu_type") or "Catering Package"))
         is_food_set = is_food_set_pkg(pkg_name)
-        notes = html.escape(str(booking.get("notes") or booking.get("special_instructions") or ""))
+        
+        # Separate add-ons from notes so Special Instructions is clean
+        raw_notes = booking.get("notes") or booking.get("special_instructions") or ""
+        resolved_charges, clean_notes = repo.extract_and_clean_addons(raw_notes, booking.get("additional_charges") or [])
+        notes = html.escape(clean_notes) if clean_notes else ""
         _raw_created = booking.get("created_at") or ""
         try:
             _created_dt = datetime.strptime(str(_raw_created)[:10], "%Y-%m-%d") if _raw_created else datetime.now()
@@ -815,11 +818,10 @@ class OrderPrintDialog(QDialog):
 
         # Add-ons
         addons_html = []
-        raw_charges = booking.get("additional_charges") or []
-        for c in raw_charges[:5]:
-            desc = html.escape(str(c.get("description") or "Add-on"))
-            amt_str = _peso(c.get("amount") or 0)
-            # Plain black bold amount, matching exporter.js (no rose accent there).
+        for c in resolved_charges[:6]:
+            desc = html.escape(str(c.get("description") or c.get("ac_description") or "Add-on").strip().rstrip(":"))
+            amt_val = float(c.get("amount") or c.get("ac_amount") or 0.0)
+            amt_str = _peso(amt_val) if amt_val > 0 else ""
             addons_html.append(f"""
                 <tr>
                     <td style="font-size:11px; color:#1E293B; padding:2px 0; vertical-align:top;">• {desc}</td>
@@ -827,16 +829,11 @@ class OrderPrintDialog(QDialog):
                 </tr>
             """)
 
-        addons_section = ""
-        if addons_html:
-            addons_section = f"""
-                <div style="margin-top:10px;">
-                    <div style="font-size:11.5px; font-weight:800; color:#0F172A; text-transform:uppercase; border-bottom:1px solid #CBD5E1; padding-bottom:2px; margin-bottom:4px;">ADD-ONS &amp; EXTRAS:</div>
-                    <table width="100%" style="width:100%; border-collapse:collapse;">
-                        {''.join(addons_html)}
-                    </table>
-                </div>
-            """
+        addons_content_html = f"""
+            <table width="100%" style="width:100%; border-collapse:collapse;">
+                {''.join(addons_html)}
+            </table>
+        """ if addons_html else '<div style="font-size:10.5px; color:#64748B;">&bull; None specified.</div>'
 
         pax_label = "No. of Sets:" if is_food_set else "No. of Pax:"
         pax_value = f"{pax} Set(s)" if is_food_set else f"{pax} Pax"
@@ -939,7 +936,7 @@ class OrderPrintDialog(QDialog):
                 {''.join(dish_items_html)}
             </table>
             <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; margin-top:10px; margin-bottom:4px;">ADD-ONS &amp; EXTRAS:</div>
-            {addons_section if addons_html else '<div style="font-size:10.5px; color:#64748B;">&bull; None specified.</div>'}
+            {addons_content_html}
         """ + _card_close
 
         main_html = f"""
@@ -1206,8 +1203,16 @@ class OrderPrintDialog(QDialog):
                         dish_lines.append(f"  • {d_name}")
                 dishes_text = "\n".join(dish_lines) if dish_lines else "  • Standard Package Inclusions"
 
-                charges = booking.get("additional_charges") or []
-                charge_lines = [f"  • {c.get('description', 'Add-on')}: PHP {float(c.get('amount', 0)):,.2f}" for c in charges]
+                raw_notes = booking.get("notes") or booking.get("special_instructions") or ""
+                resolved_charges, clean_notes = repo.extract_and_clean_addons(raw_notes, booking.get("additional_charges") or [])
+                charge_lines = []
+                for c in resolved_charges:
+                    desc = str(c.get('description') or c.get('ac_description') or 'Add-on').strip().rstrip(':')
+                    amt = float(c.get('amount') or c.get('ac_amount') or 0.0)
+                    if amt > 0:
+                        charge_lines.append(f"  • {desc}: PHP {amt:,.2f}")
+                    else:
+                        charge_lines.append(f"  • {desc}")
                 charges_text = "\n".join(charge_lines) if charge_lines else "  None"
 
                 blocks.append(f"""==================================================
