@@ -345,16 +345,8 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
 
   rY += 12;
 
-  // INCLUSIONS — fetched from order or SQLite package table
+  // INCLUSIONS — fetched from order data (supplied by getOrderDetail via pkg_description join)
   let pkgInclusions = order.package_inclusions || order.pkg_description || order.package_description || order.inclusions || "";
-  if (!pkgInclusions && typeof window !== "undefined" && window.sqlite && typeof window.sqlite.fetchOne === "function") {
-    try {
-      const pRow = order.package_id
-        ? window.sqlite.fetchOne("SELECT pkg_description FROM packages WHERE pkg_id = ?", [order.package_id])
-        : window.sqlite.fetchOne("SELECT pkg_description FROM packages WHERE LOWER(TRIM(pkg_name)) = LOWER(TRIM(?)) LIMIT 1", [pkgName]);
-      if (pRow && pRow.pkg_description) pkgInclusions = pRow.pkg_description;
-    } catch (_) {}
-  }
 
   if (pkgInclusions && String(pkgInclusions).trim()) {
     doc.setFont("helvetica", "bold");
