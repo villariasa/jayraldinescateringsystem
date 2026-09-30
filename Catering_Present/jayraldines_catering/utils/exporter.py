@@ -867,11 +867,12 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         if not pkg_inclusions:
             try:
                 _pid = booking_detail.get("package_id") or inv.get("package_id")
+                _ph = "%s" if _repo.db.get_engine_type() == "postgres" else "?"
                 if _pid:
-                    _pr = _repo.db.fetchone("SELECT pkg_description FROM packages WHERE pkg_id = ?", (_pid,))
+                    _pr = _repo.db.fetchone(f"SELECT pkg_description FROM packages WHERE pkg_id = {_ph}", (_pid,))
                 else:
                     _pr = _repo.db.fetchone(
-                        "SELECT pkg_description FROM packages WHERE LOWER(TRIM(pkg_name)) = LOWER(TRIM(?)) LIMIT 1",
+                        f"SELECT pkg_description FROM packages WHERE LOWER(TRIM(pkg_name)) = LOWER(TRIM({_ph})) LIMIT 1",
                         (pkg_name,))
                 if _pr and _pr.get("pkg_description"):
                     pkg_inclusions = _pr["pkg_description"]
