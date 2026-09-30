@@ -132,7 +132,7 @@ function _getTabletDeviceInfo() {
     device_id: devId,
     hostname: detected.hostname,
     os_info: detected.os_info,
-    app_version: "v2.1.11",
+    app_version: "v2.1.13",
     active_module: "Customer Booking Kiosk"
   };
 }
@@ -1081,6 +1081,10 @@ export const api = {
       // the entire sync (bookings included) and also leaves duplicate customers.
       if (res.synced_booking_refs || res.synced_customer_names) {
         repo.markRecordsSynced(res.synced_booking_refs || [], res.synced_customer_names || []);
+      }
+      // Apply downward payment-status updates from the server (#1 fix)
+      if (res.payment_updates && res.payment_updates.length > 0) {
+        repo.applyPaymentUpdates(res.payment_updates);
       }
       if (res.packages || res.menu_items || res.customers || res.occasions || res.menu_categories) {
         repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || [], res.occasions || [], res.package_buckets || [], res.menu_categories || []);
