@@ -805,9 +805,13 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             # treat the invoice dict itself as the booking detail.
             booking_detail = dict(inv)
 
-        # Split signed charge amounts: positive => add-on/extra, negative => discount.
-        charges = [c for c in additional_charges if float(c.get("amount", 0)) > 0]
-        discounts = [c for c in additional_charges if float(c.get("amount", 0)) < 0]
+        # Ensure add-ons in notes are mined and removed from special instructions
+        raw_notes = booking_detail.get("notes") or booking_detail.get("special_notes") or inv.get("notes") or ""
+        charges_all, clean_notes = _repo.extract_and_clean_addons(raw_notes, additional_charges)
+
+        # Split signed charge amounts: positive/zero => add-on/extra, negative => discount.
+        charges = [c for c in charges_all if float(c.get("amount", 0)) >= 0]
+        discounts = [c for c in charges_all if float(c.get("amount", 0)) < 0]
 
         # ── Resolve monetary fields (kept from the desktop data logic) ────
         biz_name    = business.get("name", "JAYRALDINE'S CATERING")
@@ -844,7 +848,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         occasion = booking_detail.get("occasion") or "General Event"
         motif    = booking_detail.get("color_theme") or booking_detail.get("motif") or "Standard"
         pax      = str(booking_detail.get("pax") or "—")
-        notes    = booking_detail.get("notes") or booking_detail.get("special_notes") or "Standard arrangement."
+        notes    = clean_notes or "Standard arrangement."
         pay_mode = inv.get("payment_method") or booking_detail.get("payment_mode") or "Cash"
 
         pkg_name = booking_detail.get("package_name") or booking_detail.get("package") or "CUSTOM PACKAGE"
@@ -1126,12 +1130,14 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         T(rightColX + 8, rY, "ADD-ONS & EXTRAS:", 9.5, bold=True, color=BLACK)
         rY += 13
         if charges:
-            for ch in charges[:3]:
-                desc = ch.get("description", "Add-on Extra")
+            for ch in charges[:4]:
+                desc = str(ch.get("description") or ch.get("ac_description") or "Add-on Extra").strip().rstrip(":")
                 amt = float(ch.get("amount", 0) or 0)
-                amt_str = f"+{_peso(amt)}" if amt >= 0 else f"-{_peso(abs(amt))}"
-                T(rightColX + 8, rY, f"• {desc}:", 8.8, bold=False, color=BLACK)
-                T(rightColX + rightColW - 8, rY, amt_str, 8.8, bold=True, color=BLACK, align="right")
+                amt_str = f"+{_peso(amt)}" if amt > 0 else ""
+                lbl = f"• {desc}:" if amt_str else f"• {desc}"
+                T(rightColX + 8, rY, lbl, 8.8, bold=False, color=BLACK)
+                if amt_str:
+                    T(rightColX + rightColW - 8, rY, amt_str, 8.8, bold=True, color=BLACK, align="right")
                 rY += 12
         else:
             T(rightColX + 8, rY, "• None specified.", 8, bold=False, color=MUTED)
@@ -1421,21 +1427,13 @@ def export_order_slip_pdf(path: str, booking: dict, business: dict) -> bool:
                 if clean_desc and clean_desc not in add_ons:
                     add_ons.append(clean_desc)
 
-        # Also mine add-ons from a "[Add-ons: ...]" marker embedded in notes.
+        # Also mine add-ons from notes.
         notes_str = str(booking.get("notes") or "").strip()
-        m_addons = re.search(r"\[Add-ons:\s*(.*?)\]", notes_str, re.IGNORECASE)
-        if m_addons:
-            # Split on commas that follow a ")" so a price parenthetical isn't
-            # split mid-item; then strip prices the same way as above.
-            raw_addons = re.split(r"(?<=\))\s*,\s*", m_addons.group(1))
-            for a in raw_addons:
-                clean_a = re.sub(r"\s*\([+-]?[^\)]*[\d,.]+[^\)]*\)\s*$", "", a).strip()
-                clean_a = re.sub(r"[+-]?[₱P]\s*[\d,.]+", "", clean_a).strip()
-                if clean_a and clean_a not in add_ons:
-                    add_ons.append(clean_a)
-
-        # Remove the whole "[Add-ons: ...]" marker from the notes we display.
-        clean_notes = re.sub(r"\n?\[Add-ons:\s*.*?\]", "", notes_str, flags=re.IGNORECASE).strip()
+        chgs_m, clean_notes = _repo.extract_and_clean_addons(notes_str, raw_charges)
+        for c in chgs_m:
+            desc = str(c.get("description") or c.get("ac_description") or "").strip().rstrip(":")
+            if desc and desc not in add_ons:
+                add_ons.append(desc)
 
         if add_ons:
             addon_rows = [[
