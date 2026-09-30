@@ -2343,6 +2343,10 @@ export function openLightCalendarModal(onSelectDate, opts = {}) {
     const firstDay = new Date(viewYear, viewMonth, 1).getDay();
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
+    // Compute today string for highlighting (#8 fix)
+    const todayPad = (n) => String(n).padStart(2, "0");
+    const todayStr = `${now.getFullYear()}-${todayPad(now.getMonth()+1)}-${todayPad(now.getDate())}`;
+
     let daysHtml = "";
     for (let i = 0; i < firstDay; i++) {
       daysHtml += `<div style="padding:8px;"></div>`;
@@ -2353,17 +2357,42 @@ export function openLightCalendarModal(onSelectDate, opts = {}) {
       const scheds = dateSchedules[dStr] || [];
       const cnt = scheds.length;
       const isSelected = selectedDate === dStr;
+      const isToday = dStr === todayStr;
+
+      // Priority: selected > today > has-booking > default
+      let cellBorder, cellBg, dayNumColor;
+      if (isSelected) {
+        cellBorder = "2px solid var(--accent)";
+        cellBg = "rgba(225,29,72,0.14)";
+        dayNumColor = "var(--accent)";
+      } else if (isToday) {
+        cellBorder = "2.5px solid #10B981";
+        cellBg = "rgba(16,185,129,0.12)";
+        dayNumColor = "#10B981";
+      } else if (cnt > 0) {
+        cellBorder = "1.5px solid rgba(245,158,11,0.55)";
+        cellBg = "rgba(245,158,11,0.12)";
+        dayNumColor = "#D97706";
+      } else {
+        cellBorder = "1.5px solid var(--border)";
+        cellBg = "var(--input-bg)";
+        dayNumColor = "var(--text)";
+      }
+
+      const todayBadge = isToday ? `<span style="font-size:8px; font-weight:800; color:#10B981; background:rgba(16,185,129,0.18); border-radius:4px; padding:1px 4px; margin-top:1px; display:inline-block;">Today</span>` : "";
 
       daysHtml += `
-        <div class="cal-day-cell" data-date="${dStr}" style="padding:8px 4px; border:1.5px solid ${isSelected ? "var(--accent)" : (cnt > 0 ? "rgba(245,158,11,0.55)" : "var(--border)")}; border-radius:8px; text-align:center; cursor:pointer; background:${isSelected ? "rgba(225,29,72,0.14)" : (cnt > 0 ? "rgba(245,158,11,0.12)" : "var(--input-bg)")}; transition:all 0.15s; user-select:none; display:flex; flex-direction:column; justify-content:space-between; min-height:58px;">
-          <div style="font-weight:800; font-size:14px; color:${cnt > 0 ? "#D97706" : "var(--text)"};">${day}</div>
+        <div class="cal-day-cell" data-date="${dStr}" data-today="${isToday ? '1' : '0'}" style="padding:8px 4px; border:${cellBorder}; border-radius:8px; text-align:center; cursor:pointer; background:${cellBg}; transition:all 0.15s; user-select:none; display:flex; flex-direction:column; justify-content:space-between; min-height:58px;">
+          <div style="font-weight:800; font-size:14px; color:${dayNumColor};">${day}</div>
+          ${todayBadge}
           ${cnt > 0 
             ? `<span style="font-size:9px; font-weight:800; padding:2px 4px; border-radius:6px; background:#D97706; color:#fff; display:inline-block; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(scheds.map(s => `${s.time}: ${s.occasion}`).join(' | '))}">${cnt === 1 && scheds[0].time && scheds[0].time !== "Time TBD" ? escapeHtml(scheds[0].time) : `${cnt} Sched${cnt > 1 ? "s" : ""}`}</span>` 
-            : `<span style="font-size:9px; color:var(--text-muted); opacity:0.75;">Available</span>`
+            : `<span style="font-size:9px; color:var(--text-muted); opacity:0.75;">${isToday ? "" : "Available"}</span>`
           }
         </div>
       `;
     }
+
 
     container.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
@@ -2381,6 +2410,10 @@ export function openLightCalendarModal(onSelectDate, opts = {}) {
         <span style="display:inline-flex; align-items:center; gap:6px;">
           <span style="display:inline-block; width:10px; height:10px; border-radius:3px; background:rgba(245,158,11,0.5); border:1px solid #D97706;"></span>
           Has Booked Schedule
+        </span>
+        <span style="display:inline-flex; align-items:center; gap:6px;">
+          <span style="display:inline-block; width:10px; height:10px; border-radius:3px; background:rgba(16,185,129,0.18); border:2px solid #10B981;"></span>
+          Today
         </span>
         <span style="display:inline-flex; align-items:center; gap:6px;">
           <span style="display:inline-block; width:10px; height:10px; border-radius:3px; background:var(--input-bg); border:1px solid var(--border);"></span>
@@ -2403,9 +2436,22 @@ export function openLightCalendarModal(onSelectDate, opts = {}) {
       selectedDate = dateStr;
       container.querySelectorAll(".cal-day-cell").forEach((c) => {
         const isThis = c.dataset.date === selectedDate;
+        const isTodayCell = c.dataset.today === "1";
         const cellCnt = (dateSchedules[c.dataset.date] || []).length;
-        c.style.border = isThis ? "2px solid var(--accent)" : (cellCnt > 0 ? "1.5px solid rgba(245,158,11,0.55)" : "1.5px solid var(--border)");
-        c.style.background = isThis ? "rgba(225,29,72,0.14)" : (cellCnt > 0 ? "rgba(245,158,11,0.12)" : "var(--input-bg)");
+        // Priority: selected > today > has-booking > default
+        if (isThis) {
+          c.style.border = "2px solid var(--accent)";
+          c.style.background = "rgba(225,29,72,0.14)";
+        } else if (isTodayCell) {
+          c.style.border = "2.5px solid #10B981";
+          c.style.background = "rgba(16,185,129,0.12)";
+        } else if (cellCnt > 0) {
+          c.style.border = "1.5px solid rgba(245,158,11,0.55)";
+          c.style.background = "rgba(245,158,11,0.12)";
+        } else {
+          c.style.border = "1.5px solid var(--border)";
+          c.style.background = "var(--input-bg)";
+        }
       });
 
       const previewBox = container.querySelector("#cal-preview-box");
