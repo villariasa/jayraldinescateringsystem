@@ -593,7 +593,9 @@ export function getPackageMenuChoices() {
 function genBookingRef() {
   const row = fetchOne("SELECT COUNT(*) AS c FROM bookings");
   const n = (row ? row.c : 0) + 1;
-  return `${BOOKING_REF_PREFIX}-${String(n).padStart(5, "0")}-${Math.floor(Date.now() / 1000) % 100000}`;
+  // Include random token to prevent ref collisions between devices
+  const rand = Math.floor(Math.random() * 900000) + 100000;
+  return `${BOOKING_REF_PREFIX}-${String(n).padStart(5, "0")}-${rand}`;
 }
 
 export function createOrder(order) {
@@ -676,10 +678,13 @@ export function getOrderDetail(bookingId) {
     cust = fetchOne("SELECT * FROM customers WHERE LOWER(TRIM(cus_name)) = LOWER(TRIM(?)) LIMIT 1", [b.bk_customer_name]);
   }
 
-  // Lookup package name
+  // Lookup package name and inclusions
   let pkg = null;
   if (b.bk_package_id) {
     pkg = fetchOne("SELECT * FROM packages WHERE pkg_id = ?", [b.bk_package_id]);
+  }
+  if (!pkg && b.bk_notes) {
+    // Try matching by package name stored in notes or elsewhere
   }
 
   const baseTotal = Number(b.bk_base_total || 0);
@@ -720,6 +725,8 @@ export function getOrderDetail(bookingId) {
     pax: Number(b.bk_pax || 1),
     package_id: b.bk_package_id,
     package_name: pkg ? pkg.pkg_name : (b.bk_menu_type || "Catering Package"),
+    package_inclusions: (pkg && pkg.pkg_description) ? pkg.pkg_description : "",
+    pkg_description: (pkg && pkg.pkg_description) ? pkg.pkg_description : "",
     package_subtotal: baseTotal || (grandTotal - addonsTotal),
     base_total: baseTotal,
     addons_subtotal: addonsTotal,
@@ -896,6 +903,7 @@ export function getPendingSyncRecords() {
 }
 
 export function markRecordsSynced(bookingRefs = [], customerNames = []) {
+  // Guard: never flip all records if the server returns an empty list
   if (bookingRefs && bookingRefs.length > 0) {
     for (const ref of bookingRefs) {
       try {
@@ -909,6 +917,48 @@ export function markRecordsSynced(bookingRefs = [], customerNames = []) {
         run("UPDATE customers SET sync_status = 'synced' WHERE cus_name = ? OR cus_id = ?", [name, name]);
       } catch (_) {}
     }
+  }
+}
+
+export function applyPaymentUpdates(paymentUpdates = []) {
+  if (!paymentUpdates || paymentUpdates.length === 0) return;
+  for (const u of paymentUpdates) {
+    const ref = u.bk_booking_ref;
+    if (!ref) continue;
+    try {
+      run(
+        `UPDATE bookings SET
+           bk_amount_paid = ?,
+           bk_down_payment = ?,
+           bk_down_payment_status = ?
+         WHERE bk_booking_ref = ?`,
+        [
+          u.bk_amount_paid ?? 0,
+          u.bk_down_payment ?? 0,
+          u.bk_down_payment_status ?? "PENDING",
+          ref,
+        ]
+      );
+    } catch (_) {}
+    // Update invoice payment state too
+    try {
+      const b = fetchOne("SELECT bk_id FROM bookings WHERE bk_booking_ref = ?", [ref]);
+      if (b && b.bk_id) {
+        run(
+          `UPDATE invoices SET
+             inv_amount_paid = ?,
+             inv_balance     = ?,
+             inv_status      = ?
+           WHERE inv_booking_id = ?`,
+          [
+            u.inv_amount_paid ?? u.bk_amount_paid ?? 0,
+            u.inv_balance ?? 0,
+            u.inv_status ?? "Unpaid",
+            b.bk_id,
+          ]
+        );
+      }
+    } catch (_) {}
   }
 }
 
