@@ -50,16 +50,18 @@ class DayCell(QFrame):
     # Emitted with the day-of-month number when the cell is clicked.
     clicked = Signal(int)
 
-    def __init__(self, day_num, is_current_month=True, parent=None):
+    def __init__(self, day_num, is_current_month=True, is_today=False, parent=None):
         """Build the tile for ``day_num``.
 
         :param day_num: Day of month (0 marks an empty filler cell).
         :param is_current_month: False for leading/trailing days shown as blanks.
+        :param is_today: True if this cell represents the real-world current date.
         :param parent: Optional Qt parent widget.
         """
         super().__init__(parent)
         self.day_num = day_num
         self.is_current_month = is_current_month
+        self.is_today = is_today
         
         # Responsive sizing
         self.setMinimumSize(100, 110)
@@ -78,15 +80,28 @@ class DayCell(QFrame):
             # "active" drives the selected-day highlight via QSS; toggled in
             # CalendarPage.on_day_clicked and re-polished to force a repaint.
             self.setProperty("active", False)
+            self.setProperty("today", "true" if is_today else "false")
             
-            # Top Header Row: Day Number (left) & Pax Tag (right)
+            # Top Header Row: Day Number (left) & Today Badge & Pax Tag (right)
             self.top_row = QHBoxLayout()
             self.top_row.setContentsMargins(0, 0, 0, 0)
             self.top_row.setSpacing(4)
 
             self.lbl_day = QLabel(str(day_num))
             self.lbl_day.setObjectName("dayNumber")
+            if is_today:
+                self.lbl_day.setStyleSheet("color: #10B981; font-weight: 800; font-size: 13.5px;")
             self.top_row.addWidget(self.lbl_day)
+
+            if is_today:
+                self.lbl_today = QLabel("TODAY")
+                self.lbl_today.setObjectName("todayBadge")
+                self.lbl_today.setStyleSheet(
+                    "background-color: #10B981; color: #FFFFFF; "
+                    "font-weight: 800; font-size: 8px; padding: 1px 5px; "
+                    "border-radius: 3px; letter-spacing: 0.5px;"
+                )
+                self.top_row.addWidget(self.lbl_today)
 
             self.lbl_pax_tag = QLabel("")
             self.lbl_pax_tag.setAlignment(Qt.AlignCenter)
@@ -103,6 +118,23 @@ class DayCell(QFrame):
             self.layout.addLayout(self.events_box)
 
             self.layout.addStretch()
+
+            if is_today:
+                self.setStyleSheet(
+                    "QFrame#dayCell { "
+                    "  border: 2px solid #10B981; "
+                    "  background-color: rgba(16, 185, 129, 0.08); "
+                    "  border-radius: 8px; "
+                    "} "
+                    "QFrame#dayCell:hover { "
+                    "  border: 2px solid #34D399; "
+                    "  background-color: rgba(16, 185, 129, 0.14); "
+                    "} "
+                    "QFrame#dayCell[active='true'] { "
+                    "  border: 2.5px solid #10B981; "
+                    "  background-color: rgba(16, 185, 129, 0.20); "
+                    "}"
+                )
 
     def set_events(self, events):
         """Populate the cell with a day's bookings.
@@ -635,7 +667,7 @@ class CalendarPage(QWidget):
         cal_head.addWidget(self.month_stats_badge)
         
         cal_head.addStretch()
-        legend = QLabel("Available  |  Near Full (400+)  |  Fully Booked (600)")
+        legend = QLabel("🟢 Today  |  Available  |  Near Full (400+)  |  Fully Booked (600)")
         legend.setStyleSheet("font-size: 12px; font-weight: 600; color: #9aa0a6; margin-right: 24px;")
         cal_head.addWidget(legend)
 
@@ -915,6 +947,7 @@ class CalendarPage(QWidget):
         self.cells.clear()
 
         # Generate new month grid (Sunday-first to match the day headers).
+        today_date = date_type.today()
         calendar.setfirstweekday(calendar.SUNDAY)
         month_days = calendar.monthcalendar(self.current_year, self.current_month)
 
@@ -922,7 +955,13 @@ class CalendarPage(QWidget):
         for week in month_days:
             for col, day_num in enumerate(week):
                 # day_num == 0 marks padding days -> inert filler cell.
-                cell = DayCell(day_num, is_current_month=(day_num != 0))
+                is_today = (
+                    day_num != 0 and
+                    self.current_year == today_date.year and
+                    self.current_month == today_date.month and
+                    day_num == today_date.day
+                )
+                cell = DayCell(day_num, is_current_month=(day_num != 0), is_today=is_today)
 
                 db_key = (self.current_year, self.current_month, day_num)
                 if db_key in self._db_cache:

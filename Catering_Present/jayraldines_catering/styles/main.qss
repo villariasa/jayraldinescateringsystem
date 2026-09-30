@@ -671,6 +671,18 @@ QFrame#dayCell[active="true"] {
     border: 2px solid #E11D48;
     background-color: rgba(225,29,72,0.10);
 }
+QFrame#dayCell[today="true"] {
+    border: 2px solid #10B981;
+    background-color: rgba(16, 185, 129, 0.08);
+}
+QFrame#dayCell[today="true"]:hover {
+    border: 2px solid #34D399;
+    background-color: rgba(16, 185, 129, 0.14);
+}
+QFrame#dayCell[today="true"][active="true"] {
+    border: 2.5px solid #10B981;
+    background-color: rgba(16, 185, 129, 0.20);
+}
 
 QLabel#dayNumber { font-size: 13px; font-weight: 700; color: #F9FAFB; }
 QLabel#dayDayOff { color: #4B5563; }
