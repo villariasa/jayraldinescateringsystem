@@ -447,266 +447,162 @@ class MonthlyRevenueChart(QVBoxLayout):
         else:
             QToolTip.hideText()
 
-
-# ─────────────────────────────────────────────
-# CHART 4: Top Menu Items (Horizontal Bar)
-# ─────────────────────────────────────────────
-class TopMenuItemsChart(QVBoxLayout):
-    """Bar chart of the most-ordered menu items.
-
-    Axis labels are truncated for space, but ``_full_items`` keeps the untrimmed
-    names so hover tooltips can show the complete item name.
-    """
-    def __init__(self):
-        super().__init__()
-
-        self._title_lbl = QLabel("Top-Selling Menu Items")
-        self._title_lbl.setObjectName("h3")
-        self.addWidget(self._title_lbl)
-
-        if not _CHARTS_AVAILABLE:
-            no_c = QLabel("Top menu items chart unavailable.")
-            no_c.setObjectName("subtitle")
-            self.addWidget(no_c)
+    def reload(self, db_data):
+        """Rebuild bar sets from fresh data — called on every Refresh so chart is never stale."""
+        if not _CHARTS_AVAILABLE or not hasattr(self, "_bar_rev"):
             return
-
-        db_data = repo.get_top_menu_items()
         if db_data:
-            self._full_items = [r["item"] for r in db_data]  # untrimmed, for tooltips
-            # Trim long names to 9 chars + ellipsis so axis labels stay legible.
-            items  = [(r["item"][:9] + "…") if len(r["item"]) > 9 else r["item"] for r in db_data]
-            self._orders = [r["count"] for r in db_data]
+            months  = [r["month"] for r in db_data]
+            revenue = [r["revenue"] for r in db_data]
         else:
-            self._full_items = ["No Data"]
-            items  = ["No Data"]
-            self._orders = [0]
+            months  = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            revenue = [0] * 12
+        target = [400000] * len(months)
+        self._months  = months
+        self._revenue = revenue
+        self._target  = target
 
-        self._bar_set = QBarSet("Orders")
-        self._bar_set.setColor(QColor("#F59E0B"))
-        _lbl_c2 = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
-        self._bar_set.setLabelColor(QColor(_lbl_c2))
-        for v in self._orders:
-            self._bar_set.append(v)
-        self._bar_set.hovered.connect(self._on_hover)
-
-        self._series = QBarSeries()
-        self._series.append(self._bar_set)
-
-        self._chart = QChart()
-        self._chart.addSeries(self._series)
-        self._chart.setAnimationOptions(QChart.SeriesAnimations)
-        self._chart.legend().hide()
-
-        self._ax = QBarCategoryAxis()
-        self._ax.append(items)
-        _axis_style(self._ax)
-        self._chart.addAxis(self._ax, Qt.AlignBottom)
-        self._series.attachAxis(self._ax)
-
-        self._ay = QValueAxis()
-        # 30% headroom; fall back to 10 when there are no orders to size against.
-        self._ay.setRange(0, max(self._orders) * 1.3 if (self._orders and max(self._orders) > 0) else 10)
-        self._ay.setLabelFormat("%d")
-        _axis_style(self._ay)
-        self._chart.addAxis(self._ay, Qt.AlignLeft)
-        self._series.attachAxis(self._ay)
-
-        self._view = _chart_view(self._chart)
-        self._view.setMinimumHeight(240)
-        self.addWidget(self._view)
-
-    def _on_hover(self, state, index):
-        """Tooltip showing the full item name and its total order count."""
-        if state and 0 <= index < len(self._full_items):
-            item_name = self._full_items[index]  # full name, not the trimmed axis label
-            cnt = self._orders[index]
-            QToolTip.showText(
-                QCursor.pos(),
-                f"<b style='color:#F59E0B;'>{item_name}</b><br>Total Orders: <b>{cnt} times</b>"
-            )
-        else:
-            QToolTip.hideText()
-
-
-# ─────────────────────────────────────────────
-# CHART 5: Top Booking Locations (Horizontal Bar)
-# ─────────────────────────────────────────────
-class TopLocationsChart(QVBoxLayout):
-    """Bar chart of the venues/areas that generate the most bookings.
-
-    Exposes ``reload()`` so the parent page can refresh it in place when the
-    period filter changes without rebuilding the whole chart.
-    """
-    def __init__(self):
-        super().__init__()
-
-        self._title_lbl = QLabel("Top Customer Areas (Where Orders Come From)")
-        self._title_lbl.setObjectName("h3")
-        self.addWidget(self._title_lbl)
-
-        if not _CHARTS_AVAILABLE:
-            no_c = QLabel("Top locations chart unavailable.")
-            no_c.setObjectName("subtitle")
-            self.addWidget(no_c)
-            return
-
-        db_data = repo.get_top_locations(limit=10)
-        _MAX = 30  # max venue-label length before truncating with an ellipsis
-        if db_data:
-            venues = [(r["venue"][:_MAX] + "…") if len(r["venue"]) > _MAX else r["venue"] for r in db_data]
-            counts = [r["count"] for r in db_data]
-        else:
-            venues = ["No Data"]
-            counts = [0]
-
-        self._venues = venues
-        self._counts = counts
-
-        self._bar_set = QBarSet("Orders")
-        self._bar_set.setColor(QColor("#8B5CF6"))
-        _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
-        self._bar_set.setLabelColor(QColor(_lbl_c))
-        for v in counts:
-            self._bar_set.append(v)
-        self._bar_set.hovered.connect(self._on_hover)
-
-        self._series = QBarSeries()
-        self._series.append(self._bar_set)
-
-        self._chart = QChart()
-        self._chart.addSeries(self._series)
-        self._chart.setAnimationOptions(QChart.SeriesAnimations)
-        self._chart.legend().hide()
-
-        self._ax = QBarCategoryAxis()
-        self._ax.append(venues)
-        _axis_style(self._ax)
-        self._chart.addAxis(self._ax, Qt.AlignBottom)
-        self._series.attachAxis(self._ax)
-
-        self._ay = QValueAxis()
-        self._ay.setRange(0, max(counts) * 1.2 if counts else 10)
-        self._ay.setLabelFormat("%d")
-        _axis_style(self._ay)
-        self._chart.addAxis(self._ay, Qt.AlignLeft)
-        self._series.attachAxis(self._ay)
-
-        self._view = _chart_view(self._chart)
-        self._view.setMinimumHeight(240)
-        self.addWidget(self._view)
-
-    def reload(self):
-        """Re-query locations and update the existing bar set/axes in place.
-
-        No-op when charts are unavailable or the chart never built its bar set.
-        """
-        if not _CHARTS_AVAILABLE or not hasattr(self, "_bar_set"):
-            return
-        db_data = repo.get_top_locations(limit=10)
-        _MAX = 30
-        if db_data:
-            venues = [(r["venue"][:_MAX] + "…") if len(r["venue"]) > _MAX else r["venue"] for r in db_data]
-            counts = [r["count"] for r in db_data]
-        else:
-            venues = ["No Data"]
-            counts = [0]
-
-        self._venues = venues
-        self._counts = counts
-
-        # Replace all bars (clear then re-append) rather than rebuilding the chart.
-        self._bar_set.remove(0, self._bar_set.count())
-        for v in counts:
-            self._bar_set.append(v)
+        self._bar_rev.remove(0, self._bar_rev.count())
+        self._bar_tgt.remove(0, self._bar_tgt.count())
+        for v, t in zip(revenue, target):
+            self._bar_rev.append(v / 1000)
+            self._bar_tgt.append(t / 1000)
 
         self._ax.clear()
-        self._ax.append(venues)
-
-        self._ay.setRange(0, max(counts) * 1.2 if max(counts) > 0 else 10)
-
-    def _on_hover(self, state, index):
-        """Tooltip showing a venue and its order count."""
-        if state and 0 <= index < len(self._venues):
-            QToolTip.showText(
-                QCursor.pos(),
-                f"<b>{self._venues[index]}</b><br>Orders: <b>{self._counts[index]}</b>"
-            )
-        else:
-            QToolTip.hideText()
+        self._ax.append(months)
+        max_rev = max(revenue + target) if (revenue or target) else 700000
+        self._ay.setRange(0, max_rev / 1000 * 1.2)
 
 
 # ─────────────────────────────────────────────
-# CHART 6: Customer Order Frequency (Pie)
+# CHART 4: Monthly Category Breakdown (Grouped Bar)
 # ─────────────────────────────────────────────
-class CustomerFrequencyChart(QVBoxLayout):
-    """Pie chart of how many orders each (top) customer has placed."""
+class MonthlyCategoryChart(QVBoxLayout):
+    """Grouped bar chart showing Food Orders vs Events per month.
+
+    Driven by ``get_monthly_category_counts`` which uses the same keyword
+    rule as the tablet's isFoodSet() to classify each booking.
+    """
+
     def __init__(self):
         super().__init__()
 
-        self._title_lbl = QLabel("Customer Order Frequency")
+        self._title_lbl = QLabel("Orders by Category (per Month)")
         self._title_lbl.setObjectName("h3")
         self.addWidget(self._title_lbl)
 
+        self._summary_lbl = QLabel("")
+        self._summary_lbl.setObjectName("subtitle")
+        self.addWidget(self._summary_lbl)
+
         if not _CHARTS_AVAILABLE:
-            no_c = QLabel("Customer frequency chart unavailable.")
+            no_c = QLabel("Category chart unavailable.")
             no_c.setObjectName("subtitle")
             self.addWidget(no_c)
             return
 
-        _COLORS = [AccentManager().current, "#F59E0B", "#3B82F6", "#22C55E", "#6B7280", "#8B5CF6"]
-        db_data = repo.get_customer_order_frequency()
-        customers = [r["name"]  for r in db_data] if db_data else ["No Data"]
-        counts    = [r["count"] for r in db_data] if db_data else [1]
-        colors    = [_COLORS[i % len(_COLORS)] for i in range(len(customers))]
+        db_data = repo.get_monthly_category_counts()
+        self._build(db_data)
 
-        self._series = QPieSeries()
-        self._series.setHoleSize(0.0)  # solid pie, not a donut
-        self._slices = []
-        total = sum(counts) or 1  # denominator for share %, guard divide-by-zero
-        _lbl_c3 = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
-        for label, count, color in zip(customers, counts, colors):
-            sl = self._series.append(f"{label} ({count})", count)
-            sl.setColor(QColor(color))
-            sl.setLabelColor(QColor(_lbl_c3))
-            sl.setBorderColor(Qt.transparent)
-            # Capture per-slice values as default args so each callback is bound
-            # to its own slice/name/count rather than the loop's final values.
-            sl.hovered.connect(
-                lambda state, s=sl, c=color, n=label, v=count: self._on_hover(s, state, c, n, v, total)
-            )
-            self._slices.append(sl)
+    def _build(self, db_data):
+        months      = [r["month"] for r in db_data]
+        food_orders = [r["food_orders"] for r in db_data]
+        events      = [r["events"]      for r in db_data]
+
+        self._bar_food = QBarSet("Food Orders")
+        self._bar_food.setColor(QColor("#F59E0B"))
+        self._bar_evt  = QBarSet("Events")
+        self._bar_evt.setColor(QColor(AccentManager().current))
+        _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
+        self._bar_food.setLabelColor(QColor(_lbl_c))
+        self._bar_evt.setLabelColor(QColor(_lbl_c))
+
+        for f, e in zip(food_orders, events):
+            self._bar_food.append(f)
+            self._bar_evt.append(e)
+
+        self._bar_food.hovered.connect(self._on_hover_food)
+        self._bar_evt.hovered.connect(self._on_hover_evt)
+
+        self._series = QBarSeries()
+        self._series.append(self._bar_food)
+        self._series.append(self._bar_evt)
 
         self._chart = QChart()
         self._chart.addSeries(self._series)
         self._chart.setAnimationOptions(QChart.SeriesAnimations)
-        self._chart.legend().setAlignment(Qt.AlignRight)
-        _leg_c2 = "#64748B" if not ThemeManager().is_dark() else "#9CA3AF"
-        self._chart.legend().setLabelColor(QColor(_leg_c2))
-        self._chart.legend().setMarkerShape(QLegend.MarkerShapeCircle)
+
+        self._ax = QBarCategoryAxis()
+        self._ax.append(months)
+        _axis_style(self._ax)
+        self._chart.addAxis(self._ax, Qt.AlignBottom)
+        self._series.attachAxis(self._ax)
+
+        max_val = max(max(food_orders + events, default=0), 1)
+        self._ay = QValueAxis()
+        self._ay.setRange(0, max_val * 1.3)
+        self._ay.setLabelFormat("%d")
+        _axis_style(self._ay)
+        self._chart.addAxis(self._ay, Qt.AlignLeft)
+        self._series.attachAxis(self._ay)
+
+        if hasattr(self, "_view"):
+            self.removeWidget(self._view)
+            self._view.deleteLater()
 
         self._view = _chart_view(self._chart)
-        self._view.setMinimumHeight(260)
+        self._view.setMinimumHeight(240)
         self.addWidget(self._view)
 
-    def _on_hover(self, sl, state, color, name, count, total):
-        """Explode/label the hovered customer slice and show its order share."""
-        sl.setExploded(state)
-        sl.setLabelVisible(state)
-        if state:
-            pct = (count / total * 100) if total else 0  # this customer's share
-            QToolTip.showText(
-                QCursor.pos(),
-                f"<b style='color:{color};'>{name}</b><br>"
-                f"Orders: <b>{count}</b><br>"
-                f"Share: <b>{pct:.1f}%</b>"
-            )
+        # Update summary label
+        total_food = sum(food_orders)
+        total_evt  = sum(events)
+        self._summary_lbl.setText(
+            f"Events this year: {total_evt}  ·  Food Orders this year: {total_food}"
+        )
+
+    def reload(self, db_data):
+        """Refresh with pre-fetched data — called from _on_reports_data_ready."""
+        if not _CHARTS_AVAILABLE:
+            return
+        if not db_data:
+            return
+        if not hasattr(self, "_bar_food"):
+            self._build(db_data)
+            return
+        food_orders = [r["food_orders"] for r in db_data]
+        events      = [r["events"]      for r in db_data]
+        months      = [r["month"]       for r in db_data]
+
+        self._bar_food.remove(0, self._bar_food.count())
+        self._bar_evt.remove(0,  self._bar_evt.count())
+        for f, e in zip(food_orders, events):
+            self._bar_food.append(f)
+            self._bar_evt.append(e)
+
+        self._ax.clear()
+        self._ax.append(months)
+        max_val = max(max(food_orders + events, default=0), 1)
+        self._ay.setRange(0, max_val * 1.3)
+
+        total_food = sum(food_orders)
+        total_evt  = sum(events)
+        self._summary_lbl.setText(
+            f"Events this year: {total_evt}  ·  Food Orders this year: {total_food}"
+        )
+
+    def _on_hover_food(self, state, index):
+        if state and 0 <= index < 12:
+            QToolTip.showText(QCursor.pos(), f"<b style='color:#F59E0B;'>Food Orders</b><br>Month: {index+1}<br>Count: <b>{int(self._bar_food.at(index))}</b>")
         else:
             QToolTip.hideText()
 
-
-# ─────────────────────────────────────────────
-# CHART 7: Top Occasion Types (Horizontal Bar)
-# ─────────────────────────────────────────────
+    def _on_hover_evt(self, state, index):
+        if state and 0 <= index < 12:
+            QToolTip.showText(QCursor.pos(), f"<b style='color:{AccentManager().current};'>Events</b><br>Month: {index+1}<br>Count: <b>{int(self._bar_evt.at(index))}</b>")
+        else:
+            QToolTip.hideText()
 class OccasionBreakdownChart(QVBoxLayout):
     """Bar chart of the most common booking occasion/event types.
 
@@ -958,7 +854,7 @@ class ReportsPage(QWidget):
             self._kpi_grid.addWidget(card, r, c)
         self.main_layout.addLayout(self._kpi_grid)
 
-        # ── ROW 1: Income Area + Payment Donut ───────────────────────────────
+        # ── ROW 1: Income Area + Monthly Revenue ──────────────────────────
         self._row1 = QHBoxLayout()
         self._row1.setSpacing(24)
 
@@ -969,54 +865,27 @@ class ReportsPage(QWidget):
         self.line_card.layout().setContentsMargins(28, 24, 28, 20)
         self._row1.addWidget(self.line_card, 3)
 
-        self._donut_chart_layout = PaymentDonutChart()   # instance var → stays alive
-        self.donut_card = QFrame(self.scroll_content)
-        self.donut_card.setObjectName("card")
-        self.donut_card.setLayout(self._donut_chart_layout)
-        self.donut_card.layout().setContentsMargins(28, 24, 28, 20)
-        self._row1.addWidget(self.donut_card, 2)
-
-        self.main_layout.addLayout(self._row1)
-
-        # ── ROW 2: Monthly Revenue + Top Menu Items ──────────────────────────
-        self._row2 = QHBoxLayout()
-        self._row2.setSpacing(24)
-
         self._monthly_chart_layout = MonthlyRevenueChart()   # instance var
         self.monthly_card = QFrame(self.scroll_content)
         self.monthly_card.setObjectName("card")
         self.monthly_card.setLayout(self._monthly_chart_layout)
         self.monthly_card.layout().setContentsMargins(28, 24, 28, 20)
-        self._row2.addWidget(self.monthly_card, 2)
+        self._row1.addWidget(self.monthly_card, 2)
 
-        self._top_menu_chart_layout = TopMenuItemsChart()   # instance var
-        self.top_menu_card = QFrame(self.scroll_content)
-        self.top_menu_card.setObjectName("card")
-        self.top_menu_card.setLayout(self._top_menu_chart_layout)
-        self.top_menu_card.layout().setContentsMargins(28, 24, 28, 20)
-        self._row2.addWidget(self.top_menu_card, 2)
+        self.main_layout.addLayout(self._row1)
+
+        # ── ROW 2: Category Breakdown ─────────────────────────────────────
+        self._row2 = QHBoxLayout()
+        self._row2.setSpacing(24)
+
+        self._category_chart_layout = MonthlyCategoryChart()   # instance var
+        self.category_card = QFrame(self.scroll_content)
+        self.category_card.setObjectName("card")
+        self.category_card.setLayout(self._category_chart_layout)
+        self.category_card.layout().setContentsMargins(28, 24, 28, 20)
+        self._row2.addWidget(self.category_card)
 
         self.main_layout.addLayout(self._row2)
-
-        # ── ROW 3: Top Locations + Customer Frequency ────────────────────────
-        self._row3 = QHBoxLayout()
-        self._row3.setSpacing(24)
-
-        self._locations_chart_layout = TopLocationsChart()
-        self.locations_card = QFrame(self.scroll_content)
-        self.locations_card.setObjectName("card")
-        self.locations_card.setLayout(self._locations_chart_layout)
-        self.locations_card.layout().setContentsMargins(28, 24, 28, 20)
-        self._row3.addWidget(self.locations_card, 3)
-
-        self._freq_chart_layout = CustomerFrequencyChart()
-        self.freq_card = QFrame(self.scroll_content)
-        self.freq_card.setObjectName("card")
-        self.freq_card.setLayout(self._freq_chart_layout)
-        self.freq_card.layout().setContentsMargins(28, 24, 28, 20)
-        self._row3.addWidget(self.freq_card, 2)
-
-        self.main_layout.addLayout(self._row3)
 
         # ── ROW 4: Occasion Breakdown ─────────────────────────────────────────
         self._occasion_chart_layout = OccasionBreakdownChart()
@@ -1335,14 +1204,15 @@ class ReportsPage(QWidget):
         except Exception:
             yr = datetime.now().year
         return {
-            "bookings":     repo.get_all_bookings() or [],
-            "expenses":     repo.get_all_expenses() or [],
-            "profit":       repo.get_profit_summary() or [],
-            "kpis":         repo.get_report_kpis() or {},
-            "sales_eval":   repo.get_monthly_sales_evaluation_report(yr) or {},
-            "locations":    repo.get_top_locations(limit=10) or [],
-            "period":       getattr(self, "_period", "All Time"),
-            "eval_year":    yr,
+            "bookings":          repo.get_all_bookings() or [],
+            "expenses":          repo.get_all_expenses() or [],
+            "profit":            repo.get_profit_summary() or [],
+            "kpis":              repo.get_report_kpis() or {},
+            "sales_eval":        repo.get_monthly_sales_evaluation_report(yr) or {},
+            "monthly_income":    repo.get_monthly_income() or [],
+            "category_counts":   repo.get_monthly_category_counts(yr) or [],
+            "period":            getattr(self, "_period", "All Time"),
+            "eval_year":         yr,
         }
 
     def _on_reports_data_ready(self, data: dict):
@@ -1356,8 +1226,11 @@ class ReportsPage(QWidget):
             self._cached_data = data
             # Synchronous sections first — they finish before any loader hide.
             self._reload_kpis(data)
-            self._reload_locations(data.get("locations", []))
             self._reload_sales_evaluation_from_data(data.get("sales_eval", {}), data.get("eval_year", datetime.now().year))
+            # Fix #7: refresh monthly revenue chart with live data on every reload
+            self._monthly_chart_layout.reload(data.get("monthly_income", []))
+            # Fix #4/#5: refresh category breakdown chart
+            self._category_chart_layout.reload(data.get("category_counts", []))
             # Two async batch-render pipelines. The loader is hidden (and the reload
             # closed out) only once BOTH complete — see _report_render_step, invoked
             # from each pipeline's final batch / empty-state path.
@@ -1368,27 +1241,6 @@ class ReportsPage(QWidget):
             if hasattr(self, "_loader"):
                 self._loader.hide_overlay()
             self._reload_finished()
-
-    def _reload_locations(self, db_data):
-        """Update the locations chart with pre-fetched data (GUI thread safe)."""
-        if not _CHARTS_AVAILABLE or not hasattr(self._locations_chart_layout, "_bar_set"):
-            return
-        _MAX = 30
-        if db_data:
-            venues = [(r["venue"][:_MAX] + "…") if len(r["venue"]) > _MAX else r["venue"] for r in db_data]
-            counts = [r["count"] for r in db_data]
-        else:
-            venues = ["No Data"]
-            counts = [0]
-        chart = self._locations_chart_layout
-        chart._venues = venues
-        chart._counts = counts
-        chart._bar_set.remove(0, chart._bar_set.count())
-        for v in counts:
-            chart._bar_set.append(v)
-        chart._ax.clear()
-        chart._ax.append(venues)
-        chart._ay.setRange(0, max(counts) * 1.2 if max(counts) > 0 else 10)
 
     def _build_sales_evaluation_card(self):
         """Build the Sales-Evaluation card: year picker, CSV export, 13-row table.
@@ -2410,12 +2262,9 @@ class ReportsPage(QWidget):
         from PySide6.QtGui import QPixmap
         cards = [
             ("Income Trend",              "line_card"),
-            ("Payment Methods",           "donut_card"),
             ("Monthly Revenue",           "monthly_card"),
-            ("Top Menu Items",            "top_menu_card"),
+            ("Orders by Category",        "category_card"),
             ("Year vs Year Comparison",   "year_cmp_card"),
-            ("Top Event Locations",       "locations_card"),
-            ("Customer Order Frequency",  "freq_card"),
             ("Bookings by Occasion",      "occasion_card"),
         ]
         images = []
