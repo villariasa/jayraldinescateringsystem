@@ -2066,6 +2066,7 @@ def perform_server_sync(payload: dict) -> dict:
                         logger.warning(f"[SyncServer] Invoice insert note: {ie}")
             except Exception as e:
                 logger.warning(f"[SyncServer] Failed to insert booking {ref}: {e}")
+                # Do NOT append to synced_booking_refs on failure — tablet keeps it pending for retry
         else:
             # Booking already exists in DB - backfill any missing additional charges or updated totals
             try:
@@ -2103,10 +2104,12 @@ def perform_server_sync(payload: dict) -> dict:
                     else:
                         db.execute("UPDATE bookings SET bk_total_amount = MAX(bk_total_amount, ?), bk_base_total = MAX(bk_base_total, ?) WHERE bk_id = ?", (total, base_tot, bk_id))
                         db.execute("UPDATE invoices SET inv_total_amount = MAX(inv_total_amount, ?), inv_balance = MAX(0.0, MAX(inv_total_amount, ?) - inv_amount_paid) WHERE inv_booking_id = ?", (total, total, bk_id))
+                # Existing booking is confirmed present on server — safe to mark synced
+                synced_booking_refs.append(ref)
             except Exception as ex_be:
                 logger.warning(f"[SyncServer] Existing booking backfill note for {ref}: {ex_be}")
-
-        synced_booking_refs.append(ref)
+                # Still mark as synced — the booking exists, backfill errors are non-critical
+                synced_booking_refs.append(ref)
 
     # Pull latest packages
     try:
@@ -2286,6 +2289,36 @@ def perform_server_sync(payload: dict) -> dict:
     if pushed_bookings > 0 or pushed_customers > 0:
         bump_db_version()
 
+    # Build downward payment-update payload (#1 fix): for every booking ref the
+    # tablet knows about, return current payment state so the tablet can sync it.
+    payment_updates = []
+    try:
+        all_sent_refs = list({r for r in synced_booking_refs} | {r for r in seen_b})
+        if all_sent_refs:
+            ph = ",".join(["%s"] * len(all_sent_refs)) if db.get_engine_type() == "postgres" else ",".join(["?"] * len(all_sent_refs))
+            pay_rows = db.fetchall(f"""
+                SELECT b.bk_booking_ref, b.bk_amount_paid, b.bk_total_amount,
+                       b.bk_down_payment, b.bk_down_payment_status,
+                       i.inv_status, i.inv_balance, i.inv_amount_paid
+                FROM bookings b
+                LEFT JOIN invoices i ON i.inv_booking_id = b.bk_id
+                WHERE b.bk_booking_ref IN ({ph})
+            """, all_sent_refs) or []
+            for r in pay_rows:
+                payment_updates.append({
+                    "bk_booking_ref":       r.get("bk_booking_ref"),
+                    "bk_amount_paid":       float(r.get("bk_amount_paid") or 0),
+                    "bk_total_amount":      float(r.get("bk_total_amount") or 0),
+                    "bk_down_payment":      float(r.get("bk_down_payment") or 0),
+                    "bk_down_payment_status": str(r.get("bk_down_payment_status") or "PENDING"),
+                    "inv_status":           str(r.get("inv_status") or "Unpaid"),
+                    "inv_balance":          float(r.get("inv_balance") or 0),
+                    "inv_amount_paid":      float(r.get("inv_amount_paid") or 0),
+                })
+    except Exception as pue:
+        logger.warning(f"[SyncServer] Failed to build payment_updates: {pue}")
+        payment_updates = []
+
     msg = f"Sync successful! Pushed {pushed_bookings} booking(s) and {pushed_customers} customer(s). Sent {len(pkgs)} package(s), {len(menu_items)} dish(es), {len(menu_categories)} category/ies, and {len(customers)} customer(s)."
     return {
         "status": "success",
@@ -2302,6 +2335,7 @@ def perform_server_sync(payload: dict) -> dict:
         "synced_booking_refs": synced_booking_refs,
         "synced_customer_names": synced_customer_names,
         "deleted_booking_refs": list(deleted_booking_refs),
+        "payment_updates": payment_updates,
     }
 
 
