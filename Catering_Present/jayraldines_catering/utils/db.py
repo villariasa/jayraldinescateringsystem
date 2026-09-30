@@ -238,7 +238,32 @@ def connect_sqlite() -> bool:
 
             # Configure ultra-fast WAL mode and memory settings
             cur = _sqlite_conn.cursor()
-            cur.execute("PRAGMA journal_mode = WAL;")
+            try:
+                cur.execute("PRAGMA journal_mode = WAL;")
+            except sqlite3.OperationalError as wal_err:
+                log.warning(f"WAL initialization note: {wal_err}. Resetting sidecar journal files...")
+                cur.close()
+                _sqlite_conn.close()
+                for ext in ["-wal", "-shm", "-journal"]:
+                    w_file = Path(str(db_path) + ext)
+                    if w_file.exists():
+                        try:
+                            w_file.unlink()
+                        except Exception:
+                            pass
+                # Re-open and retry
+                _sqlite_conn = sqlite3.connect(
+                    str(db_path),
+                    timeout=15.0,
+                    check_same_thread=False,
+                    isolation_level=None
+                )
+                _sqlite_conn.row_factory = sqlite3.Row
+                cur = _sqlite_conn.cursor()
+                try:
+                    cur.execute("PRAGMA journal_mode = WAL;")
+                except Exception:
+                    cur.execute("PRAGMA journal_mode = DELETE;")
             cur.execute("PRAGMA synchronous = NORMAL;")
             cur.execute("PRAGMA foreign_keys = ON;")
             cur.execute("PRAGMA temp_store = MEMORY;")

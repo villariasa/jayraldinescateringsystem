@@ -133,9 +133,46 @@ class DatabaseRestoreWorker(QThread):
 
             if is_sqlite_binary:
                 if engine == "sqlite":
-                    # SQLite backup restored onto a SQLite install: overwrite the
-                    # live DB file directly (fastest, exact copy).
+                    self.progress_update.emit("Checking backup integrity & structure...")
+                    clean_source = path
+                    try:
+                        chk_conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+                        chk_res = chk_conn.execute("PRAGMA integrity_check").fetchall()
+                        chk_conn.close()
+                        is_clean = (len(chk_res) == 1 and chk_res[0][0] == "ok")
+                    except Exception:
+                        is_clean = False
+
+                    if not is_clean:
+                        self.progress_update.emit("Auto-repairing and recovering backup database...")
+                        import tempfile, subprocess, time
+                        temp_recovered = Path(tempfile.gettempdir()) / f"repaired_{os.getpid()}_{int(time.time())}.db"
+                        try:
+                            recover_sql = subprocess.check_output(["sqlite3", str(path), ".recover"], text=True)
+                            rec_conn = sqlite3.connect(str(temp_recovered))
+                            rec_conn.executescript(recover_sql)
+                            rec_conn.execute("DROP TABLE IF EXISTS lost_and_found;")
+                            rec_conn.execute("""
+                                DELETE FROM device_sessions 
+                                WHERE rowid NOT IN (
+                                    SELECT MIN(rowid) FROM device_sessions GROUP BY device_id
+                                );
+                            """)
+                            rec_conn.execute("REINDEX;")
+                            rec_conn.commit()
+                            rec_conn.close()
+                            if temp_recovered.exists() and temp_recovered.stat().st_size > 0:
+                                clean_source = str(temp_recovered)
+                        except Exception as rec_err:
+                            log.warning(f"Auto-recovery warning: {rec_err}")
+
                     self.progress_update.emit("Closing active connections & cleaning cache...")
+                    try:
+                        if getattr(db, "_sqlite_conn", None):
+                            db._sqlite_conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                            db._sqlite_conn.execute("PRAGMA journal_mode = DELETE;")
+                    except Exception:
+                        pass
                     db.close()
                     dst = db.get_sqlite_db_path()
                     # Remove stale WAL/shared-memory/journal sidecar files so they
@@ -149,7 +186,7 @@ class DatabaseRestoreWorker(QThread):
                                 pass
 
                     self.progress_update.emit("Copying backup database files...")
-                    shutil.copy2(path, dst)
+                    shutil.copy2(clean_source, dst)
 
                     # An older backup may predate newer columns. Add any missing
                     # columns so the restored DB matches the current app schema
@@ -157,6 +194,19 @@ class DatabaseRestoreWorker(QThread):
                     self.progress_update.emit("Applying schema upgrades & missing columns...")
                     conn = sqlite3.connect(str(dst))
                     cur = conn.cursor()
+                    try:
+                        cur.execute("PRAGMA foreign_keys = OFF;")
+                        cur.execute("DROP TABLE IF EXISTS lost_and_found;")
+                        cur.execute("""
+                            DELETE FROM device_sessions 
+                            WHERE rowid NOT IN (
+                                SELECT MIN(rowid) FROM device_sessions GROUP BY device_id
+                            );
+                        """)
+                        cur.execute("REINDEX;")
+                        conn.commit()
+                    except Exception:
+                        pass
 
                     # 1. Bookings columns — backfill schema drift on the bookings table.
                     cur.execute("PRAGMA table_info(bookings)")
