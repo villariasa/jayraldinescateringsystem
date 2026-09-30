@@ -17,6 +17,52 @@ function peso(n) {
   return "PHP " + Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+export function extractAndCleanAddons(notesStr, existingCharges = []) {
+  const charges = [...(existingCharges || [])];
+  let s = String(notesStr || "").trim();
+  if (!s) return { charges, cleanNotes: "" };
+
+  const extracted = [];
+  const bracketPat = /\[(?:Special\s+Instructions\s*:\s*)?(?:Add[\s\-_]*ons?|Addons?)\s*:\s*([\s\S]*?)\]/gi;
+  let m;
+  while ((m = bracketPat.exec(s)) !== null) {
+    extracted.push(m[1].trim());
+  }
+  s = s.replace(bracketPat, "").trim();
+
+  const linePat = /(?:^|\n)\s*(?:Special\s+Instructions\s*:\s*)?(?:Add[\s\-_]*ons?|Addons?)\s*:\s*([\s\S]*?)(?=\n\S|$)/gi;
+  while ((m = linePat.exec(s)) !== null) {
+    extracted.push(m[1].trim());
+  }
+  s = s.replace(linePat, "").trim();
+
+  const cleanLines = s.split("\n").map(l => l.trim()).filter(Boolean);
+  const cleanNotes = cleanLines.join("\n");
+
+  const seen = new Set(charges.map(c => String(c.description || c.ac_description || "").trim().toLowerCase()));
+  for (const chunk of extracted) {
+    const parts = chunk.split(/(?<=\))\s*,\s*|(?<!\()\s*,\s*(?![^\(]*\))|\n+/);
+    for (let part of parts) {
+      part = part.trim().replace(/^[:\s]+|[:\s]+$/g, "");
+      if (!part) continue;
+      let amt = 0;
+      const amtMatch = part.match(/\((?:PHP|₱)?\s*([+-]?[\d,]+(?:\.\d+)?)\s*\)/i);
+      let desc = part;
+      if (amtMatch) {
+        amt = parseFloat(amtMatch[1].replace(/,/g, "")) || 0;
+        desc = part.replace(/\s*\((?:PHP|₱)?\s*[+-]?[\d,]+(?:\.\d+)?\s*\)/i, "").trim();
+      }
+      desc = desc.replace(/^[:\s]+|[:\s]+$/g, "");
+      if (desc && !seen.has(desc.toLowerCase())) {
+        charges.push({ description: desc, amount: amt });
+        seen.add(desc.toLowerCase());
+      }
+    }
+  }
+
+  return { charges, cleanNotes };
+}
+
 function formatDateIssued(dRaw) {
   if (!dRaw) {
     return new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -217,7 +263,9 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   const occasion = order.occasion || order.bk_occasion || "Birthday";
   const motif = order.motif || order.color_theme || order.bk_color_theme || "#2563EB";
   const pax = order.pax || order.bk_pax || 60;
-  const instructions = order.notes || order.special_instructions || order.bk_notes || "Standard arrangement.";
+  const rawNotes = order.notes || order.special_instructions || order.bk_notes || "";
+  const { charges: resolvedCharges, cleanNotes } = extractAndCleanAddons(rawNotes, order.additional_charges || []);
+  const instructions = cleanNotes || "Standard arrangement.";
 
   const total = Number(order.total || order.bk_total_amount || 0);
   const paid = Number(order.paid || order.downpayment || order.bk_down_payment || order.bk_amount_paid || 0);
@@ -399,7 +447,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   }
 
   // ADD-ONS & EXTRAS
-  const charges = order.additional_charges || [];
+  const charges = resolvedCharges || [];
   rY = Math.max(rY + 4, startY + 265);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9.5);
@@ -409,18 +457,20 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   rY += 13;
   if (charges && charges.length > 0) {
     doc.setFontSize(8.8);
-    const maxCharges = Math.min(charges.length, 3);
+    const maxCharges = Math.min(charges.length, 4);
     for (let i = 0; i < maxCharges; i++) {
       const c = charges[i];
-      const desc = c.description || c.ac_description || "Add-on Extra";
+      const desc = String(c.description || c.ac_description || "Add-on Extra").replace(/^[:\s]+|[:\s]+$/g, "");
       const amt = Number(c.amount || c.ac_amount || 0);
-      const amtStr = amt >= 0 ? `+${peso(amt)}` : `-${peso(Math.abs(amt))}`;
+      const amtStr = amt > 0 ? `+${peso(amt)}` : amt < 0 ? `-${peso(Math.abs(amt))}` : "";
 
       doc.setFont("helvetica", "normal");
       doc.setTextColor(15, 23, 42);
-      doc.text(`• ${desc}:`, rightColX + 8, rY);
-      doc.setFont("helvetica", "bold");
-      doc.text(amtStr, rightColX + rightColW - 8, rY, { align: "right" });
+      doc.text(`• ${desc}${amtStr ? ':' : ''}`, rightColX + 8, rY);
+      if (amtStr) {
+        doc.setFont("helvetica", "bold");
+        doc.text(amtStr, rightColX + rightColW - 8, rY, { align: "right" });
+      }
       rY += 12;
     }
   } else {
