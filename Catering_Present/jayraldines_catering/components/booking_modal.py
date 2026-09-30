@@ -714,11 +714,10 @@ class BookingModal(QDialog):
                 self.f_pax.setValue(int(self._booking_data.get("pax", 100)))
             except (ValueError, TypeError):
                 pass
-            # Strip the machine-appended "[Add-ons: ...]" block out of the notes so
+            # Strip any machine-appended add-ons out of the notes so
             # only the human-written notes show; add-ons are restored separately in step 3.
             notes_raw = str(self._booking_data.get("notes", "") or "")
-            import re
-            clean_notes = re.sub(r"\n?\[Add-ons:\s*.*?\]", "", notes_raw).strip()
+            _, clean_notes = repo.extract_and_clean_addons(notes_raw)
             self.f_notes.setPlainText(clean_notes)
 
             # Robust case-insensitive occasion selection
@@ -1798,26 +1797,15 @@ class BookingModal(QDialog):
 
         # Pre-populate existing add-ons if in edit mode
         if self._edit_mode and self._booking_data:
-            # Add-ons were serialized into notes as "[Add-ons: name (₱amt), ...]".
-            # Parse each "name (±₱amount)" entry back into an editable add-on row.
+            # Restore add-ons from additional_charges or parsed out of notes
             notes_str = str(self._booking_data.get("notes") or "")
-            if "[Add-ons:" in notes_str:
-                import re
-                m = re.search(r"\[Add-ons:\s*(.*?)\]", notes_str, re.DOTALL)
-                if m:
-                    addon_body = m.group(1)
-                    pattern = r"([^,(]+)\s*\(([+-]?)\s*₱?([\d,]+(?:\.\d+)?)\)"
-                    for match in re.finditer(pattern, addon_body):
-                        desc = match.group(1).strip()
-                        sign = match.group(2)
-                        amt_str = match.group(3).replace(",", "")
-                        try:
-                            val = float(amt_str)
-                            if sign == "-":  # preserve discounts as negative amounts
-                                val = -val
-                            self._add_addon_row(desc, val)
-                        except ValueError:
-                            pass
+            raw_charges = self._booking_data.get("additional_charges") or []
+            addon_charges, _ = repo.extract_and_clean_addons(notes_str, raw_charges)
+            for chg in addon_charges:
+                desc = str(chg.get("description") or chg.get("ac_description") or "").strip().rstrip(":")
+                amt = float(chg.get("amount") or chg.get("ac_amount") or 0.0)
+                if desc:
+                    self._add_addon_row(desc, amt)
 
         self.f_pax.valueChanged.connect(self._sync_pay_pax)
         self._update_cost()
@@ -2206,9 +2194,21 @@ class BookingModal(QDialog):
         # Serialize add-ons into the notes as a "[Add-ons: ...]" suffix so they
         # can be parsed back out when this booking is later edited (see _build_step3).
         notes_text = self.f_notes.toPlainText().strip()
+        structured_addons = []
+        for _row_w, n_edit, a_edit in getattr(self, "_addon_items", []):
+            name = n_edit.text().strip()
+            amt_txt = a_edit.text().strip().replace(",", "")
+            try:
+                amt = float(amt_txt) if amt_txt else 0.0
+            except ValueError:
+                amt = 0.0
+            if not name and amt == 0.0:
+                continue
+            structured_addons.append({"description": name or "Custom Add-on", "amount": amt})
+
         if addon_summary_list:
             addons_str = "Add-ons: " + ", ".join(addon_summary_list)
-            notes_text = f"{notes_text}\n[{addons_str}]".strip() if notes_text else addons_str
+            notes_text = f"{notes_text}\n[{addons_str}]".strip() if notes_text else f"[{addons_str}]"
 
         selected_customer = self.f_customer_search.get_selection() or {}
         # Preserve the original status/paid amount when editing; new bookings start PENDING.
@@ -2240,6 +2240,7 @@ class BookingModal(QDialog):
             "event_end_time":  end_time_val,
             "pax":             pax,
             "notes":           notes_text,
+            "additional_charges": structured_addons,
             "menu_type":       menu_type,
             "menu_value":      menu_value,
             "package_id":      package_id,
