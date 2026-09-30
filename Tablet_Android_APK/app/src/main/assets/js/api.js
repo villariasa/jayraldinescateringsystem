@@ -132,7 +132,7 @@ function _getTabletDeviceInfo() {
     device_id: devId,
     hostname: detected.hostname,
     os_info: detected.os_info,
-    app_version: "v2.1.13",
+    app_version: "v2.1.15",
     active_module: "Customer Booking Kiosk"
   };
 }
