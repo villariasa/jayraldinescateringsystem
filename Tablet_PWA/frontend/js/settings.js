@@ -480,6 +480,9 @@ async function renderBookingsTab(content) {
               <button class="btn btn-primary" style="padding:8px 14px; font-size:13px;" data-detail="${o.booking_id}">
                 ${icon("eye")} Details
               </button>
+              <button class="btn btn-danger" style="padding:8px 12px; font-size:13px;" data-delete-booking="${o.booking_id}" data-ref="${escapeHtml(o.booking_ref || `JC-${o.booking_id}`)}" data-customer="${escapeHtml(o.customer || 'Walk-in Guest')}" title="Cancel or Delete Booking">
+                ${icon("trash")}
+              </button>
             </div>
           </div>
         `).join("")}
@@ -519,6 +522,22 @@ async function renderBookingsTab(content) {
 
     content.querySelectorAll("[data-detail]").forEach((btn) => {
       btn.addEventListener("click", () => openOrderDetailModal(Number(btn.dataset.detail)));
+    });
+
+    content.querySelectorAll("[data-delete-booking]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = Number(btn.dataset.deleteBooking);
+        const ref = btn.dataset.ref || "";
+        const cust = btn.dataset.customer || "this booking";
+        if (!confirm(`Are you sure you want to delete/cancel booking ${ref} for ${cust}? This will remove it from the tablet and sync the cancellation to the server.`)) return;
+        const ok = await api.deleteBooking(id);
+        if (ok) {
+          toast(`Booking ${ref} was deleted.`, "success");
+          renderBookingsTab(content);
+        } else {
+          toast("Failed to delete booking.", "error");
+        }
+      });
     });
   };
 
@@ -670,6 +689,7 @@ export function openOrderDetailModal(bookingId) {
         </div>
       `,
       footerHtml: `
+        <button class="btn btn-danger" id="modal-delete-booking-btn" style="margin-right:auto;">${icon("trash")} Delete Booking</button>
         <button class="btn btn-secondary" data-close>Close</button>
         <button class="btn btn-primary" id="modal-download-receipt-btn">${icon("printer")} Download Receipt PDF</button>
       `,
@@ -677,6 +697,23 @@ export function openOrderDetailModal(bookingId) {
 
     document.querySelector(`#${modalId} #modal-download-receipt-btn`)?.addEventListener("click", () => {
       api.downloadReceipt(Number(bookingId));
+    });
+
+    document.querySelector(`#${modalId} #modal-delete-booking-btn`)?.addEventListener("click", async () => {
+      const ref = order.booking_ref || `JC-${order.booking_id}`;
+      const cust = order.customer || "this booking";
+      if (!confirm(`Are you sure you want to delete/cancel booking ${ref} for ${cust}? This will remove it from the tablet and sync the cancellation to the server.`)) return;
+      const ok = await api.deleteBooking(Number(bookingId));
+      if (ok) {
+        toast(`Booking ${ref} was deleted.`, "success");
+        closeModal(modalId);
+        const bookingsContent = document.querySelector("#settings-content");
+        if (bookingsContent) {
+          renderBookingsTab(bookingsContent);
+        }
+      } else {
+        toast("Failed to delete booking.", "error");
+      }
     });
   }).catch((err) => toast("Failed to load details: " + err.message, "error"));
 }

@@ -866,7 +866,7 @@ export function searchCebuAddress(query, limit = 15) {
 export function getPendingSyncRecords() {
   let bookings = [];
   try {
-    bookings = fetchAll("SELECT * FROM bookings WHERE sync_status = 'pending' OR sync_status IS NULL OR bk_id IN (SELECT DISTINCT ac_booking_id FROM booking_additional_charges)");
+    bookings = fetchAll("SELECT * FROM bookings WHERE sync_status = 'pending' OR sync_status IS NULL");
   } catch (_) {
     bookings = fetchAll("SELECT * FROM bookings");
   }
@@ -930,12 +930,17 @@ export function applyPaymentUpdates(paymentUpdates = []) {
         `UPDATE bookings SET
            bk_amount_paid = ?,
            bk_down_payment = ?,
-           bk_down_payment_status = ?
+           bk_down_payment_status = ?,
+           bk_total_amount = ?,
+           bk_status = ?,
+           sync_status = 'synced'
          WHERE bk_booking_ref = ?`,
         [
           u.bk_amount_paid ?? 0,
           u.bk_down_payment ?? 0,
           u.bk_down_payment_status ?? "PENDING",
+          u.bk_total_amount ?? 0,
+          u.bk_status ?? "CONFIRMED",
           ref,
         ]
       );
@@ -946,20 +951,60 @@ export function applyPaymentUpdates(paymentUpdates = []) {
       if (b && b.bk_id) {
         run(
           `UPDATE invoices SET
-             inv_amount_paid = ?,
-             inv_balance     = ?,
-             inv_status      = ?
+             inv_total_amount = ?,
+             inv_amount_paid  = ?,
+             inv_balance      = ?,
+             inv_status       = ?
            WHERE inv_booking_id = ?`,
           [
+            u.bk_total_amount ?? 0,
             u.inv_amount_paid ?? u.bk_amount_paid ?? 0,
             u.inv_balance ?? 0,
             u.inv_status ?? "Unpaid",
             b.bk_id,
           ]
         );
+        // Synchronize additional charges if provided by server
+        if (Array.isArray(u.additional_charges)) {
+          run("DELETE FROM booking_additional_charges WHERE ac_booking_id = ?", [b.bk_id]);
+          for (const chg of u.additional_charges) {
+            if (chg && chg.description) {
+              run(
+                "INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount) VALUES (?, ?, ?)",
+                [b.bk_id, chg.description, chg.amount || 0]
+              );
+            }
+          }
+        }
       }
     } catch (_) {}
   }
+}
+
+export function deleteBooking(bookingIdOrRef) {
+  const b = fetchOne("SELECT bk_id, bk_booking_ref FROM bookings WHERE bk_id = ? OR bk_booking_ref = ?", [bookingIdOrRef, bookingIdOrRef]);
+  if (!b) return false;
+  const ref = b.bk_booking_ref;
+  const id = b.bk_id;
+  // Track ref in local deleted queue for LAN sync
+  try {
+    const deleted = JSON.parse(localStorage.getItem("jayraldines_deleted_booking_refs") || "[]");
+    if (!deleted.includes(ref)) {
+      deleted.push(ref);
+      localStorage.setItem("jayraldines_deleted_booking_refs", JSON.stringify(deleted));
+    }
+  } catch (_) {}
+  try {
+    run("DELETE FROM booking_menu_items WHERE bmi_booking_id = ?", [id]);
+  } catch (_) {}
+  try {
+    run("DELETE FROM booking_additional_charges WHERE ac_booking_id = ?", [id]);
+  } catch (_) {}
+  try {
+    run("DELETE FROM invoices WHERE inv_booking_id = ?", [id]);
+  } catch (_) {}
+  run("DELETE FROM bookings WHERE bk_id = ?", [id]);
+  return true;
 }
 
 export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = [], occasions = [], packageBuckets = [], menuCategories = []) {

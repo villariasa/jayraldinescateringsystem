@@ -2328,6 +2328,8 @@ export function openLightCalendarModal(onSelectDate, opts = {}) {
       if (dStr) {
         if (!dateSchedules[dStr]) dateSchedules[dStr] = [];
         dateSchedules[dStr].push({
+          id: b.id || b.bk_id,
+          ref: b.ref || b.bk_booking_ref,
           time: b.time || (b.bk_event_time ? (repo.formatEventTime ? repo.formatEventTime(b.bk_event_time) : b.bk_event_time) : "Time TBD"),
           endTime: b.endTime || (b.bk_event_end_time ? (repo.formatEventTime ? repo.formatEventTime(b.bk_event_end_time) : b.bk_event_end_time) : ""),
           occasion: b.occasion || b.bk_occasion || "Event",
@@ -2483,7 +2485,10 @@ export function openLightCalendarModal(onSelectDate, opts = {}) {
               </span>
             </div>
             <div style="display:flex; flex-direction:column; gap:6px;">
-              ${scheds.map((s) => `
+              ${scheds.map((s) => {
+                const isConfirmed = /confirm|complete/i.test(s.status || "");
+                const statusColor = isConfirmed ? "var(--success, #10B981)" : "#D97706";
+                return `
                 <div style="display:flex; flex-direction:column; gap:4px; background:var(--card-bg); border:1px solid var(--border); border-radius:6px; padding:8px 12px; font-size:12.5px;">
                   <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div style="display:flex; align-items:center; gap:8px;">
@@ -2492,7 +2497,14 @@ export function openLightCalendarModal(onSelectDate, opts = {}) {
                       </span>
                       <span style="color:var(--text-muted); font-size:12px;">• ${escapeHtml(s.occasion)}</span>
                     </div>
-                    <span style="font-size:11px; font-weight:700; color:#D97706; text-transform:uppercase;">${escapeHtml(s.status)}</span>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span style="font-size:11px; font-weight:700; color:${statusColor}; text-transform:uppercase;">${escapeHtml(s.status)}</span>
+                      ${(s.id || s.ref) ? `
+                        <button type="button" class="btn btn-ghost" style="color:var(--accent); font-size:11px; padding:2px 6px; height:auto; min-height:0; display:inline-flex; align-items:center; gap:2px;" data-cal-del="${s.id || s.ref}" data-cal-ref="${escapeHtml(s.ref || '')}" data-cal-cust="${escapeHtml(s.customer || 'Event')}">
+                          ${icon("trash")} Delete
+                        </button>
+                      ` : ""}
+                    </div>
                   </div>
                   <div style="display:flex; flex-wrap:wrap; gap:12px; color:var(--text-muted); font-size:11.5px;">
                     ${s.customer ? `<span style="display:flex; align-items:center; gap:4px;">${icon("users")} ${escapeHtml(s.customer)}</span>` : ""}
@@ -2500,7 +2512,8 @@ export function openLightCalendarModal(onSelectDate, opts = {}) {
                     <span style="display:flex; align-items:center; gap:4px;">${s.pax || 0} pax</span>
                   </div>
                 </div>
-              `).join("")}
+              `;
+              }).join("")}
             </div>
             <p style="margin:8px 0 10px; font-size:11px; color:var(--text-muted); line-height:1.4;">
               You may still proceed with booking this date if your preferred event slot does not conflict.
@@ -2529,6 +2542,23 @@ export function openLightCalendarModal(onSelectDate, opts = {}) {
           </div>
         `;
       }
+
+      previewBox.querySelectorAll("[data-cal-del]").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const target = btn.dataset.calDel;
+          const ref = btn.dataset.calRef || target;
+          const cust = btn.dataset.calCust || "this booking";
+          if (!confirm(`Are you sure you want to delete/cancel booking ${ref} for ${cust}? This will remove it from the tablet and sync the cancellation to Central Server.`)) return;
+          const ok = await api.deleteBooking(target);
+          if (ok) {
+            toast(`Booking ${ref} was deleted.`, "success");
+            renderMonth();
+          } else {
+            toast("Failed to delete booking.", "error");
+          }
+        });
+      });
 
       previewBox.querySelector("#btn-select-cal-day")?.addEventListener("click", () => {
         if (onSelectDate) onSelectDate(selectedDate);

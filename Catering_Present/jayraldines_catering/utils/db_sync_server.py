@@ -1786,6 +1786,38 @@ def perform_server_sync(payload: dict) -> dict:
     deleted_b_rows = db.fetchall("SELECT dr_ref FROM deleted_records WHERE dr_table = 'bookings'") or []
     deleted_booking_refs = {r["dr_ref"] for r in deleted_b_rows if r.get("dr_ref")}
 
+    # Process deletions sent from tablet (e.g. Auntie canceled or deleted a booking)
+    incoming_deletes = payload.get("deleted_booking_refs") or []
+    for d_ref in incoming_deletes:
+        d_ref = (d_ref or "").strip()
+        if not d_ref:
+            continue
+        try:
+            row = db.fetchone("SELECT bk_id FROM bookings WHERE bk_booking_ref = %s" if db.get_engine_type() == "postgres" else "SELECT bk_id FROM bookings WHERE bk_booking_ref = ?", (d_ref,))
+            if row and row.get("bk_id"):
+                bkid = row["bk_id"]
+                if db.get_engine_type() == "postgres":
+                    db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = %s", (bkid,))
+                    db.execute("DELETE FROM booking_additional_charges WHERE ac_booking_id = %s", (bkid,))
+                    db.execute("DELETE FROM invoices WHERE inv_booking_id = %s", (bkid,))
+                    db.execute("DELETE FROM bookings WHERE bk_id = %s", (bkid,))
+                    db.execute("INSERT INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', %s) ON CONFLICT DO NOTHING", (d_ref,))
+                else:
+                    db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = ?", (bkid,))
+                    db.execute("DELETE FROM booking_additional_charges WHERE ac_booking_id = ?", (bkid,))
+                    db.execute("DELETE FROM invoices WHERE inv_booking_id = ?", (bkid,))
+                    db.execute("DELETE FROM bookings WHERE bk_id = ?", (bkid,))
+                    db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', ?)", (d_ref,))
+            else:
+                if db.get_engine_type() == "postgres":
+                    db.execute("INSERT INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', %s) ON CONFLICT DO NOTHING", (d_ref,))
+                else:
+                    db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', ?)", (d_ref,))
+            deleted_booking_refs.add(d_ref)
+            logger.info(f"[SyncServer] Processed tablet deletion for booking {d_ref}")
+        except Exception as dex:
+            logger.warning(f"[SyncServer] Error processing tablet deletion of {d_ref}: {dex}")
+
     pushed_bookings = 0
     synced_booking_refs = []
     seen_b = set()
@@ -2068,48 +2100,10 @@ def perform_server_sync(payload: dict) -> dict:
                 logger.warning(f"[SyncServer] Failed to insert booking {ref}: {e}")
                 # Do NOT append to synced_booking_refs on failure — tablet keeps it pending for retry
         else:
-            # Booking already exists in DB - backfill any missing additional charges or updated totals
-            try:
-                bk_id = existing_b.get("bk_id")
-                ev_date = b.get("bk_event_date") or b.get("event_date") or datetime.now().strftime("%Y-%m-%d")
-                total = float(b.get("bk_total_amount") or b.get("total_amount") or 0.0)
-                base_tot = float(b.get("bk_base_total") or b.get("base_total") or total)
-
-                add_charges = b.get("additional_charges") or b.get("charges") or []
-                for chg in add_charges:
-                    desc = (chg.get("ac_description") or chg.get("description") or "").strip()
-                    amt = float(chg.get("ac_amount") if chg.get("ac_amount") is not None else (chg.get("amount") or 0.0))
-                    date_added = chg.get("ac_date_added") or chg.get("date_added") or ev_date
-                    added_by = chg.get("ac_added_by") or chg.get("added_by") or "Tablet Kiosk"
-                    if desc and bk_id:
-                        chk_c_sql = "SELECT ac_id FROM booking_additional_charges WHERE ac_booking_id = %s AND LOWER(ac_description) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT ac_id FROM booking_additional_charges WHERE ac_booking_id = ? AND LOWER(ac_description) = LOWER(?) LIMIT 1"
-                        existing_c = db.fetchone(chk_c_sql, (bk_id, desc))
-                        if not existing_c:
-                            if db.get_engine_type() == "postgres":
-                                db.execute("""
-                                    INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
-                                    VALUES (%s, %s, %s, %s, %s)
-                                """, (bk_id, desc, amt, date_added, added_by))
-                            else:
-                                db.execute("""
-                                    INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
-                                    VALUES (?, ?, ?, ?, ?)
-                                """, (bk_id, desc, amt, date_added, added_by))
-
-                # Update total amount in bookings and invoices if tablet total is greater
-                if bk_id and total > 0:
-                    if db.get_engine_type() == "postgres":
-                        db.execute("UPDATE bookings SET bk_total_amount = GREATEST(bk_total_amount, %s), bk_base_total = GREATEST(bk_base_total, %s) WHERE bk_id = %s", (total, base_tot, bk_id))
-                        db.execute("UPDATE invoices SET inv_total_amount = GREATEST(inv_total_amount, %s), inv_balance = GREATEST(0.0, GREATEST(inv_total_amount, %s) - inv_amount_paid) WHERE inv_booking_id = %s", (total, total, bk_id))
-                    else:
-                        db.execute("UPDATE bookings SET bk_total_amount = MAX(bk_total_amount, ?), bk_base_total = MAX(bk_base_total, ?) WHERE bk_id = ?", (total, base_tot, bk_id))
-                        db.execute("UPDATE invoices SET inv_total_amount = MAX(inv_total_amount, ?), inv_balance = MAX(0.0, MAX(inv_total_amount, ?) - inv_amount_paid) WHERE inv_booking_id = ?", (total, total, bk_id))
-                # Existing booking is confirmed present on server — safe to mark synced
-                synced_booking_refs.append(ref)
-            except Exception as ex_be:
-                logger.warning(f"[SyncServer] Existing booking backfill note for {ref}: {ex_be}")
-                # Still mark as synced — the booking exists, backfill errors are non-critical
-                synced_booking_refs.append(ref)
+            # Booking already exists in DB — PC is source of truth for edits.
+            # Do NOT overwrite PC totals or re-insert charges deleted on the PC.
+            synced_booking_refs.append(ref)
+            continue
 
     # Pull latest packages
     try:
@@ -2297,23 +2291,31 @@ def perform_server_sync(payload: dict) -> dict:
         if all_sent_refs:
             ph = ",".join(["%s"] * len(all_sent_refs)) if db.get_engine_type() == "postgres" else ",".join(["?"] * len(all_sent_refs))
             pay_rows = db.fetchall(f"""
-                SELECT b.bk_booking_ref, b.bk_amount_paid, b.bk_total_amount,
-                       b.bk_down_payment, b.bk_down_payment_status,
+                SELECT b.bk_id, b.bk_booking_ref, b.bk_amount_paid, b.bk_total_amount,
+                       b.bk_down_payment, b.bk_down_payment_status, b.bk_status,
                        i.inv_status, i.inv_balance, i.inv_amount_paid
                 FROM bookings b
                 LEFT JOIN invoices i ON i.inv_booking_id = b.bk_id
                 WHERE b.bk_booking_ref IN ({ph})
             """, all_sent_refs) or []
             for r in pay_rows:
+                bid = r.get("bk_id")
+                chgs_sql = "SELECT ac_description, ac_amount FROM booking_additional_charges WHERE ac_booking_id = %s" if db.get_engine_type() == "postgres" else "SELECT ac_description, ac_amount FROM booking_additional_charges WHERE ac_booking_id = ?"
+                cur_charges = db.fetchall(chgs_sql, (bid,)) if bid else []
                 payment_updates.append({
                     "bk_booking_ref":       r.get("bk_booking_ref"),
                     "bk_amount_paid":       float(r.get("bk_amount_paid") or 0),
                     "bk_total_amount":      float(r.get("bk_total_amount") or 0),
                     "bk_down_payment":      float(r.get("bk_down_payment") or 0),
                     "bk_down_payment_status": str(r.get("bk_down_payment_status") or "PENDING"),
+                    "bk_status":            str(r.get("bk_status") or "CONFIRMED"),
                     "inv_status":           str(r.get("inv_status") or "Unpaid"),
                     "inv_balance":          float(r.get("inv_balance") or 0),
                     "inv_amount_paid":      float(r.get("inv_amount_paid") or 0),
+                    "additional_charges":   [
+                        {"description": c.get("ac_description") or "", "amount": float(c.get("ac_amount") or 0)}
+                        for c in (cur_charges or [])
+                    ]
                 })
     except Exception as pue:
         logger.warning(f"[SyncServer] Failed to build payment_updates: {pue}")
@@ -2335,6 +2337,7 @@ def perform_server_sync(payload: dict) -> dict:
         "synced_booking_refs": synced_booking_refs,
         "synced_customer_names": synced_customer_names,
         "deleted_booking_refs": list(deleted_booking_refs),
+        "deleted_booking_refs_handled": True,
         "payment_updates": payment_updates,
     }
 

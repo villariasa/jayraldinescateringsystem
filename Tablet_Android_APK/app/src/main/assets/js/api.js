@@ -132,7 +132,7 @@ function _getTabletDeviceInfo() {
     device_id: devId,
     hostname: detected.hostname,
     os_info: detected.os_info,
-    app_version: "v2.1.15",
+    app_version: "v2.2.0",
     active_module: "Customer Booking Kiosk"
   };
 }
@@ -760,6 +760,14 @@ export const api = {
   },
 
   async getOrder(id) { await ready(); return repo.getOrderDetail(id); },
+  async deleteBooking(id) {
+    await ready();
+    const ok = repo.deleteBooking(id);
+    try {
+      api.autoSyncPendingRecords().catch(() => {});
+    } catch (_) {}
+    return ok;
+  },
   async getBookingsByDate(dateStr) {
     await ready();
     const local = repo.getBookingsByDate(dateStr) || [];
@@ -836,12 +844,23 @@ export const api = {
                   pax: Number(r.pax || 0),
                   status: r.status || "PENDING"
                 }));
-                const seen = new Set(local.map(l => l.ref || `${l.date}_${l.time}`));
+                const localMap = new Map();
+                for (const l of local) {
+                  const key = l.ref || `${l.date}_${l.time}`;
+                  localMap.set(key, l);
+                }
                 for (const sm of sMapped) {
                   const key = sm.ref || `${sm.date}_${sm.time}`;
-                  if (!seen.has(key)) {
+                  if (localMap.has(key)) {
+                    const l = localMap.get(key);
+                    if (sm.status) l.status = sm.status;
+                    if (sm.time) l.time = sm.time;
+                    if (sm.pax) l.pax = sm.pax;
+                    if (sm.customer) l.customer = sm.customer;
+                    if (sm.venue) l.venue = sm.venue;
+                  } else {
                     local.push(sm);
-                    seen.add(key);
+                    localMap.set(key, sm);
                   }
                 }
                 return local;
@@ -1057,6 +1076,10 @@ export const api = {
       const imageSync = await _flushPendingPackageImageUploads(host, port);
       const menuImageSync = await _flushPendingMenuItemImageUploads(host, port);
       const { bookings, customers } = repo.getPendingSyncRecords();
+      let localDeletedRefs = [];
+      try {
+        localDeletedRefs = JSON.parse(localStorage.getItem("jayraldines_deleted_booking_refs") || "[]");
+      } catch (_) {}
       const res = await api.performLanSync({
         ...params,
         host,
@@ -1066,7 +1089,14 @@ export const api = {
         password: params.password || localStorage.getItem("jayraldines_lan_password") || "12345678",
         bookings: params.bookings || bookings || [],
         customers: params.customers || customers || [],
+        deleted_booking_refs: localDeletedRefs,
       });
+
+      if (res && res.deleted_booking_refs_handled) {
+        try {
+          localStorage.removeItem("jayraldines_deleted_booking_refs");
+        } catch (_) {}
+      }
 
       const sVer = Number(res.version ?? res.db_version ?? 0);
       if (sVer > 0) {

@@ -3083,9 +3083,9 @@ def get_dashboard_kpis() -> dict:
     row = db.fetchone("SELECT * FROM v_dashboard_kpis")
     dp_rec = get_downpayment_received()
 
-    # Query all-time aggregate totals for All Time view
+    # Query all-time aggregate totals for All Time view (matching Reports)
     try:
-        all_row = db.fetchone("""
+        c_all = db.fetchone("""
             SELECT
                 COUNT(*) AS total_bookings,
                 COALESCE(SUM(bk_pax), 0) AS total_pax,
@@ -3098,8 +3098,27 @@ def get_dashboard_kpis() -> dict:
                     END
                 ), 0.0) AS total_dp
             FROM bookings
-            WHERE bk_status != 'CANCELLED'
+            WHERE bk_status IN ('CONFIRMED', 'COMPLETED')
         """)
+        has_c = c_all and int(c_all.get("total_bookings") or 0) > 0
+        if has_c:
+            all_row = c_all
+        else:
+            all_row = db.fetchone("""
+                SELECT
+                    COUNT(*) AS total_bookings,
+                    COALESCE(SUM(bk_pax), 0) AS total_pax,
+                    COALESCE(SUM(bk_total_amount), 0.0) AS total_sales,
+                    COALESCE(SUM(
+                        CASE 
+                            WHEN bk_amount_paid > 0 THEN bk_amount_paid
+                            WHEN bk_down_payment > 0 THEN bk_down_payment
+                            ELSE 0.0 
+                        END
+                    ), 0.0) AS total_dp
+                FROM bookings
+                WHERE bk_status != 'CANCELLED'
+            """)
     except Exception:
         all_row = None
 
@@ -3121,45 +3140,31 @@ def get_dashboard_kpis() -> dict:
         total_exp = 0.0
 
     try:
-        inv_row = db.fetchone("""
-            SELECT COALESCE(SUM(
-                CASE 
-                    WHEN inv_balance IS NOT NULL AND inv_balance > 0 THEN inv_balance
-                    WHEN (inv_total_amount - inv_amount_paid) > 0 THEN ROUND(inv_total_amount - inv_amount_paid, 2)
-                    ELSE 0.0 
-                END
-            ), 0.0) AS total_unpaid
-            FROM invoices
-            WHERE CAST(inv_status AS TEXT) != 'Paid'
-              AND CAST(inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
-        """)
-        total_unpaid = float(inv_row["total_unpaid"] if inv_row and inv_row.get("total_unpaid") is not None else 0.0)
+        inv_sum = get_invoices_summary(None, None)
+        total_unpaid = float(inv_sum.get("total_pending") or 0.0)
     except Exception:
-        total_unpaid = 0.0
-
-    effective_revenue = total_paid if total_paid > 0 else total_sales
+        total_unpaid = max(0.0, total_sales - total_dp)
 
     todays_events = int(row["todays_events"]) if row and row.get("todays_events") is not None else 0
     pending_bookings = int(row["pending_bookings"]) if row and row.get("pending_bookings") is not None else 0
     weekly_revenue = float(row["weekly_revenue"]) if row and row.get("weekly_revenue") is not None else 0.0
-    unpaid_invoices = float(row["unpaid_invoices"]) if row and row.get("unpaid_invoices") is not None else total_unpaid
     todays_pax = int(row["todays_pax"]) if row and row.get("todays_pax") is not None else 0
 
     return {
         "todays_events":         todays_events,
         "pending_bookings":      pending_bookings,
-        "weekly_revenue":        weekly_revenue,
-        "unpaid_invoices":       unpaid_invoices,
+        "weekly_revenue":        total_sales,
+        "unpaid_invoices":       total_unpaid,
         "todays_pax":            todays_pax,
-        "downpayment_received":  dp_rec if dp_rec > 0 else total_dp,
-        # All-time metrics
+        "downpayment_received":  total_dp if total_dp > 0 else dp_rec,
+        # All-time metrics (correlated: total_revenue = total_downpayments + total_unpaid)
         "total_bookings":        total_bookings,
         "total_pax":             total_pax,
-        "total_revenue":         effective_revenue,
+        "total_revenue":         total_sales,
         "total_expenses":        total_exp,
         "total_downpayments":    total_dp if total_dp > 0 else dp_rec,
         "total_unpaid":          total_unpaid,
-        "all_time_net_income":   effective_revenue - total_exp,
+        "all_time_net_income":   total_sales - total_exp,
     }
 
 
@@ -3173,17 +3178,49 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
     d_start_str = d_start_obj.strftime("%Y-%m-%d")
     d_end_str = d_end_obj.strftime("%Y-%m-%d")
 
-    # 1. Events on this period
-    e_row = db.fetchone("""
+    # 1. Events and sales for confirmed/completed bookings in this period (matches Reports exactly)
+    c_row = db.fetchone("""
         SELECT COUNT(*) AS events_count, COALESCE(SUM(bk_pax), 0) AS total_pax,
-               COALESCE(SUM(bk_total_amount), 0.0) AS period_sales
+               COALESCE(SUM(bk_total_amount), 0.0) AS period_sales,
+               COALESCE(SUM(
+                   CASE 
+                       WHEN bk_amount_paid > 0 THEN bk_amount_paid
+                       WHEN bk_down_payment > 0 THEN bk_down_payment
+                       ELSE 0.0
+                   END
+               ), 0.0) AS total_dp
         FROM bookings
         WHERE bk_event_date >= %s AND bk_event_date <= %s
-          AND bk_status != 'CANCELLED'
+          AND bk_status IN ('CONFIRMED', 'COMPLETED')
     """, (d_start_str, d_end_str))
-    events_count = int(e_row["events_count"] if e_row and e_row.get("events_count") is not None else 0)
-    total_pax = int(e_row["total_pax"] if e_row and e_row.get("total_pax") is not None else 0)
-    period_sales = float(e_row["period_sales"] if e_row and e_row.get("period_sales") is not None else 0.0)
+
+    has_confirmed = c_row and int(c_row.get("events_count") or 0) > 0
+
+    if has_confirmed:
+        events_count = int(c_row.get("events_count") or 0)
+        total_pax = int(c_row.get("total_pax") or 0)
+        period_sales = float(c_row.get("period_sales") or 0.0)
+        dp_amt = float(c_row.get("total_dp") or 0.0)
+    else:
+        # Fallback to all non-cancelled bookings if none are marked confirmed yet (matches Reports logic)
+        all_b_row = db.fetchone("""
+            SELECT COUNT(*) AS events_count, COALESCE(SUM(bk_pax), 0) AS total_pax,
+                   COALESCE(SUM(bk_total_amount), 0.0) AS period_sales,
+                   COALESCE(SUM(
+                       CASE 
+                           WHEN bk_amount_paid > 0 THEN bk_amount_paid
+                           WHEN bk_down_payment > 0 THEN bk_down_payment
+                           ELSE 0.0
+                       END
+                   ), 0.0) AS total_dp
+            FROM bookings
+            WHERE bk_event_date >= %s AND bk_event_date <= %s
+              AND bk_status != 'CANCELLED'
+        """, (d_start_str, d_end_str))
+        events_count = int(all_b_row.get("events_count") or 0) if all_b_row else 0
+        total_pax = int(all_b_row.get("total_pax") or 0) if all_b_row else 0
+        period_sales = float(all_b_row.get("period_sales") or 0.0) if all_b_row else 0.0
+        dp_amt = float(all_b_row.get("total_dp") or 0.0) if all_b_row else 0.0
 
     # 2. Pending bookings for this period
     p_row = db.fetchone("""
@@ -3202,22 +3239,7 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
     """, (d_start_str, d_end_str))
     paid_amt = float(pay_row["total_paid"] if pay_row and pay_row.get("total_paid") is not None else 0.0)
 
-    # 4. Downpayments for bookings in this period
-    dp_row = db.fetchone("""
-        SELECT COALESCE(SUM(
-            CASE 
-                WHEN bk_amount_paid > 0 THEN bk_amount_paid
-                WHEN bk_down_payment > 0 THEN bk_down_payment
-                ELSE 0.0
-            END
-        ), 0.0) AS total_dp
-        FROM bookings
-        WHERE bk_event_date >= %s AND bk_event_date <= %s
-          AND bk_status != 'CANCELLED'
-    """, (d_start_str, d_end_str))
-    dp_amt = float(dp_row["total_dp"] if dp_row and dp_row.get("total_dp") is not None else 0.0)
-
-    # 5. Expenses in this period
+    # 4. Expenses in this period
     exp_row = db.fetchone("""
         SELECT COALESCE(SUM(exp_amount), 0.0) AS total_exp
         FROM expenses
@@ -3226,34 +3248,30 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
     """, (d_start_str, d_end_str, d_start_str, d_end_str))
     exp_amt = float(exp_row["total_exp"] if exp_row and exp_row.get("total_exp") is not None else 0.0)
 
-    # 6. Unpaid balance for events in this period
-    inv_row = db.fetchone("""
-        SELECT COALESCE(SUM(
-            CASE 
-                WHEN inv_balance IS NOT NULL AND inv_balance > 0 THEN inv_balance
-                WHEN (inv_total_amount - inv_amount_paid) > 0 THEN ROUND(inv_total_amount - inv_amount_paid, 2)
-                ELSE 0.0 
-            END
-        ), 0.0) AS unpaid
-        FROM invoices
-        WHERE inv_event_date >= %s AND inv_event_date <= %s
-          AND CAST(inv_status AS TEXT) != 'Paid'
-          AND CAST(inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
-    """, (d_start_str, d_end_str))
-    unpaid = float(inv_row["unpaid"] if inv_row and inv_row.get("unpaid") is not None else 0.0)
+    # 5. Authoritative unpaid balance (matches Reports and Billing)
+    try:
+        inv_sum = get_invoices_summary(d_start_str, d_end_str)
+        unpaid = float(inv_sum.get("total_pending") or 0.0)
+    except Exception:
+        unpaid = max(0.0, period_sales - dp_amt)
 
-    effective_revenue = paid_amt if paid_amt > 0 else period_sales
+    # Revenue = period_sales (contract sales for events in period)
+    # Downpayment = dp_amt
+    # Unpaid Balance = unpaid
+    # Mathematically correlated: Revenue = Downpayment + Unpaid Balance
+    # Net Income = Revenue - Expenses
+    effective_dp = dp_amt if dp_amt > 0 else (period_sales - unpaid if period_sales > unpaid else paid_amt)
     return {
         "todays_events":        events_count,
         "pending_bookings":     pending,
-        "weekly_revenue":       effective_revenue,
+        "weekly_revenue":       period_sales,
         "daily_sales":          period_sales,
         "daily_payments":       paid_amt,
         "daily_expenses":       exp_amt,
         "unpaid_invoices":      unpaid,
         "todays_pax":           total_pax,
-        "downpayment_received": dp_amt if dp_amt > 0 else paid_amt,
-        "net_income":           effective_revenue - exp_amt,
+        "downpayment_received": effective_dp,
+        "net_income":           period_sales - exp_amt,
     }
 
 
