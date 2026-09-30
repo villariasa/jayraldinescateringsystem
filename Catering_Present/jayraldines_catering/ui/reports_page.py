@@ -24,8 +24,9 @@ import os
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QHBoxLayout, QFrame, QLabel, QPushButton, QTableWidget,
                                QTableWidgetItem, QHeaderView, QScrollArea,
-                               QMessageBox, QToolTip, QFileDialog, QMenu, QSizePolicy)
-from PySide6.QtCore import Qt, QMargins, QPointF, QSize, QTimer
+                               QMessageBox, QToolTip, QFileDialog, QMenu, QSizePolicy,
+                               QComboBox, QDateEdit, QCheckBox)
+from PySide6.QtCore import Qt, QMargins, QPointF, QSize, QTimer, QDate
 from datetime import datetime, date
 from PySide6.QtGui import QAction, QFont, QColor, QPainter, QLinearGradient, QPen, QCursor
 
@@ -987,6 +988,95 @@ class ReportsPage(QWidget):
         self._exp_bd_title = QLabel("Breakdown by Category", self._expense_card)
         self._exp_bd_title.setObjectName("h3")
         exp_lay.addWidget(self._exp_bd_title)
+
+        # ── Handler Toolbar: Month, Year, Date Filters ──
+        self._exp_handler_widget = QWidget(self._expense_card)
+        self._exp_handler_layout = QHBoxLayout(self._exp_handler_widget)
+        self._exp_handler_layout.setContentsMargins(0, 0, 0, 6)
+        self._exp_handler_layout.setSpacing(10)
+
+        _is_l = not ThemeManager().is_dark()
+        _accent = AccentManager().current
+        combo_style = (
+            f"QComboBox {{ padding: 4px 10px; border: 1px solid #D8DFEA; border-radius: 6px; background-color: #FFFFFF; color: #101828; font-size: 12px; font-weight: 600; }}"
+            f"QComboBox:focus {{ border: 1px solid {_accent}; }}"
+            f"QComboBox QAbstractItemView {{ background-color: #FFFFFF; color: #101828; border: 1px solid #E4E9F1; border-radius: 6px; selection-background-color: rgba(225,29,72,0.1); selection-color: #D31647; }}"
+        ) if _is_l else (
+            f"QComboBox {{ padding: 4px 10px; border: 1px solid #243244; border-radius: 6px; background-color: #1F2937; color: #F9FAFB; font-size: 12px; font-weight: 600; }}"
+            f"QComboBox:focus {{ border: 1px solid {_accent}; }}"
+            f"QComboBox QAbstractItemView {{ background-color: #1F2937; color: #F9FAFB; border: 1px solid #243244; border-radius: 6px; selection-background-color: rgba(225,29,72,0.2); selection-color: #E11D48; }}"
+        )
+
+        date_style = (
+            "QDateEdit { padding: 4px 8px; border: 1px solid #D8DFEA; border-radius: 6px; background-color: #FFFFFF; color: #101828; font-size: 12px; }"
+            "QDateEdit:disabled { background-color: #F1F5F9; color: #94A3B8; border-color: #E2E8F0; }"
+        ) if _is_l else (
+            "QDateEdit { padding: 4px 8px; border: 1px solid #243244; border-radius: 6px; background-color: #1F2937; color: #F9FAFB; font-size: 12px; }"
+            "QDateEdit:disabled { background-color: #111827; color: #4B5563; border-color: #1F2937; }"
+        )
+
+        lbl_yr = QLabel("Year:", self._exp_handler_widget)
+        lbl_yr.setStyleSheet("font-weight: 700; font-size: 12px; color: #94A3B8;")
+        self._exp_handler_layout.addWidget(lbl_yr)
+
+        self._exp_year_combo = QComboBox(self._exp_handler_widget)
+        self._exp_year_combo.setFixedHeight(30)
+        self._exp_year_combo.setMinimumWidth(100)
+        self._exp_year_combo.setStyleSheet(combo_style)
+        self._exp_year_combo.addItem("All Years", None)
+        cur_year = datetime.now().year
+        for y in [cur_year, cur_year - 1, cur_year - 2, cur_year - 3]:
+            self._exp_year_combo.addItem(str(y), y)
+        self._exp_year_combo.currentIndexChanged.connect(lambda _: self._on_exp_handler_changed())
+        self._exp_handler_layout.addWidget(self._exp_year_combo)
+
+        lbl_mo = QLabel("Month:", self._exp_handler_widget)
+        lbl_mo.setStyleSheet("font-weight: 700; font-size: 12px; color: #94A3B8;")
+        self._exp_handler_layout.addWidget(lbl_mo)
+
+        self._exp_month_combo = QComboBox(self._exp_handler_widget)
+        self._exp_month_combo.setFixedHeight(30)
+        self._exp_month_combo.setMinimumWidth(120)
+        self._exp_month_combo.setStyleSheet(combo_style)
+        self._exp_month_combo.addItem("All Months", None)
+        _months = [
+            ("January", 1), ("February", 2), ("March", 3), ("April", 4),
+            ("May", 5), ("June", 6), ("July", 7), ("August", 8),
+            ("September", 9), ("October", 10), ("November", 11), ("December", 12)
+        ]
+        for m_name, m_val in _months:
+            self._exp_month_combo.addItem(m_name, m_val)
+        self._exp_month_combo.currentIndexChanged.connect(lambda _: self._on_exp_handler_changed())
+        self._exp_handler_layout.addWidget(self._exp_month_combo)
+
+        self._exp_date_check = QCheckBox("Specific Date:", self._exp_handler_widget)
+        self._exp_date_check.setStyleSheet("font-weight: 600; font-size: 12px;")
+        self._exp_handler_layout.addWidget(self._exp_date_check)
+
+        self._exp_date_edit = QDateEdit(QDate.currentDate(), self._exp_handler_widget)
+        self._exp_date_edit.setCalendarPopup(True)
+        self._exp_date_edit.setFixedHeight(30)
+        self._exp_date_edit.setStyleSheet(date_style)
+        self._exp_date_edit.setEnabled(False)
+        self._exp_date_check.toggled.connect(self._exp_date_edit.setEnabled)
+        self._exp_date_check.toggled.connect(lambda _: self._on_exp_handler_changed())
+        self._exp_date_edit.dateChanged.connect(lambda _: self._on_exp_handler_changed())
+        self._exp_handler_layout.addWidget(self._exp_date_edit)
+
+        self._exp_reset_btn = QPushButton("↺ Reset", self._exp_handler_widget)
+        self._exp_reset_btn.setFixedHeight(30)
+        self._exp_reset_btn.setCursor(Qt.PointingHandCursor)
+        self._exp_reset_btn.setStyleSheet(
+            "QPushButton { background: transparent; border: 1px solid #4B5563; color: #9CA3AF; "
+            "font-weight: 600; font-size: 12px; border-radius: 6px; padding: 2px 12px; } "
+            "QPushButton:hover { background: #374151; color: #F9FAFB; }"
+        )
+        self._exp_reset_btn.clicked.connect(self._on_exp_handler_reset)
+        self._exp_handler_layout.addWidget(self._exp_reset_btn)
+
+        self._exp_handler_layout.addStretch()
+        exp_lay.addWidget(self._exp_handler_widget)
+
         self._exp_chart_holder = QVBoxLayout()
         exp_lay.addLayout(self._exp_chart_holder)
         self._exp_chart_view = None
@@ -1122,6 +1212,17 @@ class ReportsPage(QWidget):
             d["period"] = period
             self._reload_kpis(d)
             self._reload_table(d.get("bookings", []))
+            # Sync handler toolbar controls to clean state for the chosen period
+            self._suppress_exp_filter = True
+            try:
+                if hasattr(self, "_exp_year_combo"):
+                    self._exp_year_combo.setCurrentIndex(0)
+                if hasattr(self, "_exp_month_combo"):
+                    self._exp_month_combo.setCurrentIndex(0)
+                if hasattr(self, "_exp_date_check"):
+                    self._exp_date_check.setChecked(False)
+            finally:
+                self._suppress_exp_filter = False
             self._load_expenses(d.get("expenses", []), d.get("profit", []))
             if hasattr(self, "_locations_chart_layout") and hasattr(self._locations_chart_layout, "reload"):
                 self._locations_chart_layout.reload()
@@ -1827,84 +1928,150 @@ class ReportsPage(QWidget):
         lay.addStretch()
         return card
 
-    def _load_expenses(self, all_exp: list = None, profit_data: list = None):
-        """Rebuild expense cards from pre-fetched data (safe to call on GUI thread)."""
-        # Invalidate any in-flight batched render before clearing
+    @staticmethod
+    def _parse_exp_date(d_str):
+        if not d_str:
+            return None
+        from datetime import datetime, date
+        if isinstance(d_str, date):
+            return d_str
+        if isinstance(d_str, datetime):
+            return d_str.date()
+        for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%Y/%m/%d", "%b-%d-%Y", "%d-%b-%Y"):
+            try:
+                return datetime.strptime(str(d_str).strip(), fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    def _on_exp_handler_reset(self):
+        if getattr(self, "_suppress_exp_filter", False):
+            return
+        self._suppress_exp_filter = True
+        try:
+            if hasattr(self, "_exp_year_combo"):
+                self._exp_year_combo.setCurrentIndex(0)
+            if hasattr(self, "_exp_month_combo"):
+                self._exp_month_combo.setCurrentIndex(0)
+            if hasattr(self, "_exp_date_check"):
+                self._exp_date_check.setChecked(False)
+            if hasattr(self, "_exp_date_edit"):
+                self._exp_date_edit.setDate(QDate.currentDate())
+        finally:
+            self._suppress_exp_filter = False
+        self._apply_expense_filters()
+
+    def _on_exp_handler_changed(self):
+        if getattr(self, "_suppress_exp_filter", False):
+            return
+        self._apply_expense_filters()
+
+    def _apply_expense_filters(self):
+        raw_expenses = getattr(self, "_all_raw_expenses", None)
+        if raw_expenses is None:
+            raw_expenses = getattr(self, "_expenses", [])
+            self._all_raw_expenses = list(raw_expenses)
+
+        from datetime import date, timedelta
+        today = date.today()
+
+        is_exact = hasattr(self, "_exp_date_check") and self._exp_date_check.isChecked()
+        sel_year = self._exp_year_combo.currentData() if hasattr(self, "_exp_year_combo") else None
+        sel_month = self._exp_month_combo.currentData() if hasattr(self, "_exp_month_combo") else None
+
+        filtered = []
+        label = "All Time"
+
+        if is_exact and hasattr(self, "_exp_date_edit"):
+            target_d = self._exp_date_edit.date().toPython()
+            for exp in raw_expenses:
+                d = self._parse_exp_date(exp.get("date", ""))
+                if d == target_d:
+                    filtered.append(exp)
+            label = target_d.strftime("%b %d, %Y")
+        elif sel_year is not None or sel_month is not None:
+            for exp in raw_expenses:
+                d = self._parse_exp_date(exp.get("date", ""))
+                if not d:
+                    continue
+                if sel_year is not None and d.year != sel_year:
+                    continue
+                if sel_month is not None and d.month != sel_month:
+                    continue
+                filtered.append(exp)
+
+            if sel_year is not None and sel_month is not None:
+                m_txt = self._exp_month_combo.currentText()
+                label = f"{m_txt} {sel_year}"
+            elif sel_month is not None:
+                m_txt = self._exp_month_combo.currentText()
+                label = f"{m_txt}"
+            else:
+                label = f"Year {sel_year}"
+        else:
+            p = getattr(self, "_period", "All Time")
+            label = p
+            if p in ("All Time", "All", ""):
+                filtered = list(raw_expenses)
+            else:
+                for exp in raw_expenses:
+                    d = self._parse_exp_date(exp.get("date", ""))
+                    if not d:
+                        continue
+                    if p == "Today" and d == today:
+                        filtered.append(exp)
+                    elif p == "This Week":
+                        start_w = today - timedelta(days=today.weekday())
+                        end_w = start_w + timedelta(days=6)
+                        if start_w <= d <= end_w:
+                            filtered.append(exp)
+                    elif p == "This Month":
+                        if d.month == today.month and d.year == today.year:
+                            filtered.append(exp)
+                    elif p == "This Year":
+                        if d.year == today.year:
+                            filtered.append(exp)
+                    elif p == "Last Year":
+                        if d.year == today.year - 1:
+                            filtered.append(exp)
+
+        self._expenses = filtered
+        self._exp_active_label = label
+        if hasattr(self, "_exp_bd_title"):
+            self._exp_bd_title.setText(f"Breakdown by Category ({label})")
+
+        self._load_expense_breakdown(filtered, label=label)
+        self._render_filtered_expenses_list(filtered)
+
+    def _render_filtered_expenses_list(self, expenses):
+        """Render the scrollable list of expense items and update totals."""
         self._exp_render_token = getattr(self, "_exp_render_token", 0) + 1
         while self.exp_cards_layout.count():
             item = self.exp_cards_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        # Reset pagination for the new period/reload; the populated branch re-arms it.
         self._exp_has_more = False
         self._exp_loading_more = False
         self._exp_remainder = []
 
-        if all_exp is None:
-            self._report_render_step()  # nothing to render; release the loader slot
-            return  # Async data not ready yet
-
-        p = getattr(self, "_period", "All Time")
-        from datetime import datetime, date, timedelta
-        today = date.today()
-
-        expenses = []
-        if p in ("All Time", "All", ""):
-            expenses = all_exp  # no filtering needed
-        else:
-            for exp in all_exp:
-                d_str = exp.get("date", "")
-                exp_d = None
-                # Expenses can be saved in more formats than bookings, so try a
-                # wider set of layouts; skip rows whose date can't be parsed.
-                for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%Y/%m/%d", "%b-%d-%Y", "%d-%b-%Y"):
-                    try:
-                        exp_d = datetime.strptime(str(d_str).strip(), fmt).date()
-                        break
-                    except ValueError:
-                        continue
-                if not exp_d:
-                    continue
-
-                if p == "Today" and exp_d == today:
-                    expenses.append(exp)
-                elif p == "This Week":
-                    start_w = today - timedelta(days=today.weekday())
-                    end_w = start_w + timedelta(days=6)
-                    if start_w <= exp_d <= end_w:
-                        expenses.append(exp)
-                elif p == "This Month":
-                    if exp_d.month == today.month and exp_d.year == today.year:
-                        expenses.append(exp)
-                elif p == "This Year":
-                    if exp_d.year == today.year:
-                        expenses.append(exp)
-                elif p == "Last Year":
-                    if exp_d.year == today.year - 1:
-                        expenses.append(exp)
-
-        self._expenses = expenses
-        # total_exp depends only on amounts, compute upfront (independent of widgets)
-        total_exp = sum(exp["amount"] for exp in expenses)
+        total_exp = sum(exp.get("amount", 0.0) for exp in expenses)
 
         if not expenses:
-            empty_lbl = QLabel("No expenses recorded.")
+            empty_lbl = QLabel("No expenses recorded for this period.")
             empty_lbl.setObjectName("subtitle")
             empty_lbl.setAlignment(Qt.AlignCenter)
             self.exp_cards_layout.addWidget(empty_lbl)
             if hasattr(self, "_expenses_scroll"):
                 self._expenses_scroll.setFixedHeight(60)
             if hasattr(self, "_exp_title"):
-                self._exp_title.setText("Expenses")
-            self._exp_rendering = False  # empty state: no batch chain will run
-            self._report_render_step()  # no batches run for empty state
+                self._exp_title.setText("Expenses (0 records)")
+            self._exp_rendering = False
+            self._report_render_step()
         else:
             total_e = len(expenses)
-            # Finalize scroll height / title upfront (depend only on count)
             if hasattr(self, "_expenses_scroll"):
                 if total_e > 7:
-                    # Exactly 7 rows visible with smooth scroll for remaining
                     self._expenses_scroll.setFixedHeight(455)
                     if hasattr(self, "_exp_title"):
                         self._exp_title.setText(f"Expenses ({total_e} records · showing 7 rows, scroll for more)")
@@ -1913,33 +2080,63 @@ class ReportsPage(QWidget):
                     if hasattr(self, "_exp_title"):
                         self._exp_title.setText(f"Expenses ({total_e} record{'s' if total_e != 1 else ''})")
 
-            # DOM pagination: render only the first page now; the rest stays in
-            # memory and is appended on scroll. total_exp / net profit below are
-            # computed from the FULL filtered list, so they remain accurate.
             self._exp_remainder = list(expenses[self._exp_page_size:])
             self._exp_has_more = len(expenses) > self._exp_page_size
             self._exp_loading_more = False
-            self._exp_rendering = True  # a batch chain is about to start filling the layout
+            self._exp_rendering = True
             self._exp_queue = list(expenses[:self._exp_page_size])
             self._render_expense_batch(self._exp_render_token)
 
-        # Use pre-fetched profit_data if available, else fall back to synchronous call
-        _profit_data = profit_data if profit_data is not None else []
-        total_rev = sum(r["revenue"] for r in _profit_data)
-        net = total_rev - total_exp  # net profit shown in the footer label
+        _profit_data = getattr(self, "_profit_data_cache", [])
+        total_rev = sum(r.get("revenue", 0.0) for r in _profit_data)
+        net = total_rev - total_exp
         color = "#22C55E" if net >= 0 else "#EF4444"
-        self._profit_lbl.setStyleSheet(f"font-size:14px;font-weight:700;color:{color};")
-        self._profit_lbl.setText(
-            f"Total Expenses: ₱ {total_exp:,.2f}   |   "
-            f"Total Revenue (YTD): ₱ {total_rev:,.2f}   |   "
-            f"Net Profit: ₱ {net:,.2f}"
-        )
+        if hasattr(self, "_profit_lbl"):
+            self._profit_lbl.setStyleSheet(f"font-size:14px;font-weight:700;color:{color};")
+            self._profit_lbl.setText(
+                f"Total Expenses: ₱ {total_exp:,.2f}   |   "
+                f"Total Revenue (YTD): ₱ {total_rev:,.2f}   |   "
+                f"Net Profit: ₱ {net:,.2f}"
+            )
 
-        # Refresh the category breakdown bar chart, scoped to the same
-        # period-filtered expense list rendered above.
-        self._load_expense_breakdown(expenses)
+    def _load_expenses(self, all_exp: list = None, profit_data: list = None):
+        """Rebuild expense cards from pre-fetched data (safe to call on GUI thread)."""
+        if all_exp is None:
+            self._report_render_step()
+            return
 
-    def _load_expense_breakdown(self, expenses: list = None):
+        self._all_raw_expenses = list(all_exp)
+        if profit_data is not None:
+            self._profit_data_cache = list(profit_data)
+
+        # Dynamically populate years in Year combo from data
+        if hasattr(self, "_exp_year_combo"):
+            years = set()
+            for exp in all_exp:
+                d = self._parse_exp_date(exp.get("date", ""))
+                if d:
+                    years.add(d.year)
+            cur_yr = datetime.now().year
+            years.add(cur_yr)
+
+            cur_sel = self._exp_year_combo.currentData()
+            self._suppress_exp_filter = True
+            try:
+                self._exp_year_combo.clear()
+                self._exp_year_combo.addItem("All Years", None)
+                for y in sorted(years, reverse=True):
+                    self._exp_year_combo.addItem(str(y), y)
+                idx = self._exp_year_combo.findData(cur_sel)
+                if idx >= 0:
+                    self._exp_year_combo.setCurrentIndex(idx)
+                else:
+                    self._exp_year_combo.setCurrentIndex(0)
+            finally:
+                self._suppress_exp_filter = False
+
+        self._apply_expense_filters()
+
+    def _load_expense_breakdown(self, expenses: list = None, label: str = None):
         """Render the 'Breakdown by Category' bar chart for the given (already
         period-filtered) expense rows. Moved verbatim from expenses_page.py -
         same nice-round-tick, peso-formatted axis and per-category colors."""
@@ -1969,11 +2166,17 @@ class ReportsPage(QWidget):
         breakdown.sort(key=lambda r: r["total"], reverse=True)
 
         if hasattr(self, "_exp_bd_title"):
-            label = getattr(self, "_period", "All Time") or "All Time"
-            self._exp_bd_title.setText(f"Breakdown by Category ({label})")
+            lbl = label or getattr(self, "_exp_active_label", None) or getattr(self, "_period", "All Time") or "All Time"
+            self._exp_bd_title.setText(f"Breakdown by Category ({lbl})")
 
         if not breakdown or not _CHARTS_AVAILABLE:
-            self._exp_bd_title.setVisible(bool(breakdown))
+            if not breakdown and hasattr(self, "_exp_chart_holder"):
+                no_data_lbl = QLabel("No expenses recorded for this selected period.")
+                no_data_lbl.setObjectName("subtitle")
+                no_data_lbl.setAlignment(Qt.AlignCenter)
+                no_data_lbl.setStyleSheet("color: #9CA3AF; padding: 24px; font-size: 13px; font-style: italic;")
+                self._exp_chart_holder.addWidget(no_data_lbl)
+                self._exp_chart_view = no_data_lbl
             return
         self._exp_bd_title.setVisible(True)
 
