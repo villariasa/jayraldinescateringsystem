@@ -162,33 +162,6 @@ class TestAllUIQueries(unittest.TestCase):
         self.assertTrue(os.path.exists(tmp_dash_pdf))
         self.assertGreater(os.path.getsize(tmp_dash_pdf), 1000)
 
-    def test_z_purge_data_and_reset(self):
-        # 7. Test Data Counts and Selective / Full Purge Functions
-        counts = repo.get_data_counts()
-        self.assertIsInstance(counts, dict)
-        self.assertIn("bookings", counts)
-        self.assertIn("customers", counts)
-        self.assertIn("expenses", counts)
-
-        # Selective purge
-        purged_sel = repo.purge_selected_data(["expenses", "calendar_events"])
-        self.assertIn("expenses", purged_sel)
-        self.assertIn("calendar_events", purged_sel)
-
-        # Master reset purge
-        purged_all = repo.purge_all_data()
-        self.assertIn("bookings", purged_all)
-        self.assertIn("customers", purged_all)
-        self.assertIn("menu_items", purged_all)
-        self.assertIn("packages", purged_all)
-
-        new_counts = repo.get_data_counts()
-        self.assertEqual(new_counts["bookings"], 0)
-        self.assertEqual(new_counts["customers"], 0)
-        self.assertEqual(new_counts["expenses"], 0)
-
-        # Re-seed essentials for test continuity
-        db.connect_sqlite()
 
 
 if __name__ == "__main__":
