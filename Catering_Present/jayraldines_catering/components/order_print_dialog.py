@@ -914,10 +914,27 @@ class OrderPrintDialog(QDialog):
 
         base_total_str = _peso(booking.get("base_total") or booking.get("bk_base_total") or booking.get("total_amount") or booking.get("total") or 0)
         package_qty_line = (f"Quantity: <b>{pax}</b> Set(s)" if is_food_set else f"Quantity: <b>{pax}</b> Pax") + f"  &middot;  Base: <b>{base_total_str}</b>"
+
+        # Package inclusions from get_booking_detail's package_inclusions field
+        _inc_raw = booking.get("package_inclusions") or booking.get("pkg_description") or booking.get("package_description") or ""
+        inclusions_html = ""
+        if _inc_raw and str(_inc_raw).strip():
+            _inc_lines = [html.escape(line.strip()) for line in str(_inc_raw).strip().splitlines() if line.strip()]
+            if _inc_lines:
+                inclusions_lines_html = "".join(
+                    f'<div style="font-size:10px; color:#334155; padding:1px 0;">• {line}</div>'
+                    for line in _inc_lines[:8]
+                )
+                inclusions_html = f"""
+                    <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; padding-bottom:2px; margin-bottom:3px; margin-top:4px;">INCLUSIONS:</div>
+                    {inclusions_lines_html}
+                """
+
         package_menu_card = _card_open("cloche", "PACKAGE &amp; MENU") + f"""
             <div style="font-size:11px; font-weight:900; color:#0F172A;">PACKAGE: {pkg_name.upper()}</div>
-            <div style="font-size:10px; color:#334155; margin-top:1px; margin-bottom:8px;">{package_qty_line}</div>
-            <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; padding-bottom:2px; margin-bottom:4px;">MENU:</div>
+            <div style="font-size:10px; color:#334155; margin-top:1px; margin-bottom:4px;">{package_qty_line}</div>
+            {inclusions_html}
+            <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; padding-bottom:2px; margin-bottom:4px; margin-top:6px;">MENU:</div>
             <table width="100%" style="width:100%; border-collapse:collapse;">
                 {''.join(dish_items_html)}
             </table>
