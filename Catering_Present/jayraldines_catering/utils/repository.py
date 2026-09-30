@@ -1716,7 +1716,8 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
                b.bk_color_theme AS color_theme,
                COALESCE(NULLIF(b.bk_contact, ''), NULLIF(c.cus_contact, ''), '') AS contact,
                COALESCE(NULLIF(b.bk_email, ''), NULLIF(c.cus_email, ''), '') AS email,
-               p.pkg_name AS package_name
+               p.pkg_name AS package_name,
+               COALESCE(p.pkg_description, '') AS package_inclusions
         FROM bookings b
         LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
         LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
@@ -3333,6 +3334,65 @@ def get_monthly_income() -> list[dict]:
         return []
     return [{"month": r["month_label"], "month_num": r["month_num"],
              "revenue": float(r["total_revenue"]), "paid": float(r["total_paid"])} for r in rows]
+
+
+# Keyword rule matching the tablet's isFoodSet() in wizard.js/exporter.js.
+_FOOD_ORDER_KEYWORDS = ("food set", "food pack", "foodset", "foodpack", "set of dish")
+
+def _is_food_order(pkg_name: str) -> bool:
+    if not pkg_name:
+        return False
+    n = str(pkg_name).strip().lower()
+    if any(k in n for k in _FOOD_ORDER_KEYWORDS):
+        return True
+    if n.startswith("set ") or " set" in n:
+        return True
+    return False
+
+
+def get_monthly_category_counts(year: int | None = None) -> list[dict]:
+    """Per-month count of Food Orders vs Events for the given year (defaults to current year).
+
+    Returns a list of 12 dicts (one per month 1–12) with keys:
+        month, month_num, food_orders, events, total
+    """
+    from datetime import datetime as _dt
+    yr = year or _dt.now().year
+    ph = "%s" if db.get_engine_type() == "postgres" else "?"
+    rows = db.fetchall(f"""
+        SELECT
+            CAST(strftime('%m', bk_event_date) AS INTEGER) AS month_num,
+            COALESCE(p.pkg_name, b.bk_menu_type, '') AS pkg_name_resolved
+        FROM bookings b
+        LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
+        WHERE CAST(strftime('%Y', bk_event_date) AS INTEGER) = {ph}
+          AND b.bk_status IN ('CONFIRMED', 'COMPLETED')
+    """, (yr,)) if db.get_engine_type() != "postgres" else db.fetchall(f"""
+        SELECT
+            EXTRACT(MONTH FROM bk_event_date)::int AS month_num,
+            COALESCE(p.pkg_name, b.bk_menu_type, '') AS pkg_name_resolved
+        FROM bookings b
+        LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
+        WHERE EXTRACT(YEAR FROM bk_event_date) = {ph}
+          AND b.bk_status IN ('CONFIRMED', 'COMPLETED')
+    """, (yr,))
+
+    _MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    counts: dict[int, dict] = {
+        i: {"month": _MONTH_ABBR[i - 1], "month_num": i, "food_orders": 0, "events": 0, "total": 0}
+        for i in range(1, 13)
+    }
+    for r in (rows or []):
+        mn = int(r.get("month_num") or 0)
+        if 1 <= mn <= 12:
+            if _is_food_order(r.get("pkg_name_resolved") or ""):
+                counts[mn]["food_orders"] += 1
+            else:
+                counts[mn]["events"] += 1
+            counts[mn]["total"] += 1
+
+    return [counts[i] for i in range(1, 13)]
 
 
 def get_payment_methods() -> list[dict]:
