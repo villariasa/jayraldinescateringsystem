@@ -3393,16 +3393,36 @@ def get_monthly_income() -> list[dict]:
 
 
 # Keyword rule matching the tablet's isFoodSet() in wizard.js/exporter.js.
-_FOOD_ORDER_KEYWORDS = ("food set", "food pack", "foodset", "foodpack", "set of dish")
+_FOOD_ORDER_KEYWORDS = (
+    "food set",
+    "food sets",
+    "food pack",
+    "food packs",
+    "foodset",
+    "foodpack",
+    "food tray",
+    "food order",
+    "set of dish",
+    "packed food",
+    "packed meal",
+)
 
-def _is_food_order(pkg_name: str) -> bool:
-    if not pkg_name:
-        return False
-    n = str(pkg_name).strip().lower()
-    if any(k in n for k in _FOOD_ORDER_KEYWORDS):
-        return True
-    if n.startswith("set ") or " set" in n:
-        return True
+def _is_food_order(
+    pkg_name: str = "",
+    occasion: str = "",
+    notes: str = "",
+    special_notes: str = "",
+    menu_type: str = "",
+) -> bool:
+    """Classify whether a booking is a Food Order (Food Packs / Food Set) or an Event."""
+    for val in (occasion, pkg_name, notes, special_notes, menu_type):
+        if not val:
+            continue
+        n = str(val).strip().lower()
+        if any(k in n for k in _FOOD_ORDER_KEYWORDS):
+            return True
+        if n.startswith("set ") or " set " in n or n.endswith(" set"):
+            return True
     return False
 
 
@@ -3418,6 +3438,11 @@ def get_monthly_category_counts(year: int | None = None) -> list[dict]:
     rows = db.fetchall(f"""
         SELECT
             CAST(strftime('%m', bk_event_date) AS INTEGER) AS month_num,
+            b.bk_occasion,
+            b.bk_notes,
+            b.bk_special_notes,
+            b.bk_menu_type,
+            p.pkg_name,
             COALESCE(p.pkg_name, b.bk_menu_type, '') AS pkg_name_resolved
         FROM bookings b
         LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
@@ -3426,6 +3451,11 @@ def get_monthly_category_counts(year: int | None = None) -> list[dict]:
     """, (yr,)) if db.get_engine_type() != "postgres" else db.fetchall(f"""
         SELECT
             EXTRACT(MONTH FROM bk_event_date)::int AS month_num,
+            b.bk_occasion,
+            b.bk_notes,
+            b.bk_special_notes,
+            b.bk_menu_type,
+            p.pkg_name,
             COALESCE(p.pkg_name, b.bk_menu_type, '') AS pkg_name_resolved
         FROM bookings b
         LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
@@ -3442,7 +3472,13 @@ def get_monthly_category_counts(year: int | None = None) -> list[dict]:
     for r in (rows or []):
         mn = int(r.get("month_num") or 0)
         if 1 <= mn <= 12:
-            if _is_food_order(r.get("pkg_name_resolved") or ""):
+            if _is_food_order(
+                pkg_name=r.get("pkg_name") or r.get("pkg_name_resolved") or "",
+                occasion=r.get("bk_occasion") or "",
+                notes=r.get("bk_notes") or "",
+                special_notes=r.get("bk_special_notes") or "",
+                menu_type=r.get("bk_menu_type") or "",
+            ):
                 counts[mn]["food_orders"] += 1
             else:
                 counts[mn]["events"] += 1

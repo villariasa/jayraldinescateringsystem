@@ -58,11 +58,14 @@ _SLIP_HALF_HEIGHT = round(_SLIP_LAYOUT_WIDTH * (297 / 210) / 2)
 _SLIP_FULL_HEIGHT = round(_SLIP_LAYOUT_WIDTH * (297 / 210))
 
 
-def is_food_set_pkg(pkg_name: str) -> bool:
-    if not pkg_name:
-        return False
-    name = str(pkg_name).strip().lower()
-    return any(k in name for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or name.startswith("set ") or " set" in name
+def is_food_set_pkg(pkg_name: str, occasion: str = "") -> bool:
+    for text in (pkg_name, occasion):
+        if not text:
+            continue
+        name = str(text).strip().lower()
+        if any(k in name for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or name.startswith("set ") or " set " in name or name.endswith(" set"):
+            return True
+    return False
 
 
 class OrderPrintDialog(QDialog):
@@ -526,7 +529,7 @@ class OrderPrintDialog(QDialog):
         pax = str(booking.get("pax", 100))
         occasion = str(booking.get("occasion") or "Banquet Catering")
         pkg_name = str(booking.get("package_name") or booking.get("menu_value") or "Standard Catering Package")
-        is_food_set = is_food_set_pkg(pkg_name)
+        is_food_set = is_food_set_pkg(pkg_name, occasion)
         pax_lbl = "SET" if is_food_set else "PAX"
         contact = str(booking.get("contact") or "")
 
@@ -759,7 +762,7 @@ class OrderPrintDialog(QDialog):
         motif = html.escape(str(booking.get("motif") or booking.get("color_theme") or "Standard Motif"))
         pax = str(booking.get("pax") or 0)
         pkg_name = html.escape(str(booking.get("package_name") or booking.get("menu_type") or "Catering Package"))
-        is_food_set = is_food_set_pkg(pkg_name)
+        is_food_set = is_food_set_pkg(pkg_name, occasion)
         
         # Separate add-ons from notes so Special Instructions is clean
         raw_notes = booking.get("notes") or booking.get("special_instructions") or ""

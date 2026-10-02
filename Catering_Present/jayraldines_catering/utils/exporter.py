@@ -860,7 +860,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             n = str(name or "").strip().lower()
             return (any(k in n for k in ("food set", "food pack", "foodset", "foodpack", "set of dish"))
                     or n.startswith("set ") or " set" in n)
-        is_set   = _is_food_set(pkg_name)
+        is_set   = _is_food_set(pkg_name) or _is_food_set(booking_detail.get("occasion") or booking_detail.get("bk_occasion"))
         pax_lbl  = "No. of Sets:" if is_set else "No. of Pax:"
         pax_val  = f"{pax} {'Set(s)' if is_set else 'Pax'}"
 
@@ -1269,14 +1269,14 @@ def export_order_slip_pdf(path: str, booking: dict, business: dict) -> bool:
         time_str  = _format_time_ampm(raw_t) if raw_t else "TBA"
         pax       = str(booking.get("pax", "100"))
         pkg_name_inv = str(booking.get("package_name") or booking.get("pkg_name") or "")
-        # Detect "food set/pack" style packages by name — these are counted in
+        occasion  = str(booking.get("occasion") or booking.get("bk_occasion") or "Catering Event")
+        # Detect "food set/pack" style packages by name or occasion — these are counted in
         # sets/quantity rather than as a per-head guest count.
-        is_food_set_inv = any(k in pkg_name_inv.lower() for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or pkg_name_inv.lower().startswith("set ") or " set" in pkg_name_inv.lower()
+        is_food_set_inv = any(k in pkg_name_inv.lower() for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or pkg_name_inv.lower().startswith("set ") or " set" in pkg_name_inv.lower() or any(k in occasion.lower() for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or occasion.lower().startswith("set ") or " set" in occasion.lower()
         guest_lbl = "Quantity:" if is_food_set_inv else "Guest Count:"
         pax_disp = f"<b>{pax} Set(s)</b>" if is_food_set_inv else f"<b>{pax} Pax</b>"
         pkg_name  = str(booking.get("package_name") or booking.get("menu_value") or "Standard Package")
         motif     = str(booking.get("color_theme") or booking.get("color") or "")
-        occasion  = str(booking.get("occasion") or "Catering Event")
 
         # Top Header Table
         logo_cell = ""

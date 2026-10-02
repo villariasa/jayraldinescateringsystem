@@ -335,7 +335,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
       n.includes(" set")
     );
   };
-  const isSet = isFoodSet(order.package_name || order.bk_package_name || "");
+  const isSet = isFoodSet(order.package_name || order.bk_package_name || "") || isFoodSet(order.occasion || order.bk_occasion || "");
 
   drawFieldRow("Function Date:", eventDate);
   drawFieldRow("Time:", eventTime);

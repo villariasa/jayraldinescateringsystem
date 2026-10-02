@@ -181,7 +181,15 @@ class DayCell(QFrame):
 
         for idx, ev in enumerate(events):
             # Occasion/name is resolved from several possible keys; upper-cased for the tag.
-            occ = str(ev.get("occasion") or ev.get("name") or ev.get("customer_name") or "EVENT").strip().upper()
+            raw_occ = str(ev.get("occasion") or "").strip()
+            raw_pkg = str(ev.get("package_name") or ev.get("menu") or "").strip()
+            if repo._is_food_order(pkg_name=raw_pkg, occasion=raw_occ):
+                if not raw_occ or raw_occ.upper() in ("EVENT", "SPECIAL EVENT", "GENERAL EVENT"):
+                    occ = "FOOD SET" if "set" in raw_pkg.lower() else "FOOD PACKS"
+                else:
+                    occ = raw_occ.upper()
+            else:
+                occ = str(raw_occ or ev.get("name") or ev.get("customer_name") or "EVENT").strip().upper()
             t_raw = ev.get("time") or ev.get("event_time") or ""
             t_short = self._format_time_short(t_raw)
             pax = int(ev.get("pax", 0) or 0)

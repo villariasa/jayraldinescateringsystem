@@ -1126,7 +1126,13 @@ class BookingModal(QDialog):
         elif getattr(self, "_booking_data", None):
             pkg_name = self._booking_data.get("package_name") or self._booking_data.get("pkg_name") or ""
 
-        is_set = self._is_food_set(pkg_name)
+        occ_name = ""
+        if hasattr(self, "cmb_occasion") and self.cmb_occasion.currentText():
+            occ_name = self.cmb_occasion.currentText()
+        elif getattr(self, "_booking_data", None):
+            occ_name = self._booking_data.get("occasion") or self._booking_data.get("bk_occasion") or ""
+
+        is_set = self._is_food_set(pkg_name) or self._is_food_set(occ_name)
         if hasattr(self, "lbl_pax_field"):
             self.lbl_pax_field.setText("No. of Sets *" if is_set else "No. of Pax *")
         if hasattr(self, "lbl_pax_title"):

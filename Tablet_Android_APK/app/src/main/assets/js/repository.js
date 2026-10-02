@@ -611,6 +611,16 @@ export function createOrder(order) {
   const downPayment = Number(order.down_payment) || 0;
   const today = new Date().toISOString().slice(0, 10);
 
+  let resolvedOccasion = (order.occasion || "").trim();
+  if (!resolvedOccasion || resolvedOccasion.toLowerCase() === "general event" || resolvedOccasion.toLowerCase() === "other special event") {
+    const pkgName = (order.package_name || "").toLowerCase();
+    if (pkgName.includes("food set") || pkgName.includes("food pack") || pkgName.includes("foodset") || pkgName.includes("foodpack") || pkgName.includes("set of dish") || pkgName.startsWith("set ") || pkgName.includes(" set")) {
+      resolvedOccasion = "Food Set";
+    } else {
+      resolvedOccasion = resolvedOccasion || "General Event";
+    }
+  }
+
   const bookingId = run(`
     INSERT INTO bookings (
       bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time, bk_event_end_time,
@@ -619,7 +629,7 @@ export function createOrder(order) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'package', ?, ?, ?, 'PENDING', 'pending')
   `, [
     bookingRef, customerId, order.customer_name, order.address || "", order.event_date,
-    order.event_time || "To be followed", order.event_end_time || null, order.venue || "To be followed", order.occasion || "General Event", Number(order.pax) || 1,
+    order.event_time || "To be followed", order.event_end_time || null, order.venue || "To be followed", resolvedOccasion, Number(order.pax) || 1,
     total, baseTotal, order.payment_method || "Cash", downPayment, downPayment,
     order.package_id ?? null, order.notes || "", order.motif || order.color_theme || "Standard",
   ]);

@@ -16,6 +16,8 @@ const STEPS = [
 ];
 
 const OCCASIONS = [
+  "Food Set",
+  "Food Packs",
   "Birthday Party",
   "Wedding Reception",
   "Debut (18th / 21st)",
@@ -993,7 +995,12 @@ async function renderStepPackage(card) {
         <label>Occasion / Event Type *</label>
         <select class="form-control" id="e-occasion">
           <option value="">Select Event Occasion…</option>
-          ${((occasionsCache && occasionsCache.length > 0) ? occasionsCache : OCCASIONS).map((occ) => `<option value="${escapeHtml(occ)}" ${(d.event.occasion || '').toLowerCase() === occ.toLowerCase() ? "selected" : ""}>${escapeHtml(occ)}</option>`).join("")}
+          ${(() => {
+            const list = [...((occasionsCache && occasionsCache.length > 0) ? occasionsCache : OCCASIONS)];
+            if (!list.some(x => String(x).trim().toLowerCase() === "food set")) list.unshift("Food Set");
+            if (!list.some(x => String(x).trim().toLowerCase() === "food packs")) list.unshift("Food Packs");
+            return list.map((occ) => `<option value="${escapeHtml(occ)}" ${(d.event.occasion || '').toLowerCase() === occ.toLowerCase() ? "selected" : ""}>${escapeHtml(occ)}</option>`).join("");
+          })()}
         </select>
       </div>
     </div>
@@ -1277,6 +1284,26 @@ async function renderStepPackage(card) {
     const priceRateLbl = card.querySelector("#lbl-price-rate");
     if (priceRateLbl) priceRateLbl.textContent = isSet ? "Price Per Set (₱)" : "Price Per Pax (₱)";
 
+    const occasionSelect = card.querySelector("#e-occasion");
+    if (isSet) {
+      if (occasionSelect) {
+        const curOcc = (occasionSelect.value || "").trim().toLowerCase();
+        if (!curOcc || curOcc === "general event" || curOcc === "other special event") {
+          let found = Array.from(occasionSelect.options).some(o => o.value.toLowerCase() === "food set");
+          if (!found) {
+            const opt = document.createElement("option");
+            opt.value = "Food Set";
+            opt.textContent = "Food Set";
+            occasionSelect.appendChild(opt);
+          }
+          occasionSelect.value = "Food Set";
+          d.event.occasion = "Food Set";
+        }
+      } else {
+        d.event.occasion = "Food Set";
+      }
+    }
+
     const currentPax = Number(paxInput.value || 0);
     if (isSet && currentPax > 50) {
       d.event.pax = Number(pkg.min_pax || 1);
@@ -1313,7 +1340,12 @@ async function renderStepPackage(card) {
     d.event.time = card.querySelector("#e-time").value || "To be followed";
     d.event.endTime = card.querySelector("#e-end-time")?.value || "";
     d.event.pax = Number(paxInput.value || 1);
-    d.event.occasion = card.querySelector("#e-occasion").value || "General Event";
+    const selOcc = (card.querySelector("#e-occasion")?.value || "").trim();
+    if (isFoodSet(d.package.name) && (!selOcc || selOcc.toLowerCase() === "general event" || selOcc.toLowerCase() === "other special event")) {
+      d.event.occasion = "Food Set";
+    } else {
+      d.event.occasion = selOcc || (isFoodSet(d.package.name) ? "Food Set" : "General Event");
+    }
     d.event.venueStreet = (venueStreetInput.value || "").trim();
     d.event.venueCity = (venueCityInput.value || "").trim();
     const venueCombined = [d.event.venueStreet, d.event.venueCity].filter(Boolean).join(", ");
