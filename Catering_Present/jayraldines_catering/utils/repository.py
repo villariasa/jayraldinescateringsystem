@@ -3826,6 +3826,8 @@ def get_expenses_summary(date_start: str = None, date_end: str = None) -> dict:
 
 def add_expense(data: dict) -> Optional[int]:
     cat = str(data.get("category", "Other")).strip() or "Other"
+    if cat:
+        add_expense_category(cat)
     desc = str(data.get("description", "—")).strip() or "—"
     try:
         amt = float(data.get("amount", 0.0))
@@ -3870,15 +3872,18 @@ def add_expense(data: dict) -> Optional[int]:
 
 
 def update_expense(expense_id: int, data: dict) -> None:
+    cat = str(data.get("category", "Other")).strip() or "Other"
+    if cat:
+        add_expense_category(cat)
     db.callproc_void(
         "sp_update_expense",
-        in_params=(expense_id, data["category"], data["description"], data["amount"], _parse_date(data["date"])),
+        in_params=(expense_id, cat, data["description"], data["amount"], _parse_date(data["date"])),
     )
     write_audit_log(
         action="UPDATE",
         table_name="expenses",
         record_id=expense_id,
-        new_value={"category": data.get("category"), "description": data.get("description"), "amount": data.get("amount")}
+        new_value={"category": cat, "description": data.get("description"), "amount": data.get("amount")}
     )
 
 
@@ -3901,6 +3906,215 @@ def delete_expense(expense_id: int) -> None:
         record_id=expense_id,
         old_value={"category": cat, "description": desc, "amount": amt}
     )
+
+
+# ── EXPENSE CATEGORY MASTER REPOSITORY ──────────────────────────────────────────
+
+_EXPENSE_PALETTE = [
+    "#E11D48", "#F59E0B", "#8B5CF6", "#3B82F6", "#10B981", "#F97316",
+    "#06B6D4", "#EC4899", "#84CC16", "#6366F1", "#14B8A6", "#64748B",
+    "#A855F7", "#D97706", "#2563EB", "#059669", "#DC2626", "#4B5563"
+]
+
+def get_all_expense_categories() -> list[dict]:
+    """Return all active expense categories with colors, usage counts, and total amount spent."""
+    try:
+        rows = db.fetchall("""
+            SELECT
+                ec.ec_id AS id,
+                ec.ec_name AS name,
+                COALESCE(ec.ec_color, '#94A3B8') AS color,
+                ec.ec_is_active AS is_active,
+                COUNT(e.exp_id) AS count,
+                COALESCE(SUM(e.exp_amount), 0.0) AS total
+            FROM expense_categories ec
+            LEFT JOIN expenses e ON e.exp_category = ec.ec_name
+            WHERE ec.ec_is_active = 1 OR ec.ec_is_active IS NULL
+            GROUP BY ec.ec_id, ec.ec_name, ec.ec_color, ec.ec_is_active
+            ORDER BY count DESC, ec.ec_name ASC
+        """)
+        if rows:
+            return [
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "color": r.get("color") or "#94A3B8",
+                    "is_active": r.get("is_active", 1),
+                    "count": int(r.get("count") or 0),
+                    "total": float(r.get("total") or 0.0),
+                }
+                for r in rows
+            ]
+    except Exception as exc:
+        print(f"[repository] get_all_expense_categories error: {exc}")
+
+    # Fallback to distinct categories in expenses table
+    try:
+        rows = db.fetchall("""
+            SELECT exp_category AS name, COUNT(*) AS count, COALESCE(SUM(exp_amount), 0.0) AS total
+            FROM expenses
+            WHERE exp_category IS NOT NULL AND TRIM(exp_category) != ''
+            GROUP BY exp_category
+            ORDER BY count DESC
+        """)
+        if rows:
+            return [
+                {
+                    "id": i + 1,
+                    "name": r["name"],
+                    "color": _EXPENSE_PALETTE[i % len(_EXPENSE_PALETTE)],
+                    "is_active": 1,
+                    "count": int(r["count"]),
+                    "total": float(r["total"]),
+                }
+                for i, r in enumerate(rows)
+            ]
+    except Exception:
+        pass
+
+    defaults = ["Food Cost", "Labor", "Salary", "Service", "Transport", "Utilities", "Equipment", "Other"]
+    return [
+        {
+            "id": i + 1,
+            "name": c,
+            "color": _EXPENSE_PALETTE[i % len(_EXPENSE_PALETTE)],
+            "is_active": 1,
+            "count": 0,
+            "total": 0.0,
+        }
+        for i, c in enumerate(defaults)
+    ]
+
+
+def get_expense_category_names() -> list[str]:
+    """Return ordered list of active category names."""
+    cats = get_all_expense_categories()
+    return [c["name"] for c in cats]
+
+
+def add_expense_category(name: str, color: str = None) -> bool:
+    """Add a new expense category to the master table if it does not already exist."""
+    clean_name = (name or "").strip()
+    if not clean_name:
+        return False
+    if not color:
+        color = _EXPENSE_PALETTE[abs(hash(clean_name)) % len(_EXPENSE_PALETTE)]
+    try:
+        ph = "%s" if db.get_engine_type() == "postgres" else "?"
+        if db.get_engine_type() == "postgres":
+            db.execute("""
+                INSERT INTO expense_categories (ec_name, ec_color, ec_is_active)
+                VALUES (%s, %s, 1)
+                ON CONFLICT (ec_name) DO UPDATE SET ec_is_active = 1
+            """, (clean_name, color))
+        else:
+            db.execute("""
+                INSERT INTO expense_categories (ec_name, ec_color, ec_is_active)
+                VALUES (?, ?, 1)
+                ON CONFLICT (ec_name) DO UPDATE SET ec_is_active = 1
+            """, (clean_name, color))
+        write_audit_log(action="CREATE", table_name="expense_categories", record_id=0, new_value={"name": clean_name, "color": color})
+        return True
+    except Exception as exc:
+        print(f"[repository] add_expense_category error: {exc}")
+        return False
+
+
+def update_expense_category(old_name: str, new_name: str, color: str = None) -> bool:
+    """Update an expense category name/color, and automatically cascade update all matching expenses."""
+    old_clean = (old_name or "").strip()
+    new_clean = (new_name or "").strip()
+    if not old_clean or not new_clean:
+        return False
+    try:
+        if color:
+            db.execute("UPDATE expense_categories SET ec_name = %s, ec_color = %s WHERE ec_name = %s", (new_clean, color, old_clean))
+        else:
+            db.execute("UPDATE expense_categories SET ec_name = %s WHERE ec_name = %s", (new_clean, old_clean))
+
+        # Cascade rename all existing expenses under this category!
+        if old_clean.lower() != new_clean.lower():
+            db.execute("UPDATE expenses SET exp_category = %s WHERE exp_category = %s", (new_clean, old_clean))
+            write_audit_log(
+                action="UPDATE",
+                table_name="expenses",
+                record_id=0,
+                new_value={"migrated_category": f"{old_clean} -> {new_clean}"}
+            )
+        return True
+    except Exception as exc:
+        print(f"[repository] update_expense_category error: {exc}")
+        return False
+
+
+def delete_expense_category(name: str, reassign_to: str = "Other") -> bool:
+    """Delete an expense category, safely reassigning any linked expenses to another category."""
+    clean_name = (name or "").strip()
+    if not clean_name:
+        return False
+    reassign_clean = (reassign_to or "Other").strip()
+    try:
+        if clean_name != reassign_clean:
+            db.execute("UPDATE expenses SET exp_category = %s WHERE exp_category = %s", (reassign_clean, clean_name))
+        db.execute("DELETE FROM expense_categories WHERE ec_name = %s", (clean_name,))
+        write_audit_log(
+            action="DELETE",
+            table_name="expense_categories",
+            record_id=0,
+            old_value={"name": clean_name, "reassigned_to": reassign_clean}
+        )
+        return True
+    except Exception as exc:
+        print(f"[repository] delete_expense_category error: {exc}")
+        return False
+
+
+def batch_update_expense_category(expense_ids: list[int], new_category: str) -> int:
+    """Batch reassign a list of expenses to a new category."""
+    if not expense_ids or not new_category:
+        return 0
+    clean_cat = new_category.strip()
+    add_expense_category(clean_cat)
+    ph = "%s" if db.get_engine_type() == "postgres" else "?"
+    placeholders = ", ".join([ph] * len(expense_ids))
+    params = [clean_cat] + list(expense_ids)
+    try:
+        db.execute(f"UPDATE expenses SET exp_category = {ph} WHERE exp_id IN ({placeholders})", tuple(params))
+        write_audit_log(
+            action="UPDATE",
+            table_name="expenses",
+            record_id=0,
+            new_value={"batch_count": len(expense_ids), "new_category": clean_cat}
+        )
+        return len(expense_ids)
+    except Exception as exc:
+        print(f"[repository] batch_update_expense_category error: {exc}")
+        return 0
+
+
+def reassign_all_category_expenses(source_category: str, dest_category: str) -> int:
+    """Reassign all expenses from source_category to dest_category."""
+    src = (source_category or "").strip()
+    dst = (dest_category or "").strip()
+    if not src or not dst or src.lower() == dst.lower():
+        return 0
+    add_expense_category(dst)
+    try:
+        ph = "%s" if db.get_engine_type() == "postgres" else "?"
+        count_row = db.fetchone(f"SELECT COUNT(*) AS c FROM expenses WHERE exp_category = {ph}", (src,))
+        c = int(count_row["c"]) if count_row else 0
+        db.execute(f"UPDATE expenses SET exp_category = {ph} WHERE exp_category = {ph}", (dst, src))
+        write_audit_log(
+            action="UPDATE",
+            table_name="expenses",
+            record_id=0,
+            new_value={"reassigned_all": f"{src} -> {dst}", "count": c}
+        )
+        return c
+    except Exception as exc:
+        print(f"[repository] reassign_all_category_expenses error: {exc}")
+        return 0
+
 
 
 def get_top_locations(limit: int = 10) -> list[dict]:

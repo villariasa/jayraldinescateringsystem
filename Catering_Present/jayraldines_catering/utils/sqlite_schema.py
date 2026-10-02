@@ -58,6 +58,14 @@ CREATE TABLE IF NOT EXISTS menu_categories (
     mc_sort INTEGER DEFAULT 0
 );
 
+-- Expense Categories Master Table
+CREATE TABLE IF NOT EXISTS expense_categories (
+    ec_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ec_name TEXT NOT NULL UNIQUE,
+    ec_color TEXT,
+    ec_is_active INTEGER DEFAULT 1
+);
+
 -- Customers Master Table
 CREATE TABLE IF NOT EXISTS customers (
     cus_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -793,6 +801,37 @@ def init_sqlite_db(conn: sqlite3.Connection):
                 "INSERT OR IGNORE INTO occasions (occ_name, occ_is_active) VALUES (?, 1)",
                 (occ,)
             )
+
+    # Seed Default Expense Categories if empty
+    cursor.execute("SELECT COUNT(*) FROM expense_categories")
+    if cursor.fetchone()[0] == 0:
+        log.info("Seeding default expense categories...")
+        default_exp_categories = [
+            ("Food Cost", "#E11D48"),
+            ("Labor", "#F59E0B"),
+            ("Salary", "#8B5CF6"),
+            ("Service", "#3B82F6"),
+            ("Transport", "#10B981"),
+            ("Utilities", "#F97316"),
+            ("Equipment", "#64748B"),
+            ("Other", "#94A3B8"),
+        ]
+        for cat_name, color in default_exp_categories:
+            cursor.execute(
+                "INSERT OR IGNORE INTO expense_categories (ec_name, ec_color, ec_is_active) VALUES (?, ?, 1)",
+                (cat_name, color)
+            )
+        try:
+            cursor.execute("SELECT DISTINCT exp_category FROM expenses WHERE exp_category IS NOT NULL AND TRIM(exp_category) != ''")
+            for r in cursor.fetchall():
+                c_val = str(r[0]).strip()
+                if c_val:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO expense_categories (ec_name, ec_color, ec_is_active) VALUES (?, '#94A3B8', 1)",
+                        (c_val,)
+                    )
+        except Exception:
+            pass
 
     # Seed Default Menu Items if empty
     cursor.execute("SELECT COUNT(*) FROM menu_items")

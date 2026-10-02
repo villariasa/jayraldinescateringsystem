@@ -496,6 +496,21 @@ def _ensure_pg_places_and_auth(conn) -> None:
         except Exception:
             conn.rollback()
 
+        # 4b. Ensure expense_categories table
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS expense_categories (
+                        ec_id SERIAL PRIMARY KEY,
+                        ec_name VARCHAR(100) NOT NULL UNIQUE,
+                        ec_color VARCHAR(30) DEFAULT '#94A3B8',
+                        ec_is_active INT DEFAULT 1
+                    );
+                """)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
         # 5. Ensure monthly_sales_targets table
         try:
             with conn.cursor() as cur:

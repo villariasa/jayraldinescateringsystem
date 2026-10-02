@@ -9,9 +9,11 @@ from datetime import datetime
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QScrollArea, QSizePolicy, QMessageBox, QComboBox, QDateEdit, QLineEdit,
+    QDialog, QFormLayout, QDialogButtonBox, QTableWidget, QTableWidgetItem,
+    QHeaderView, QAbstractItemView, QMenu, QInputDialog,
 )
-from PySide6.QtCore import Qt, QMargins, QSize, QTimer
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtCore import Qt, QMargins, QSize, QTimer, QPoint, QDate
+from PySide6.QtGui import QColor, QPainter, QFont
 
 from utils.theme import ThemeManager
 from utils.icons import btn_icon_secondary, btn_icon_red, get_icon
@@ -39,8 +41,212 @@ _CATEGORY_COLORS = {
 }
 
 
+def get_category_color(cat: str) -> str:
+    """Return an established or deterministic bright accent color for an expense category."""
+    if not cat:
+        return "#94A3B8"
+    if cat in _CATEGORY_COLORS:
+        return _CATEGORY_COLORS[cat]
+    palette = [
+        "#E11D48", "#F59E0B", "#8B5CF6", "#3B82F6", "#10B981", "#F97316",
+        "#06B6D4", "#EC4899", "#84CC16", "#6366F1", "#14B8A6", "#64748B",
+        "#A855F7", "#D97706", "#2563EB", "#059669"
+    ]
+    idx = abs(hash(cat)) % len(palette)
+    return palette[idx]
+
+
 def _is_light():
     return not ThemeManager().is_dark()
+
+
+class ManageCategoriesDialog(QDialog):
+    """Allows Uncle and staff to add, rename, reassign, and delete expense categories."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Manage Expense Categories")
+        self.setMinimumWidth(580)
+        self.setMinimumHeight(450)
+        self._changed = False
+        self._categories = []
+        self._init_ui()
+        self._load_categories()
+
+    def _init_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(14)
+
+        head_lay = QVBoxLayout()
+        head_lay.setSpacing(4)
+        title = QLabel("Expense Categories")
+        title.setStyleSheet("font-size: 17px; font-weight: 800;")
+        sub = QLabel("Add, rename, or reassign categories. Renaming automatically updates all associated expense records.")
+        sub.setStyleSheet("font-size: 12px; color: #64748B;")
+        sub.setWordWrap(True)
+        head_lay.addWidget(title)
+        head_lay.addWidget(sub)
+        lay.addLayout(head_lay)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Category", "Records", "Total Spent (₱)"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
+        lay.addWidget(self.table)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        self.btn_add = QPushButton(" + Add Category")
+        self.btn_add.setCursor(Qt.PointingHandCursor)
+        self.btn_add.setStyleSheet("background-color: #E11D48; color: #FFFFFF; font-weight: 700; border-radius: 6px; padding: 6px 14px;")
+        self.btn_add.clicked.connect(self._on_add)
+        btn_row.addWidget(self.btn_add)
+
+        self.btn_rename = QPushButton(" ✏️ Rename")
+        self.btn_rename.setCursor(Qt.PointingHandCursor)
+        self.btn_rename.setStyleSheet("font-weight: 600; padding: 6px 12px; border-radius: 6px;")
+        self.btn_rename.clicked.connect(self._on_rename)
+        btn_row.addWidget(self.btn_rename)
+
+        self.btn_reassign = QPushButton(" 🔀 Reassign All")
+        self.btn_reassign.setCursor(Qt.PointingHandCursor)
+        self.btn_reassign.setToolTip("Move all records from the selected category into another category")
+        self.btn_reassign.setStyleSheet("font-weight: 600; padding: 6px 12px; border-radius: 6px;")
+        self.btn_reassign.clicked.connect(self._on_reassign_all)
+        btn_row.addWidget(self.btn_reassign)
+
+        self.btn_delete = QPushButton(" 🗑️ Delete")
+        self.btn_delete.setCursor(Qt.PointingHandCursor)
+        self.btn_delete.setStyleSheet("font-weight: 600; padding: 6px 12px; border-radius: 6px; color: #EF4444;")
+        self.btn_delete.clicked.connect(self._on_delete)
+        btn_row.addWidget(self.btn_delete)
+
+        btn_row.addStretch()
+
+        self.btn_done = QPushButton("Done")
+        self.btn_done.setCursor(Qt.PointingHandCursor)
+        self.btn_done.setStyleSheet("padding: 6px 16px; border-radius: 6px; font-weight: 600;")
+        self.btn_done.clicked.connect(self.accept)
+        btn_row.addWidget(self.btn_done)
+
+        lay.addLayout(btn_row)
+
+    def _load_categories(self):
+        self._categories = repo.get_all_expense_categories()
+        self.table.setRowCount(len(self._categories))
+        for r_idx, c in enumerate(self._categories):
+            name = c.get("name", "")
+            count = c.get("count", 0)
+            total = c.get("total", 0.0)
+            color = c.get("color") or get_category_color(name)
+
+            item_name = QTableWidgetItem(f"●  {name}")
+            item_name.setForeground(QColor(color))
+            f = item_name.font()
+            f.setBold(True)
+            item_name.setFont(f)
+            item_name.setData(Qt.UserRole, name)
+
+            item_count = QTableWidgetItem(f"{count} record{'s' if count != 1 else ''}")
+            item_count.setTextAlignment(Qt.AlignCenter)
+
+            item_total = QTableWidgetItem(f"₱ {total:,.2f}")
+            item_total.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            self.table.setItem(r_idx, 0, item_name)
+            self.table.setItem(r_idx, 1, item_count)
+            self.table.setItem(r_idx, 2, item_total)
+
+    def _get_selected_category(self) -> str:
+        r = self.table.currentRow()
+        if r < 0:
+            return ""
+        item = self.table.item(r, 0)
+        return item.data(Qt.UserRole) if item else ""
+
+    def _on_add(self):
+        name, ok = QInputDialog.getText(self, "Add Category", "New Category Name:")
+        if not ok or not name.strip():
+            return
+        clean_name = name.strip()
+        existing = [c["name"].lower() for c in self._categories]
+        if clean_name.lower() in existing:
+            QMessageBox.warning(self, "Duplicate", f"Category '{clean_name}' already exists.")
+            return
+        if repo.add_expense_category(clean_name):
+            self._changed = True
+            self._load_categories()
+
+    def _on_rename(self):
+        old_name = self._get_selected_category()
+        if not old_name:
+            QMessageBox.information(self, "Select Category", "Please select a category row first.")
+            return
+        new_name, ok = QInputDialog.getText(self, "Rename Category", f"Rename '{old_name}' to:", text=old_name)
+        if not ok or not new_name.strip():
+            return
+        clean_new = new_name.strip()
+        if clean_new.lower() == old_name.lower():
+            return
+        if repo.update_expense_category(old_name, clean_new):
+            self._changed = True
+            self._load_categories()
+            success(self, f"Category renamed to '{clean_new}'. Matching expense records updated.")
+
+    def _on_reassign_all(self):
+        source = self._get_selected_category()
+        if not source:
+            QMessageBox.information(self, "Select Category", "Please select a category row first.")
+            return
+        others = [c["name"] for c in self._categories if c["name"].lower() != source.lower()]
+        if not others:
+            QMessageBox.warning(self, "No Target", "No other categories available to reassign to.")
+            return
+        target, ok = QInputDialog.getItem(
+            self, "Reassign All Records",
+            f"Move all records currently in '{source}' to which category?",
+            others, 0, False
+        )
+        if not ok or not target:
+            return
+        if not confirm(self, "Confirm Reassignment",
+                       f"Are you sure you want to move all records from '{source}' to '{target}'?",
+                       confirm_label="Reassign All"):
+            return
+        moved = repo.reassign_all_category_expenses(source, target)
+        self._changed = True
+        self._load_categories()
+        success(self, f"Successfully moved {moved} expense record(s) to '{target}'.")
+
+    def _on_delete(self):
+        cat_name = self._get_selected_category()
+        if not cat_name:
+            QMessageBox.information(self, "Select Category", "Please select a category row first.")
+            return
+        if cat_name.lower() == "other":
+            QMessageBox.warning(self, "Cannot Delete", "The default 'Other' category cannot be deleted.")
+            return
+        reassign_options = [c["name"] for c in self._categories if c["name"].lower() != cat_name.lower()]
+        default_idx = reassign_options.index("Other") if "Other" in reassign_options else 0
+        reassign_to, ok = QInputDialog.getItem(
+            self, "Delete Category",
+            f"Delete category '{cat_name}'. Where should its existing records be moved?",
+            reassign_options, default_idx, False
+        )
+        if not ok or not reassign_to:
+            return
+        if repo.delete_expense_category(cat_name, reassign_to):
+            self._changed = True
+            self._load_categories()
+            success(self, f"Category '{cat_name}' deleted. Records moved to '{reassign_to}'.")
 
 
 class _KpiCard(QFrame):
@@ -111,6 +317,16 @@ class ExpensesPage(QWidget):
         v.addWidget(sub)
         head.addLayout(v)
         head.addStretch()
+
+        self.btn_manage_cats = QPushButton("  Manage Categories")
+        self.btn_manage_cats.setObjectName("secondaryButton")
+        self.btn_manage_cats.setIcon(btn_icon_secondary("settings"))
+        self.btn_manage_cats.setIconSize(QSize(15, 15))
+        self.btn_manage_cats.setCursor(Qt.PointingHandCursor)
+        self.btn_manage_cats.setToolTip("Add, edit, or reassign expense categories")
+        self.btn_manage_cats.clicked.connect(self._open_manage_categories)
+        head.addWidget(self.btn_manage_cats)
+
         self.btn_add = QPushButton("  + Add Expense")
         self.btn_add.setObjectName("primaryButton")
         self.btn_add.setIcon(btn_icon_secondary("add"))
@@ -219,6 +435,19 @@ class ExpensesPage(QWidget):
         self._month_combo.currentIndexChanged.connect(self._on_month_changed)
         filter_row.addWidget(self._month_combo)
 
+        # Category Filter Dropdown
+        lbl_cat = QLabel("Category:")
+        lbl_cat.setStyleSheet("font-weight: 600; font-size: 13px;")
+        filter_row.addWidget(lbl_cat)
+
+        self._cat_combo = QComboBox()
+        self._cat_combo.setFixedHeight(34)
+        self._cat_combo.setMinimumWidth(160)
+        self._cat_combo.setStyleSheet(combo_style)
+        self._cat_combo.currentIndexChanged.connect(self._on_category_filter_changed)
+        filter_row.addWidget(self._cat_combo)
+        self._populate_category_filter()
+
         # Custom date pickers widget
         self._custom_date_widget = QWidget()
         custom_lay = QHBoxLayout(self._custom_date_widget)
@@ -287,6 +516,15 @@ class ExpensesPage(QWidget):
         tc_title.setObjectName("h3")
         tc_head.addWidget(tc_title)
         tc_head.addStretch()
+
+        self.btn_batch_reassign = QPushButton("⚡ Reassign Filtered...")
+        self.btn_batch_reassign.setObjectName("secondaryButton")
+        self.btn_batch_reassign.setCursor(Qt.PointingHandCursor)
+        self.btn_batch_reassign.setToolTip("Batch change category for all currently filtered expense records")
+        self.btn_batch_reassign.setStyleSheet("font-size: 12px; padding: 4px 12px; border-radius: 6px;")
+        self.btn_batch_reassign.clicked.connect(self._open_batch_reassign_filtered)
+        tc_head.addWidget(self.btn_batch_reassign)
+
         t_lay.addLayout(tc_head)
 
         self.exp_cards_container = QWidget()
@@ -375,6 +613,34 @@ class ExpensesPage(QWidget):
         self._load_table()
         self._reload_summary_for_filter()
 
+    def _on_category_filter_changed(self, idx: int):
+        self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
+        self._load_table()
+
+    def _populate_category_filter(self):
+        if not hasattr(self, "_cat_combo"):
+            return
+        curr_cat = self._cat_combo.currentData()
+        if not curr_cat and self._cat_combo.currentIndex() > 0:
+            curr_cat = self._cat_combo.currentText().split(" (")[0]
+        self._cat_combo.blockSignals(True)
+        self._cat_combo.clear()
+        self._cat_combo.addItem("All Categories", "")
+        select_idx = 0
+        try:
+            cats = repo.get_all_expense_categories()
+            for i, c in enumerate(cats):
+                c_name = c["name"]
+                c_count = c.get("count", 0)
+                label = f"{c_name} ({c_count})" if c_count > 0 else c_name
+                self._cat_combo.addItem(label, c_name)
+                if curr_cat and c_name.lower() == str(curr_cat).lower():
+                    select_idx = i + 1
+        except Exception:
+            pass
+        self._cat_combo.setCurrentIndex(select_idx)
+        self._cat_combo.blockSignals(False)
+
     def _on_date_range_changed(self):
         self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
         self._load_table()
@@ -393,6 +659,10 @@ class ExpensesPage(QWidget):
             self._month_combo.blockSignals(True)
             self._month_combo.setCurrentIndex(0)
             self._month_combo.blockSignals(False)
+        if hasattr(self, "_cat_combo"):
+            self._cat_combo.blockSignals(True)
+            self._cat_combo.setCurrentIndex(0)
+            self._cat_combo.blockSignals(False)
         if hasattr(self, "_custom_date_widget"):
             self._custom_date_widget.setVisible(False)
         self._filtered_expenses = self._filter_expenses_list(getattr(self, "_expenses", []))
@@ -472,6 +742,10 @@ class ExpensesPage(QWidget):
         search_txt = self._search_input.text().strip().lower() if hasattr(self, "_search_input") else ""
         period_opt = self._filter_combo.currentText() if hasattr(self, "_filter_combo") else "All Time"
         month_opt = self._month_combo.currentText() if hasattr(self, "_month_combo") else "All Months"
+        cat_filter = None
+        if hasattr(self, "_cat_combo") and self._cat_combo.currentIndex() > 0:
+            cat_data = self._cat_combo.currentData()
+            cat_filter = cat_data if cat_data else self._cat_combo.currentText().split(" (")[0]
 
         from datetime import datetime, date, timedelta
         today = date.today()
@@ -484,6 +758,12 @@ class ExpensesPage(QWidget):
 
         filtered = []
         for exp in expenses:
+            # Category Filter Check
+            if cat_filter:
+                exp_c = str(exp.get("category", "")).strip().lower()
+                if exp_c != str(cat_filter).strip().lower():
+                    continue
+
             d_str = str(exp.get("date", ""))
             exp_d = None
             for fmt in ("%b %d, %Y", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y"):
@@ -555,6 +835,12 @@ class ExpensesPage(QWidget):
         if hasattr(self, "btn_import"):
             self.btn_import.setEnabled(can_create)
             self.btn_import.setVisible(can_create)
+        if hasattr(self, "btn_manage_cats"):
+            self.btn_manage_cats.setEnabled(can_edit)
+            self.btn_manage_cats.setVisible(can_edit)
+        if hasattr(self, "btn_batch_reassign"):
+            self.btn_batch_reassign.setEnabled(can_edit)
+            self.btn_batch_reassign.setVisible(can_edit)
 
         # Per-card Edit/Delete buttons are baked in at render time, so a role
         # change (e.g. logging back in as Admin after a Staff session) would
@@ -877,14 +1163,35 @@ class ExpensesPage(QWidget):
 
         # Col 1: Date & Category
         c1 = QVBoxLayout()
-        c1.setSpacing(2)
+        c1.setSpacing(4)
         date_lbl = QLabel(exp["date"])
         date_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
-        cat_color = _CATEGORY_COLORS.get(exp['category'], '#94A3B8')
-        cat_lbl = QLabel(f"● {exp['category']}")
-        cat_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {cat_color};")
+        cat_val = exp.get("category", "Other") or "Other"
+        cat_color = get_category_color(cat_val)
+
+        cat_badge = QPushButton(f"●  {cat_val}")
+        cat_badge.setCursor(Qt.PointingHandCursor if can_edit else Qt.ArrowCursor)
+        cat_badge.setToolTip("Click to change category" if can_edit else "")
+        cat_badge.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 12px;
+                font-weight: 600;
+                color: {cat_color};
+                background: {cat_color}18;
+                border: 1px solid {cat_color}45;
+                border-radius: 6px;
+                padding: 3px 8px;
+                text-align: left;
+            }}
+            QPushButton:hover {{
+                background: {cat_color}30;
+                border: 1px solid {cat_color}85;
+            }}
+        """)
+        if can_edit:
+            cat_badge.clicked.connect(lambda _, e=exp, b=cat_badge: self._show_quick_category_menu(e, b))
         c1.addWidget(date_lbl)
-        c1.addWidget(cat_lbl)
+        c1.addWidget(cat_badge)
         lay.addLayout(c1, 2)
 
         # Col 2: Description
@@ -980,17 +1287,109 @@ class ExpensesPage(QWidget):
         completer.setCompletionMode(QCompleter.PopupCompletion)
         desc_edit.setCompleter(completer)
 
+    def _show_quick_category_menu(self, exp: dict, btn: QWidget):
+        if not SessionManager.has_permission("expenses", "edit"):
+            return
+        menu = QMenu(self)
+        current_cat = exp.get("category", "Other") or "Other"
+        all_cats = repo.get_expense_category_names()
+        for cat in all_cats:
+            act = menu.addAction(f"●  {cat}")
+            if cat.strip().lower() == current_cat.strip().lower():
+                act.setCheckable(True)
+                act.setChecked(True)
+            act.triggered.connect(lambda _, c=cat: self._quick_update_category(exp, c))
+        menu.addSeparator()
+        new_act = menu.addAction("+ New Category...")
+        new_act.triggered.connect(lambda _: self._quick_add_and_set_category(exp))
+        menu.exec(btn.mapToGlobal(QPoint(0, btn.height())))
+
+    def _quick_update_category(self, exp: dict, new_cat: str):
+        clean_c = (new_cat or "").strip()
+        if not clean_c or exp.get("category") == clean_c:
+            return
+        repo.add_expense_category(clean_c)
+        repo.update_expense(exp["id"], {
+            "category": clean_c,
+            "description": exp.get("description", "—"),
+            "amount": float(exp.get("amount", 0.0) or 0.0),
+            "date": exp.get("date", ""),
+        })
+        self._populate_category_filter()
+        self.reload()
+        try:
+            from utils.signals import app_events
+            app_events().expense_saved.emit()
+            app_events().data_changed.emit()
+        except Exception:
+            pass
+
+    def _quick_add_and_set_category(self, exp: dict):
+        new_c, ok = QInputDialog.getText(self, "New Category", "Category Name:")
+        if ok and new_c.strip():
+            c_clean = new_c.strip()
+            repo.add_expense_category(c_clean)
+            self._quick_update_category(exp, c_clean)
+
+    def _open_manage_categories(self):
+        if not SessionManager.has_permission("expenses", "edit"):
+            error(self, title="Access Denied", message="You do not have permission to manage categories.")
+            return
+        dlg = ManageCategoriesDialog(self)
+        dlg.exec()
+        if getattr(dlg, "_changed", False):
+            self._populate_category_filter()
+            self.reload()
+            try:
+                from utils.signals import app_events
+                app_events().expense_saved.emit()
+                app_events().data_changed.emit()
+            except Exception:
+                pass
+
+    def _open_batch_reassign_filtered(self):
+        if not SessionManager.has_permission("expenses", "edit"):
+            error(self, title="Access Denied", message="You do not have permission to edit expenses.")
+            return
+        visible = getattr(self, "_filtered_expenses", [])
+        if not visible:
+            QMessageBox.information(self, "No Records", "There are no records in the current filter to reassign.")
+            return
+        all_cats = repo.get_expense_category_names()
+        target_cat, ok = QInputDialog.getItem(
+            self, "Batch Reassign Filtered Records",
+            f"Reassign all {len(visible)} currently filtered record(s) to which category?\n\n"
+            f"(This will update every expense currently visible under this filter/search):",
+            all_cats, 0, True
+        )
+        if not ok or not target_cat.strip():
+            return
+        target_clean = target_cat.strip()
+        expense_ids = [e["id"] for e in visible if "id" in e]
+        if not expense_ids:
+            return
+        updated_count = repo.batch_update_expense_category(expense_ids, target_clean)
+        self._populate_category_filter()
+        self.reload()
+        try:
+            from utils.signals import app_events
+            app_events().expense_saved.emit()
+            app_events().data_changed.emit()
+        except Exception:
+            pass
+        success(self, f"Successfully reassigned {updated_count} record(s) to '{target_clean}'.")
+
     def _open_add_expense(self):
         if not SessionManager.has_permission("expenses", "create"):
             error(self, title="Access Denied", message="You do not have permission to record expenses.")
             return
         from PySide6.QtWidgets import (
-            QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox, QDateEdit
+            QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox, QDateEdit, QHBoxLayout, QPushButton
         )
         from PySide6.QtCore import QDate
         dlg = QDialog(self)
         dlg.setWindowTitle("Add Expense")
-        dlg.setMinimumWidth(380)
+        dlg.setMinimumWidth(400)
         form = QFormLayout(dlg)
         form.setSpacing(12)
 
@@ -999,10 +1398,29 @@ class ExpensesPage(QWidget):
         date_edit.setDisplayFormat("MMM dd, yyyy")
         form.addRow("Date:", date_edit)
 
+        cat_row = QHBoxLayout()
         cat_cb = QComboBox()
-        for c in EXPENSE_CATEGORIES:
+        cat_cb.setEditable(True)
+        cat_cb.setInsertPolicy(QComboBox.NoInsert)
+        for c in repo.get_expense_category_names():
             cat_cb.addItem(c)
-        form.addRow("Category:", cat_cb)
+        cat_row.addWidget(cat_cb, 1)
+
+        def _add_new_cat():
+            new_c, ok = QInputDialog.getText(dlg, "Add Category", "New Category Name:")
+            if ok and new_c.strip():
+                c_clean = new_c.strip()
+                repo.add_expense_category(c_clean)
+                if cat_cb.findText(c_clean, Qt.MatchFixedString) < 0:
+                    cat_cb.addItem(c_clean)
+                cat_cb.setCurrentText(c_clean)
+
+        btn_new_cat = QPushButton("+ New")
+        btn_new_cat.setCursor(Qt.PointingHandCursor)
+        btn_new_cat.setStyleSheet("padding: 4px 10px; font-weight: 600; font-size: 12px;")
+        btn_new_cat.clicked.connect(_add_new_cat)
+        cat_row.addWidget(btn_new_cat)
+        form.addRow("Category:", cat_row)
 
         desc_edit = QLineEdit()
         desc_edit.setPlaceholderText("Description")
@@ -1026,12 +1444,15 @@ class ExpensesPage(QWidget):
             QMessageBox.warning(self, "Invalid", "Enter a valid amount.")
             return
         date_str = date_edit.date().toString("MMM dd, yyyy")
+        cat_val = cat_cb.currentText().strip() or "Other"
+        repo.add_expense_category(cat_val)
         repo.add_expense({
-            "category": cat_cb.currentText(),
+            "category": cat_val,
             "description": desc_edit.text().strip() or "—",
             "amount": amt,
             "date": date_str,
         })
+        self._populate_category_filter()
         self.reload()
         try:
             from utils.signals import app_events
@@ -1046,12 +1467,12 @@ class ExpensesPage(QWidget):
             error(self, title="Access Denied", message="You do not have permission to edit expenses.")
             return
         from PySide6.QtWidgets import (
-            QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox, QDateEdit
+            QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox, QDateEdit, QHBoxLayout, QPushButton
         )
         from PySide6.QtCore import QDate
         dlg = QDialog(self)
         dlg.setWindowTitle("Edit Expense")
-        dlg.setMinimumWidth(380)
+        dlg.setMinimumWidth(400)
         form = QFormLayout(dlg)
         form.setSpacing(12)
 
@@ -1060,13 +1481,35 @@ class ExpensesPage(QWidget):
         date_edit.setDisplayFormat("MMM dd, yyyy")
         form.addRow("Date:", date_edit)
 
+        cat_row = QHBoxLayout()
         cat_cb = QComboBox()
-        for c in EXPENSE_CATEGORIES:
+        cat_cb.setEditable(True)
+        cat_cb.setInsertPolicy(QComboBox.NoInsert)
+        for c in repo.get_expense_category_names():
             cat_cb.addItem(c)
-        idx = cat_cb.findText(exp.get("category", ""))
+        cur_cat = exp.get("category", "")
+        idx = cat_cb.findText(cur_cat, Qt.MatchFixedString)
         if idx >= 0:
             cat_cb.setCurrentIndex(idx)
-        form.addRow("Category:", cat_cb)
+        else:
+            cat_cb.setEditText(cur_cat)
+        cat_row.addWidget(cat_cb, 1)
+
+        def _add_new_cat():
+            new_c, ok = QInputDialog.getText(dlg, "Add Category", "New Category Name:")
+            if ok and new_c.strip():
+                c_clean = new_c.strip()
+                repo.add_expense_category(c_clean)
+                if cat_cb.findText(c_clean, Qt.MatchFixedString) < 0:
+                    cat_cb.addItem(c_clean)
+                cat_cb.setCurrentText(c_clean)
+
+        btn_new_cat = QPushButton("+ New")
+        btn_new_cat.setCursor(Qt.PointingHandCursor)
+        btn_new_cat.setStyleSheet("padding: 4px 10px; font-weight: 600; font-size: 12px;")
+        btn_new_cat.clicked.connect(_add_new_cat)
+        cat_row.addWidget(btn_new_cat)
+        form.addRow("Category:", cat_row)
 
         desc_edit = QLineEdit(exp.get("description", ""))
         desc_edit.setPlaceholderText("Description")
@@ -1090,12 +1533,15 @@ class ExpensesPage(QWidget):
             QMessageBox.warning(self, "Invalid", "Enter a valid amount.")
             return
         date_str = date_edit.date().toString("MMM dd, yyyy")
+        cat_val = cat_cb.currentText().strip() or "Other"
+        repo.add_expense_category(cat_val)
         repo.update_expense(exp["id"], {
-            "category": cat_cb.currentText(),
+            "category": cat_val,
             "description": desc_edit.text().strip() or "—",
             "amount": amt,
             "date": date_str,
         })
+        self._populate_category_filter()
         self.reload()
         try:
             from utils.signals import app_events
@@ -1130,3 +1576,4 @@ class ExpensesPage(QWidget):
         dlg = ImportWizardDialog(default_entity="expenses", parent=self)
         if dlg.exec():
             self.reload()
+
