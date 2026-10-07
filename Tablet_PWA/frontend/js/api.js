@@ -477,6 +477,14 @@ export const api = {
     return repo.getPackageItems(pkgId);
   },
 
+  // Predefined Food Sets A-E (pkg_is_set=1) with their fixed dishes — backs
+  // the wizard's Food-Set Order-Type branch.
+  async getFoodSets() {
+    await ready();
+    api.ensureLiveConnection().catch(() => {});
+    return repo.getFoodSets();
+  },
+
   async getPackageBuckets(pkgId) {
     await ready();
     return repo.getPackageBuckets(pkgId);
