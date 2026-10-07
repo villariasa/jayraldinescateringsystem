@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS packages (
     pkg_min_pax INTEGER DEFAULT 30,
     pkg_image TEXT DEFAULT '',
     image TEXT DEFAULT '',
+    pkg_is_set INTEGER DEFAULT 0,
     pkg_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -94,9 +95,12 @@ CREATE TABLE IF NOT EXISTS bookings (
     bk_event_date DATE NOT NULL,
     bk_event_time TIME DEFAULT '18:00',
     bk_event_end_time TIME,
+    bk_pickup_time TEXT,
+    bk_dropoff_time TEXT,
     bk_venue TEXT,
     bk_occasion TEXT,
     bk_pax INTEGER NOT NULL,
+    bk_num_sets INTEGER DEFAULT 0,
     bk_total_amount REAL NOT NULL,
     bk_base_total REAL,
     bk_payment_mode TEXT DEFAULT 'Cash',
@@ -120,6 +124,25 @@ CREATE TABLE IF NOT EXISTS booking_menu_items (
     bmi_category TEXT,
     bmi_price REAL DEFAULT 0.0,
     bmi_quantity INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS booking_sets (
+    bs_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bs_booking_id INTEGER NOT NULL REFERENCES bookings(bk_id) ON DELETE CASCADE,
+    bs_set_id INTEGER REFERENCES packages(pkg_id),
+    bs_set_name TEXT,
+    bs_quantity INTEGER NOT NULL DEFAULT 1,
+    bs_unit_price REAL DEFAULT 0.0,
+    bs_sort INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS booking_set_items (
+    bsi_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bsi_set_row_id INTEGER NOT NULL REFERENCES booking_sets(bs_id) ON DELETE CASCADE,
+    bsi_item_name TEXT,
+    bsi_category TEXT,
+    bsi_price REAL DEFAULT 0.0,
+    bsi_quantity INTEGER DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS invoices (
@@ -353,6 +376,37 @@ export async function initDb() {
   try { db.run("ALTER TABLE menu_items ADD COLUMN image TEXT DEFAULT '';"); } catch (_) {}
   try { db.run("ALTER TABLE occasions ADD COLUMN occ_is_active INTEGER DEFAULT 1;"); } catch (_) {}
   try { db.run("ALTER TABLE package_items ADD COLUMN pi_bucket_id INTEGER;"); } catch (_) {}
+  // New fields (client request): pickup/drop-off time + number of sets, and
+  // pkg_is_set to flag the predefined Food Sets A-E. Idempotent — guarded.
+  try { db.run("ALTER TABLE packages ADD COLUMN pkg_is_set INTEGER DEFAULT 0;"); } catch (_) {}
+  try { db.run("ALTER TABLE bookings ADD COLUMN bk_pickup_time TEXT;"); } catch (_) {}
+  try { db.run("ALTER TABLE bookings ADD COLUMN bk_dropoff_time TEXT;"); } catch (_) {}
+  try { db.run("ALTER TABLE bookings ADD COLUMN bk_num_sets INTEGER DEFAULT 0;"); } catch (_) {}
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS booking_sets (
+        bs_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bs_booking_id INTEGER NOT NULL REFERENCES bookings(bk_id) ON DELETE CASCADE,
+        bs_set_id INTEGER REFERENCES packages(pkg_id),
+        bs_set_name TEXT,
+        bs_quantity INTEGER NOT NULL DEFAULT 1,
+        bs_unit_price REAL DEFAULT 0.0,
+        bs_sort INTEGER DEFAULT 0
+      );
+    `);
+  } catch (_) {}
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS booking_set_items (
+        bsi_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bsi_set_row_id INTEGER NOT NULL REFERENCES booking_sets(bs_id) ON DELETE CASCADE,
+        bsi_item_name TEXT,
+        bsi_category TEXT,
+        bsi_price REAL DEFAULT 0.0,
+        bsi_quantity INTEGER DEFAULT 1
+      );
+    `);
+  } catch (_) {}
   try {
     db.run(`
       CREATE TABLE IF NOT EXISTS package_buckets (
@@ -459,12 +513,13 @@ export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], pa
         const price = p.pkg_price_per_pax != null ? Number(p.pkg_price_per_pax) : (p.price_per_pax != null ? Number(p.price_per_pax) : 0);
         const minPax = Number(p.pkg_min_pax ?? p.min_pax) || 30;
         const img = p.image || p.pkg_image || "";
+        const isSet = Number(p.pkg_is_set ?? p.is_set) || 0;
         if (id) {
-          db.run("INSERT INTO packages (pkg_id, pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [id, name, desc, price, minPax, img, img]);
+          db.run("INSERT INTO packages (pkg_id, pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image, pkg_is_set) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [id, name, desc, price, minPax, img, img, isSet]);
         } else {
-          db.run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image) VALUES (?, ?, ?, ?, ?, ?)",
-            [name, desc, price, minPax, img, img]);
+          db.run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image, pkg_is_set) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [name, desc, price, minPax, img, img, isSet]);
         }
         const assignedId = id || db.exec("SELECT last_insert_rowid()")[0].values[0][0];
         if (img) {
