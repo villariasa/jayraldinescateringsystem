@@ -1702,6 +1702,9 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
                b.bk_event_date AS event_date,
                b.bk_event_time AS event_time,
                b.bk_event_end_time AS event_end_time,
+               b.bk_pickup_time AS pickup_time,
+               b.bk_dropoff_time AS dropoff_time,
+               b.bk_num_sets AS num_sets,
                b.bk_occasion AS occasion,
                b.bk_venue AS venue,
                b.bk_pax AS pax,
@@ -1785,6 +1788,30 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
     else:
         d["dishes"] = []
 
+    # Fetch Food Set selections (multiple / repeated sets) with per-set dishes
+    try:
+        set_rows = db.fetchall(
+            "SELECT bs_id, bs_set_id, bs_set_name, bs_quantity, bs_unit_price "
+            "FROM booking_sets WHERE bs_booking_id = %s ORDER BY bs_sort ASC, bs_id ASC",
+            (db_id,))
+        sets = []
+        for sr in (set_rows or []):
+            sr = dict(sr)
+            item_rows = db.fetchall(
+                "SELECT bsi_item_name AS name, bsi_category AS category, bsi_price AS price, bsi_quantity AS quantity "
+                "FROM booking_set_items WHERE bsi_set_row_id = %s ORDER BY bsi_id ASC",
+                (sr["bs_id"],))
+            sets.append({
+                "set_id": sr.get("bs_set_id"),
+                "name": sr.get("bs_set_name"),
+                "quantity": sr.get("bs_quantity") or 1,
+                "unit_price": sr.get("bs_unit_price") or 0.0,
+                "dishes": [dict(ir) for ir in (item_rows or [])],
+            })
+        d["sets"] = sets
+    except Exception as _set_err:
+        d["sets"] = []
+
     # Fetch itemized additional add-on charges
     raw_charges = get_additional_charges(db_id)
     raw_notes = d.get("notes") or ""
@@ -1845,7 +1872,7 @@ def create_booking(data: dict) -> Optional[dict]:
         total_amt   = _parse_amount(raw_total)
 
         menu_type = str(data.get("menu_type") or "package").strip().lower()
-        if menu_type not in ("package", "custom"):
+        if menu_type not in ("package", "custom", "food_set", "food_tray"):
             menu_type = "package"
 
         package_id = data.get("package_id")
@@ -1897,6 +1924,10 @@ def create_booking(data: dict) -> Optional[dict]:
                 total_amt,
                 pm,
                 amount_paid,
+                # New fields (appended; sp_create_booking reads these at p[16..18])
+                data.get("pickup_time") or None,
+                data.get("dropoff_time") or None,
+                data.get("num_sets") or 0,
             ),
             out_names=["p_booking_id", "p_booking_ref"],
         )
@@ -1937,6 +1968,52 @@ def create_booking(data: dict) -> Optional[dict]:
                             """, (b_id, i_id, i_name, i_cat))
                 except Exception as bmie:
                     print(f"[repository] create_booking save dishes note: {bmie}")
+
+            # Save Food Set selections (supports multiple + repeated sets). Each
+            # entry: {set_id, name, quantity, unit_price, dishes:[{name,category,price,quantity}]}.
+            # Dishes are ALSO flattened into booking_menu_items for backward
+            # compatibility with order-print / kitchen / export readers.
+            sets = data.get("sets") or []
+            if sets:
+                try:
+                    db.execute("DELETE FROM booking_sets WHERE bs_booking_id = %s", (b_id,))
+                    for sort_i, s in enumerate(sets):
+                        if not isinstance(s, dict):
+                            continue
+                        s_id = s.get("set_id") or s.get("package_id")
+                        s_name = s.get("name") or s.get("set_name") or ""
+                        s_qty = int(s.get("quantity") or s.get("qty") or 1)
+                        s_price = float(s.get("unit_price") or s.get("price") or 0.0)
+                        db.execute("""
+                            INSERT INTO booking_sets (bs_booking_id, bs_set_id, bs_set_name, bs_quantity, bs_unit_price, bs_sort)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (b_id, s_id, s_name, s_qty, s_price, sort_i))
+                        bs_row = db.fetchone(
+                            "SELECT bs_id FROM booking_sets WHERE bs_booking_id = %s AND bs_sort = %s ORDER BY bs_id DESC",
+                            (b_id, sort_i))
+                        bs_id = bs_row["bs_id"] if bs_row else None
+                        for d in (s.get("dishes") or []):
+                            if isinstance(d, dict):
+                                d_name = d.get("name") or d.get("item_name") or ""
+                                d_cat = d.get("category") or "Main Dish"
+                                d_price = float(d.get("price") or 0.0)
+                                d_qty = int(d.get("quantity") or 1)
+                            else:
+                                d_name, d_cat, d_price, d_qty = str(d).strip(), "Main Dish", 0.0, 1
+                            if not d_name:
+                                continue
+                            if bs_id:
+                                db.execute("""
+                                    INSERT INTO booking_set_items (bsi_set_row_id, bsi_item_name, bsi_category, bsi_price, bsi_quantity)
+                                    VALUES (%s, %s, %s, %s, %s)
+                                """, (bs_id, d_name, d_cat, d_price, d_qty))
+                            # backward-compat flatten (label with the set name)
+                            db.execute("""
+                                INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
+                                VALUES (%s, NULL, %s, %s, %s, %s)
+                            """, (b_id, d_name, (s_name or d_cat), d_price, d_qty * s_qty))
+                except Exception as bse:
+                    print(f"[repository] create_booking save sets note: {bse}")
 
             # Save additional charges (add-ons) if present
             add_charges = data.get("additional_charges")
@@ -2040,6 +2117,10 @@ def update_booking(db_id: int, data: dict) -> None:
                 data["total"],
                 pm,
                 amount_paid,
+                # New fields (appended; sp_update_booking reads these at p[17..19])
+                data.get("pickup_time") or None,
+                data.get("dropoff_time") or None,
+                data.get("num_sets") or 0,
             ),
         )
 
@@ -2077,6 +2158,43 @@ def update_booking(db_id: int, data: dict) -> None:
                         """, (db_id, i_id, i_name, i_cat))
             except Exception as bmie:
                 print(f"[repository] update_booking save dishes note: {bmie}")
+
+        # Re-save Food Set selections on edit (mirrors create_booking). Only
+        # touches set tables when the caller supplies "sets", so non-set edits
+        # leave any existing set rows alone.
+        if "sets" in data:
+            try:
+                db.execute("DELETE FROM booking_sets WHERE bs_booking_id = %s", (db_id,))
+                for sort_i, s in enumerate(data.get("sets") or []):
+                    if not isinstance(s, dict):
+                        continue
+                    s_id = s.get("set_id") or s.get("package_id")
+                    s_name = s.get("name") or s.get("set_name") or ""
+                    s_qty = int(s.get("quantity") or s.get("qty") or 1)
+                    s_price = float(s.get("unit_price") or s.get("price") or 0.0)
+                    db.execute("""
+                        INSERT INTO booking_sets (bs_booking_id, bs_set_id, bs_set_name, bs_quantity, bs_unit_price, bs_sort)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """, (db_id, s_id, s_name, s_qty, s_price, sort_i))
+                    bs_row = db.fetchone(
+                        "SELECT bs_id FROM booking_sets WHERE bs_booking_id = %s AND bs_sort = %s ORDER BY bs_id DESC",
+                        (db_id, sort_i))
+                    bs_id = bs_row["bs_id"] if bs_row else None
+                    for d2 in (s.get("dishes") or []):
+                        if isinstance(d2, dict):
+                            d_name = d2.get("name") or d2.get("item_name") or ""
+                            d_cat = d2.get("category") or "Main Dish"
+                            d_price = float(d2.get("price") or 0.0)
+                            d_qty = int(d2.get("quantity") or 1)
+                        else:
+                            d_name, d_cat, d_price, d_qty = str(d2).strip(), "Main Dish", 0.0, 1
+                        if d_name and bs_id:
+                            db.execute("""
+                                INSERT INTO booking_set_items (bsi_set_row_id, bsi_item_name, bsi_category, bsi_price, bsi_quantity)
+                                VALUES (%s, %s, %s, %s, %s)
+                            """, (bs_id, d_name, d_cat, d_price, d_qty))
+            except Exception as bse:
+                print(f"[repository] update_booking save sets note: {bse}")
 
         if "additional_charges" in data:
             try:
@@ -2381,8 +2499,25 @@ def get_invoices_summary(date_start: str = None, date_end: str = None,
     """, tuple(params))
     if not row:
         return {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
+
+    if date_start and date_end:
+        pay_where = "WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled') AND pr.pr_payment_date BETWEEN %s AND %s"
+        pay_params = [date_start, date_end]
+        if customer:
+            pay_where += " AND i.inv_customer_name ILIKE %s"
+            pay_params.append(f"%{customer}%")
+        p_row = db.fetchone(f"""
+            SELECT COALESCE(SUM(pr.pr_amount), 0.0) AS period_received
+            FROM payment_records pr
+            JOIN invoices i ON i.inv_id = pr.pr_invoice_id
+            {pay_where}
+        """, tuple(pay_params))
+        total_received_val = float(p_row["period_received"] if p_row and p_row.get("period_received") is not None else 0.0)
+    else:
+        total_received_val = float(row["total_received"] or 0.0)
+
     return {
-        "total_received": float(row["total_received"] or 0.0),
+        "total_received": total_received_val,
         "total_pending":  float(row["total_pending"] or 0.0),
         "events_count":   int(row["events_count"] or 0),
     }
@@ -2649,53 +2784,111 @@ def add_payment_record(invoice_id: int, amount: float,
     return None
 
 
-def get_payment_ledger(year: int = None, month: int = None) -> list[dict]:
-    """Full cross-customer payment history for the Ledger view: Date, Customer,
-    Transaction type (Down Payment vs Full/Remaining Payment), Amount, Status.
+def get_payment_ledger(year: int = None, month: int = None,
+                       date_start: str = None, date_end: str = None) -> list[dict]:
+    """Full cross-customer payment history for the Ledger view:
+    Payment Date, Event Date, Customer, Transaction type, Amount, Status.
 
-    Each payment_records row keeps its own pr_payment_date - a later payment
-    never overwrites an earlier one's date, so down payment and subsequent
-    payments both show their real, distinct dates here."""
-    # NOTE: pr_is_downpayment only exists in the Postgres schema - the SQLite
-    # schema never had that column, so selecting it directly raised "no such
-    # column: pr.pr_is_downpayment" on every call, silently emptying the
-    # Ledger tab regardless of how much payment data actually existed.
-    # Derive the same distinction instead: the earliest payment_records row
-    # per invoice IS the down payment, any later one is a remaining/full
-    # payment - works identically on both engines, no schema change needed.
+    - Payment Date: the real date when the downpayment or balance payment was made.
+    - Event Date: the event date this booking is for.
+    - Transaction: distinguishes 'Down Payment' from 'Full Payment' / 'Remaining Balance'.
+    - Status: 'Partial' if balance remains, 'Paid' if fully settled.
+
+    Filtering (all optional):
+    - year + month: restrict to a single calendar month (legacy).
+    - date_start + date_end: inclusive ISO (YYYY-MM-DD) range on the payment date.
+      Used by the Billing Ledger period filter (Today / This Week / This Month /
+      This Year). If both a month and a range are given, the range wins.
+    """
     sql = """
         SELECT pr.pr_id            AS id,
                pr.pr_payment_date  AS payment_date,
+               pr.pr_created_at    AS created_at,
+               i.inv_id            AS invoice_id,
                i.inv_customer_name AS customer,
+               b.bk_event_date     AS event_date,
+               pr.pr_amount        AS amount,
+               i.inv_total_amount  AS total_amount,
+               i.inv_amount_paid   AS amount_paid,
+               i.inv_balance       AS balance,
+               i.inv_status        AS inv_status,
+               i.inv_booking_id    AS booking_id,
                CASE WHEN pr.pr_id = (
                    SELECT MIN(pr2.pr_id) FROM payment_records pr2 WHERE pr2.pr_invoice_id = pr.pr_invoice_id
-               ) THEN 1 ELSE 0 END AS is_downpayment,
-               pr.pr_amount        AS amount,
-               i.inv_status        AS status,
-               i.inv_booking_id    AS booking_id
+               ) THEN 1 ELSE 0 END AS is_first_payment,
+               CASE WHEN pr.pr_id = (
+                   SELECT MAX(pr3.pr_id) FROM payment_records pr3 WHERE pr3.pr_invoice_id = pr.pr_invoice_id
+               ) THEN 1 ELSE 0 END AS is_latest_payment,
+               (SELECT COUNT(*) FROM payment_records pr4 WHERE pr4.pr_invoice_id = pr.pr_invoice_id) AS pay_count
         FROM payment_records pr
         JOIN invoices i ON i.inv_id = pr.pr_invoice_id
+        LEFT JOIN bookings b ON b.bk_id = i.inv_booking_id
+        WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
     """
-    params: tuple = ()
-    if year and month:
-        sql += " WHERE strftime('%Y', pr.pr_payment_date) = %s AND strftime('%m', pr.pr_payment_date) = %s"
-        params = (str(year), f"{month:02d}")
-    sql += " ORDER BY pr.pr_payment_date DESC, pr.pr_created_at DESC"
-    rows = db.fetchall(sql, params)
+    params: list = []
+    if date_start and date_end:
+        sql += " AND date(pr.pr_payment_date) BETWEEN %s AND %s"
+        params.extend([str(date_start), str(date_end)])
+    elif year and month:
+        sql += " AND strftime('%Y', pr.pr_payment_date) = %s AND strftime('%m', pr.pr_payment_date) = %s"
+        params.extend([str(year), f"{month:02d}"])
+    sql += " ORDER BY pr.pr_payment_date DESC, pr.pr_id DESC"
+    rows = db.fetchall(sql, tuple(params))
     if not rows:
         return []
-    return [
-        {
-            "id":          r["id"],
-            "date":        r["payment_date"].strftime("%b %d, %Y") if hasattr(r["payment_date"], "strftime") else str(r["payment_date"]),
-            "customer":    r["customer"],
-            "transaction": "Down Payment" if r["is_downpayment"] else "Full/Remaining Payment",
-            "amount":      float(r["amount"]),
-            "status":      r["status"],
-            "booking_id":  r["booking_id"],
-        }
-        for r in rows
-    ]
+
+    results = []
+    for r in rows:
+        is_first = bool(r["is_first_payment"])
+        is_latest = bool(r["is_latest_payment"])
+        pay_cnt = int(r["pay_count"] or 1)
+        bal = float(r["balance"] or 0.0)
+        status_raw = str(r["inv_status"] or "").strip().lower()
+        is_fully_settled = (status_raw == "paid" or bal <= 0.0)
+
+        if is_first and is_fully_settled and pay_cnt == 1:
+            txn_label = "Full Payment (Initial)"
+            disp_status = "Paid"
+        elif is_first:
+            txn_label = "Down Payment"
+            disp_status = "Partial" if not is_fully_settled else "Paid"
+        elif is_fully_settled and is_latest:
+            txn_label = "Full Payment (Balance Cleared)"
+            disp_status = "Paid"
+        else:
+            txn_label = "Partial Payment"
+            disp_status = "Partial"
+
+        # Format payment date
+        p_date = r["payment_date"]
+        if hasattr(p_date, "strftime"):
+            pay_date_str = p_date.strftime("%Y-%m-%d")
+        elif p_date:
+            pay_date_str = str(p_date)[:10]
+        else:
+            pay_date_str = str(r.get("created_at") or "")[:10] or "—"
+
+        # Format event date
+        ev_date = r["event_date"]
+        if hasattr(ev_date, "strftime"):
+            ev_date_str = ev_date.strftime("%Y-%m-%d")
+        elif ev_date:
+            ev_date_str = str(ev_date)[:10]
+        else:
+            ev_date_str = "—"
+
+        results.append({
+            "id":           r["id"],
+            "date":         pay_date_str,
+            "payment_date": pay_date_str,
+            "event_date":   ev_date_str,
+            "customer":     r["customer"] or "—",
+            "transaction":  txn_label,
+            "amount":       float(r["amount"] or 0.0),
+            "status":       disp_status,
+            "booking_id":   r["booking_id"],
+        })
+    return results
 
 
 def get_payment_records(invoice_id: int) -> list[dict]:
@@ -3231,15 +3424,30 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
     """, (d_start_str, d_end_str))
     pending = int(p_row["pending_bookings"] if p_row and p_row.get("pending_bookings") is not None else 0)
 
-    # 3. Payments collected in this period
+    # 3. Downpayments actually collected in this period (cash received during window)
+    dp_pay_row = db.fetchone("""
+        SELECT COALESCE(SUM(pr.pr_amount), 0.0) AS dp_collected
+        FROM payment_records pr
+        JOIN invoices i ON i.inv_id = pr.pr_invoice_id
+        WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
+          AND pr.pr_payment_date >= %s AND pr.pr_payment_date <= %s
+          AND (pr.pr_is_downpayment = 1 OR pr.pr_id = (
+              SELECT MIN(pr2.pr_id) FROM payment_records pr2 WHERE pr2.pr_invoice_id = pr.pr_invoice_id
+          ))
+    """, (d_start_str, d_end_str))
+    actual_dp_collected = float(dp_pay_row["dp_collected"] if dp_pay_row and dp_pay_row.get("dp_collected") is not None else 0.0)
+
+    # 4. Total payments collected in this period
     pay_row = db.fetchone("""
-        SELECT COALESCE(SUM(pr_amount), 0.0) AS total_paid
-        FROM payment_records
-        WHERE pr_payment_date >= %s AND pr_payment_date <= %s
+        SELECT COALESCE(SUM(pr.pr_amount), 0.0) AS total_paid
+        FROM payment_records pr
+        JOIN invoices i ON i.inv_id = pr.pr_invoice_id
+        WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
+          AND pr.pr_payment_date >= %s AND pr.pr_payment_date <= %s
     """, (d_start_str, d_end_str))
     paid_amt = float(pay_row["total_paid"] if pay_row and pay_row.get("total_paid") is not None else 0.0)
 
-    # 4. Expenses in this period
+    # 5. Expenses in this period
     exp_row = db.fetchone("""
         SELECT COALESCE(SUM(exp_amount), 0.0) AS total_exp
         FROM expenses
@@ -3248,19 +3456,13 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
     """, (d_start_str, d_end_str, d_start_str, d_end_str))
     exp_amt = float(exp_row["total_exp"] if exp_row and exp_row.get("total_exp") is not None else 0.0)
 
-    # 5. Authoritative unpaid balance (matches Reports and Billing)
+    # 6. Authoritative unpaid balance (matches Reports and Billing)
     try:
         inv_sum = get_invoices_summary(d_start_str, d_end_str)
         unpaid = float(inv_sum.get("total_pending") or 0.0)
     except Exception:
         unpaid = max(0.0, period_sales - dp_amt)
 
-    # Revenue = period_sales (contract sales for events in period)
-    # Downpayment = dp_amt
-    # Unpaid Balance = unpaid
-    # Mathematically correlated: Revenue = Downpayment + Unpaid Balance
-    # Net Income = Revenue - Expenses
-    effective_dp = dp_amt if dp_amt > 0 else (period_sales - unpaid if period_sales > unpaid else paid_amt)
     return {
         "todays_events":        events_count,
         "pending_bookings":     pending,
@@ -3270,7 +3472,7 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
         "daily_expenses":       exp_amt,
         "unpaid_invoices":      unpaid,
         "todays_pax":           total_pax,
-        "downpayment_received": effective_dp,
+        "downpayment_received": actual_dp_collected,
         "net_income":           period_sales - exp_amt,
     }
 
