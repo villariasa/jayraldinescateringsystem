@@ -169,6 +169,7 @@ CREATE TABLE IF NOT EXISTS packages (
     pkg_price_per_pax REAL NOT NULL,
     pkg_min_pax INTEGER DEFAULT 30,
     pkg_image TEXT DEFAULT '',
+    pkg_is_set INTEGER DEFAULT 0,   -- 1 = predefined Food Set (Set A-E), 0 = regular package
     pkg_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -205,19 +206,45 @@ CREATE TABLE IF NOT EXISTS bookings (
     bk_event_date DATE NOT NULL,
     bk_event_time TEXT DEFAULT '6:00 PM',
     bk_event_end_time TEXT,
+    bk_pickup_time TEXT,
+    bk_dropoff_time TEXT,
     bk_venue TEXT,
     bk_occasion TEXT,
     bk_pax INTEGER NOT NULL,
+    bk_num_sets INTEGER DEFAULT 0,
     bk_total_amount REAL NOT NULL,
     bk_payment_mode TEXT DEFAULT 'Cash',
     bk_amount_paid REAL DEFAULT 0.0,
-    bk_menu_type TEXT DEFAULT 'package',
+    bk_menu_type TEXT DEFAULT 'package',   -- 'package' | 'custom' | 'food_set' | 'food_tray'
     bk_package_id INTEGER REFERENCES packages(pkg_id),
     bk_notes TEXT,
     bk_status TEXT DEFAULT 'PENDING',
     bk_color_theme TEXT DEFAULT '#2563EB',
     bk_cancellation_reason TEXT,
     bk_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Food Set selections per booking: supports MULTIPLE sets and REPEATING the same
+-- set (e.g. 2x Set A + 1x Set C). Each row is one chosen set with a quantity.
+CREATE TABLE IF NOT EXISTS booking_sets (
+    bs_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bs_booking_id INTEGER NOT NULL REFERENCES bookings(bk_id) ON DELETE CASCADE,
+    bs_set_id INTEGER REFERENCES packages(pkg_id),
+    bs_set_name TEXT,
+    bs_quantity INTEGER NOT NULL DEFAULT 1,
+    bs_unit_price REAL DEFAULT 0.0,
+    bs_sort INTEGER DEFAULT 0
+);
+
+-- Per-set customized dishes (each chosen/repeated set can be customized
+-- independently). bsi_set_row_id ties a dish to one booking_sets row.
+CREATE TABLE IF NOT EXISTS booking_set_items (
+    bsi_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bsi_set_row_id INTEGER NOT NULL REFERENCES booking_sets(bs_id) ON DELETE CASCADE,
+    bsi_item_name TEXT,
+    bsi_category TEXT,
+    bsi_price REAL DEFAULT 0.0,
+    bsi_quantity INTEGER DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS booking_menu_items (
@@ -682,8 +709,13 @@ def _ensure_columns(conn: sqlite3.Connection):
         ("menu_items", "mi_image", "TEXT DEFAULT ''"),
         ("menu_items", "image", "TEXT DEFAULT ''"),
         ("packages", "pkg_image", "TEXT DEFAULT ''"),
+        ("packages", "pkg_is_set", "INTEGER DEFAULT 0"),
         ("menu_categories", "mc_sort", "INTEGER DEFAULT 0"),
         ("package_items", "pi_bucket_id", "INTEGER"),
+        # New booking fields (client request): pickup/drop-off time + number of sets
+        ("bookings", "bk_pickup_time", "TEXT"),
+        ("bookings", "bk_dropoff_time", "TEXT"),
+        ("bookings", "bk_num_sets", "INTEGER DEFAULT 0"),
     ]
     for table, col, col_def in cols_to_add:
         try:
@@ -720,6 +752,30 @@ def init_sqlite_db(conn: sqlite3.Connection):
         SET inv_status = 'CANCELLED', inv_balance = 0
         WHERE inv_status != 'CANCELLED'
           AND inv_booking_id IN (SELECT bk_id FROM bookings WHERE bk_status = 'CANCELLED')
+    """)
+
+    # Backfill: Fix payment records where initial down payment erroneously recorded
+    # event date instead of the date the payment was actually made.
+    cursor.execute("""
+        UPDATE payment_records
+        SET pr_payment_date = SUBSTR(COALESCE(
+            (SELECT bk_created_at FROM bookings WHERE bk_id = (SELECT inv_booking_id FROM invoices WHERE inv_id = payment_records.pr_invoice_id)),
+            payment_records.pr_created_at
+        ), 1, 10)
+        WHERE (pr_is_downpayment = 1 OR pr_id = (
+            SELECT MIN(pr2.pr_id) FROM payment_records pr2 WHERE pr2.pr_invoice_id = payment_records.pr_invoice_id
+        ))
+        AND pr_payment_date IN (
+            SELECT bk_event_date FROM bookings WHERE bk_id = (SELECT inv_booking_id FROM invoices WHERE inv_id = payment_records.pr_invoice_id)
+        )
+        AND COALESCE(
+            (SELECT bk_created_at FROM bookings WHERE bk_id = (SELECT inv_booking_id FROM invoices WHERE inv_id = payment_records.pr_invoice_id)),
+            payment_records.pr_created_at
+        ) IS NOT NULL
+        AND LENGTH(COALESCE(
+            (SELECT bk_created_at FROM bookings WHERE bk_id = (SELECT inv_booking_id FROM invoices WHERE inv_id = payment_records.pr_invoice_id)),
+            payment_records.pr_created_at
+        )) >= 10
     """)
 
     # Seed Business Info if empty
@@ -787,6 +843,40 @@ def init_sqlite_db(conn: sqlite3.Connection):
                 "INSERT OR IGNORE INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
                 (name, desc, price, min_pax)
             )
+
+    # Seed predefined Food Sets A-E (from Jayraldine's menu). Seeds when no Food
+    # Set exists yet, so it also populates existing installs that already have
+    # regular packages. (app_settings is created later in this function, so we
+    # guard on the set count rather than a settings flag.)
+    cursor.execute("SELECT COUNT(*) FROM packages WHERE COALESCE(pkg_is_set, 0) = 1")
+    if cursor.fetchone()[0] == 0:
+        log.info("Seeding predefined Food Sets A-E...")
+        # price per set = 4800 (20-22 pax). Confirm with client if this changes.
+        FOOD_SET_PRICE = 4800.0
+        FOOD_SET_MIN_PAX = 20
+        food_sets = [
+            ("Set A", ["Humba", "Lumpia Shanghai", "Chopsuey", "Bam-i"]),
+            ("Set B", ["Pork Steak", "Chicken Cordon Bleu", "Bam-i", "Fish Fillet w/ Lemon Sauce"]),
+            ("Set C", ["Beef Kalderita", "Buttered Chicken", "Fish Fillet w/ Tartar Sauce", "Pancit Guisado"]),
+            ("Set D", ["Pork Spareribs", "Crab Relleno", "Bam-i", "Korean Chicken"]),
+            ("Set E", ["Beef Steak", "Fried Chicken", "Spaghetti", "Lumpia Shanghai"]),
+        ]
+        for set_name, dishes in food_sets:
+            cursor.execute(
+                "INSERT OR IGNORE INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_is_set) "
+                "VALUES (?, ?, ?, ?, 1)",
+                (set_name, "Predefined Food Set (" + ", ".join(dishes) + ")", FOOD_SET_PRICE, FOOD_SET_MIN_PAX)
+            )
+            cursor.execute("SELECT pkg_id FROM packages WHERE pkg_name = ?", (set_name,))
+            row = cursor.fetchone()
+            if row:
+                set_pkg_id = row[0]
+                for dish in dishes:
+                    cursor.execute(
+                        "INSERT INTO package_items (pi_package_id, pi_item_name, pi_category, pi_quantity) "
+                        "VALUES (?, ?, 'Main Dish', 1)",
+                        (set_pkg_id, dish)
+                    )
 
     # Seed Default Occasions if empty
     cursor.execute("SELECT COUNT(*) FROM occasions")
