@@ -99,14 +99,38 @@ def delete_customer(customer_id: int) -> bool:
 # ── Master data: packages / menu ────────────────────────────────────────
 
 def get_packages() -> list[dict]:
-    rows = db.fetchall("SELECT * FROM packages ORDER BY pkg_price_per_pax ASC")
+    rows = db.fetchall("SELECT * FROM packages ORDER BY pkg_is_set ASC, pkg_price_per_pax ASC")
     return [
         {
             "id": r["pkg_id"], "name": r["pkg_name"], "description": r["pkg_description"] or "",
             "price_per_pax": float(r["pkg_price_per_pax"]), "min_pax": int(r["pkg_min_pax"] or 30),
+            "is_set": bool(r.get("pkg_is_set") or 0),
         }
         for r in rows
     ]
+
+
+def get_food_sets() -> list[dict]:
+    """Predefined Food Sets A-E (pkg_is_set=1), each with its fixed dishes
+    from package_items — used by the wizard's Food-Set branch."""
+    rows = db.fetchall("SELECT * FROM packages WHERE COALESCE(pkg_is_set, 0) = 1 ORDER BY pkg_name ASC")
+    sets = []
+    for r in rows:
+        dishes = db.fetchall(
+            "SELECT * FROM package_items WHERE pi_package_id = ? ORDER BY pi_id ASC", (r["pkg_id"],)
+        )
+        sets.append({
+            "id": r["pkg_id"], "name": r["pkg_name"], "description": r["pkg_description"] or "",
+            "price_per_pax": float(r["pkg_price_per_pax"]), "min_pax": int(r["pkg_min_pax"] or 30),
+            "dishes": [
+                {
+                    "name": d["pi_item_name"], "category": d.get("pi_category") or "Main Dish",
+                    "price": float(d.get("pi_custom_price") or 0.0), "quantity": int(d.get("pi_quantity") or 1),
+                }
+                for d in dishes
+            ],
+        })
+    return sets
 
 
 def add_package(name: str, description: str = "", price_per_pax: float = 0.0, min_pax: int = 30) -> int:
@@ -269,17 +293,28 @@ def create_order(order: dict) -> dict:
     total = base_total + charges_sum
     down_payment = float(order.get("down_payment") or 0.0)
 
+    # 'package' | 'custom' | 'food_set' | 'food_tray' — set by the wizard's
+    # Order-Type screen. Falls back to 'package' only if the caller didn't
+    # specify one (never hardcoded here — mirrors the desktop app).
+    menu_type = str(order.get("menu_type") or "package").strip().lower()
+    if menu_type not in ("package", "custom", "food_set", "food_tray"):
+        menu_type = "package"
+    num_sets = int(order.get("num_sets") or 0)
+
     booking_id = db.execute("""
         INSERT INTO bookings (
             bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time,
-            bk_venue, bk_occasion, bk_pax, bk_total_amount, bk_base_total, bk_payment_mode,
+            bk_pickup_time, bk_dropoff_time, bk_venue, bk_occasion, bk_pax, bk_num_sets,
+            bk_total_amount, bk_base_total, bk_payment_mode,
             bk_amount_paid, bk_down_payment, bk_menu_type, bk_package_id, bk_notes, bk_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'package', ?, ?, 'PENDING')
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
     """, (
         booking_ref, customer_id, order["customer_name"], order.get("address", ""),
-        order["event_date"], order.get("event_time", "18:00"), order.get("venue", ""),
-        order.get("occasion", ""), int(order.get("pax") or 1), total, base_total,
-        order.get("payment_method", "Cash"), down_payment, down_payment,
+        order["event_date"], order.get("event_time", "18:00"),
+        order.get("pickup_time") or None, order.get("dropoff_time") or None,
+        order.get("venue", ""),
+        order.get("occasion", ""), int(order.get("pax") or 1), num_sets, total, base_total,
+        order.get("payment_method", "Cash"), down_payment, down_payment, menu_type,
         order.get("package_id"), order.get("notes", ""),
     ))
 
@@ -288,6 +323,41 @@ def create_order(order: dict) -> dict:
             INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (booking_id, m.get("menu_item_id"), m["item_name"], m.get("category", ""), float(m.get("price") or 0.0), int(m.get("quantity") or 1)))
+
+    # Food Set selections (supports MULTIPLE sets and REPEATING the same set
+    # with a quantity). Each entry: {set_id, name, quantity, unit_price,
+    # dishes:[{name, category, price, quantity}]}. Dishes are ALSO flattened
+    # into booking_menu_items for backward compatibility with any reader
+    # (kitchen/order-print/export) that only looks at booking_menu_items.
+    for sort_i, s in enumerate(order.get("sets", [])):
+        if not isinstance(s, dict):
+            continue
+        s_id = s.get("set_id")
+        s_name = s.get("name") or ""
+        s_qty = int(s.get("quantity") or 1)
+        s_price = float(s.get("unit_price") or 0.0)
+        bs_id = db.execute("""
+            INSERT INTO booking_sets (bs_booking_id, bs_set_id, bs_set_name, bs_quantity, bs_unit_price, bs_sort)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (booking_id, s_id, s_name, s_qty, s_price, sort_i))
+        for d in (s.get("dishes") or []):
+            if not isinstance(d, dict):
+                continue
+            d_name = d.get("name") or ""
+            if not d_name:
+                continue
+            d_cat = d.get("category") or "Main Dish"
+            d_price = float(d.get("price") or 0.0)
+            d_qty = int(d.get("quantity") or 1)
+            db.execute("""
+                INSERT INTO booking_set_items (bsi_set_row_id, bsi_item_name, bsi_category, bsi_price, bsi_quantity)
+                VALUES (?, ?, ?, ?, ?)
+            """, (bs_id, d_name, d_cat, d_price, d_qty))
+            # backward-compat flatten (label with the set name)
+            db.execute("""
+                INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
+                VALUES (?, NULL, ?, ?, ?, ?)
+            """, (booking_id, d_name, (s_name or d_cat), d_price, d_qty * s_qty))
 
     for c in order.get("additional_charges", []):
         db.execute("""
@@ -335,17 +405,32 @@ def get_order_detail(booking_id: int) -> Optional[dict]:
     charges = db.fetchall("SELECT * FROM booking_additional_charges WHERE ac_booking_id = ?", (booking_id,))
     payments = db.fetchall("SELECT * FROM payment_records WHERE pr_invoice_id = ?", (inv["inv_id"],)) if inv else []
     terms = db.fetchone("SELECT * FROM terms_acknowledgements WHERE ta_booking_id = ? ORDER BY ta_id DESC LIMIT 1", (booking_id,))
+    set_rows = db.fetchall("SELECT * FROM booking_sets WHERE bs_booking_id = ? ORDER BY bs_sort ASC, bs_id ASC", (booking_id,))
+    sets = []
+    for s in set_rows:
+        set_items = db.fetchall("SELECT * FROM booking_set_items WHERE bsi_set_row_id = ? ORDER BY bsi_id ASC", (s["bs_id"],))
+        sets.append({
+            "set_id": s["bs_set_id"], "name": s["bs_set_name"], "quantity": int(s["bs_quantity"] or 1),
+            "unit_price": float(s["bs_unit_price"] or 0.0),
+            "dishes": [
+                {"name": si["bsi_item_name"], "category": si["bsi_category"], "price": float(si["bsi_price"] or 0.0), "quantity": int(si["bsi_quantity"] or 1)}
+                for si in set_items
+            ],
+        })
 
     return {
         "booking_id": b["bk_id"], "booking_ref": b["bk_booking_ref"],
         "customer_name": b["bk_customer_name"], "address": b["bk_address"],
         "event_date": b["bk_event_date"], "event_time": b["bk_event_time"],
+        "pickup_time": b.get("bk_pickup_time") or "", "dropoff_time": b.get("bk_dropoff_time") or "",
         "venue": b["bk_venue"], "occasion": b["bk_occasion"], "pax": b["bk_pax"],
+        "num_sets": int(b.get("bk_num_sets") or 0), "menu_type": b.get("bk_menu_type") or "package",
         "base_total": float(b["bk_base_total"] or 0.0), "total": float(b["bk_total_amount"] or 0.0),
         "paid": float(inv["inv_amount_paid"]) if inv else 0.0,
         "balance": float(inv["inv_balance"]) if inv else float(b["bk_total_amount"] or 0.0),
         "status": inv["inv_status"] if inv else "Unpaid",
         "menu_selections": [{"item_name": m["bmi_item_name"], "category": m["bmi_category"], "price": float(m["bmi_price"] or 0.0), "quantity": m["bmi_quantity"]} for m in menu_items],
+        "sets": sets,
         "additional_charges": [{"description": c["ac_description"], "amount": float(c["ac_amount"])} for c in charges],
         "payments": [{"amount": float(p["pr_amount"]), "date": p["pr_payment_date"], "method": p["pr_payment_method"]} for p in payments],
         "terms_version": terms["ta_version"] if terms else None,
