@@ -1333,9 +1333,29 @@ class BillingPage(QWidget):
         ledger_lay = QVBoxLayout(ledger_tab)
         ledger_lay.setContentsMargins(0, 12, 0, 0)
 
+        # Period filter for the Ledger (Today / This Week / This Month / This Year)
+        ledger_filter_row = QHBoxLayout()
+        ledger_filter_row.setContentsMargins(0, 0, 0, 8)
+        ledger_filter_lbl = QLabel("Show:")
+        self._ledger_period_combo = QComboBox()
+        for _label, _key in [
+            ("All Time", None),
+            ("Today", "Today"),
+            ("This Week", "This Week"),
+            ("This Month", "This Month"),
+            ("This Year", "This Year"),
+        ]:
+            self._ledger_period_combo.addItem(_label, _key)
+        self._ledger_period = None
+        self._ledger_period_combo.currentIndexChanged.connect(self._on_ledger_period_changed)
+        ledger_filter_row.addWidget(ledger_filter_lbl)
+        ledger_filter_row.addWidget(self._ledger_period_combo)
+        ledger_filter_row.addStretch(1)
+        ledger_lay.addLayout(ledger_filter_row)
+
         self.ledger_table = QTableWidget()
-        self.ledger_table.setColumnCount(5)
-        self.ledger_table.setHorizontalHeaderLabels(["Date", "Customer", "Transaction", "Amount", "Status"])
+        self.ledger_table.setColumnCount(6)
+        self.ledger_table.setHorizontalHeaderLabels(["Date Paid", "Event Date", "Customer", "Transaction", "Amount", "Status"])
         self.ledger_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.ledger_table.verticalHeader().setVisible(False)
         self.ledger_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -1636,14 +1656,45 @@ class BillingPage(QWidget):
             if self._has_more and not self._loading_more:
                 QTimer.singleShot(150, self._load_more_invoices)
 
+    def _ledger_period_range(self):
+        """(date_start, date_end) ISO strings for the Ledger period filter,
+        or (None, None) for All Time."""
+        from datetime import date, timedelta
+        period = getattr(self, "_ledger_period", None)
+        today = date.today()
+        if not period:
+            return None, None
+        if period == "Today":
+            return today.isoformat(), today.isoformat()
+        if period == "This Week":
+            start = today - timedelta(days=today.weekday())
+            end = start + timedelta(days=6)
+            return start.isoformat(), end.isoformat()
+        if period == "This Month":
+            if today.month == 12:
+                next_month_start = date(today.year + 1, 1, 1)
+            else:
+                next_month_start = date(today.year, today.month + 1, 1)
+            end = next_month_start - timedelta(days=1)
+            return today.replace(day=1).isoformat(), end.isoformat()
+        if period == "This Year":
+            return today.replace(month=1, day=1).isoformat(), today.replace(month=12, day=31).isoformat()
+        return None, None
+
+    def _on_ledger_period_changed(self):
+        """Re-render the ledger when the period filter changes."""
+        self._ledger_period = self._ledger_period_combo.currentData()
+        self._populate_ledger()
+
     def _populate_ledger(self):
-        """Fill the Ledger tab's table with all payment-ledger entries
-        (date, customer, transaction, amount, status), coloring the status
-        cell by payment status. A query failure is logged and treated as an
-        empty ledger (distinguishable from a genuinely empty result via the
+        """Fill the Ledger tab's table with payment-ledger entries scoped to the
+        selected period (date, customer, transaction, amount, status), coloring
+        the status cell by payment status. A query failure is logged and treated
+        as an empty ledger (distinguishable from a genuinely empty result via the
         log)."""
+        date_start, date_end = self._ledger_period_range()
         try:
-            entries = repo.get_payment_ledger()
+            entries = repo.get_payment_ledger(date_start=date_start, date_end=date_end)
         except Exception as exc:
             # Previously swallowed silently, so a real query/schema failure
             # here looked identical to "genuinely no payment records exist" -
@@ -1653,21 +1704,23 @@ class BillingPage(QWidget):
 
         self.ledger_table.setRowCount(len(entries))
         for row, e in enumerate(entries):
-            date_item = QTableWidgetItem(e["date"])
-            cust_item = QTableWidgetItem(e["customer"])
-            txn_item = QTableWidgetItem(e["transaction"])
+            pay_date_item = QTableWidgetItem(e.get("payment_date") or e.get("date") or "—")
+            event_date_item = QTableWidgetItem(e.get("event_date") or "—")
+            cust_item = QTableWidgetItem(e.get("customer") or "—")
+            txn_item = QTableWidgetItem(e.get("transaction") or "—")
             amt_item = QTableWidgetItem(f"₱ {e['amount']:,.2f}")
             amt_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            status_item = QTableWidgetItem(e["status"])
-            status_color = _STATUS_COLORS.get(e["status"])
+            status_item = QTableWidgetItem(e.get("status") or "—")
+            status_color = _STATUS_COLORS.get(e.get("status"))
             if status_color:
                 status_item.setForeground(QColor(status_color))
 
-            self.ledger_table.setItem(row, 0, date_item)
-            self.ledger_table.setItem(row, 1, cust_item)
-            self.ledger_table.setItem(row, 2, txn_item)
-            self.ledger_table.setItem(row, 3, amt_item)
-            self.ledger_table.setItem(row, 4, status_item)
+            self.ledger_table.setItem(row, 0, pay_date_item)
+            self.ledger_table.setItem(row, 1, event_date_item)
+            self.ledger_table.setItem(row, 2, cust_item)
+            self.ledger_table.setItem(row, 3, txn_item)
+            self.ledger_table.setItem(row, 4, amt_item)
+            self.ledger_table.setItem(row, 5, status_item)
 
     def _create_invoice_card(self, inv: dict, can_edit: bool, can_delete: bool) -> QFrame:
         """Build and return one invoice row card.
