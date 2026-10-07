@@ -1147,18 +1147,19 @@ def execute_batch_import(
                         inv_row = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = %s LIMIT 1", (b_id,))
                         if inv_row:
                             inv_id = inv_row["inv_id"]
+                            pay_date_val = str(r.get("booking_date") or r.get("created_at") or date.today().isoformat())[:10]
                             pr_row = db.fetchone("SELECT pr_id FROM payment_records WHERE pr_invoice_id = %s LIMIT 1", (inv_id,))
                             if pr_row:
                                 db.execute("""
                                     UPDATE payment_records
                                     SET pr_amount = %s, pr_payment_date = %s, pr_method = %s, pr_note = %s
                                     WHERE pr_id = %s
-                                """, (paid_val, event_date_norm, pay_mode_norm, "Initial payment on imported booking", pr_row["pr_id"]))
+                                """, (paid_val, pay_date_val, pay_mode_norm, "Initial payment on imported booking", pr_row["pr_id"]))
                             else:
                                 db.execute("""
                                     INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
                                     VALUES (%s, %s, %s, %s, %s, 1)
-                                """, (inv_id, paid_val, event_date_norm, pay_mode_norm, "Initial payment on imported booking"))
+                                """, (inv_id, paid_val, pay_date_val, pay_mode_norm, "Initial payment on imported booking"))
 
                     # 4. Update customer lifetime metrics
                     if cust_id:
