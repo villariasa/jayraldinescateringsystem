@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS packages (
     pkg_description TEXT,
     pkg_price_per_pax REAL NOT NULL,
     pkg_min_pax INTEGER DEFAULT 30,
+    pkg_is_set INTEGER DEFAULT 0,
     pkg_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -115,9 +116,12 @@ CREATE TABLE IF NOT EXISTS bookings (
     bk_address TEXT,
     bk_event_date DATE NOT NULL,
     bk_event_time TIME DEFAULT '18:00',
+    bk_pickup_time TEXT,
+    bk_dropoff_time TEXT,
     bk_venue TEXT,
     bk_occasion TEXT,
     bk_pax INTEGER NOT NULL,
+    bk_num_sets INTEGER DEFAULT 0,
     bk_total_amount REAL NOT NULL,
     bk_base_total REAL,
     bk_payment_mode TEXT DEFAULT 'Cash',
@@ -141,6 +145,30 @@ CREATE TABLE IF NOT EXISTS booking_menu_items (
     bmi_category TEXT,
     bmi_price REAL DEFAULT 0.0,
     bmi_quantity INTEGER DEFAULT 1
+);
+
+-- Food Set selections per booking: supports MULTIPLE sets and REPEATING the
+-- same set (e.g. 2x Set A + 1x Set C). Each row is one chosen set + quantity.
+-- Mirrors Catering_Present/jayraldines_catering/utils/sqlite_schema.py exactly.
+CREATE TABLE IF NOT EXISTS booking_sets (
+    bs_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bs_booking_id INTEGER NOT NULL REFERENCES bookings(bk_id) ON DELETE CASCADE,
+    bs_set_id INTEGER REFERENCES packages(pkg_id),
+    bs_set_name TEXT,
+    bs_quantity INTEGER NOT NULL DEFAULT 1,
+    bs_unit_price REAL DEFAULT 0.0,
+    bs_sort INTEGER DEFAULT 0
+);
+
+-- Per-set customized dishes (each chosen/repeated set can be customized
+-- independently). bsi_set_row_id ties a dish to one booking_sets row.
+CREATE TABLE IF NOT EXISTS booking_set_items (
+    bsi_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bsi_set_row_id INTEGER NOT NULL REFERENCES booking_sets(bs_id) ON DELETE CASCADE,
+    bsi_item_name TEXT,
+    bsi_category TEXT,
+    bsi_price REAL DEFAULT 0.0,
+    bsi_quantity INTEGER DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS invoices (
@@ -308,6 +336,20 @@ def init_db(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         pass
 
+    # New fields (client request): pickup/drop-off time + number of sets,
+    # and pkg_is_set to flag predefined Food Sets A-E. Idempotent — guarded.
+    _new_cols = [
+        ("packages", "pkg_is_set", "INTEGER DEFAULT 0"),
+        ("bookings", "bk_pickup_time", "TEXT"),
+        ("bookings", "bk_dropoff_time", "TEXT"),
+        ("bookings", "bk_num_sets", "INTEGER DEFAULT 0"),
+    ]
+    for table, col, col_def in _new_cols:
+        try:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}")
+        except sqlite3.OperationalError:
+            pass
+
     cur.execute("SELECT COUNT(*) FROM address_provinces")
     if cur.fetchone()[0] == 0:
         cur.execute("INSERT OR IGNORE INTO address_provinces (ap_name) VALUES ('Cebu')")
@@ -317,6 +359,37 @@ def init_db(conn: sqlite3.Connection) -> None:
             city_id = cur.lastrowid
             for b in barangays:
                 cur.execute("INSERT INTO address_barangays (ab_city_id, ab_name) VALUES (?, ?)", (city_id, b))
+
+    # Seed predefined Food Sets A-E locally so the tablet has them even before
+    # its first sync with the PC (mirrors Catering_Present's seeding; the PC's
+    # copies will also arrive via sync and are matched by pkg_name so no dupes).
+    cur.execute("SELECT COUNT(*) FROM packages WHERE COALESCE(pkg_is_set, 0) = 1")
+    if cur.fetchone()[0] == 0:
+        FOOD_SET_PRICE = 4800.0
+        FOOD_SET_MIN_PAX = 20
+        food_sets = [
+            ("Set A", ["Humba", "Lumpia Shanghai", "Chopsuey", "Bam-i"]),
+            ("Set B", ["Pork Steak", "Chicken Cordon Bleu", "Bam-i", "Fish Fillet w/ Lemon Sauce"]),
+            ("Set C", ["Beef Kalderita", "Buttered Chicken", "Fish Fillet w/ Tartar Sauce", "Pancit Guisado"]),
+            ("Set D", ["Pork Spareribs", "Crab Relleno", "Bam-i", "Korean Chicken"]),
+            ("Set E", ["Beef Steak", "Fried Chicken", "Spaghetti", "Lumpia Shanghai"]),
+        ]
+        for set_name, dishes in food_sets:
+            cur.execute(
+                "INSERT OR IGNORE INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_is_set) "
+                "VALUES (?, ?, ?, ?, 1)",
+                (set_name, "Predefined Food Set (" + ", ".join(dishes) + ")", FOOD_SET_PRICE, FOOD_SET_MIN_PAX),
+            )
+            cur.execute("SELECT pkg_id FROM packages WHERE pkg_name = ?", (set_name,))
+            row = cur.fetchone()
+            if row:
+                set_pkg_id = row[0]
+                for dish in dishes:
+                    cur.execute(
+                        "INSERT INTO package_items (pi_package_id, pi_item_name, pi_category, pi_quantity) "
+                        "VALUES (?, ?, 'Main Dish', 1)",
+                        (set_pkg_id, dish),
+                    )
 
     # Clean up any stale categories that have no dishes
     try:
