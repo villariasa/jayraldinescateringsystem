@@ -335,14 +335,23 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
       n.includes(" set")
     );
   };
-  const isSet = isFoodSet(order.package_name || order.bk_package_name || "") || isFoodSet(order.occasion || order.bk_occasion || "");
+  const menuType = (order.menu_type || order.bk_menu_type || "").toLowerCase();
+  const isSet = menuType === "food_set"
+    || isFoodSet(order.package_name || order.bk_package_name || "")
+    || isFoodSet(order.occasion || order.bk_occasion || "");
+  const numSets = Number(order.num_sets || order.bk_num_sets || 0);
+  const pickupTime = order.pickup_time || order.bk_pickup_time || "";
+  const dropoffTime = order.dropoff_time || order.bk_dropoff_time || "";
 
   drawFieldRow("Function Date:", eventDate);
   drawFieldRow("Time:", eventTime);
+  if (pickupTime) drawFieldRow("Pickup Time:", pickupTime);
+  if (dropoffTime) drawFieldRow("Drop-off Time:", dropoffTime);
   drawFieldRow("Venue:", venue);
   drawFieldRow("Occasion:", occasion);
   drawFieldRow("Motif:", motif);
-  drawFieldRow(isSet ? "No. of Sets:" : "No. of Pax:", `${pax} ${isSet ? "Set(s)" : "Pax"}`);
+  drawFieldRow(isSet ? "No. of Sets:" : "No. of Pax:",
+    isSet ? `${numSets || pax} Set(s)` : `${pax} Pax`);
   drawFieldRow("Special Instructions:", instructions);
 
   // Card 3: PAYMENT DETAILS
