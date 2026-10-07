@@ -2038,16 +2038,18 @@ def perform_server_sync(payload: dict) -> dict:
                             inv_id = inv_chk["inv_id"] if inv_chk else None
 
                         if inv_id and paid > 0:
+                            from datetime import date as _d_today
+                            pay_record_date = _d_today.today().strftime("%Y-%m-%d")
                             if db.get_engine_type() == "postgres":
                                 db.execute("""
                                     INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
                                     VALUES (%s, %s, %s, %s, %s, 1)
-                                """, (inv_id, paid, ev_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
+                                """, (inv_id, paid, pay_record_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
                             else:
                                 db.execute("""
                                     INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
                                     VALUES (?, ?, ?, ?, ?, 1)
-                                """, (inv_id, paid, ev_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
+                                """, (inv_id, paid, pay_record_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
 
                         if cust_id:
                             if db.get_engine_type() == "postgres":
