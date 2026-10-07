@@ -14,7 +14,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -100,6 +100,23 @@ class ChargeIn(BaseModel):
     amount: float
 
 
+class SetDishIn(BaseModel):
+    name: str
+    category: str = "Main Dish"
+    price: float = 0.0
+    quantity: int = 1
+
+
+class SetSelectionIn(BaseModel):
+    """One chosen Food Set row. Supports MULTIPLE different sets and
+    REPEATING the same set (quantity), each with its own customized dishes."""
+    set_id: Optional[int] = None
+    name: str = ""
+    quantity: int = 1
+    unit_price: float = 0.0
+    dishes: list[SetDishIn] = []
+
+
 class OrderIn(BaseModel):
     customer_id: Optional[int] = None
     customer_name: str
@@ -108,12 +125,19 @@ class OrderIn(BaseModel):
     address: str = ""
     event_date: str
     event_time: str = "18:00"
+    pickup_time: str = ""
+    dropoff_time: str = ""
     venue: str = ""
     occasion: str = ""
     pax: int = 1
+    num_sets: int = 0
+    # 'package' | 'custom' | 'food_set' | 'food_tray' — which Order-Type
+    # branch of the wizard produced this order.
+    menu_type: str = "package"
     package_id: Optional[int] = None
     base_total: float = 0.0
     menu_selections: list[MenuSelectionIn] = []
+    sets: list[SetSelectionIn] = []
     additional_charges: list[ChargeIn] = []
     down_payment: float = 0.0
     payment_method: str = "Cash"
@@ -183,6 +207,13 @@ def address_search(q: str = "", limit: int = 15):
 
 
 # ── Packages ─────────────────────────────────────────────────────────────
+
+@app.get("/api/food-sets")
+def list_food_sets():
+    """Predefined Food Sets A-E (pkg_is_set=1) with their fixed dishes —
+    backs the wizard's Food-Set Order-Type branch."""
+    return repo.get_food_sets()
+
 
 @app.get("/api/packages")
 def list_packages():
@@ -280,6 +311,7 @@ def place_order(payload: OrderIn):
     order = payload.model_dump()
     order["menu_selections"] = [m for m in order["menu_selections"]]
     order["additional_charges"] = [c for c in order["additional_charges"]]
+    order["sets"] = [s for s in order.get("sets", [])]
     try:
         result = repo.create_order(order)
     except Exception as exc:
@@ -502,6 +534,29 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
             ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_color_theme VARCHAR(100) DEFAULT '#2563EB';
             ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_notes TEXT DEFAULT '';
             ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_cancellation_reason TEXT DEFAULT '';
+            ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_pickup_time VARCHAR(50);
+            ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_dropoff_time VARCHAR(50);
+            ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_num_sets INT DEFAULT 0;
+            ALTER TABLE packages ADD COLUMN IF NOT EXISTS pkg_is_set INT DEFAULT 0;
+
+            CREATE TABLE IF NOT EXISTS booking_sets (
+                bs_id SERIAL PRIMARY KEY,
+                bs_booking_id INT REFERENCES bookings(bk_id) ON DELETE CASCADE,
+                bs_set_id INT,
+                bs_set_name VARCHAR(200),
+                bs_quantity INT DEFAULT 1,
+                bs_unit_price NUMERIC(12, 2) DEFAULT 0.00,
+                bs_sort INT DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS booking_set_items (
+                bsi_id SERIAL PRIMARY KEY,
+                bsi_set_row_id INT REFERENCES booking_sets(bs_id) ON DELETE CASCADE,
+                bsi_item_name VARCHAR(200),
+                bsi_category VARCHAR(100),
+                bsi_price NUMERIC(12, 2) DEFAULT 0.00,
+                bsi_quantity INT DEFAULT 1
+            );
 
             CREATE TABLE IF NOT EXISTS menu_categories (
                 mc_id SERIAL PRIMARY KEY,
@@ -592,19 +647,22 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
                 pg_cur.execute("""
                     INSERT INTO bookings (
                         bk_booking_ref, bk_customer_name, bk_address, bk_event_date,
-                        bk_event_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
+                        bk_event_time, bk_pickup_time, bk_dropoff_time, bk_venue, bk_occasion,
+                        bk_pax, bk_num_sets, bk_total_amount,
                         bk_base_total, bk_payment_mode, bk_amount_paid, bk_down_payment,
-                        bk_down_payment_status, bk_status, bk_notes
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        bk_down_payment_status, bk_status, bk_notes, bk_menu_type
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (bk_booking_ref) DO NOTHING
                     RETURNING bk_id;
                 """, (
                     ref, b.get("bk_customer_name"), b.get("bk_address"), b.get("bk_event_date"),
-                    b.get("bk_event_time", "18:00"), b.get("bk_venue"), b.get("bk_occasion"),
-                    b.get("bk_pax", 1), b.get("bk_total_amount", 0.0), b.get("bk_base_total", 0.0),
+                    b.get("bk_event_time", "18:00"), b.get("bk_pickup_time"), b.get("bk_dropoff_time"),
+                    b.get("bk_venue"), b.get("bk_occasion"),
+                    b.get("bk_pax", 1), b.get("bk_num_sets", 0), b.get("bk_total_amount", 0.0), b.get("bk_base_total", 0.0),
                     b.get("bk_payment_mode", "Cash"), b.get("bk_amount_paid", 0.0),
                     b.get("bk_down_payment", 0.0), b.get("bk_down_payment_status", "PENDING"),
-                    b.get("bk_status", "PENDING"), b.get("bk_notes", "Kiosk Order")
+                    b.get("bk_status", "PENDING"), b.get("bk_notes", "Kiosk Order"),
+                    b.get("bk_menu_type", "package"),
                 ))
                 new_row = pg_cur.fetchone()
                 if new_row:
@@ -623,6 +681,35 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
                             INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
                             VALUES (%s, %s, %s, %s, %s)
                         """, (pg_bk_id, item.get("bmi_item_name") or item.get("item_name"), item.get("bmi_category") or item.get("category"), item.get("bmi_price", 0.0), item.get("bmi_quantity", 1)))
+
+                    # Food Set selections for booking (supports multiple + repeated sets)
+                    set_rows = b.get("sets") or []
+                    if not set_rows and b.get("bk_id"):
+                        try:
+                            set_rows = db.fetchall("SELECT * FROM booking_sets WHERE bs_booking_id = ?", (b["bk_id"],))
+                        except Exception:
+                            set_rows = []
+                    for s_row in set_rows:
+                        pg_cur.execute("""
+                            INSERT INTO booking_sets (bs_booking_id, bs_set_id, bs_set_name, bs_quantity, bs_unit_price, bs_sort)
+                            VALUES (%s, %s, %s, %s, %s, %s) RETURNING bs_id
+                        """, (
+                            pg_bk_id, s_row.get("bs_set_id"), s_row.get("bs_set_name"),
+                            s_row.get("bs_quantity", 1), s_row.get("bs_unit_price", 0.0), s_row.get("bs_sort", 0),
+                        ))
+                        pg_bs_row = pg_cur.fetchone()
+                        pg_bs_id = pg_bs_row["bs_id"] if pg_bs_row else None
+                        set_items = []
+                        if pg_bs_id and s_row.get("bs_id"):
+                            try:
+                                set_items = db.fetchall("SELECT * FROM booking_set_items WHERE bsi_set_row_id = ?", (s_row["bs_id"],))
+                            except Exception:
+                                set_items = []
+                        for si in set_items:
+                            pg_cur.execute("""
+                                INSERT INTO booking_set_items (bsi_set_row_id, bsi_item_name, bsi_category, bsi_price, bsi_quantity)
+                                VALUES (%s, %s, %s, %s, %s)
+                            """, (pg_bs_id, si.get("bsi_item_name"), si.get("bsi_category"), si.get("bsi_price", 0.0), si.get("bsi_quantity", 1)))
 
                     # Invoices
                     inv = b.get("invoice")
@@ -689,16 +776,18 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
                 continue
             try:
                 pg_cur.execute(f"""
-                    INSERT INTO packages (pkg_name, pkg_description, {price_col}, pkg_min_pax)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO packages (pkg_name, pkg_description, {price_col}, pkg_min_pax, pkg_is_set)
+                    VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT (pkg_name) DO UPDATE SET
                         pkg_description = EXCLUDED.pkg_description,
                         {price_col} = EXCLUDED.{price_col},
-                        pkg_min_pax = EXCLUDED.pkg_min_pax
+                        pkg_min_pax = EXCLUDED.pkg_min_pax,
+                        pkg_is_set = EXCLUDED.pkg_is_set
                 """, (
                     l_name, lp.get("pkg_description", ""),
                     float(lp["pkg_price_per_pax"]) if lp.get("pkg_price_per_pax") is not None else 350.0,
                     int(lp.get("pkg_min_pax") or 30),
+                    int(lp.get("pkg_is_set") or 0),
                 ))
             except Exception:
                 pass
@@ -710,7 +799,8 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
         pg_cur.execute(f"""
             SELECT pkg_id, pkg_name, COALESCE(pkg_description, '') AS pkg_description,
                    COALESCE({price_col}, 0.0) AS pkg_price_per_pax,
-                   COALESCE(pkg_min_pax, 30) AS pkg_min_pax
+                   COALESCE(pkg_min_pax, 30) AS pkg_min_pax,
+                   COALESCE(pkg_is_set, 0) AS pkg_is_set
             FROM packages
             WHERE {"pkg_is_active IS NOT FALSE" if "pkg_is_active" in pkg_cols else "1=1"}
             ORDER BY pkg_id
@@ -719,16 +809,18 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
         for p in pkgs:
             try:
                 db.execute("""
-                    INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_is_set)
+                    VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(pkg_name) DO UPDATE SET
                         pkg_description = excluded.pkg_description,
                         pkg_price_per_pax = excluded.pkg_price_per_pax,
-                        pkg_min_pax = excluded.pkg_min_pax
+                        pkg_min_pax = excluded.pkg_min_pax,
+                        pkg_is_set = excluded.pkg_is_set
                 """, (
                     p["pkg_name"], p.get("pkg_description", ""),
                     float(p["pkg_price_per_pax"]) if p.get("pkg_price_per_pax") is not None else 0.0,
                     int(p.get("pkg_min_pax") or 30),
+                    int(p.get("pkg_is_set") or 0),
                 ))
             except Exception:
                 pass
@@ -786,15 +878,41 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
             except Exception:
                 pass
 
-        # Also pull package_items if table exists
+        # Also pull package_items if table exists (dishes belonging to each
+        # package, including the predefined Food Sets A-E's dishes).
         package_items = []
         try:
             pg_cur.execute("""
                 SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='package_items'
             """)
             if pg_cur.fetchone():
-                pg_cur.execute("SELECT pi_id, pi_package_id, pi_item_id FROM package_items")
+                pg_cur.execute("""
+                    SELECT pi.pi_id, pi.pi_package_id, pkg.pkg_name AS pi_package_name,
+                           pi.pi_item_name, pi.pi_category, pi.pi_quantity
+                    FROM package_items pi
+                    JOIN packages pkg ON pkg.pkg_id = pi.pi_package_id
+                """)
                 package_items = [dict(r) for r in pg_cur.fetchall()]
+                for pi_row in package_items:
+                    pkg_name = pi_row.get("pi_package_name")
+                    item_name = pi_row.get("pi_item_name")
+                    if not pkg_name or not item_name:
+                        continue
+                    try:
+                        local_pkg = db.fetchone("SELECT pkg_id FROM packages WHERE pkg_name = ?", (pkg_name,))
+                        if not local_pkg:
+                            continue
+                        exists = db.fetchone(
+                            "SELECT pi_id FROM package_items WHERE pi_package_id = ? AND pi_item_name = ?",
+                            (local_pkg["pkg_id"], item_name),
+                        )
+                        if not exists:
+                            db.execute("""
+                                INSERT INTO package_items (pi_package_id, pi_item_name, pi_category, pi_quantity)
+                                VALUES (?, ?, ?, ?)
+                            """, (local_pkg["pkg_id"], item_name, pi_row.get("pi_category") or "Main Dish", int(pi_row.get("pi_quantity") or 1)))
+                    except Exception:
+                        pass
         except Exception:
             pass
 
