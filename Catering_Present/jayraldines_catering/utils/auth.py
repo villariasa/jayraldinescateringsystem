@@ -268,16 +268,11 @@ def authenticate(username: str, plain_password: str) -> Optional[Dict[str, Any]]
 
     stored_hash = row.get("password_hash", "")
     if not verify_password(plain_password, stored_hash):
-        # Graceful fallback for local admin account
-        if row.get("username", "").lower() == "admin" and plain_password in ("admin", "admin123", "Admin123!", "Admin123"):
-            new_hash = hash_password(plain_password)
-            if db.get_engine_type() == "postgres":
-                db.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, row["id"]))
-            else:
-                db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, row["id"]))
-        else:
-            _log_audit("USER_LOGIN_FAILED", f"Failed password attempt for user '{username}'")
-            return None
+        # No credential bypass: a failed password check always rejects, for every
+        # account including 'admin'. Forgotten admin passwords are recovered via
+        # `main.py --reset-admin` (see reset_user_password), never by a magic string.
+        _log_audit("USER_LOGIN_FAILED", f"Failed password attempt for user '{username}'")
+        return None
 
     try:
         user_id = int(row["id"])
