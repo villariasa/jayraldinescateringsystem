@@ -355,6 +355,14 @@ class BookingModal(QDialog):
         self._data = {}
         self._addon_items = []             # (row_widget, name_edit, amount_edit) tuples
         self._pkg_selected_dishes = {}     # package_id -> list of chosen dish names
+        # Order Type ("package" | "food_tray" | "food_set") drives which Menu-step
+        # pane is shown; separate from the legacy Packages/Custom segment switch.
+        self._order_type = "package"
+        self._step2_dirty = False          # set True when Order Type changes after step 2 was built
+        self._fs_set_packages = []         # Food Set pane: predefined pkg_is_set=1 packages
+        self._fs_qty_spins = {}            # Food Set pane: package_id -> QSpinBox (quantity)
+        self._fs_dish_selected = {}        # Food Set pane: package_id -> list of chosen dish names
+        self._fs_cat_lookup = {}           # Food Set pane: dish name (lower) -> category
         self._occasions = repo.get_all_occasions()
         if self._edit_mode and self._booking_data:
             # Seed the per-package dish cache from the booking being edited so the
@@ -363,6 +371,15 @@ class BookingModal(QDialog):
             b_dishes = self._booking_data.get("dishes") or []
             if b_pkg_id and b_dishes:
                 self._pkg_selected_dishes[b_pkg_id] = [d.get("name") for d in b_dishes if d.get("name")]
+            b_menu_type = str(self._booking_data.get("menu_type") or "").strip().lower()
+            if b_menu_type in ("food_tray", "food_set"):
+                self._order_type = b_menu_type
+            # Seed the Food Set dish-selection cache from the booking being edited.
+            for s in (self._booking_data.get("sets") or []):
+                sid = s.get("set_id")
+                dish_names = [d.get("name") for d in (s.get("dishes") or []) if d.get("name")]
+                if sid is not None and dish_names:
+                    self._fs_dish_selected[sid] = dish_names
 
 
         # Inherit the app-wide stylesheet so the frameless card matches the theme.
@@ -593,6 +610,27 @@ class BookingModal(QDialog):
 
         lay.addWidget(_section_label("Event Details"))
 
+        # Order Type selector: drives which Menu-step pane is shown (Packages /
+        # Food Tray / Food Set). Separate from the Occasion combo below, which
+        # stays purely for reporting/labeling.
+        order_row = QHBoxLayout()
+        order_row.setSpacing(16)
+        ov = QVBoxLayout()
+        ov.addWidget(_field_label("Order Type *"))
+        self.f_order_type = QComboBox()
+        self.f_order_type.setFixedHeight(38)
+        self.f_order_type.setStyleSheet(_combo_style())
+        self.f_order_type.addItems(["Packages", "Food Tray", "Food Set"])
+        _ot_map = {"package": "Packages", "food_tray": "Food Tray", "food_set": "Food Set"}
+        _ot_idx = self.f_order_type.findText(_ot_map.get(self._order_type, "Packages"))
+        if _ot_idx >= 0:
+            self.f_order_type.setCurrentIndex(_ot_idx)
+        self.f_order_type.currentIndexChanged.connect(self._on_order_type_changed)
+        ov.addWidget(self.f_order_type)
+        order_row.addLayout(ov)
+        order_row.addStretch()
+        lay.addLayout(order_row)
+
         row1 = QHBoxLayout()
         row1.setSpacing(16)
         v1 = QVBoxLayout()
@@ -669,6 +707,60 @@ class BookingModal(QDialog):
         row2.addLayout(v5, 2)
         lay.addLayout(row2)
 
+        # Pickup / Drop-off time (opt-in, like End Time) + No. of Sets
+        row3 = QHBoxLayout()
+        row3.setSpacing(12)
+
+        vpt = QVBoxLayout()
+        vpt.setSpacing(4)
+        pt_top = QHBoxLayout()
+        pt_top.setContentsMargins(0, 0, 0, 0)
+        pt_top.setSpacing(4)
+        self.chk_pickup_time = QCheckBox("Pickup Time")
+        self.chk_pickup_time.setStyleSheet("font-size: 11px; font-weight: 600; color: #94A3B8;")
+        pt_top.addWidget(self.chk_pickup_time)
+        vpt.addLayout(pt_top)
+        self.f_pickup_time = QTimeEdit(QTime(10, 0))
+        self.f_pickup_time.setDisplayFormat("hh:mm AP")
+        self.f_pickup_time.setFixedHeight(38)
+        self.f_pickup_time.setMinimumWidth(105)
+        self.f_pickup_time.setEnabled(False)  # pickup time is opt-in via the checkbox
+        self.chk_pickup_time.toggled.connect(self.f_pickup_time.setEnabled)
+        vpt.addWidget(self.f_pickup_time)
+
+        vdt = QVBoxLayout()
+        vdt.setSpacing(4)
+        dt_top = QHBoxLayout()
+        dt_top.setContentsMargins(0, 0, 0, 0)
+        dt_top.setSpacing(4)
+        self.chk_dropoff_time = QCheckBox("Drop-off Time")
+        self.chk_dropoff_time.setStyleSheet("font-size: 11px; font-weight: 600; color: #94A3B8;")
+        dt_top.addWidget(self.chk_dropoff_time)
+        vdt.addLayout(dt_top)
+        self.f_dropoff_time = QTimeEdit(QTime(22, 0))
+        self.f_dropoff_time.setDisplayFormat("hh:mm AP")
+        self.f_dropoff_time.setFixedHeight(38)
+        self.f_dropoff_time.setMinimumWidth(105)
+        self.f_dropoff_time.setEnabled(False)  # drop-off time is opt-in via the checkbox
+        self.chk_dropoff_time.toggled.connect(self.f_dropoff_time.setEnabled)
+        vdt.addWidget(self.f_dropoff_time)
+
+        vns = QVBoxLayout()
+        vns.setSpacing(4)
+        vns.addWidget(_field_label("No. of Sets"))
+        self.f_num_sets = QSpinBox()
+        self.f_num_sets.setRange(0, 2000)
+        self.f_num_sets.setValue(0)
+        self.f_num_sets.setFixedHeight(38)
+        self.f_num_sets.setMinimumWidth(90)
+        vns.addWidget(self.f_num_sets)
+
+        row3.addLayout(vpt, 2)
+        row3.addLayout(vdt, 2)
+        row3.addLayout(vns, 2)
+        row3.addStretch(1)
+        lay.addLayout(row3)
+
         # Date Conflict / Availability Notification Banner
         self.lbl_date_warning = QLabel()
         self.lbl_date_warning.setWordWrap(True)
@@ -714,6 +806,29 @@ class BookingModal(QDialog):
                 self.f_pax.setValue(int(self._booking_data.get("pax", 100)))
             except (ValueError, TypeError):
                 pass
+
+            # Pickup / Drop-off time + No. of sets (new data-contract fields).
+            raw_pickup = str(self._booking_data.get("pickup_time") or "")
+            if raw_pickup:
+                for fmt in ("h:mm AP", "hh:mm AP", "h:mm A", "hh:mm A", "HH:mm:ss", "HH:mm"):
+                    t_pick = QTime.fromString(raw_pickup, fmt)
+                    if t_pick.isValid():
+                        self.f_pickup_time.setTime(t_pick)
+                        self.chk_pickup_time.setChecked(True)
+                        break
+            raw_dropoff = str(self._booking_data.get("dropoff_time") or "")
+            if raw_dropoff:
+                for fmt in ("h:mm AP", "hh:mm AP", "h:mm A", "hh:mm A", "HH:mm:ss", "HH:mm"):
+                    t_drop = QTime.fromString(raw_dropoff, fmt)
+                    if t_drop.isValid():
+                        self.f_dropoff_time.setTime(t_drop)
+                        self.chk_dropoff_time.setChecked(True)
+                        break
+            try:
+                self.f_num_sets.setValue(int(self._booking_data.get("num_sets") or 0))
+            except (ValueError, TypeError):
+                pass
+
             # Strip any machine-appended add-ons out of the notes so
             # only the human-written notes show; add-ons are restored separately in step 3.
             notes_raw = str(self._booking_data.get("notes", "") or "")
@@ -778,6 +893,20 @@ class BookingModal(QDialog):
         except Exception:
             self.lbl_date_warning.hide()
 
+    def _on_order_type_changed(self, _idx):
+        """React to the Order Type combo (Packages / Food Tray / Food Set).
+
+        Normalizes the selected text into ``self._order_type`` and, if it
+        actually changed, marks step 2 (Menu) dirty so it gets rebuilt with
+        the matching pane the next time the wizard navigates into it.
+        """
+        text = self.f_order_type.currentText() if hasattr(self, "f_order_type") else "Packages"
+        mapping = {"Packages": "package", "Food Tray": "food_tray", "Food Set": "food_set"}
+        new_type = mapping.get(text, "package")
+        if new_type != getattr(self, "_order_type", "package"):
+            self._order_type = new_type
+            self._step2_dirty = True
+
     def _build_step2(self):
         """Build step 2 (Menu): a Packages/Custom Menu segmented switch.
 
@@ -794,6 +923,15 @@ class BookingModal(QDialog):
 
         lay.addWidget(_section_label("Menu Selection"))
 
+        # Order Type ("package" | "food_tray" | "food_set") selected on step 1
+        # decides which pane this step shows. Food Set gets a dedicated
+        # "Choose Sets" pane entirely replacing the Packages/Custom switch.
+        order_type = getattr(self, "_order_type", "package")
+        self._step2_built_for_type = order_type
+        if order_type == "food_set":
+            self._populate_food_set_step(lay)
+            return w
+
         type_row = QHBoxLayout()
         type_row.setSpacing(0)
         self.btn_pkg = QPushButton("Packages")
@@ -807,7 +945,9 @@ class BookingModal(QDialog):
         self.btn_custom.setStyleSheet(_segment_button_style(selected=False, left=False))
         type_row.addWidget(self.btn_pkg)
         type_row.addWidget(self.btn_custom)
-        lay.addLayout(type_row)
+        self._type_row_widget = QWidget()
+        self._type_row_widget.setLayout(type_row)
+        lay.addWidget(self._type_row_widget)
 
         self.menu_stack = QStackedWidget()
         self.menu_stack.setStyleSheet("background: transparent;")
@@ -1040,7 +1180,203 @@ class BookingModal(QDialog):
         self._selected_pkg = 0 if self._db_packages else None
         if self._selected_pkg is not None:
             self._update_package_dishes(self._selected_pkg)
+
+        if order_type == "food_tray":
+            # Food Tray: skip the Packages pane entirely, force Custom Menu.
+            self._type_row_widget.setVisible(False)
+            self.btn_pkg.setChecked(False)
+            self.btn_custom.setChecked(True)
+            self.btn_pkg.setStyleSheet(_segment_button_style(selected=False, left=True))
+            self.btn_custom.setStyleSheet(_segment_button_style(selected=True, left=False))
+            self.menu_stack.setCurrentIndex(1)
+            self._selected_pkg = None
+            self._apply_custom_menu_filter(None)
         return w
+
+    # ---- Food Set pane ("Choose Sets" over pkg_is_set=1 packages) ----
+    def _get_food_set_packages(self) -> list:
+        """Fetch predefined Food Set packages (``packages.pkg_is_set = 1``, Set A-E).
+
+        ``repo.get_all_packages()`` does not expose the ``pkg_is_set`` flag, and
+        ``utils/repository.py`` must not be modified, so this reads it directly
+        via ``repo.db`` (the same DB helper module repository.py itself uses).
+        """
+        try:
+            rows = repo.db.fetchall(
+                "SELECT pkg_id AS id, pkg_name AS name, pkg_price_per_pax AS price_per_pax, "
+                "pkg_min_pax AS min_pax, COALESCE(pkg_description, '') AS description "
+                "FROM packages WHERE COALESCE(pkg_is_set, 0) = 1 ORDER BY pkg_name ASC"
+            ) or []
+        except Exception as exc:
+            print(f"[BookingModal] Error fetching food set packages: {exc}")
+            rows = []
+        out = []
+        for r in rows:
+            r = dict(r)
+            out.append({
+                "id":            r["id"],
+                "name":          r["name"],
+                "price_per_pax": float(r.get("price_per_pax") or 0),
+                "min_pax":       int(r.get("min_pax") or 1),
+                "description":   r.get("description") or "",
+            })
+        return out
+
+    def _populate_food_set_step(self, lay):
+        """Build the "Choose Sets" pane: one card per predefined Food Set
+        (Set A-E, ``pkg_is_set=1``) with a quantity stepper (0..200, supports
+        picking the same set multiple times) and a "Customize Dishes" button
+        that reuses ``PackageMenuSelectionDialog`` to edit that set's dishes.
+        """
+        note = QLabel(
+            "Choose one or more predefined Food Sets below. You can select the same "
+            "set multiple times or mix different sets. Use \"Customize Dishes\" to "
+            "change what each set includes."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet(_muted_style(12))
+        lay.addWidget(note)
+
+        self._fs_set_packages = self._get_food_set_packages()
+        self._fs_qty_spins = {}
+        if not hasattr(self, "_fs_dish_selected"):
+            self._fs_dish_selected = {}
+
+        # Build a dish-name -> category lookup so set dishes carry a real
+        # category (used both for bucket-free pricing and for order-print).
+        try:
+            all_items = repo.get_available_menu_items() or []
+        except Exception:
+            all_items = []
+        self._fs_cat_lookup = {
+            (it.get("item") or it.get("name") or "").strip().lower(): it.get("category", "Main Dish")
+            for it in all_items if (it.get("item") or it.get("name"))
+        }
+
+        # Pre-seed quantities from an edit-mode booking's existing `sets`.
+        existing_sets_by_id = {}
+        if getattr(self, "_edit_mode", False) and self._booking_data and self._booking_data.get("sets"):
+            for s in self._booking_data["sets"]:
+                sid = s.get("set_id")
+                if sid is not None:
+                    existing_sets_by_id[sid] = s
+
+        if not self._fs_set_packages:
+            empty_lbl = QLabel(
+                "No predefined Food Sets found.\n"
+                "Ask the owner to mark packages as \"Food Set\" in the Menu section."
+            )
+            empty_lbl.setStyleSheet("color: #98A2B3; font-size: 13px; font-style: italic; padding: 20px;")
+            empty_lbl.setAlignment(Qt.AlignCenter)
+            lay.addWidget(empty_lbl)
+            return
+
+        for pkg in self._fs_set_packages:
+            pkg_id = pkg["id"]
+            card = QFrame()
+            card.setObjectName("packageCard")
+            card.setStyleSheet(_package_card_style(selected=False))
+            card_lay = QHBoxLayout(card)
+            card_lay.setContentsMargins(16, 12, 16, 12)
+            card_lay.setSpacing(12)
+
+            info = QVBoxLayout()
+            info.setSpacing(3)
+            n_lbl = QLabel(pkg["name"])
+            n_lbl.setStyleSheet(_package_name_style())
+            d_lbl = QLabel(pkg.get("description") or f"Min: {pkg.get('min_pax', 1)} set")
+            d_lbl.setStyleSheet(_package_desc_style())
+            d_lbl.setWordWrap(True)
+            info.addWidget(n_lbl)
+            info.addWidget(d_lbl)
+            card_lay.addLayout(info, 1)
+
+            p_lbl = QLabel(f"₱{float(pkg['price_per_pax']):,.2f}/set")
+            p_lbl.setStyleSheet("font-size: 13.5px; font-weight: 700; color: #E11D48; margin-right: 6px;")
+            card_lay.addWidget(p_lbl)
+
+            qty_lbl = QLabel("Qty:")
+            qty_lbl.setStyleSheet(_field_label("Qty:").styleSheet())
+            card_lay.addWidget(qty_lbl)
+
+            qty_spin = QSpinBox()
+            qty_spin.setRange(0, 200)
+            init_qty = int(existing_sets_by_id.get(pkg_id, {}).get("quantity") or 0)
+            qty_spin.setValue(init_qty)
+            qty_spin.setFixedWidth(70)
+            qty_spin.valueChanged.connect(lambda _v, pid=pkg_id: self._on_fs_qty_changed(pid))
+            self._fs_qty_spins[pkg_id] = qty_spin
+            card_lay.addWidget(qty_spin)
+
+            customize_btn = QPushButton("🍽️ Customize Dishes")
+            customize_btn.setCursor(Qt.PointingHandCursor)
+            customize_btn.setStyleSheet(
+                "background: rgba(225, 29, 72, 0.12); color: #E11D48; border: 1px solid rgba(225, 29, 72, 0.3);"
+                " border-radius: 6px; font-size: 11.5px; font-weight: 700; padding: 5px 10px;"
+            )
+            customize_btn.clicked.connect(lambda _, pid=pkg_id, p=pkg: self._open_fs_customize_dialog(pid, p))
+            card_lay.addWidget(customize_btn)
+
+            lay.addWidget(card)
+
+            # Pre-seed the dish-selection cache from an edited booking's set row.
+            if pkg_id in existing_sets_by_id and pkg_id not in self._fs_dish_selected:
+                dish_names = [d.get("name") for d in existing_sets_by_id[pkg_id].get("dishes", []) if d.get("name")]
+                if dish_names:
+                    self._fs_dish_selected[pkg_id] = dish_names
+
+        self._fs_summary_lbl = QLabel("")
+        self._fs_summary_lbl.setWordWrap(True)
+        self._fs_summary_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #10B981; padding-top: 6px;")
+        lay.addWidget(self._fs_summary_lbl)
+        lay.addStretch()
+        self._update_fs_summary()
+
+    def _on_fs_qty_changed(self, _pkg_id):
+        """React to a Food Set card's quantity stepper changing."""
+        self._update_fs_summary()
+        self._update_cost()
+
+    def _update_fs_summary(self):
+        """Refresh the "N set(s) selected - Base Total: PhP..." summary label."""
+        if not hasattr(self, "_fs_summary_lbl"):
+            return
+        total_sets = sum(sp.value() for sp in getattr(self, "_fs_qty_spins", {}).values())
+        total_cost = 0.0
+        for pkg in getattr(self, "_fs_set_packages", []):
+            sp = self._fs_qty_spins.get(pkg["id"])
+            if sp:
+                total_cost += sp.value() * float(pkg["price_per_pax"])
+        self._fs_summary_lbl.setText(f"✓ {total_sets} set(s) selected — Base Total: ₱{total_cost:,.2f}")
+
+    def _open_fs_customize_dialog(self, pkg_id, pkg):
+        """Open ``PackageMenuSelectionDialog`` to customize one Food Set's dishes."""
+        from components.package_menu_dialog import PackageMenuSelectionDialog
+        current_selected = self._fs_dish_selected.get(pkg_id)
+        if current_selected is None:
+            default_items = repo.get_package_items(pkg_id)
+            current_selected = [p.get("item_name") for p in default_items if p.get("item_name")]
+        dlg = PackageMenuSelectionDialog(pkg, selected_names=current_selected, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self._fs_dish_selected[pkg_id] = dlg.get_selected_dishes()
+
+    def _rebuild_step2(self):
+        """Tear down and rebuild step 2 (Menu) in place, e.g. after Order Type changes.
+
+        Mirrors ``_ensure_step_built``'s placeholder-swap logic but works on an
+        already-built step instead of a never-built placeholder.
+        """
+        idx = 2
+        w = self._build_step2()
+        self._step_widgets[idx] = w
+        sa = _make_step_scroll(w)
+        self._step_scrolls[idx] = sa
+        old = self._stack.widget(idx)
+        self._stack.removeWidget(old)
+        self._stack.insertWidget(idx, sa)
+        if old:
+            old.deleteLater()
+        self._step2_dirty = False
 
     def _set_menu_mode(self, index):
         """Switch between the Packages (0) and Custom Menu (1) panes.
@@ -2060,30 +2396,53 @@ class BookingModal(QDialog):
                 self.f_venue.setText("To be followed")
             if hasattr(self, "f_venue"):
                 self.f_venue.setStyleSheet("")
+        if self._step == 2 and getattr(self, "_order_type", "package") == "food_set":
+            total_sets = sum(sp.value() for sp in getattr(self, "_fs_qty_spins", {}).values())
+            if total_sets <= 0:
+                if hasattr(self, "_fs_summary_lbl"):
+                    self._fs_summary_lbl.setText("⚠️ Please select at least 1 Food Set (qty > 0) to continue.")
+                    self._fs_summary_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #F59E0B; padding-top: 6px;")
+                return False
         return True
 
     def _go_next(self):
         """Advance to the next step (or save on the last step) after validation.
 
-        Blocks if the current step fails validation. When entering step 3 it
-        recomputes the base package total from the current menu selection, then
-        animates the transition. On the final step it delegates to ``_save``.
+        Blocks if the current step fails validation. When entering step 2 it
+        rebuilds that step's pane if the Order Type changed since it was last
+        built. When entering step 3 it recomputes the base total from the
+        current menu/sets selection, then animates the transition. On the
+        final step it delegates to ``_save``.
         """
         if not self._validate_current():
             return
         if self._step < len(_STEPS) - 1:
             self._step += 1
+            if self._step == 2 and getattr(self, "_step2_dirty", False) and self._step_widgets[2] is not None:
+                self._rebuild_step2()
             if self._step == 3:
                 # Recalculate package total based on current step 3 selection if not manually overridden
+                order_type = getattr(self, "_order_type", "package")
                 pax = self.f_pax.value()
-                if self.btn_custom.isChecked():
+                if order_type == "food_set":
+                    rate = 0.0
+                    fs_total = 0.0
+                    for pkg in getattr(self, "_fs_set_packages", []):
+                        sp = getattr(self, "_fs_qty_spins", {}).get(pkg["id"])
+                        if sp:
+                            fs_total += sp.value() * float(pkg["price_per_pax"])
+                    if hasattr(self, "f_pay_package_total"):
+                        self.f_pay_package_total.setValue(fs_total)
+                elif getattr(self, "btn_custom", None) and self.btn_custom.isChecked():
                     rate = sum(float(item.get("price", 0)) for chk, item in getattr(self, "_custom_checks", []) if chk.isChecked())
+                    if hasattr(self, "f_pay_package_total"):
+                        self.f_pay_package_total.setValue(pax * rate)
                 else:
                     pkg_idx = getattr(self, "_selected_pkg", None)
                     db_pkgs = getattr(self, "_db_packages", [])
                     rate = float(db_pkgs[pkg_idx]["price_per_pax"]) if (pkg_idx is not None and db_pkgs and pkg_idx < len(db_pkgs)) else 0.0
-                if hasattr(self, "f_pay_package_total"):
-                    self.f_pay_package_total.setValue(pax * rate)
+                    if hasattr(self, "f_pay_package_total"):
+                        self.f_pay_package_total.setValue(pax * rate)
                 self._update_cost()
             self._refresh_step(direction=1)
         else:
@@ -2121,8 +2480,59 @@ class BookingModal(QDialog):
         pkg_idx = getattr(self, "_selected_pkg", None)
         selected_dishes = []
         package_id = None
+        sets_payload = []
+        order_type = getattr(self, "_order_type", "package")
 
-        if self.btn_custom.isChecked():
+        if order_type == "food_set":
+            # Food Set: build the `sets` list (set_id/name/quantity/unit_price/dishes)
+            # from each set card's quantity stepper + its customized dish list.
+            menu_type = "food_set"
+            for pkg in getattr(self, "_fs_set_packages", []):
+                pid = pkg["id"]
+                qty_spin = getattr(self, "_fs_qty_spins", {}).get(pid)
+                qty = qty_spin.value() if qty_spin else 0
+                if qty <= 0:
+                    continue
+                chosen_names = getattr(self, "_fs_dish_selected", {}).get(pid)
+                if chosen_names is None:
+                    default_items = repo.get_package_items(pid)
+                    chosen_names = [p.get("item_name") for p in default_items if p.get("item_name")]
+                cat_lookup = getattr(self, "_fs_cat_lookup", {})
+                dishes = [
+                    {
+                        "name": name,
+                        "category": cat_lookup.get(name.strip().lower(), "Main Dish"),
+                        "price": 0.0,
+                        "quantity": 1,
+                    }
+                    for name in chosen_names if name
+                ]
+                sets_payload.append({
+                    "set_id":     pid,
+                    "name":       pkg["name"],
+                    "quantity":   qty,
+                    "unit_price": float(pkg["price_per_pax"]),
+                    "dishes":     dishes,
+                })
+            menu_value = ", ".join(f"{s['name']} x{s['quantity']}" for s in sets_payload) or "Food Set Order"
+            rate = 0.0  # base total for sets is computed directly from sets_payload below
+            selected_dishes = [d["name"] for s in sets_payload for d in s["dishes"]]
+        elif order_type == "food_tray":
+            # Food Tray: same as a Custom Menu order, but tagged menu_type="food_tray".
+            menu_type = "food_tray"
+            selected_items = [
+                item.get("item") or item.get("name", "")
+                for chk, item in getattr(self, "_custom_checks", [])
+                if chk.isChecked()
+            ]
+            menu_value = ", ".join(selected_items) if selected_items else "Food Tray Order"
+            rate = sum(
+                float(item.get("price", 0))
+                for chk, item in getattr(self, "_custom_checks", [])
+                if chk.isChecked()
+            )
+            selected_dishes = [it for it in selected_items if it]
+        elif getattr(self, "btn_custom", None) and self.btn_custom.isChecked():
             # Custom menu: menu_value is a comma-joined list of the checked items.
             menu_type = "custom"
             selected_items = [
@@ -2228,6 +2638,22 @@ class BookingModal(QDialog):
         if not motif_val:
             motif_val = "Standard"  # default theme/motif when left blank
 
+        # Pickup / Drop-off time are opt-in (like end time); None when not set.
+        pickup_val = (
+            self.f_pickup_time.time().toString("hh:mm AP")
+            if (hasattr(self, "chk_pickup_time") and self.chk_pickup_time.isChecked()) else None
+        )
+        dropoff_val = (
+            self.f_dropoff_time.time().toString("hh:mm AP")
+            if (hasattr(self, "chk_dropoff_time") and self.chk_dropoff_time.isChecked()) else None
+        )
+        # No. of sets: for Food Set orders this is the sum of each set's quantity;
+        # otherwise it's whatever the user entered on the Event step (0 = n/a).
+        if order_type == "food_set":
+            num_sets_val = sum(s["quantity"] for s in sets_payload)
+        else:
+            num_sets_val = self.f_num_sets.value() if hasattr(self, "f_num_sets") else 0
+
         # Flat booking payload emitted to the caller (several keys are duplicated
         # under alternate names, e.g. time/event_time and color/motif, for
         # compatibility with different consumers of this signal).
@@ -2244,6 +2670,9 @@ class BookingModal(QDialog):
             "event_time":      self.f_time.time().toString("hh:mm AP"),
             "end_time":        end_time_val,
             "event_end_time":  end_time_val,
+            "pickup_time":     pickup_val,
+            "dropoff_time":    dropoff_val,
+            "num_sets":        num_sets_val,
             "pax":             pax,
             "notes":           notes_text,
             "additional_charges": structured_addons,
@@ -2251,6 +2680,7 @@ class BookingModal(QDialog):
             "menu_value":      menu_value,
             "package_id":      package_id,
             "selected_dishes": selected_dishes,
+            "sets":            sets_payload,
             "total":           total,
             "amount_paid":     recorded_down,
             "down_payment":    recorded_down,
