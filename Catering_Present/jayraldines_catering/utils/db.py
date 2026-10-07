@@ -851,7 +851,7 @@ def _ensure_pg_places_and_auth(conn) -> None:
                         -- Record payment entry if paid
                         IF v_paid > 0 THEN
                             INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
-                            VALUES (v_inv_id, v_paid, p_event_date, p_payment_mode, 'Initial payment on booking', 1);
+                            VALUES (v_inv_id, v_paid, CURRENT_DATE, p_payment_mode, 'Initial payment on booking', 1);
                         END IF;
 
                         IF v_cid IS NOT NULL THEN
@@ -1848,15 +1848,21 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
             """, (cust_name, p[1], p[2], p[3], tier))
             cust_id = cur.lastrowid
 
-        # Deduplicate: Prevent double booking of same event on same day for same customer
+        event_t = _format_time_ampm(p[7])
+
+        # Deduplicate ONLY true exact duplicates (same customer, same date, same
+        # occasion AND same event time). The time is part of the key so that a
+        # customer can have multiple bookings on the same day at different times
+        # (e.g. an afternoon AND an evening/dinner event) — each is saved separately.
         cur.execute("""
             SELECT bk_id, bk_booking_ref FROM bookings
             WHERE (bk_customer_id = ? OR LOWER(bk_customer_name) = LOWER(?))
               AND bk_event_date = ?
               AND LOWER(bk_occasion) = LOWER(?)
+              AND bk_event_time = ?
               AND bk_status != 'CANCELLED'
             LIMIT 1
-        """, (cust_id, cust_name, event_d, str(p[4] or '')))
+        """, (cust_id, cust_name, event_d, str(p[4] or ''), event_t))
         dup_bk = cur.fetchone()
         if dup_bk:
             out_dict["p_booking_id"] = dup_bk[0]
@@ -1870,20 +1876,29 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
             cur.execute("SELECT pkg_id FROM packages WHERE pkg_id = ? LIMIT 1", (pkg_id,))
             if not cur.fetchone():
                 pkg_id = None
-        event_t = _format_time_ampm(p[7])
+
+        # Optional new fields (appended to params for backward compatibility):
+        #   p[16]=pickup_time, p[17]=dropoff_time, p[18]=num_sets
+        pickup_time = (str(p[16]).strip() or None) if len(p) > 16 and p[16] else None
+        dropoff_time = (str(p[17]).strip() or None) if len(p) > 17 and p[17] else None
+        try:
+            num_sets = int(p[18]) if len(p) > 18 and p[18] is not None else 0
+        except (ValueError, TypeError):
+            num_sets = 0
 
         # Status is ALWAYS PENDING for new bookings until manually confirmed by staff/admin
         cur.execute("""
             INSERT INTO bookings (
                 bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time,
                 bk_venue, bk_occasion, bk_pax, bk_notes, bk_menu_type, bk_package_id, bk_total_amount, bk_base_total,
-                bk_payment_mode, bk_amount_paid, bk_down_payment, bk_down_payment_status, bk_status
+                bk_payment_mode, bk_amount_paid, bk_down_payment, bk_pickup_time, bk_dropoff_time, bk_num_sets,
+                bk_down_payment_status, bk_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')
         """, (
             booking_ref, cust_id, cust_name, p[3], event_d, event_t,
             p[5], p[4], p[8], p[9], p[10], pkg_id, total_amt, total_amt,
-            pay_mode, amt_paid, amt_paid
+            pay_mode, amt_paid, amt_paid, pickup_time, dropoff_time, num_sets
         ))
         booking_id = cur.lastrowid
 
@@ -2156,6 +2171,14 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
         base_tot = float(p[14] or 0.0)
         pay_mode = str(p[15] or 'Cash').strip()
         amt_paid = float(p[16] or 0.0)
+        # Optional new fields appended for backward compatibility:
+        #   p[17]=pickup_time, p[18]=dropoff_time, p[19]=num_sets
+        upd_pickup = (str(p[17]).strip() or None) if len(p) > 17 and p[17] else None
+        upd_dropoff = (str(p[18]).strip() or None) if len(p) > 18 and p[18] else None
+        try:
+            upd_num_sets = int(p[19]) if len(p) > 19 and p[19] is not None else 0
+        except (ValueError, TypeError):
+            upd_num_sets = 0
 
         # The edited "Total" field is the base order amount; additional charges
         # already recorded for this booking layer on top of it (never silently
@@ -2170,9 +2193,12 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
             SET bk_customer_name = ?, bk_address = ?, bk_occasion = ?, bk_venue = ?,
                 bk_event_date = ?, bk_event_time = ?, bk_pax = ?, bk_notes = ?,
                 bk_menu_type = ?, bk_package_id = ?, bk_total_amount = ?, bk_base_total = ?,
-                bk_payment_mode = ?, bk_amount_paid = ?, bk_down_payment = ?
+                bk_payment_mode = ?, bk_amount_paid = ?, bk_down_payment = ?,
+                bk_pickup_time = COALESCE(?, bk_pickup_time),
+                bk_dropoff_time = COALESCE(?, bk_dropoff_time),
+                bk_num_sets = ?
             WHERE bk_id = ?
-        """, (c_name, c_address, occasion, venue, event_d, event_t, pax, notes, m_type, pkg_id, tot, base_tot, pay_mode, amt_paid, amt_paid, bk_id))
+        """, (c_name, c_address, occasion, venue, event_d, event_t, pax, notes, m_type, pkg_id, tot, base_tot, pay_mode, amt_paid, amt_paid, upd_pickup, upd_dropoff, upd_num_sets, bk_id))
 
         # Update invoices row — recalculate amount_paid from actual payment_records (source of truth)
         cur.execute("SELECT inv_id FROM invoices WHERE inv_booking_id = ? LIMIT 1", (bk_id,))
