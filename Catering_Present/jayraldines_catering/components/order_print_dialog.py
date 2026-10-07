@@ -502,6 +502,33 @@ class OrderPrintDialog(QDialog):
     _build_foods_grid_html = _build_dishes_table_2col
     _build_dishes_html = _build_dishes_table_2col
 
+    def _build_sets_html(self, booking: dict, compact: bool = False) -> str:
+        """Renders the booking's Food Set selections (name, quantity, dishes),
+        when present. Separate from ``_build_dishes_table_2col`` because set
+        dishes are also flattened into ``booking.dishes``/booking_menu_items
+        for backward compatibility - this adds an EXPLICIT per-set breakdown
+        on top of (not instead of) that existing dish rendering."""
+        sets_list = booking.get("sets") or []
+        if not sets_list:
+            return ""
+        title_font = "10px" if compact else "12px"
+        name_font = "11px" if compact else "13px"
+        dish_font = "10px" if compact else "11.5px"
+        blocks = []
+        for s in sets_list:
+            s_name = str(s.get("name") or "Set").strip()
+            s_qty = s.get("quantity") or 1
+            dishes = s.get("dishes") or []
+            dish_line = ", ".join(str(d.get("name") or "").strip() for d in dishes if d.get("name"))
+            blocks.append(
+                f'<div style="font-size:{name_font}; font-weight:800; color:#000000; margin-top:6px;">&bull; {s_name} &times; {s_qty}</div>'
+                + (f'<div style="font-size:{dish_font}; color:#333333; margin-left:12px; margin-top:1px;">{dish_line}</div>' if dish_line else "")
+            )
+        return (
+            f'<div style="font-size:{title_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.4px; margin-top:10px; margin-bottom:4px;">FOOD SETS BREAKDOWN</div>'
+            + "".join(blocks)
+        )
+
     def _build_addons_html(self, booking: dict, compact: bool = False) -> str:
         add_ons = self._get_clean_addons(booking)
         font_sz = "11.5px" if compact else "12px"
@@ -545,6 +572,10 @@ class OrderPrintDialog(QDialog):
 
         add_ons = self._get_clean_addons(booking)
         foods_grid_html = self._build_dishes_table_2col(booking, compact=compact, pad_scale=pad_scale)
+        sets_grid_html = self._build_sets_html(booking, compact=compact)
+        pickup_val = str(booking.get("pickup_time") or "").strip()
+        dropoff_val = str(booking.get("dropoff_time") or "").strip()
+        num_sets_val = booking.get("num_sets") or 0
 
         ps = pad_scale if not compact else 1.0
         h_title   = "22px" if not compact else "16px"
@@ -632,6 +663,9 @@ class OrderPrintDialog(QDialog):
                     <div style="font-size:{venue_val}; font-weight:800; color:#000000; margin-top:2px; line-height:1.2;">{venue}</div>
                     <div style="font-size:{body_font}; color:#222222; margin-top:4px;"><b>Occasion:</b> {occasion}</div>
                     {f'<div style="font-size:{body_font}; color:#222222; margin-top:2px;"><b>Contact:</b> {contact}</div>' if contact else ''}
+                    {f'<div style="font-size:{body_font}; color:#222222; margin-top:2px;"><b>Pickup Time:</b> {pickup_val}</div>' if pickup_val else ''}
+                    {f'<div style="font-size:{body_font}; color:#222222; margin-top:2px;"><b>Drop-off Time:</b> {dropoff_val}</div>' if dropoff_val else ''}
+                    {f'<div style="font-size:{body_font}; color:#222222; margin-top:2px;"><b>No. of Sets:</b> {num_sets_val}</div>' if num_sets_val else ''}
 
                     <div style="margin-top:{gap_section};">
                         <div style="font-size:{section_lbl}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.3px;">ADDITIONAL INSTRUCTIONS</div>
@@ -649,6 +683,7 @@ class OrderPrintDialog(QDialog):
                 <!-- Right Column: Category | Menu (strictly 2 columns) -->
                 <td style="width:56%; vertical-align:top;">
                     {foods_grid_html}
+                    {sets_grid_html}
                 </td>
             </tr>
         </table>
@@ -841,6 +876,10 @@ class OrderPrintDialog(QDialog):
         pax_label = "No. of Sets:" if is_food_set else "No. of Pax:"
         pax_value = f"{pax} Set(s)" if is_food_set else f"{pax} Pax"
         special_instructions = notes or "Standard arrangement."
+        pickup_val = html.escape(str(booking.get("pickup_time") or "").strip())
+        dropoff_val = html.escape(str(booking.get("dropoff_time") or "").strip())
+        num_sets_val = booking.get("num_sets") or 0
+        sets_list = booking.get("sets") or []
         logo_uri = self._logo_data_uri()
         logo_img_html = (
             f'<img src="{logo_uri}" width="48" height="48" style="border-radius:50%;" />'
@@ -883,14 +922,21 @@ class OrderPrintDialog(QDialog):
             </table>
         """ + _card_close
 
+        pickup_row = _row("Pickup Time:", pickup_val) if pickup_val else ""
+        dropoff_row = _row("Drop-off Time:", dropoff_val) if dropoff_val else ""
+        num_sets_row = _row("No. of Sets:", str(num_sets_val), True) if num_sets_val and not is_food_set else ""
+
         event_details_card = _card_open("calendar", "EVENT DETAILS") + f"""
             <table width="100%" style="width:100%; border-collapse:collapse;">
                 {_row("Function Date:", event_date, True)}
                 {_row("Time:", event_time)}
+                {pickup_row}
+                {dropoff_row}
                 {_row("Venue:", venue)}
                 {_row("Occasion:", occasion)}
                 {_row("Motif:", motif)}
                 {_row(pax_label, pax_value, True)}
+                {num_sets_row}
                 {_row("Special Instructions:", special_instructions)}
             </table>
         """ + _card_close
@@ -930,6 +976,26 @@ class OrderPrintDialog(QDialog):
                     {inclusions_lines_html}
                 """
 
+        # Food Set breakdown (name, quantity, dishes) - explicit, on top of the
+        # existing MENU list above (whose dish rows already include any set
+        # dishes flattened for backward compatibility).
+        sets_breakdown_html = ""
+        if sets_list:
+            _set_blocks = []
+            for s in sets_list:
+                s_name = html.escape(str(s.get("name") or "Set").strip())
+                s_qty = s.get("quantity") or 1
+                s_dishes = s.get("dishes") or []
+                dish_line = html.escape(", ".join(str(d.get("name") or "").strip() for d in s_dishes if d.get("name")))
+                _set_blocks.append(
+                    f'<div style="font-size:10.5px; font-weight:800; color:#0F172A; margin-top:4px;">&bull; {s_name} &times; {s_qty}</div>'
+                    + (f'<div style="font-size:10px; color:#334155; margin-left:12px;">{dish_line}</div>' if dish_line else "")
+                )
+            sets_breakdown_html = (
+                '<div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; margin-top:10px; margin-bottom:4px;">FOOD SETS BREAKDOWN:</div>'
+                + "".join(_set_blocks)
+            )
+
         package_menu_card = _card_open("cloche", "PACKAGE &amp; MENU") + f"""
             <div style="font-size:11px; font-weight:900; color:#0F172A;">PACKAGE: {pkg_name.upper()}</div>
             <div style="font-size:10px; color:#334155; margin-top:1px; margin-bottom:4px;">{package_qty_line}</div>
@@ -938,6 +1004,7 @@ class OrderPrintDialog(QDialog):
             <table width="100%" style="width:100%; border-collapse:collapse;">
                 {''.join(dish_items_html)}
             </table>
+            {sets_breakdown_html}
             <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; margin-top:10px; margin-bottom:4px;">ADD-ONS &amp; EXTRAS:</div>
             {addons_content_html}
         """ + _card_close
