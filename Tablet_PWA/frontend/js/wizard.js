@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { wizard, chargesTotal, grandTotal, peso } from "./state.js";
+import { wizard, chargesTotal, grandTotal, setsTotal, peso } from "./state.js";
 import { toast, escapeHtml, statusPill, openModal, closeModal } from "./views.js";
 import { icon } from "./icons.js";
 import { getTheme, toggleTheme } from "./app.js";
@@ -40,6 +40,10 @@ const UPSELLS = [
   { name: "Sound System", price: 3000 },
 ];
 
+function setSelectionsTotalQty(draft) {
+  return (draft.setSelections || []).reduce((sum, s) => sum + Number(s.quantity || 0), 0);
+}
+
 export function isFoodSet(name) {
   if (!name) return false;
   const n = String(name).trim().toLowerCase();
@@ -56,11 +60,13 @@ export function isFoodSet(name) {
 
 let root = null;
 let packagesCache = [];
+let foodSetsCache = [];
 let menuGroupedCache = {};
 let occasionsCache = [];
 let lastCreatedOrder = null;
 window.__clearWizardCaches = () => {
   packagesCache = [];
+  foodSetsCache = [];
   menuGroupedCache = {};
   occasionsCache = [];
 };
@@ -568,12 +574,18 @@ function renderCart() {
     </h3>
     <div style="border-bottom:1.5px solid var(--border); padding-bottom:10px; margin-bottom:10px;">
       <div style="display:flex; justify-content:space-between; font-size:14px; margin-bottom:6px;">
-        <span style="color:var(--text-muted);">Package</span>
-        <span style="font-weight:700; color:var(--text);">${escapeHtml(d.package.name || "None")}</span>
+        <span style="color:var(--text-muted);">${d.flowType === "food_set" ? "Food Sets" : d.flowType === "food_tray" ? "Order Type" : "Package"}</span>
+        <span style="font-weight:700; color:var(--text);">${
+          d.flowType === "food_set"
+            ? escapeHtml((d.setSelections || []).map((s) => `${s.name} x${s.quantity}`).join(", ") || "None")
+            : d.flowType === "food_tray"
+              ? "Food Tray"
+              : escapeHtml(d.package.name || "None")
+        }</span>
       </div>
       <div style="display:flex; justify-content:space-between; font-size:14px;">
-        <span style="color:var(--text-muted);">${isFoodSet(d.package.name) ? "No. of Sets" : "No. of Pax"}</span>
-        <span style="font-weight:700; color:var(--gold);">${d.event.pax || 0} ${isFoodSet(d.package.name) ? "set(s)" : "pax"}</span>
+        <span style="color:var(--text-muted);">${d.flowType === "food_set" ? "No. of Sets" : isFoodSet(d.package.name) ? "No. of Sets" : "No. of Pax"}</span>
+        <span style="font-weight:700; color:var(--gold);">${d.flowType === "food_set" ? setSelectionsTotalQty(d) : (d.event.pax || 0)} ${d.flowType === "food_set" || isFoodSet(d.package.name) ? "set(s)" : "pax"}</span>
       </div>
     </div>
     
@@ -906,17 +918,189 @@ function renderStepCustomer(card) {
   footer("Next Step", proceedToStep2, false);
 }
 
+// ── Food Set picker (Order Type = "food_set") ────────────────────────
+// Renders one card per predefined Food Set (Set A-E, pkg_is_set=1) with a
+// quantity stepper (supports picking the same set multiple times or mixing
+// different sets) and a "Customize Dishes" button.
+
+function findSetSelection(d, setId) {
+  return (d.setSelections || []).find((s) => Number(s.set_id) === Number(setId));
+}
+
+function renderFoodSetCards(d) {
+  if (!foodSetsCache.length) {
+    return `<p style="color:var(--text-muted); font-style:italic; padding:20px;">No predefined Food Sets found. Ask the owner to mark packages as "Food Set" in the Menu section.</p>`;
+  }
+  return `
+    <div class="kiosk-grid">
+      ${foodSetsCache.map((set) => {
+        const sel = findSetSelection(d, set.id);
+        const qty = sel ? sel.quantity : 0;
+        return `
+        <div class="kiosk-food-card select-card ${qty > 0 ? "selected" : ""}" data-set-id="${set.id}">
+          <div class="kiosk-card-body">
+            <h4 class="kiosk-card-title">${escapeHtml(set.name)}</h4>
+            <p class="kiosk-card-desc">${escapeHtml(set.description || `Min: ${set.min_pax || 20} pax`)}</p>
+            <div class="kiosk-card-footer" style="flex-wrap:wrap; gap:8px;">
+              <span class="kiosk-price-tag">${peso(set.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted);"> / set</span></span>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <button type="button" class="btn btn-secondary btn-fs-qty-minus" data-set-id="${set.id}" style="width:32px; height:32px; padding:0;">−</button>
+                <span class="btn-fs-qty-val" data-set-id="${set.id}" style="min-width:28px; text-align:center; font-weight:800;">${qty}</span>
+                <button type="button" class="btn btn-secondary btn-fs-qty-plus" data-set-id="${set.id}" style="width:32px; height:32px; padding:0;">+</button>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline btn-fs-customize" data-set-id="${set.id}" style="margin-top:8px; width:100%; font-size:12px;">
+              ${icon("utensils")} Customize Dishes
+            </button>
+          </div>
+        </div>
+      `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function updateFsSummary(card, d) {
+  const el = card.querySelector("#fs-summary");
+  if (!el) return;
+  const totalSets = setSelectionsTotalQty(d);
+  const totalCost = setsTotal(d);
+  el.textContent = totalSets > 0 ? `✓ ${totalSets} set(s) selected — Base Total: ${peso(totalCost)}` : "";
+}
+
+function upsertSetSelection(d, set, quantity) {
+  d.setSelections = d.setSelections || [];
+  let sel = findSetSelection(d, set.id);
+  if (quantity <= 0) {
+    d.setSelections = d.setSelections.filter((s) => Number(s.set_id) !== Number(set.id));
+    return;
+  }
+  if (!sel) {
+    sel = {
+      set_id: set.id, name: set.name, quantity: 0, unit_price: Number(set.price_per_pax) || 0,
+      dishes: (set.dishes || []).map((dd) => ({ ...dd })),
+    };
+    d.setSelections.push(sel);
+  }
+  sel.quantity = quantity;
+}
+
+function wireFoodSetCards(card, d) {
+  const listEl = card.querySelector("#food-sets-list");
+  if (!listEl) return;
+
+  function refreshCardUi(setId) {
+    const sel = findSetSelection(d, setId);
+    const qty = sel ? sel.quantity : 0;
+    const valEl = listEl.querySelector(`.btn-fs-qty-val[data-set-id="${setId}"]`);
+    if (valEl) valEl.textContent = qty;
+    const cardEl = listEl.querySelector(`.select-card[data-set-id="${setId}"]`);
+    if (cardEl) cardEl.classList.toggle("selected", qty > 0);
+    updateFsSummary(card, d);
+    renderCart();
+  }
+
+  listEl.querySelectorAll(".btn-fs-qty-plus").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const setId = Number(btn.dataset.setId);
+      const set = foodSetsCache.find((s) => Number(s.id) === setId);
+      if (!set) return;
+      const sel = findSetSelection(d, setId);
+      upsertSetSelection(d, set, (sel ? sel.quantity : 0) + 1);
+      refreshCardUi(setId);
+    });
+  });
+  listEl.querySelectorAll(".btn-fs-qty-minus").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const setId = Number(btn.dataset.setId);
+      const set = foodSetsCache.find((s) => Number(s.id) === setId);
+      if (!set) return;
+      const sel = findSetSelection(d, setId);
+      upsertSetSelection(d, set, Math.max(0, (sel ? sel.quantity : 0) - 1));
+      refreshCardUi(setId);
+    });
+  });
+  listEl.querySelectorAll(".btn-fs-customize").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const setId = Number(btn.dataset.setId);
+      const set = foodSetsCache.find((s) => Number(s.id) === setId);
+      if (!set) return;
+      // Auto-select the set (qty >= 1) when the staff opens the customizer.
+      let sel = findSetSelection(d, setId);
+      if (!sel) { upsertSetSelection(d, set, 1); refreshCardUi(setId); sel = findSetSelection(d, setId); }
+      openFoodSetCustomizeModal(set, sel, () => refreshCardUi(setId));
+    });
+  });
+
+  updateFsSummary(card, d);
+}
+
+function openFoodSetCustomizeModal(set, sel, onSaved) {
+  const modalId = "fs-customize-modal";
+  const dishes = sel.dishes && sel.dishes.length ? sel.dishes : (set.dishes || []).map((dd) => ({ ...dd }));
+  sel.dishes = dishes;
+  openModal({
+    id: modalId,
+    title: `${icon("utensils")} Customize ${escapeHtml(set.name)}`,
+    bodyHtml: `
+      <p style="color:var(--text-muted); font-size:13px; margin:0 0 12px;">Adjust the quantity of each dish included in this set (per set unit).</p>
+      <div id="fs-dish-rows" style="display:flex; flex-direction:column; gap:10px;">
+        ${dishes.map((dish, idx) => `
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; border:1px solid var(--border); border-radius:8px; padding:8px 12px;">
+            <div>
+              <div style="font-weight:700; font-size:13px;">${escapeHtml(dish.name)}</div>
+              <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(dish.category || "Main Dish")}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <button type="button" class="btn btn-secondary fs-dish-qty-minus" data-idx="${idx}" style="width:28px; height:28px; padding:0;">−</button>
+              <span class="fs-dish-qty-val" data-idx="${idx}" style="min-width:24px; text-align:center; font-weight:800;">${dish.quantity || 1}</span>
+              <button type="button" class="btn btn-secondary fs-dish-qty-plus" data-idx="${idx}" style="width:28px; height:28px; padding:0;">+</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `,
+    footerHtml: `
+      <button class="btn btn-secondary" data-close>Cancel</button>
+      <button class="btn btn-primary" id="btn-fs-save-dishes">${icon("check")} Save</button>
+    `,
+  });
+  const modalEl = document.getElementById(modalId);
+  const rowsEl = modalEl.querySelector("#fs-dish-rows");
+  rowsEl.querySelectorAll(".fs-dish-qty-plus").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.idx);
+      dishes[idx].quantity = (Number(dishes[idx].quantity) || 1) + 1;
+      rowsEl.querySelector(`.fs-dish-qty-val[data-idx="${idx}"]`).textContent = dishes[idx].quantity;
+    });
+  });
+  rowsEl.querySelectorAll(".fs-dish-qty-minus").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.idx);
+      dishes[idx].quantity = Math.max(1, (Number(dishes[idx].quantity) || 1) - 1);
+      rowsEl.querySelector(`.fs-dish-qty-val[data-idx="${idx}"]`).textContent = dishes[idx].quantity;
+    });
+  });
+  modalEl.querySelector("#btn-fs-save-dishes").addEventListener("click", () => {
+    sel.dishes = dishes;
+    closeModal(modalId);
+    if (typeof onSaved === "function") onSaved();
+  });
+}
+
 // ── Step 2: Package & Event ──────────────────────────────────────────
 
 async function renderStepPackage(card) {
   const d = wizard.draft;
   card.innerHTML = `<h2 style="margin:0 0 10px;">${icon("package")} Event &amp; Package</h2><p style="color:var(--text-muted);">Fetching packages from Live Database…</p>`;
   try {
-    const [pkgs, occs] = await Promise.all([
+    const [pkgs, occs, sets] = await Promise.all([
       api.getPackages(),
-      api.getOccasions().catch(() => [])
+      api.getOccasions().catch(() => []),
+      api.getFoodSets().catch(() => [])
     ]);
-    packagesCache = pkgs;
+    packagesCache = pkgs.filter((p) => !p.is_set);
+    foodSetsCache = sets && sets.length ? sets : pkgs.filter((p) => p.is_set);
     if (occs && occs.length > 0) {
       occasionsCache = occs.map((o) => (typeof o === "string" ? o : o.name));
     }
@@ -954,6 +1138,14 @@ async function renderStepPackage(card) {
     }
   }
 
+  if (!d.flowType) d.flowType = "package"; // default for existing/quick-option drafts
+
+  const ORDER_TYPES = [
+    { key: "package", label: "Packages", desc: "Choose a buffet tier package" },
+    { key: "food_tray", label: "Food Tray", desc: "Mix &amp; match menu items only" },
+    { key: "food_set", label: "Food Set", desc: "Predefined Sets A–E" },
+  ];
+
   card.innerHTML = `
     <h2 style="margin:0 0 8px; display:flex; align-items:center; gap:10px;">
       ${icon("package")} Event Schedule &amp; Package
@@ -961,6 +1153,18 @@ async function renderStepPackage(card) {
     <p style="color:var(--text-muted); margin:0 0 20px; font-size:14px;">
       Fill in your event details and choose a buffet package below.
     </p>
+
+    <div class="form-group" style="margin-bottom:20px;">
+      <label>Order Type *</label>
+      <div id="order-type-row" style="display:flex; gap:10px; flex-wrap:wrap;">
+        ${ORDER_TYPES.map((ot) => `
+          <button type="button" class="btn ${d.flowType === ot.key ? "btn-primary" : "btn-secondary"}" data-order-type="${ot.key}" style="flex:1; min-width:150px; padding:12px 14px; text-align:left; display:flex; flex-direction:column; gap:2px;">
+            <span style="font-weight:800;">${ot.label}</span>
+            <span style="font-size:11px; font-weight:500; opacity:0.85;">${ot.desc}</span>
+          </button>
+        `).join("")}
+      </div>
+    </div>
 
     <div class="grid-2">
       <div class="form-group">
@@ -1004,6 +1208,24 @@ async function renderStepPackage(card) {
         </select>
       </div>
     </div>
+    <div class="grid-2" style="grid-template-columns:1fr 1fr 1fr;">
+      <div class="form-group">
+        <label style="display:flex; align-items:center; gap:6px;">
+          <input type="checkbox" id="e-pickup-enabled" ${d.event.pickupTime ? "checked" : ""} style="width:auto;"> Pickup Time
+        </label>
+        <input type="time" class="form-control" id="e-pickup-time" value="${d.event.pickupTime || ''}" ${d.event.pickupTime ? "" : "disabled"}>
+      </div>
+      <div class="form-group">
+        <label style="display:flex; align-items:center; gap:6px;">
+          <input type="checkbox" id="e-dropoff-enabled" ${d.event.dropoffTime ? "checked" : ""} style="width:auto;"> Drop-off Time
+        </label>
+        <input type="time" class="form-control" id="e-dropoff-time" value="${d.event.dropoffTime || ''}" ${d.event.dropoffTime ? "" : "disabled"}>
+      </div>
+      <div class="form-group">
+        <label>No. of Sets</label>
+        <input type="number" class="form-control" id="e-num-sets" min="0" max="2000" value="${d.event.numSets || 0}">
+      </div>
+    </div>
     <div class="grid-2">
       <div class="form-group">
         <label>Venue Barangay / City (Search)</label>
@@ -1022,50 +1244,80 @@ async function renderStepPackage(card) {
     </div>
 
 
-    <h3 style="margin:24px 0 12px; font-size:16px;">Select a Buffet Package</h3>
-    <div class="kiosk-grid" id="pkg-grid">
-      ${packagesCache.map((p) => {
-        const isSelected = Number(d.package.id) === Number(p.id);
-        return `
-        <div class="kiosk-food-card select-card ${isSelected ? "selected" : ""}" data-id="${p.id}">
-          <div class="kiosk-card-img-wrap">
-            ${p.image ? `<img src="${p.image}" alt="${escapeHtml(p.name)}" class="kiosk-card-img">` : `
-              <div class="kiosk-card-placeholder">
-                ${icon("package")}
-                <span style="font-size:12px; font-weight:700; opacity:0.85;">Buffet Tier</span>
-              </div>
-            `}
-            <div class="kiosk-card-badge">
-              ${isSelected ? icon("checkCircle") : icon("plus")}
-            </div>
+    <div id="order-type-branch">
+      ${d.flowType === "food_set" ? `
+        <h3 style="margin:24px 0 8px; font-size:16px;">Choose Food Set(s)</h3>
+        <p style="color:var(--text-muted); margin:0 0 14px; font-size:13px;">
+          Choose one or more predefined Food Sets below. You can select the same set multiple times
+          or mix different sets. Use "Customize Dishes" to change what each set includes.
+        </p>
+        <div id="food-sets-list">${renderFoodSetCards(d)}</div>
+        <div id="fs-summary" style="margin-top:12px; font-weight:700; color:var(--success); font-size:13px;"></div>
+      ` : d.flowType === "food_tray" ? `
+        <div class="card card-elevated" style="padding:16px; margin:24px 0;">
+          <div style="font-weight:700; margin-bottom:4px;">${icon("utensils")} Food Tray — No Package Needed</div>
+          <p style="color:var(--text-muted); font-size:13px; margin:0;">
+            You'll pick individual dishes directly on the next step (Menu). Set the order's base
+            total below (per-tray / manual pricing), then continue to Menu.
+          </p>
+        </div>
+        <div class="grid-2" style="margin-top:12px;">
+          <div class="form-group">
+            <label id="lbl-price-rate">Price Per Pax (₱)</label>
+            <input type="number" class="form-control" id="e-price-per-pax" step="0.01" value="${d.package.pricePerPax || 0}">
           </div>
-          <div class="kiosk-card-body">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
-              <h4 class="kiosk-card-title">${escapeHtml(p.name)}</h4>
-              <button type="button" class="btn btn-ghost btn-view-pkg-details" data-pkg-details="${p.id}" style="padding:4px 8px; font-size:11px; height:24px; border-radius:12px; white-space:nowrap;" title="View Package Details & Inclusions">
-                ${icon("info")} Details
-              </button>
-            </div>
-            <p class="kiosk-card-desc">${escapeHtml(p.description || "Standard buffet catering setup.")}</p>
-            <div class="kiosk-card-footer">
-              <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / set</span></span>
-              <span class="kiosk-status-pill">Min 1 Set (4 dishes good for 22 person)</span>
-            </div>
+          <div class="form-group">
+            <label>Base Total (₱) — Directly Editable</label>
+            <input type="number" class="form-control" id="e-base-total" step="0.01" value="${d.package.baseTotal || 0}">
           </div>
         </div>
-      `;
-      }).join("")}
-    </div>
+      ` : `
+        <h3 style="margin:24px 0 12px; font-size:16px;">Select a Buffet Package</h3>
+        <div class="kiosk-grid" id="pkg-grid">
+          ${packagesCache.map((p) => {
+            const isSelected = Number(d.package.id) === Number(p.id);
+            return `
+            <div class="kiosk-food-card select-card ${isSelected ? "selected" : ""}" data-id="${p.id}">
+              <div class="kiosk-card-img-wrap">
+                ${p.image ? `<img src="${p.image}" alt="${escapeHtml(p.name)}" class="kiosk-card-img">` : `
+                  <div class="kiosk-card-placeholder">
+                    ${icon("package")}
+                    <span style="font-size:12px; font-weight:700; opacity:0.85;">Buffet Tier</span>
+                  </div>
+                `}
+                <div class="kiosk-card-badge">
+                  ${isSelected ? icon("checkCircle") : icon("plus")}
+                </div>
+              </div>
+              <div class="kiosk-card-body">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                  <h4 class="kiosk-card-title">${escapeHtml(p.name)}</h4>
+                  <button type="button" class="btn btn-ghost btn-view-pkg-details" data-pkg-details="${p.id}" style="padding:4px 8px; font-size:11px; height:24px; border-radius:12px; white-space:nowrap;" title="View Package Details & Inclusions">
+                    ${icon("info")} Details
+                  </button>
+                </div>
+                <p class="kiosk-card-desc">${escapeHtml(p.description || "Standard buffet catering setup.")}</p>
+                <div class="kiosk-card-footer">
+                  <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / set</span></span>
+                  <span class="kiosk-status-pill">Min 1 Set (4 dishes good for 22 person)</span>
+                </div>
+              </div>
+            </div>
+          `;
+          }).join("")}
+        </div>
 
-    <div class="grid-2" style="margin-top:20px;">
-      <div class="form-group">
-        <label id="lbl-price-rate">Price Per Set (₱)</label>
-        <input type="number" class="form-control" id="e-price-per-pax" step="0.01" value="${d.package.pricePerPax || 0}">
-      </div>
-      <div class="form-group">
-        <label>Package Base Total (₱) — Directly Editable</label>
-        <input type="number" class="form-control" id="e-base-total" step="0.01" value="${d.package.baseTotal || 0}">
-      </div>
+        <div class="grid-2" style="margin-top:20px;">
+          <div class="form-group">
+            <label id="lbl-price-rate">Price Per Set (₱)</label>
+            <input type="number" class="form-control" id="e-price-per-pax" step="0.01" value="${d.package.pricePerPax || 0}">
+          </div>
+          <div class="form-group">
+            <label>Package Base Total (₱) — Directly Editable</label>
+            <input type="number" class="form-control" id="e-base-total" step="0.01" value="${d.package.baseTotal || 0}">
+          </div>
+        </div>
+      `}
     </div>
   `;
 
@@ -1199,12 +1451,38 @@ async function renderStepPackage(card) {
     }
   });
 
+  // Pickup / Drop-off time are opt-in via their checkboxes (same pattern as
+  // the desktop app's chk_pickup_time / chk_dropoff_time).
+  const pickupChk = card.querySelector("#e-pickup-enabled");
+  const pickupTimeInput = card.querySelector("#e-pickup-time");
+  const dropoffChk = card.querySelector("#e-dropoff-enabled");
+  const dropoffTimeInput = card.querySelector("#e-dropoff-time");
+  pickupChk?.addEventListener("change", () => { if (pickupTimeInput) pickupTimeInput.disabled = !pickupChk.checked; });
+  dropoffChk?.addEventListener("change", () => { if (dropoffTimeInput) dropoffTimeInput.disabled = !dropoffChk.checked; });
+
+  // Order Type selector (Food Tray / Packages / Food Set) — switching type
+  // rebuilds this step's branch pane (package grid / nothing / Sets A-E).
+  card.querySelectorAll("[data-order-type]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const newType = btn.dataset.orderType;
+      if (newType === d.flowType) return;
+      d.flowType = newType;
+      if (newType !== "package") { d.package.id = null; d.package.name = ""; d.package.pricePerPax = 0; d.package.baseTotal = 0; }
+      if (newType !== "food_set") d.setSelections = [];
+      renderStepPackage(card);
+    });
+  });
+
+  if (d.flowType === "food_set") {
+    wireFoodSetCards(card, d);
+  }
+
   const priceInput = card.querySelector("#e-price-per-pax");
   const baseInput = card.querySelector("#e-base-total");
   let syncing = false;
 
   function syncFromPricePerPax() {
-    if (syncing) return;
+    if (syncing || !priceInput || !baseInput) return;
     syncing = true;
     const pax = Number(paxInput.value || 0);
     const price = Number(priceInput.value || 0);
@@ -1217,7 +1495,7 @@ async function renderStepPackage(card) {
   }
 
   function syncFromBaseTotal() {
-    if (syncing) return;
+    if (syncing || !priceInput || !baseInput) return;
     syncing = true;
     const pax = Number(paxInput.value || 0);
     const base = Number(baseInput.value || 0);
@@ -1231,9 +1509,9 @@ async function renderStepPackage(card) {
     renderCart();
   }
 
-  paxInput.addEventListener("input", syncFromPricePerPax);
-  priceInput.addEventListener("input", syncFromPricePerPax);
-  baseInput.addEventListener("input", syncFromBaseTotal);
+  paxInput?.addEventListener("input", syncFromPricePerPax);
+  priceInput?.addEventListener("input", syncFromPricePerPax);
+  baseInput?.addEventListener("input", syncFromBaseTotal);
 
   async function selectPackage(pkg) {
     card.querySelectorAll(".select-card").forEach((c) => {
@@ -1351,11 +1629,25 @@ async function renderStepPackage(card) {
     const venueCombined = [d.event.venueStreet, d.event.venueCity].filter(Boolean).join(", ");
     d.event.venue = venueCombined || "To be followed";
     d.event.motif = (card.querySelector("#e-motif")?.value || "").trim() || "Standard";
-    d.package.pricePerPax = Number(priceInput.value || 0);
-    d.package.baseTotal = Number(baseInput.value || 0);
+    d.event.pickupTime = (pickupChk?.checked && pickupTimeInput?.value) ? pickupTimeInput.value : "";
+    d.event.dropoffTime = (dropoffChk?.checked && dropoffTimeInput?.value) ? dropoffTimeInput.value : "";
+    d.event.numSets = Number(card.querySelector("#e-num-sets")?.value || 0);
+    if (priceInput) d.package.pricePerPax = Number(priceInput.value || 0);
+    if (baseInput) d.package.baseTotal = Number(baseInput.value || 0);
 
-    if (!d.package.id && !d.package.baseTotal) { toast("Please choose a package or set base total.", "error"); return; }
     if (!d.event.date) { toast("Event date is required.", "error"); return; }
+
+    if (d.flowType === "food_set") {
+      if (setSelectionsTotalQty(d) <= 0) { toast("Please select at least 1 Food Set (qty > 0) to continue.", "error"); return; }
+      d.event.pax = setSelectionsTotalQty(d) * 22; // informational pax estimate (22 pax/set)
+      d.event.numSets = setSelectionsTotalQty(d);
+    } else if (d.flowType === "food_tray") {
+      // Food Tray: no package required — base total may be set manually here
+      // or left at 0 and finished via priced add-on dishes on the Menu step.
+    } else if (!d.package.id && !d.package.baseTotal) {
+      toast("Please choose a package or set base total.", "error");
+      return;
+    }
     wizard.step = 3;
     render();
   });
@@ -1967,13 +2259,21 @@ function renderStepPreview(card) {
       <div class="card card-elevated" style="padding:16px;">
         <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase;">Event Schedule</div>
         <div style="font-size:16px; font-weight:700; color:var(--text); margin-top:4px;">${escapeHtml(d.event.date)} at ${escapeHtml(d.event.time)}</div>
-        <div style="font-size:13px; color:var(--gold); font-weight:700;">${d.event.pax} ${isFoodSet(d.package.name) ? "Set(s)" : "Pax"} · ${escapeHtml(d.event.venue)}</div>
+        <div style="font-size:13px; color:var(--gold); font-weight:700;">${d.flowType === "food_set" ? setSelectionsTotalQty(d) : d.event.pax} ${d.flowType === "food_set" || isFoodSet(d.package.name) ? "Set(s)" : "Pax"} · ${escapeHtml(d.event.venue)}</div>
+        ${d.event.pickupTime ? `<div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Pickup: ${escapeHtml(d.event.pickupTime)}</div>` : ""}
+        ${d.event.dropoffTime ? `<div style="font-size:12px; color:var(--text-muted);">Drop-off: ${escapeHtml(d.event.dropoffTime)}</div>` : ""}
       </div>
     </div>
 
     <div class="card card-elevated" style="padding:18px; margin-bottom:20px;">
-      <div style="font-size:14px; font-weight:700; margin-bottom:6px;">Package &amp; Menu Selections</div>
-      <div style="color:var(--gold); font-weight:700; font-size:15px; margin-bottom:8px;">${escapeHtml(d.package.name)} (${peso(d.package.pricePerPax)} / set)</div>
+      <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${d.flowType === "food_set" ? "Food Set Selections" : "Package & Menu Selections"}</div>
+      ${d.flowType === "food_set" ? `
+        ${(d.setSelections || []).map((s) => `
+          <div style="color:var(--gold); font-weight:700; font-size:15px; margin-bottom:4px;">${escapeHtml(s.name)} x${s.quantity} (${peso(s.unit_price)} / set)</div>
+        `).join("") || `<p style="color:var(--text-muted); font-size:13px;">No sets selected.</p>`}
+      ` : `
+        <div style="color:var(--gold); font-weight:700; font-size:15px; margin-bottom:8px;">${escapeHtml(d.package.name || "Food Tray (Custom Menu)")} ${d.package.pricePerPax ? `(${peso(d.package.pricePerPax)} / set)` : ""}</div>
+      `}
       <p style="color:var(--text-muted); font-size:13px; margin:0; line-height:1.6;">
         ${d.menuSelections.map((m) => escapeHtml(m.item_name)).join(", ") || "No specific dishes selected."}
       </p>
@@ -2101,13 +2401,18 @@ function renderStepPreview(card) {
           event_date: d.event.date,
           event_time: d.event.time,
           event_end_time: d.event.endTime || null,
+          pickup_time: d.event.pickupTime || "",
+          dropoff_time: d.event.dropoffTime || "",
           venue: d.event.venue,
           occasion: d.event.occasion,
           pax: d.event.pax,
+          num_sets: d.flowType === "food_set" ? setSelectionsTotalQty(d) : Number(d.event.numSets || 0),
           motif: d.event.motif || "Standard",
+          menu_type: d.flowType || "package",
           package_id: d.package.id,
-          base_total: d.package.baseTotal,
+          base_total: grandTotal(d) - chargesTotal(d),
           menu_selections: d.menuSelections,
+          sets: d.setSelections || [],
           additional_charges: d.additionalCharges,
           down_payment: d.downPayment,
           payment_method: d.paymentMethod,
