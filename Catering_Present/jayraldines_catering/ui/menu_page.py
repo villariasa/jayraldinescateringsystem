@@ -903,6 +903,21 @@ class PackageDialog(QDialog):
         pm_row.addLayout(min_col)
         right.addLayout(pm_row)
 
+        # "Food Set" flag (packages.pkg_is_set): lets the owner author more
+        # predefined Food Sets (like Set A-E) that show up in the booking
+        # modal's "Choose Sets" step. repository.py is not modified for this -
+        # the flag is read/written directly via repo.db from this UI file
+        # (see _open_add_package_dialog / _edit_package_dict below).
+        self.chk_is_set = QCheckBox("This is a Food Set (shows in the booking wizard's \"Choose Sets\" step)")
+        self.chk_is_set.setStyleSheet("font-size: 12px; font-weight: 600;")
+        if self._edit_mode and self._pkg_id:
+            try:
+                row = repo.db.fetchone("SELECT COALESCE(pkg_is_set, 0) AS is_set FROM packages WHERE pkg_id = %s", (self._pkg_id,))
+                self.chk_is_set.setChecked(bool(row and row.get("is_set")))
+            except Exception:
+                pass
+        right.addWidget(self.chk_is_set)
+
         _ds_lbl = QLabel("Description"); _ds_lbl.setStyleSheet(_fld_lbl)
         right.addWidget(_ds_lbl)
         self.desc_field = QTextEdit()
@@ -1349,6 +1364,9 @@ class PackageDialog(QDialog):
             "image":         saved_img,
             "items":         selected_items,
             "buckets":       self._collect_buckets(),
+            # Not a repository.py field; persisted directly via repo.db by the
+            # caller (see _open_add_package_dialog / _edit_package_dict).
+            "is_set":        self.chk_is_set.isChecked(),
         }
         self.accept()
 
@@ -3352,6 +3370,15 @@ class MenuPage(QWidget):
                     # the newly-created package id.
                     repo.set_package_items(pkg_id, result.get("items", []))
                     repo.set_package_buckets(pkg_id, result.get("buckets", []))
+                    # Food Set flag: not a repository.py field, so persisted
+                    # directly here via repo.db (utils/repository.py is not modified).
+                    try:
+                        repo.db.execute(
+                            "UPDATE packages SET pkg_is_set = %s WHERE pkg_id = %s",
+                            (1 if result.get("is_set") else 0, pkg_id),
+                        )
+                    except Exception as exc:
+                        print(f"[menu_page] failed to persist pkg_is_set: {exc}")
                     self._packages_cache = repo.get_all_packages()
                     self._populate_packages_table()
                     try:
@@ -3452,6 +3479,15 @@ class MenuPage(QWidget):
                 if ok:
                     repo.set_package_items(pkg["id"], result.get("items", []))
                     repo.set_package_buckets(pkg["id"], result.get("buckets", []))
+                    # Food Set flag: not a repository.py field, so persisted
+                    # directly here via repo.db (utils/repository.py is not modified).
+                    try:
+                        repo.db.execute(
+                            "UPDATE packages SET pkg_is_set = %s WHERE pkg_id = %s",
+                            (1 if result.get("is_set") else 0, pkg["id"]),
+                        )
+                    except Exception as exc:
+                        print(f"[menu_page] failed to persist pkg_is_set: {exc}")
                     self._packages_cache = repo.get_all_packages()
                     self._populate_packages_table()
                     try:
