@@ -30,29 +30,29 @@ EXPENSE_CATEGORIES = [
 ]
 
 _CATEGORY_COLORS = {
-    "Food Cost": "#E11D48",
-    "Labor":     "#F59E0B",
-    "Salary":    "#8B5CF6",
-    "Service":   "#3B82F6",
-    "Transport": "#10B981",
-    "Utilities": "#F97316",
-    "Equipment": "#64748B",
-    "Other":     "#94A3B8",
+    "food cost": "#F43F5E",   # Vivid Rose/Red
+    "labor":     "#F59E0B",   # Vibrant Amber
+    "salary":    "#A855F7",   # Vibrant Purple
+    "service":   "#3B82F6",   # Vibrant Blue
+    "transport": "#10B981",   # Emerald
+    "utilities": "#FB923C",   # Coral Orange
+    "equipment": "#06B6D4",   # Cyan
+    "other":     "#64748B",   # Slate
 }
 
 
 def get_category_color(cat: str) -> str:
     """Return an established or deterministic bright accent color for an expense category."""
     if not cat:
-        return "#94A3B8"
-    if cat in _CATEGORY_COLORS:
-        return _CATEGORY_COLORS[cat]
+        return "#64748B"
+    key = str(cat).strip().lower()
+    if key in _CATEGORY_COLORS:
+        return _CATEGORY_COLORS[key]
     palette = [
-        "#E11D48", "#F59E0B", "#8B5CF6", "#3B82F6", "#10B981", "#F97316",
-        "#06B6D4", "#EC4899", "#84CC16", "#6366F1", "#14B8A6", "#64748B",
-        "#A855F7", "#D97706", "#2563EB", "#059669"
+        "#F43F5E", "#F59E0B", "#A855F7", "#3B82F6", "#10B981", "#FB923C",
+        "#06B6D4", "#EC4899", "#38BDF8", "#6366F1", "#14B8A6", "#84CC16"
     ]
-    idx = abs(hash(cat)) % len(palette)
+    idx = sum(ord(c) for c in key) % len(palette)
     return palette[idx]
 
 
@@ -1163,35 +1163,45 @@ class ExpensesPage(QWidget):
 
         # Col 1: Date & Category
         c1 = QVBoxLayout()
-        c1.setSpacing(4)
+        c1.setSpacing(6)
         date_lbl = QLabel(exp["date"])
-        date_lbl.setStyleSheet("font-weight: 700; font-size: 14px;")
+        date_lbl.setStyleSheet("font-weight: 700; font-size: 13.5px; color: #F1F5F9;")
         cat_val = exp.get("category", "Other") or "Other"
         cat_color = get_category_color(cat_val)
 
+        cat_row = QHBoxLayout()
+        cat_row.setContentsMargins(0, 0, 0, 0)
+        cat_row.setSpacing(0)
+
+        # Compact pill with high contrast text for color-blind accessibility
         cat_badge = QPushButton(f"●  {cat_val}")
         cat_badge.setCursor(Qt.PointingHandCursor if can_edit else Qt.ArrowCursor)
         cat_badge.setToolTip("Click to change category" if can_edit else "")
+        cat_badge.setFixedHeight(24)
         cat_badge.setStyleSheet(f"""
             QPushButton {{
-                font-size: 12px;
-                font-weight: 600;
-                color: {cat_color};
-                background: {cat_color}18;
-                border: 1px solid {cat_color}45;
-                border-radius: 6px;
-                padding: 3px 8px;
-                text-align: left;
+                font-size: 11px;
+                font-weight: 700;
+                color: #FFFFFF;
+                background-color: #1E293B;
+                border: 1.5px solid {cat_color};
+                border-radius: 12px;
+                padding: 0 10px;
+                text-align: center;
             }}
             QPushButton:hover {{
-                background: {cat_color}30;
-                border: 1px solid {cat_color}85;
+                background-color: #334155;
+                border: 1.5px solid #F8FAFC;
+                color: #FFFFFF;
             }}
         """)
         if can_edit:
             cat_badge.clicked.connect(lambda _, e=exp, b=cat_badge: self._show_quick_category_menu(e, b))
+        cat_row.addWidget(cat_badge)
+        cat_row.addStretch()
+
         c1.addWidget(date_lbl)
-        c1.addWidget(cat_badge)
+        c1.addLayout(cat_row)
         lay.addLayout(c1, 2)
 
         # Col 2: Description
