@@ -755,7 +755,7 @@ def init_sqlite_db(conn: sqlite3.Connection):
     """)
 
     # Backfill: Fix payment records where initial down payment erroneously recorded
-    # event date instead of the date the payment was actually made.
+    # event date or future date instead of the date the payment was actually made.
     cursor.execute("""
         UPDATE payment_records
         SET pr_payment_date = SUBSTR(COALESCE(
@@ -765,8 +765,14 @@ def init_sqlite_db(conn: sqlite3.Connection):
         WHERE (pr_is_downpayment = 1 OR pr_id = (
             SELECT MIN(pr2.pr_id) FROM payment_records pr2 WHERE pr2.pr_invoice_id = payment_records.pr_invoice_id
         ))
-        AND pr_payment_date IN (
-            SELECT bk_event_date FROM bookings WHERE bk_id = (SELECT inv_booking_id FROM invoices WHERE inv_id = payment_records.pr_invoice_id)
+        AND (
+            pr_payment_date IN (
+                SELECT bk_event_date FROM bookings WHERE bk_id = (SELECT inv_booking_id FROM invoices WHERE inv_id = payment_records.pr_invoice_id)
+            )
+            OR pr_payment_date > DATE('now')
+            OR pr_payment_date > (
+                SELECT bk_event_date FROM bookings WHERE bk_id = (SELECT inv_booking_id FROM invoices WHERE inv_id = payment_records.pr_invoice_id)
+            )
         )
         AND COALESCE(
             (SELECT bk_created_at FROM bookings WHERE bk_id = (SELECT inv_booking_id FROM invoices WHERE inv_id = payment_records.pr_invoice_id)),
@@ -781,7 +787,36 @@ def init_sqlite_db(conn: sqlite3.Connection):
     # Seed Business Info if empty
     cursor.execute("SELECT COUNT(*) FROM business_info")
     if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO business_info (bi_name) VALUES ('Jayraldine''s Catering')")
+        cursor.execute("INSERT INTO business_info (bi_name, bi_contact, bi_address) VALUES ('Jayraldine''s Catering', 'Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017', '121 Katipunan Street, Barangay Calamba, Cebu City')")
+    else:
+        cursor.execute("""
+            UPDATE business_info
+            SET bi_contact = 'Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017',
+                bi_address = '121 Katipunan Street, Barangay Calamba, Cebu City'
+            WHERE bi_contact LIKE '%912%345%6789%' OR bi_contact = '' OR bi_contact IS NULL
+        """)
+
+    # Clean up hex numbers in bk_color_theme so human-readable motifs appear
+    cursor.execute("""
+        UPDATE bookings
+        SET bk_color_theme = 'Royal Blue'
+        WHERE bk_color_theme = '#2563EB'
+    """)
+    cursor.execute("""
+        UPDATE bookings
+        SET bk_color_theme = 'Standard'
+        WHERE UPPER(bk_color_theme) = '#STANDARD' OR bk_color_theme = '' OR bk_color_theme IS NULL
+    """)
+    cursor.execute("""
+        UPDATE bookings
+        SET bk_color_theme = 'Rose Gold'
+        WHERE UPPER(bk_color_theme) = '#ROSE GOLD'
+    """)
+    cursor.execute("""
+        UPDATE bookings
+        SET bk_color_theme = 'Black & Gold'
+        WHERE UPPER(bk_color_theme) = '#BLACK AND GOLD'
+    """)
 
     # Seed Occasions if empty
     cursor.execute("SELECT COUNT(*) FROM occasions")
