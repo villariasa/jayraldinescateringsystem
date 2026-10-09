@@ -2615,7 +2615,8 @@ class BookingPage(QWidget):
             return
         db_id = b.get("db_id")
 
-        cur_motif = str(b.get("color_theme") or b.get("motif") or "")
+        from components.color_picker_widget import clean_motif_name
+        cur_motif = clean_motif_name(b.get("color_theme") or b.get("motif") or "")
 
         # NOTE: this dialog is built with PyQt5 widgets (the rest of the file
         # uses PySide6); kept as-is to avoid changing runtime behavior.
@@ -2719,6 +2720,8 @@ class BookingPage(QWidget):
                 repo.update_booking_status(db_id, "CONFIRMED", color_theme=color_theme)
                 if color_theme:
                     repo.update_booking_color_theme(db_id, color_theme)
+                    b["color_theme"] = color_theme
+                    b["motif"] = color_theme
 
                 try:
                     if detail.get("customer_id"):
