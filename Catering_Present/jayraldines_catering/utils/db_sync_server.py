@@ -1455,12 +1455,15 @@ class SyncServerHandler(BaseHTTPRequestHandler):
 
         try:
             price_val = pkg.get("price_per_pax") if pkg.get("price_per_pax") is not None else (pkg.get("pkg_price_per_pax") if pkg.get("pkg_price_per_pax") is not None else 0.0)
+            is_set_val = 1 if (pkg.get("is_set") or pkg.get("pkg_is_set") or "set " in name.lower() or name.lower().startswith("set ")) else 0
             data = {
                 "name": name,
                 "description": pkg.get("description", "") or "",
                 "price_per_pax": float(price_val),
                 "min_pax": int(pkg.get("min_pax") or pkg.get("pkg_min_pax") or 1),
                 "image": "",
+                "is_set": is_set_val,
+                "pkg_is_set": is_set_val,
             }
 
             raw_id = pkg.get("id") or pkg.get("pkg_id")
@@ -1482,7 +1485,12 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                     repo.update_package(pkg_id, data)
                 else:
                     pkg_id = repo.add_package(data)
-            if not pkg_id:
+            if pkg_id:
+                try:
+                    db.execute("UPDATE packages SET pkg_is_set = %s WHERE pkg_id = %s" if db.get_engine_type() == "postgres" else "UPDATE packages SET pkg_is_set = ? WHERE pkg_id = ?", (is_set_val, pkg_id))
+                except Exception:
+                    pass
+            else:
                 self._set_cors_headers(500)
                 self.wfile.write(json.dumps({"error": "Failed to create or update the package."}).encode("utf-8"))
                 return
@@ -2113,7 +2121,8 @@ def perform_server_sync(payload: dict) -> dict:
             SELECT pkg_id, pkg_name, COALESCE(pkg_description, '') AS pkg_description,
                    COALESCE(pkg_price_per_pax, 0.0) AS pkg_price_per_pax,
                    COALESCE(pkg_min_pax, 30) AS pkg_min_pax,
-                   COALESCE(pkg_image, '') AS pkg_image
+                   COALESCE(pkg_image, '') AS pkg_image,
+                   COALESCE(pkg_is_set, 0) AS pkg_is_set
             FROM packages
             ORDER BY pkg_id
         """) or []
@@ -2125,7 +2134,9 @@ def perform_server_sync(payload: dict) -> dict:
                 "pkg_price_per_pax": float(r["pkg_price_per_pax"]) if r.get("pkg_price_per_pax") is not None else 0.0,
                 "pkg_min_pax": int(r.get("pkg_min_pax") or 30),
                 "pkg_image": r.get("pkg_image", ""),
-                "image": _image_to_data_uri(r.get("pkg_image", ""))
+                "image": _image_to_data_uri(r.get("pkg_image", "")),
+                "pkg_is_set": int(r.get("pkg_is_set") or 0),
+                "is_set": bool(r.get("pkg_is_set") or 0),
             }
             for r in pkgs_raw
         ]
