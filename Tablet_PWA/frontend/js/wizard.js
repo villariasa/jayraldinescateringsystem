@@ -2314,8 +2314,8 @@ function renderStepPreview(card) {
 
   function openBookingConfirmationDrawer() {
     const confirmModalId = "booking-confirm-drawer";
-    const grandTotal = d.package.baseTotal + d.additionalCharges.reduce((s, c) => s + Number(c.amount || 0), 0);
-    const balanceDue = Math.max(0, grandTotal - Number(d.downPayment || 0));
+    const finalGrandTotal = grandTotal(d);
+    const balanceDue = Math.max(0, finalGrandTotal - Number(d.downPayment || 0));
 
     openModal({
       id: confirmModalId,
@@ -2366,7 +2366,7 @@ function renderStepPreview(card) {
             </div>
             <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:13px;">
               <span style="color:var(--text-muted);">Grand Total</span>
-              <span style="font-weight:800; font-size:16px; color:var(--gold);">${peso(grandTotal)}</span>
+              <span style="font-weight:800; font-size:16px; color:var(--gold);">${peso(finalGrandTotal)}</span>
             </div>
             <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:13px;">
               <span style="color:var(--text-muted);">Down Payment</span>
