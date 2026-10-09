@@ -581,25 +581,25 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
   doc.setTextColor(30, 41, 59);
-  doc.text("Located at 518 Y Rama Ave., Cebu City", centerX, fY, { align: "center" });
+  doc.text("Located at 121 Katipunan Street, Barangay Calamba, Cebu City", centerX, fY, { align: "center" });
 
   fY += 11;
-  doc.text("Please feel free to call us at +63 912 345 6789", centerX, fY, { align: "center" });
+  doc.text("Please feel free to call us at Globe: 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017", centerX, fY, { align: "center" });
 
   fY += 11;
   doc.text("Find us on Facebook: Jayraldine's Catering Services", centerX, fY, { align: "center" });
 
   // Bottom 3-item bar with red separator lines (pinned at the very bottom)
   fY += 15;
-  const col1W = 165;
-  const col2W = 175;
-  const col3W = contentW - col1W - col2W; // 195
+  const col1W = 175;
+  const col2W = 185;
+  const col3W = contentW - col1W - col2W;
 
   // Item 1: Address
   drawPinIcon(doc, marginX + 2, fY - 7);
   doc.setFontSize(6.8);
   doc.setTextColor(30, 41, 59);
-  doc.text("Located at 518 Y Rama Ave., Cebu City", marginX + 13, fY);
+  doc.text("121 Katipunan Street, Barangay Calamba, Cebu City", marginX + 13, fY);
 
   // Divider 1
   doc.setDrawColor(220, 38, 38);
@@ -609,7 +609,7 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   // Item 2: Phone
   drawPhoneIcon(doc, marginX + col1W + 6, fY - 7);
   doc.setTextColor(30, 41, 59);
-  doc.text("Please feel free to call us at +63 912 345 6789", marginX + col1W + 18, fY);
+  doc.text("Globe: 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017", marginX + col1W + 18, fY);
 
   // Divider 2
   doc.line(marginX + col1W + col2W, fY - 7, marginX + col1W + col2W, fY + 2);
