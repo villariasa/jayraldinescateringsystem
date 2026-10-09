@@ -276,12 +276,28 @@ class ConfirmBookingDialog(QDialog):
         div2.setObjectName("divider")
         body_lay.addWidget(div2)
 
-        lbl_theme = QLabel("🎨  Assign Event Color Theme")
+        lbl_theme = QLabel("🎨  Assign Event Theme & Motif")
         lbl_theme.setStyleSheet("font-weight: 700; font-size: 13px;")
         body_lay.addWidget(lbl_theme)
 
+        from components.color_picker_widget import clean_motif_name
+        initial_motif = clean_motif_name(self._booking.get("motif") or self._booking.get("color_theme") or self._booking.get("color") or "")
+        
+        motif_row = QHBoxLayout()
+        motif_row.setSpacing(8)
+        lbl_motif_title = QLabel("Motif:")
+        lbl_motif_title.setStyleSheet("font-size: 12px; font-weight: 600; color: #475569;")
+        self.txt_motif = QLineEdit()
+        self.txt_motif.setPlaceholderText("e.g. Royal Blue, Rose Gold & Ivory, Standard…")
+        self.txt_motif.setText(initial_motif)
+        self.txt_motif.setFixedHeight(32)
+        motif_row.addWidget(lbl_motif_title)
+        motif_row.addWidget(self.txt_motif, 1)
+        body_lay.addLayout(motif_row)
+
         initial_color = str(self._booking.get("color_theme") or self._booking.get("color") or "#2563EB")
         self._color_picker = ColorThemeSelector(initial_color=initial_color)
+        self._color_picker.color_changed.connect(lambda _: self.txt_motif.setText(self._color_picker.get_color_name()))
         body_lay.addWidget(self._color_picker)
 
         scroll_area.setWidget(scroll_content)
@@ -371,8 +387,12 @@ class ConfirmBookingDialog(QDialog):
         return "Booking confirmed."
 
     def get_color_theme(self) -> str:
-        """Return the selected hex color theme string."""
-        return self._color_picker.get_color()
+        """Return the event motif name (never a raw hex)."""
+        m = self.txt_motif.text().strip() if hasattr(self, "txt_motif") else ""
+        if m:
+            from components.color_picker_widget import clean_motif_name
+            return clean_motif_name(m)
+        return self._color_picker.get_color_name()
 
 
 class BatchConfirmBookingDialog(QDialog):
@@ -673,5 +693,5 @@ class BatchConfirmBookingDialog(QDialog):
         return "Batch booking confirmation (Unpaid)."
 
     def get_color_theme(self) -> str:
-        """Return the selected hex color theme string to apply to all confirmed bookings."""
-        return self._color_picker.get_color()
+        """Return the selected color theme name to apply to all confirmed bookings."""
+        return self._color_picker.get_color_name()
