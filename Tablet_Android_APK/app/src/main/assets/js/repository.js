@@ -273,7 +273,36 @@ export function getPackages() {
     price_per_pax: Number(r.pkg_price_per_pax),
     min_pax: Number(r.pkg_min_pax || 30),
     image: r.entity_image_data || r.image || r.pkg_image || null,
+    is_set: !!Number(r.pkg_is_set || 0),
   }));
+}
+
+// Predefined Food Sets A-E (pkg_is_set=1), each with its fixed dishes from
+// package_items — backs the wizard's Food-Set Order-Type branch. Delivered
+// to the tablet via LAN sync (see updateMasterDataFromSync / pkg_is_set).
+export function getFoodSets() {
+  let rows = [];
+  try {
+    rows = fetchAll("SELECT * FROM packages WHERE COALESCE(pkg_is_set, 0) = 1 ORDER BY pkg_name ASC");
+  } catch (_) {
+    rows = [];
+  }
+  return rows.map((r) => {
+    const dishes = fetchAll("SELECT * FROM package_items WHERE pi_package_id = ? ORDER BY pi_id ASC", [r.pkg_id]);
+    return {
+      id: r.pkg_id,
+      name: r.pkg_name,
+      description: r.pkg_description || "",
+      price_per_pax: Number(r.pkg_price_per_pax),
+      min_pax: Number(r.pkg_min_pax || 20),
+      dishes: dishes.map((d) => ({
+        name: d.pi_item_name,
+        category: d.pi_category || "Main Dish",
+        price: Number(d.pi_custom_price || 0),
+        quantity: Number(d.pi_quantity || 1),
+      })),
+    };
+  });
 }
 
 export function addPackage(name, description = "", pricePerPax = 0.0, minPax = 30, imageData = null) {
@@ -621,23 +650,58 @@ export function createOrder(order) {
     }
   }
 
+  // 'package' | 'custom' | 'food_set' | 'food_tray' — set by the wizard's
+  // Order-Type screen. Never hardcoded here — mirrors the desktop app.
+  let menuType = String(order.menu_type || "package").trim().toLowerCase();
+  if (!["package", "custom", "food_set", "food_tray"].includes(menuType)) menuType = "package";
+  const numSets = Number(order.num_sets) || 0;
+
   const bookingId = run(`
     INSERT INTO bookings (
       bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time, bk_event_end_time,
-      bk_venue, bk_occasion, bk_pax, bk_total_amount, bk_base_total, bk_payment_mode,
+      bk_pickup_time, bk_dropoff_time, bk_venue, bk_occasion, bk_pax, bk_num_sets, bk_total_amount, bk_base_total, bk_payment_mode,
       bk_amount_paid, bk_down_payment, bk_menu_type, bk_package_id, bk_notes, bk_color_theme, bk_status, sync_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'package', ?, ?, ?, 'PENDING', 'pending')
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'pending')
   `, [
     bookingRef, customerId, order.customer_name, order.address || "", order.event_date,
-    order.event_time || "To be followed", order.event_end_time || null, order.venue || "To be followed", resolvedOccasion, Number(order.pax) || 1,
+    order.event_time || "To be followed", order.event_end_time || null,
+    order.pickup_time || null, order.dropoff_time || null,
+    order.venue || "To be followed", resolvedOccasion, Number(order.pax) || 1, numSets,
     total, baseTotal, order.payment_method || "Cash", downPayment, downPayment,
-    order.package_id ?? null, order.notes || "", order.motif || order.color_theme || "Standard",
+    menuType, order.package_id ?? null, order.notes || "", order.motif || order.color_theme || "Standard",
   ]);
 
   for (const m of order.menu_selections || []) {
     run(`INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity) VALUES (?, ?, ?, ?, ?, ?)`,
       [bookingId, m.menu_item_id ?? null, m.item_name, m.category || "", Number(m.price) || 0, Number(m.quantity) || 1]);
   }
+
+  // Food Set selections (supports MULTIPLE sets and REPEATING the same set
+  // with a quantity). Each entry: {set_id, name, quantity, unit_price,
+  // dishes:[{name, category, price, quantity}]}. Dishes are ALSO flattened
+  // into booking_menu_items for backward compatibility with any reader that
+  // only looks at booking_menu_items (kitchen/order-print/export/receipt).
+  (order.sets || []).forEach((s, sortIdx) => {
+    if (!s) return;
+    const sId = s.set_id ?? null;
+    const sName = s.name || "";
+    const sQty = Number(s.quantity) || 1;
+    const sPrice = Number(s.unit_price) || 0;
+    const bsId = run(`
+      INSERT INTO booking_sets (bs_booking_id, bs_set_id, bs_set_name, bs_quantity, bs_unit_price, bs_sort)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [bookingId, sId, sName, sQty, sPrice, sortIdx]);
+    for (const dish of (s.dishes || [])) {
+      if (!dish || !dish.name) continue;
+      const dCat = dish.category || "Main Dish";
+      const dPrice = Number(dish.price) || 0;
+      const dQty = Number(dish.quantity) || 1;
+      run(`INSERT INTO booking_set_items (bsi_set_row_id, bsi_item_name, bsi_category, bsi_price, bsi_quantity) VALUES (?, ?, ?, ?, ?)`,
+        [bsId, dish.name, dCat, dPrice, dQty]);
+      run(`INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity) VALUES (?, NULL, ?, ?, ?, ?)`,
+        [bookingId, dish.name, sName || dCat, dPrice, dQty * sQty]);
+    }
+  });
 
   for (const c of order.additional_charges || []) {
     run(`INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by) VALUES (?, ?, ?, ?, ?)`,
@@ -717,7 +781,29 @@ export function getOrderDetail(bookingId) {
   const email = (cust ? cust.cus_email : "") || "";
   const address = b.bk_address || (cust ? cust.cus_address : "") || "";
 
+  const setRows = fetchAll("SELECT * FROM booking_sets WHERE bs_booking_id = ? ORDER BY bs_sort ASC, bs_id ASC", [b.bk_id]);
+  const sets = setRows.map((s) => {
+    const setItems = fetchAll("SELECT * FROM booking_set_items WHERE bsi_set_row_id = ? ORDER BY bsi_id ASC", [s.bs_id]);
+    return {
+      set_id: s.bs_set_id,
+      name: s.bs_set_name,
+      quantity: Number(s.bs_quantity || 1),
+      unit_price: Number(s.bs_unit_price || 0),
+      dishes: setItems.map((si) => ({
+        name: si.bsi_item_name,
+        category: si.bsi_category,
+        price: Number(si.bsi_price || 0),
+        quantity: Number(si.bsi_quantity || 1),
+      })),
+    };
+  });
+
   return {
+    pickup_time: b.bk_pickup_time || "",
+    dropoff_time: b.bk_dropoff_time || "",
+    num_sets: Number(b.bk_num_sets || 0),
+    menu_type: b.bk_menu_type || "package",
+    sets: sets,
     booking_id: b.bk_id,
     booking_ref: b.bk_booking_ref,
     customer: customerName,
