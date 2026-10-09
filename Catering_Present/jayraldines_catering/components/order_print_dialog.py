@@ -613,7 +613,7 @@ class OrderPrintDialog(QDialog):
             <tr>
                 <td style="vertical-align:top;">
                     <div style="font-size:{h_title}; font-weight:900; color:#E11D48; line-height:1.1;">{biz.get('name', "Jayraldine's Catering")}</div>
-                    <div style="font-size:10px; color:#000000; margin-top:2px;">{biz.get('address', '518 V Rama Ave, Cebu City')} &middot; Tel: {biz.get('contact', '+63 912 345 6789')}</div>
+                    <div style="font-size:10px; color:#000000; margin-top:2px;">{biz.get('address', '121 Katipunan Street, Barangay Calamba, Cebu City')} &middot; Tel: {biz.get('contact', 'Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017')}</div>
                 </td>
                 <td style="text-align:right; vertical-align:top;">
                     <div style="font-size:10.5px; font-weight:800; color:#444444; text-transform:uppercase; letter-spacing:0.5px;">PACKAGE</div>
@@ -784,8 +784,8 @@ class OrderPrintDialog(QDialog):
         # (only address/contact are pulled from the business profile there).
         biz_name = "JAYRALDINE'S CATERING SERVICES"
         biz_name_title = "Jayraldine's Catering Services"
-        address_biz = html.escape(str(biz.get("address") or "518 Y Rama Ave., Cebu City"))
-        contact_biz = html.escape(str(biz.get("contact") or "+63 912 345 6789"))
+        address_biz = html.escape(str(biz.get("address") or "121 Katipunan Street, Barangay Calamba, Cebu City"))
+        contact_biz = html.escape(str(biz.get("contact") or "Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017"))
         order_ref = html.escape(str(booking.get("id") or booking.get("booking_ref") or "ORD-SLIP"))
         cust_name = html.escape(str(booking.get("name") or booking.get("customer_name") or "Valued Client"))
         address = html.escape(str(booking.get("address") or booking.get("venue") or "—"))
@@ -794,7 +794,8 @@ class OrderPrintDialog(QDialog):
         event_time = html.escape(str(booking.get("event_time") or booking.get("time") or "—"))
         venue = html.escape(str(booking.get("venue") or "—"))
         occasion = html.escape(str(booking.get("occasion") or "—"))
-        motif = html.escape(str(booking.get("motif") or booking.get("color_theme") or "Standard Motif"))
+        from components.color_picker_widget import clean_motif_name
+        motif = html.escape(clean_motif_name(booking.get("motif") or booking.get("color_theme") or "Standard"))
         pax = str(booking.get("pax") or 0)
         pkg_name = html.escape(str(booking.get("package_name") or booking.get("menu_type") or "Catering Package"))
         is_food_set = is_food_set_pkg(pkg_name, occasion)
@@ -961,18 +962,41 @@ class OrderPrintDialog(QDialog):
         base_total_str = _peso(booking.get("base_total") or booking.get("bk_base_total") or booking.get("total_amount") or booking.get("total") or 0)
         package_qty_line = (f"Quantity: <b>{pax}</b> Set(s)" if is_food_set else f"Quantity: <b>{pax}</b> Pax") + f"  &middot;  Base: <b>{base_total_str}</b>"
 
-        # Package inclusions from get_booking_detail's package_inclusions field
+        # Package inclusions from get_booking_detail's package_inclusions field or packages table
         _inc_raw = booking.get("package_inclusions") or booking.get("pkg_description") or booking.get("package_description") or ""
+        if not _inc_raw:
+            _pkg_id = booking.get("package_id") or booking.get("bk_package_id")
+            _pkg_nm = booking.get("package_name") or booking.get("package")
+            if _pkg_id:
+                try:
+                    _p_row = repo.get_package_by_id(_pkg_id)
+                    if _p_row:
+                        _inc_raw = _p_row.get("description") or _p_row.get("pkg_description") or ""
+                except Exception:
+                    pass
+            elif _pkg_nm:
+                try:
+                    _p_row = repo.get_package_by_name(_pkg_nm)
+                    if _p_row:
+                        _inc_raw = _p_row.get("description") or _p_row.get("pkg_description") or ""
+                except Exception:
+                    pass
+
         inclusions_html = ""
         if _inc_raw and str(_inc_raw).strip():
-            _inc_lines = [html.escape(line.strip()) for line in str(_inc_raw).strip().splitlines() if line.strip()]
+            raw_text = str(_inc_raw).strip()
+            # Split lines or multi-sentence/bulleted items
+            candidates = raw_text.splitlines()
+            if len(candidates) == 1 and (";" in raw_text or "•" in raw_text):
+                candidates = [p for p in re.split(r"[;•\n]+", raw_text) if p.strip()]
+            _inc_lines = [html.escape(line.strip().lstrip("•-* ").strip()) for line in candidates if line.strip().lstrip("•-* ").strip()]
             if _inc_lines:
                 inclusions_lines_html = "".join(
-                    f'<div style="font-size:10px; color:#334155; padding:1px 0;">• {line}</div>'
-                    for line in _inc_lines[:8]
+                    f'<div style="font-size:10px; color:#334155; padding:1.5px 0; font-weight:600;">• {line}</div>'
+                    for line in _inc_lines[:15]
                 )
                 inclusions_html = f"""
-                    <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; padding-bottom:2px; margin-bottom:3px; margin-top:4px;">INCLUSIONS:</div>
+                    <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; padding-bottom:2px; margin-bottom:3px; margin-top:5px; letter-spacing:0.3px;">INCLUSIONS:</div>
                     {inclusions_lines_html}
                 """
 
