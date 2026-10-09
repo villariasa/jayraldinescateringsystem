@@ -548,18 +548,23 @@ def add_menu_item(data: dict) -> Optional[int]:
 
     if not p_id:
         try:
-            row = db.fetchone("""
-                INSERT INTO menu_items (mi_name, mi_description, mi_category, mi_package_tier, mi_price, mi_status, mi_image)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (mi_name) DO UPDATE SET
-                    mi_description = COALESCE(NULLIF(EXCLUDED.mi_description, ''), menu_items.mi_description),
-                    mi_price = EXCLUDED.mi_price,
-                    mi_category = EXCLUDED.mi_category,
-                    mi_image = CASE WHEN EXCLUDED.mi_image <> '' THEN EXCLUDED.mi_image ELSE menu_items.mi_image END
-                RETURNING mi_id
-            """, (item_name, data.get("description", ""), data.get("category", "Main Course"), data.get("package", "Standard"), data.get("price", 0.0), st, image_val))
-            if row and row.get("mi_id"):
-                p_id = row["mi_id"]
+            existing = db.fetchone("SELECT mi_id FROM menu_items WHERE LOWER(TRIM(mi_name)) = LOWER(TRIM(%s))", (item_name,))
+            if existing and existing.get("mi_id"):
+                p_id = existing["mi_id"]
+                update_menu_item(p_id, data)
+            else:
+                db.execute("""
+                    INSERT INTO menu_items (mi_name, mi_description, mi_category, mi_package_tier, mi_price, mi_status, mi_image)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (item_name, data.get("description", ""), data.get("category", "Main Course"), data.get("package", "Standard"), data.get("price", 0.0), st, image_val))
+                last_row = db.fetchone("SELECT mi_id FROM menu_items WHERE LOWER(TRIM(mi_name)) = LOWER(TRIM(%s)) ORDER BY mi_id DESC", (item_name,))
+                if last_row and last_row.get("mi_id"):
+                    p_id = last_row["mi_id"]
+                if p_id:
+                    try:
+                        db.execute("UPDATE menu_items SET image = %s WHERE mi_id = %s", (image_val, p_id))
+                    except Exception:
+                        pass
         except Exception as exc:
             print(f"[repository] add_menu_item direct insert fallback failed: {exc}")
 
@@ -571,6 +576,14 @@ def add_menu_item(data: dict) -> Optional[int]:
             record_id=p_id,
             new_value={"name": item_name, "category": data.get("category"), "price": data.get("price")}
         )
+    from utils.data_cache import DataCache
+    DataCache.invalidate("menu_items")
+    DataCache.invalidate("packages")
+    try:
+        from utils.db_sync_server import bump_db_version
+        bump_db_version()
+    except Exception:
+        pass
     return p_id
 
 
@@ -598,12 +611,19 @@ def update_menu_item(item_id: int, data: dict) -> None:
         try:
             db.execute("""
                 UPDATE menu_items
-                SET mi_name = %s, mi_description = %s, mi_category = %s::menu_category, mi_package_tier = %s::menu_package_tier,
-                    mi_price = %s, mi_status = %s::menu_status,
-                    mi_image = CASE WHEN %s <> '' THEN %s ELSE mi_image END,
-                    mi_updated_at = NOW()
+                SET mi_name = %s, mi_description = %s, mi_category = %s, mi_package_tier = %s,
+                    mi_price = %s, mi_status = %s,
+                    mi_image = %s
                 WHERE mi_id = %s
-            """, (item_name, data.get("description", ""), data.get("category", "Main Course"), data.get("package", "Standard"), data.get("price", 0.0), st, image_val, image_val, item_id))
+            """, (item_name, data.get("description", ""), data.get("category", "Main Course"), data.get("package", "Standard"), data.get("price", 0.0), st, image_val, item_id))
+            try:
+                db.execute("UPDATE menu_items SET image = %s WHERE mi_id = %s", (image_val, item_id))
+            except Exception:
+                pass
+            try:
+                db.execute("UPDATE menu_items SET mi_updated_at = NOW() WHERE mi_id = %s", (item_id,))
+            except Exception:
+                pass
         except Exception as exc2:
             print(f"[repository] update_menu_item direct fallback failed: {exc2}")
 
@@ -613,6 +633,14 @@ def update_menu_item(item_id: int, data: dict) -> None:
         record_id=item_id,
         new_value={"name": data.get("item") or data.get("name"), "category": data.get("category"), "price": data.get("price")}
     )
+    from utils.data_cache import DataCache
+    DataCache.invalidate("menu_items")
+    DataCache.invalidate("packages")
+    try:
+        from utils.db_sync_server import bump_db_version
+        bump_db_version()
+    except Exception:
+        pass
 
 
 def delete_menu_item(arg1: int, arg2: int = None) -> None:
@@ -641,6 +669,14 @@ def delete_menu_item(arg1: int, arg2: int = None) -> None:
         record_id=item_id,
         old_value={"name": m_name or f"Menu Item #{item_id}"}
     )
+    from utils.data_cache import DataCache
+    DataCache.invalidate("menu_items")
+    DataCache.invalidate("packages")
+    try:
+        from utils.db_sync_server import bump_db_version
+        bump_db_version()
+    except Exception:
+        pass
 
 
 def delete_multiple_menu_items(item_ids: list[int]) -> int:
@@ -1187,6 +1223,13 @@ def set_package_items(package_id: int, items: list[dict]) -> bool:
             _retag_package_item_buckets(package_id)
         except Exception:
             pass
+        from utils.data_cache import DataCache
+        DataCache.invalidate("packages")
+        try:
+            from utils.db_sync_server import bump_db_version
+            bump_db_version()
+        except Exception:
+            pass
         return True
     except Exception as exc:
         print(f"[repository] set_package_items failed: {exc}")
@@ -1367,6 +1410,13 @@ def add_package(data: dict) -> Optional[int]:
             record_id=pkg_id,
             new_value={"name": pkg_name, "price": data.get("price_per_pax"), "image": image_val}
         )
+        from utils.data_cache import DataCache
+        DataCache.invalidate("packages")
+        try:
+            from utils.db_sync_server import bump_db_version
+            bump_db_version()
+        except Exception:
+            pass
         return pkg_id
     return None
 
@@ -1401,6 +1451,13 @@ def update_package(db_id: int, data: dict) -> bool:
             record_id=db_id,
             new_value={"name": data["name"], "price": data.get("price_per_pax"), "image": image_val}
         )
+        from utils.data_cache import DataCache
+        DataCache.invalidate("packages")
+        try:
+            from utils.db_sync_server import bump_db_version
+            bump_db_version()
+        except Exception:
+            pass
         return True
     except Exception as exc2:
         print(f"[repository] update_package direct fallback failed: {exc2}")
@@ -1423,6 +1480,13 @@ def delete_package(db_id: int) -> bool:
             record_id=db_id,
             old_value={"name": pkg_name or f"Package #{db_id}"}
         )
+        from utils.data_cache import DataCache
+        DataCache.invalidate("packages")
+        try:
+            from utils.db_sync_server import bump_db_version
+            bump_db_version()
+        except Exception:
+            pass
         return True
     except Exception as exc:
         print(f"[repository] delete_package failed: {exc}")

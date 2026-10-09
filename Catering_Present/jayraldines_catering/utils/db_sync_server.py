@@ -1058,6 +1058,11 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             }
             pkg_id = repo.add_package(data)
             bump_db_version()
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+            except Exception:
+                pass
             self._set_cors_headers(200)
             self.wfile.write(json.dumps({"ok": True, "id": pkg_id, "pkg_id": pkg_id, "version": get_db_version()}).encode("utf-8"))
         except Exception as exc:
@@ -1083,6 +1088,11 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             }
             repo.update_package(pkg_id, data)
             bump_db_version()
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+            except Exception:
+                pass
             self._set_cors_headers(200)
             self.wfile.write(json.dumps({"ok": True, "pkg_id": pkg_id, "version": get_db_version()}).encode("utf-8"))
         except Exception as exc:
@@ -1094,6 +1104,11 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         try:
             repo.delete_package(pkg_id)
             bump_db_version()
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+            except Exception:
+                pass
             self._set_cors_headers(200)
             self.wfile.write(json.dumps({"ok": True, "version": get_db_version()}).encode("utf-8"))
         except Exception as exc:
@@ -1120,6 +1135,11 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             }
             mi_id = repo.add_menu_item(data)
             bump_db_version()
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+            except Exception:
+                pass
             self._set_cors_headers(200)
             self.wfile.write(json.dumps({"ok": True, "id": mi_id, "mi_id": mi_id, "version": get_db_version()}).encode("utf-8"))
         except Exception as exc:
@@ -1146,6 +1166,11 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             }
             repo.update_menu_item(mi_id, data)
             bump_db_version()
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+            except Exception:
+                pass
             self._set_cors_headers(200)
             self.wfile.write(json.dumps({"ok": True, "mi_id": mi_id, "version": get_db_version()}).encode("utf-8"))
         except Exception as exc:
@@ -1157,6 +1182,11 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         try:
             repo.delete_menu_item(mi_id)
             bump_db_version()
+            try:
+                from utils.signals import app_events
+                app_events().data_changed.emit()
+            except Exception:
+                pass
             self._set_cors_headers(200)
             self.wfile.write(json.dumps({"ok": True, "version": get_db_version()}).encode("utf-8"))
         except Exception as exc:

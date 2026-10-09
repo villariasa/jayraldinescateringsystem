@@ -1750,11 +1750,12 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
             out_dict["p_customer_id"] = cur.lastrowid
 
     elif proc == "sp_add_menu_item":
-        # in_params: (item, description, category, package, price, status)
+        # in_params: (item, description, category, package, price, status, [image])
+        img = str(p[6]) if len(p) > 6 and p[6] is not None else ""
         cur.execute("""
-            INSERT INTO menu_items (mi_name, name, mi_description, description, mi_category, category, mi_package_tier, mi_package, package_tier, package, mi_price, price, mi_status, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (p[0], p[0], p[1], p[1], p[2], p[2], p[3], p[3], p[3], p[3], p[4], p[4], p[5], p[5]))
+            INSERT INTO menu_items (mi_name, name, mi_description, description, mi_category, category, mi_package_tier, mi_package, package_tier, package, mi_price, price, mi_status, status, mi_image, image)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (p[0], p[0], p[1], p[1], p[2], p[2], p[3], p[3], p[3], p[3], p[4], p[4], p[5], p[5], img, img))
         _sqlite_conn.commit()
         out_dict["p_item_id"] = cur.lastrowid
         out_dict["p_menu_item_id"] = cur.lastrowid
@@ -2116,14 +2117,16 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
         cur.execute("DELETE FROM customers WHERE cus_id = ?", (p[0],))
 
     elif proc == "sp_update_menu_item":
-        # (item_id, item, description, category, package, price, status)
+        # (item_id, item, description, category, package, price, status, [image])
+        img = str(p[7]) if len(p) > 7 and p[7] is not None else ""
         cur.execute("""
             UPDATE menu_items
             SET mi_name = ?, name = ?, mi_description = ?, description = ?, mi_category = ?, category = ?,
                 mi_package_tier = ?, mi_package = ?, package_tier = ?, package = ?,
-                mi_price = ?, price = ?, mi_status = ?, status = ?
+                mi_price = ?, price = ?, mi_status = ?, status = ?,
+                mi_image = ?, image = ?
             WHERE mi_id = ?
-        """, (p[1], p[1], p[2], p[2], p[3], p[3], p[4], p[4], p[4], p[4], p[5], p[5], p[6], p[6], p[0]))
+        """, (p[1], p[1], p[2], p[2], p[3], p[3], p[4], p[4], p[4], p[4], p[5], p[5], p[6], p[6], img, img, p[0]))
 
     elif proc == "sp_delete_menu_item":
         cur.execute("DELETE FROM menu_items WHERE mi_id = ?", (p[0],))

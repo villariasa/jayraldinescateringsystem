@@ -2034,10 +2034,18 @@ class MenuPage(QWidget):
         """Flag that the cached data is stale and should be reloaded on next show."""
         self._dirty = True
         self._cat_cache = None
+        try:
+            from utils.data_cache import DataCache
+            DataCache.invalidate("menu_items")
+            DataCache.invalidate("packages")
+        except Exception:
+            pass
 
     def _has_active_search(self) -> bool:
         """True while the user has a non-empty search filter applied."""
-        return bool(getattr(self, "_filter_q", "").strip())
+        item_q = self._item_search_input.text().strip() if hasattr(self, "_item_search_input") else ""
+        pkg_q = self._pkg_search_input.text().strip() if hasattr(self, "_pkg_search_input") else ""
+        return bool(item_q or pkg_q or getattr(self, "_filter_q", "").strip())
 
     def _mark_dirty_and_reload(self):
         """Signal handler: mark dirty and reload if visible — but defer the
@@ -2231,6 +2239,7 @@ class MenuPage(QWidget):
             if not isValid(self):
                 return
             self._menu_items_data = data if data else (menu_store.all_items() if hasattr(menu_store, "all_items") else [])
+            self._populate_item_category_filter()
             # _populate_table() kicks off async batch rendering; the loader is
             # hidden by _maybe_finish_reload once the LAST batch finishes (of
             # both pipelines), not here right after the fetch.
@@ -2450,6 +2459,25 @@ class MenuPage(QWidget):
         lay.setSpacing(12)
 
         toolbar = QHBoxLayout()
+        toolbar.setSpacing(10)
+
+        # In-page search and category filter controls for Menu Items
+        self._item_search_input = QLineEdit()
+        self._item_search_input.setObjectName("searchBox")
+        self._item_search_input.setPlaceholderText("🔍 Search dish by name...")
+        self._item_search_input.setClearButtonEnabled(True)
+        self._item_search_input.setFixedHeight(38)
+        self._item_search_input.setMinimumWidth(220)
+        self._item_search_input.textChanged.connect(self._on_item_search_changed)
+        toolbar.addWidget(self._item_search_input)
+
+        self._item_cat_filter = QComboBox()
+        self._item_cat_filter.setFixedHeight(38)
+        self._item_cat_filter.setMinimumWidth(160)
+        self._item_cat_filter.addItem("All Categories")
+        self._item_cat_filter.currentTextChanged.connect(self._on_item_cat_filter_changed)
+        toolbar.addWidget(self._item_cat_filter)
+
         toolbar.addStretch()
 
         self.add_btn = QPushButton("  Add Item")
@@ -2557,6 +2585,18 @@ class MenuPage(QWidget):
         lay.setSpacing(12)
 
         toolbar = QHBoxLayout()
+        toolbar.setSpacing(10)
+
+        # In-page search control for Packages
+        self._pkg_search_input = QLineEdit()
+        self._pkg_search_input.setObjectName("searchBox")
+        self._pkg_search_input.setPlaceholderText("🔍 Search package by name...")
+        self._pkg_search_input.setClearButtonEnabled(True)
+        self._pkg_search_input.setFixedHeight(38)
+        self._pkg_search_input.setMinimumWidth(240)
+        self._pkg_search_input.textChanged.connect(self._on_pkg_search_changed)
+        toolbar.addWidget(self._pkg_search_input)
+
         toolbar.addStretch()
 
         self.add_pkg_btn = QPushButton("  Add Package")
@@ -2729,6 +2769,48 @@ class MenuPage(QWidget):
         else:
             self._btn_delete_selected_pkgs.setText("  Delete Selected")
 
+    def _on_item_search_changed(self, text):
+        self._filter_q = text.strip().lower()
+        self._populate_table()
+
+    def _on_item_cat_filter_changed(self, text):
+        self._populate_table()
+
+    def _on_pkg_search_changed(self, text):
+        self._filter_pkg_q = text.strip().lower()
+        self._populate_packages_table()
+
+    def _populate_item_category_filter(self):
+        """Populate the category filter combobox with 'All Categories' + existing categories."""
+        if not hasattr(self, "_item_cat_filter"):
+            return
+        current = self._item_cat_filter.currentText() or "All Categories"
+        cats = set()
+        items = getattr(self, "_menu_items_data", None)
+        if items:
+            for it in items:
+                c = (it.get("category") or "").strip()
+                if c:
+                    cats.add(c)
+        try:
+            db_cats = repo.get_all_menu_categories()
+            if db_cats:
+                for c in db_cats:
+                    if c:
+                        cats.add(str(c).strip())
+        except Exception:
+            pass
+        sorted_cats = ["All Categories"] + sorted(list(cats), key=lambda s: s.lower())
+        self._item_cat_filter.blockSignals(True)
+        self._item_cat_filter.clear()
+        self._item_cat_filter.addItems(sorted_cats)
+        idx = self._item_cat_filter.findText(current)
+        if idx >= 0:
+            self._item_cat_filter.setCurrentIndex(idx)
+        else:
+            self._item_cat_filter.setCurrentIndex(0)
+        self._item_cat_filter.blockSignals(False)
+
     def _populate_table(self):
         """(Re)build the menu-items card list from _menu_items_data. Clears
         existing cards, applies the active search filter, bumps the render token
@@ -2744,12 +2826,31 @@ class MenuPage(QWidget):
                     item.widget().hide()
                     item.widget().deleteLater()
 
-            q = getattr(self, "_filter_q", "")
+            q = (self._item_search_input.text().strip().lower()
+                 if hasattr(self, "_item_search_input")
+                 else getattr(self, "_filter_q", "")).strip().lower()
+            selected_cat = (self._item_cat_filter.currentText().strip()
+                            if hasattr(self, "_item_cat_filter")
+                            else "All Categories")
+            self._filter_q = q
+
             items = getattr(self, "_menu_items_data", None)
             if items is None:
-                items = repo.get_all_menu_items() or menu_store.all_items()
-            if q:
-                items = [i for i in items if q in i["item"].lower() or q in i["category"].lower() or q in i["package"].lower()]
+                items = repo.get_all_menu_items() or (menu_store.all_items() if hasattr(menu_store, "all_items") else [])
+
+            filtered = []
+            for i in items:
+                cat = (i.get("category") or "").strip()
+                if selected_cat and selected_cat != "All Categories" and cat.lower() != selected_cat.lower():
+                    continue
+                if q:
+                    item_name = (i.get("item") or i.get("name") or "").lower()
+                    pkg_name = (i.get("package") or "").lower()
+                    cat_name = cat.lower()
+                    if q not in item_name and q not in pkg_name and q not in cat_name:
+                        continue
+                filtered.append(i)
+            items = filtered
 
             # Bump the render token; any in-flight batch from a previous call
             # will see the mismatch and cancel itself (prevents freeze/dupes on
@@ -2892,19 +2993,23 @@ class MenuPage(QWidget):
         name_lbl = QLabel(highlight_html(item["item"], getattr(self, "_filter_q", "")))
         name_lbl.setTextFormat(Qt.RichText)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
-        cat_lbl = QLabel(f"Category: {item['category']}  |  Package: {item['package']}")
+        item_cat = item.get("category") or "General"
+        item_pkg = item.get("package") or "Standard"
+        cat_lbl = QLabel(f"Category: {item_cat}  |  Package: {item_pkg}")
         cat_lbl.setObjectName("subtitle")
         c1.addWidget(name_lbl)
         c1.addWidget(cat_lbl)
         lay.addLayout(c1, 3)
 
-        price_lbl = QLabel(f"₱{item['price']:,.2f}")
+        item_price = float(item.get("price") or 0)
+        price_lbl = QLabel(f"₱{item_price:,.2f}")
         price_lbl.setStyleSheet("font-weight: 800; font-size: 15px; color: #F59E0B;")
         lay.addWidget(price_lbl, alignment=Qt.AlignVCenter)
 
         status_colors = {"Available": "#22C55E", "Unavailable": "#EF4444", "Out of Stock": "#F97316", "Seasonal": "#F59E0B"}
-        s_color = status_colors.get(item["status"], "#9CA3AF")
-        status_lbl = QLabel(item["status"])
+        st = item.get("status") or "Available"
+        s_color = status_colors.get(st, "#9CA3AF")
+        status_lbl = QLabel(st)
         status_lbl.setStyleSheet(f"font-weight: 700; font-size: 11px; color: {s_color}; padding: 4px 10px; background: rgba(255,255,255,0.05); border-radius: 8px;")
         lay.addWidget(status_lbl, alignment=Qt.AlignVCenter)
 
@@ -3052,8 +3157,11 @@ class MenuPage(QWidget):
         if dlg.exec() == QDialog.Accepted:
             result = dlg.get_result()
             if result:
+                from utils.data_cache import DataCache
+                DataCache.invalidate("menu_items")
                 repo.add_menu_item(result)
-                self._menu_items_data = repo.get_all_menu_items() or menu_store.all_items()
+                self._menu_items_data = repo.get_all_menu_items() or (menu_store.all_items() if hasattr(menu_store, "all_items") else [])
+                self._populate_item_category_filter()
                 self._populate_table()
                 try:
                     from utils.signals import app_events
@@ -3130,6 +3238,14 @@ class MenuPage(QWidget):
             if packages is None:
                 packages = repo.get_all_packages()
             self._packages_data = packages
+
+            pkg_q = (self._pkg_search_input.text().strip().lower()
+                     if hasattr(self, "_pkg_search_input")
+                     else getattr(self, "_filter_pkg_q", "")).strip().lower()
+            self._filter_pkg_q = pkg_q
+
+            if pkg_q:
+                packages = [p for p in packages if pkg_q in (p.get("name") or "").lower() or pkg_q in (p.get("description") or "").lower()]
 
             # Bump the render token so any in-flight batch from a previous
             # call cancels itself (avoids freeze/dupes on rapid populates).
@@ -3253,7 +3369,7 @@ class MenuPage(QWidget):
 
         c1 = QVBoxLayout()
         c1.setSpacing(2)
-        name_lbl = QLabel(highlight_html(pkg["name"], getattr(self, "_filter_q", "")))
+        name_lbl = QLabel(highlight_html(pkg["name"], getattr(self, "_filter_pkg_q", getattr(self, "_filter_q", ""))))
         name_lbl.setTextFormat(Qt.RichText)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
         desc_lbl = QLabel(pkg.get("description", "No description"))
@@ -3282,7 +3398,7 @@ class MenuPage(QWidget):
 
         p_info = QVBoxLayout()
         p_info.setSpacing(2)
-        p_val = QLabel(f"₱{float(pkg['price_per_pax']):,.2f} / pax")
+        p_val = QLabel(f"₱{float(pkg.get('price_per_pax') or 0):,.2f} / pax")
         p_val.setStyleSheet("font-weight: 800; font-size: 14px; color: #F59E0B;")
         min_p = QLabel(f"Min: {pkg.get('min_pax', 1)} pax")
         min_p.setStyleSheet("font-size: 11px; color: #6B7280;")
