@@ -24,6 +24,25 @@ PRESET_THEME_COLORS = [
 ]
 
 
+def clean_motif_name(raw_motif: str) -> str:
+    """Return a clean human-readable motif name, converting raw hex codes (#2563EB) to color names."""
+    if not raw_motif:
+        return "Standard"
+    val = str(raw_motif).strip()
+    upper = val.upper()
+    preset_dict = {h.upper(): name for h, name in PRESET_THEME_COLORS}
+    if upper in preset_dict:
+        return preset_dict[upper]
+    if val.startswith("#"):
+        without_hash = val.lstrip("#").strip()
+        if ("#" + without_hash.upper()) in preset_dict:
+            return preset_dict["#" + without_hash.upper()]
+        if len(without_hash) > 6 or not all(c in "0123456789ABCDEFabcdef" for c in without_hash):
+            return without_hash.title() if without_hash.isupper() else without_hash
+        return "Custom Theme"
+    return val
+
+
 class ColorThemeSelector(QWidget):
     color_changed = Signal(str)
 
@@ -51,6 +70,7 @@ class ColorThemeSelector(QWidget):
             btn.setCursor(Qt.PointingHandCursor)
             btn.setToolTip(f"{name} ({hex_code})")
             btn.setProperty("hex_code", hex_code)
+            btn.setProperty("theme_name", name)
             btn.clicked.connect(lambda _, h=hex_code: self.set_color(h))
             self._swatch_buttons.append(btn)
             if i < 6:
@@ -113,6 +133,11 @@ class ColorThemeSelector(QWidget):
         if not hex_code:
             hex_code = "#2563EB"
         hex_code = hex_code.strip()
+        # If passed a name instead of hex, look it up
+        for h, n in PRESET_THEME_COLORS:
+            if n.lower() == hex_code.lower():
+                hex_code = h
+                break
         if not hex_code.startswith("#"):
             hex_code = "#" + hex_code
         self._current_color = hex_code.upper()
@@ -144,9 +169,13 @@ class ColorThemeSelector(QWidget):
         # Update preview box & label
         theme_name = next((name for h, name in PRESET_THEME_COLORS if h.upper() == self._current_color), "Custom Color")
         self._preview_box.setStyleSheet(f"background-color: {self._current_color}; border-radius: 4px; border: 1px solid rgba(0,0,0,0.25);")
-        self._lbl_preview.setText(f"Active Theme: <b>{theme_name}</b> ({self._current_color})")
+        self._lbl_preview.setText(f"Active Theme: <b>{theme_name}</b>")
 
         self.color_changed.emit(self._current_color)
 
     def get_color(self) -> str:
         return self._current_color
+
+    def get_color_name(self) -> str:
+        theme_name = next((name for h, name in PRESET_THEME_COLORS if h.upper() == self._current_color.upper()), None)
+        return theme_name or clean_motif_name(self._current_color)
