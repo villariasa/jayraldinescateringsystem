@@ -1841,8 +1841,8 @@ function openQuickAboutUsModal() {
 
           <div style="background:var(--input-bg); border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px; display:flex; flex-direction:column; gap:8px;">
             <div style="font-weight:700; color:var(--text); font-size:13px; margin-bottom:2px;">Contact &amp; Location:</div>
-            <div style="display:flex; align-items:center; gap:8px;">${icon("mapPin")} <b>Location:</b> Cebu City, Philippines</div>
-            <div style="display:flex; align-items:center; gap:8px;">${icon("phone")} <b>Phone:</b> (+63) 912 345 6789 / (032) 412-8899</div>
+            <div style="display:flex; align-items:center; gap:8px;">${icon("mapPin")} <b>Location:</b> 121 Katipunan Street, Barangay Calamba, Cebu City</div>
+            <div style="display:flex; align-items:center; gap:8px;">${icon("phone")} <b>Phone:</b> Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017</div>
             <div style="display:flex; align-items:center; gap:8px;">${icon("mail")} <b>Email:</b> jayraldinescatering@gmail.com</div>
             <div style="display:flex; align-items:center; gap:8px;">${icon("clock")} <b>Kiosk System:</b> 100% Offline Standalone PWA</div>
           </div>
