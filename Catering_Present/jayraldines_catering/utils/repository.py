@@ -38,6 +38,38 @@ def format_time_ampm(t_raw, default: str = "") -> str:
     return s
 
 
+_HEX_TO_COLOR = {
+    "#2563EB": "Royal Blue",
+    "#059669": "Emerald Green",
+    "#D97706": "Amber Gold",
+    "#E11D48": "Rose Pink",
+    "#7C3AED": "Royal Purple",
+    "#0891B2": "Teal Cyan",
+    "#DC2626": "Ruby Red",
+    "#EA580C": "Sunset Orange",
+    "#8B5CF6": "Lavender",
+    "#1E3A8A": "Midnight Navy",
+    "#475569": "Slate",
+}
+
+def clean_motif_name(raw_motif: str) -> str:
+    """Return a clean human-readable motif name, converting raw hex codes to color names."""
+    if not raw_motif:
+        return "Standard"
+    val = str(raw_motif).strip()
+    upper = val.upper()
+    if upper in _HEX_TO_COLOR:
+        return _HEX_TO_COLOR[upper]
+    if val.startswith("#"):
+        without_hash = val.lstrip("#").strip()
+        if ("#" + without_hash.upper()) in _HEX_TO_COLOR:
+            return _HEX_TO_COLOR["#" + without_hash.upper()]
+        if len(without_hash) > 6 or not all(c in "0123456789ABCDEFabcdef" for c in without_hash):
+            return without_hash.title() if without_hash.isupper() else without_hash
+        return "Custom Theme"
+    return val
+
+
 # ---------------------------------------------------------------------------
 # MENU ITEMS & PACKAGES
 # ---------------------------------------------------------------------------
@@ -1484,8 +1516,9 @@ def _rows_to_booking_dicts(rows) -> list[dict]:
             "down_payment":        dp_val if dp_val > 0 else effective_paid,
             "balance":             bal_val,
             "status":              r["status"] or "PENDING",
-            "color_theme":         r.get("color_theme") or "#2563EB",
-            "color":               r.get("color_theme") or "#2563EB",
+            "color_theme":         clean_motif_name(r.get("color_theme")),
+            "color":               clean_motif_name(r.get("color_theme")),
+            "motif":               clean_motif_name(r.get("color_theme")),
             "notes":               r.get("notes") or "",
             "menu_type":           r.get("menu_type") or "package",
             "package_name":        r.get("package_name") or "",
@@ -1824,13 +1857,13 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
 
 
 def update_booking_color_theme(db_id_or_ref, color_theme: str) -> bool:
-    """Update the assigned color theme hex code for a booking."""
+    """Update the assigned theme / motif for a booking."""
     try:
-        color_hex = str(color_theme or "#2563EB").strip()
+        motif_val = clean_motif_name(color_theme)
         if isinstance(db_id_or_ref, int):
-            db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_id = %s", (color_hex, db_id_or_ref))
+            db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_id = %s", (motif_val, db_id_or_ref))
         else:
-            db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_booking_ref = %s", (color_hex, str(db_id_or_ref)))
+            db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_booking_ref = %s", (motif_val, str(db_id_or_ref)))
         return True
     except Exception as exc:
         print(f"[repository] update_booking_color_theme failed: {exc}")
@@ -2101,7 +2134,7 @@ def update_booking(db_id: int, data: dict) -> None:
             "sp_update_booking",
             in_params=(
                 db_id,
-                data["name"],
+                data.get("name") or data.get("customer_name", ""),
                 data.get("contact", ""),
                 data.get("email", ""),
                 data.get("address", ""),
@@ -2109,12 +2142,12 @@ def update_booking(db_id: int, data: dict) -> None:
                 venue_val,
                 event_date,
                 event_time,
-                data["pax"],
+                data.get("pax", 100),
                 data.get("notes", ""),
                 data.get("menu_type", "package"),
                 package_id,
                 data.get("menu_value", "") if data.get("menu_type") == "custom" else None,
-                data["total"],
+                total_amt,
                 pm,
                 amount_paid,
                 # New fields (appended; sp_update_booking reads these at p[17..19])
@@ -3825,8 +3858,8 @@ def get_business_info() -> dict:
         ORDER BY bi_id ASC LIMIT 1
     """)
     if not row:
-        return {"name": "Jayraldine's Catering", "contact": "+63 912 345 6789",
-                "email": "admin@jayraldines.com", "address": "123 Rizal St., Manila"}
+        return {"name": "Jayraldine's Catering", "contact": "Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017",
+                "email": "admin@jayraldines.com", "address": "121 Katipunan Street, Barangay Calamba, Cebu City"}
     return dict(row)
 
 
