@@ -815,8 +815,8 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
 
         # ── Resolve monetary fields (kept from the desktop data logic) ────
         biz_name    = business.get("name", "JAYRALDINE'S CATERING")
-        biz_address = business.get("address", "518 Y Rama Ave., Cebu City")
-        biz_contact = business.get("contact", "+63 912 345 6789")
+        biz_address = business.get("address", "121 Katipunan Street, Barangay Calamba, Cebu City")
+        biz_contact = business.get("contact", "Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017")
 
         def _val(x):
             if x is None:
@@ -846,7 +846,8 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             time_disp += f" - {_repo.format_time_ampm(booking_detail['event_end_time'])}"
         venue    = booking_detail.get("venue") or address or "To be followed"
         occasion = booking_detail.get("occasion") or "General Event"
-        motif    = booking_detail.get("color_theme") or booking_detail.get("motif") or "Standard"
+        from components.color_picker_widget import clean_motif_name
+        motif    = clean_motif_name(booking_detail.get("motif") or booking_detail.get("color_theme") or "Standard")
         pax      = str(booking_detail.get("pax") or "—")
         notes    = clean_notes or "Standard arrangement."
         pay_mode = inv.get("payment_method") or booking_detail.get("payment_mode") or "Cash"
@@ -1275,8 +1276,8 @@ def export_order_slip_pdf(path: str, booking: dict, business: dict) -> bool:
         is_food_set_inv = any(k in pkg_name_inv.lower() for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or pkg_name_inv.lower().startswith("set ") or " set" in pkg_name_inv.lower() or any(k in occasion.lower() for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or occasion.lower().startswith("set ") or " set" in occasion.lower()
         guest_lbl = "Quantity:" if is_food_set_inv else "Guest Count:"
         pax_disp = f"<b>{pax} Set(s)</b>" if is_food_set_inv else f"<b>{pax} Pax</b>"
-        pkg_name  = str(booking.get("package_name") or booking.get("menu_value") or "Standard Package")
-        motif     = str(booking.get("color_theme") or booking.get("color") or "")
+        from components.color_picker_widget import clean_motif_name
+        motif     = clean_motif_name(booking.get("motif") or booking.get("color_theme") or booking.get("color") or "")
 
         # Top Header Table
         logo_cell = ""
