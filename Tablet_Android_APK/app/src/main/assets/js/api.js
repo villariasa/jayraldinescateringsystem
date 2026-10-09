@@ -132,7 +132,7 @@ function _getTabletDeviceInfo() {
     device_id: devId,
     hostname: detected.hostname,
     os_info: detected.os_info,
-    app_version: "v2.3.0",
+    app_version: "v2.4.0",
     active_module: "Customer Booking Kiosk"
   };
 }
@@ -475,6 +475,14 @@ export const api = {
   async getPackageItems(pkgId) {
     await ready();
     return repo.getPackageItems(pkgId);
+  },
+
+  // Predefined Food Sets A-E (pkg_is_set=1) with their fixed dishes — backs
+  // the wizard's Food-Set Order-Type branch.
+  async getFoodSets() {
+    await ready();
+    api.ensureLiveConnection().catch(() => {});
+    return repo.getFoodSets();
   },
 
   async getPackageBuckets(pkgId) {
