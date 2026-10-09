@@ -849,12 +849,13 @@ class BookingModal(QDialog):
                 self.f_occasion.insertItem(0, occasion_val)
                 self.f_occasion.setCurrentIndex(0)
 
-            self.f_venue.setText(self._booking_data.get("venue", ""))
-            motif_init = str(self._booking_data.get("color_theme") or self._booking_data.get("color") or self._booking_data.get("motif") or "")
-            if motif_init and motif_init.lower() != "standard" and not motif_init.startswith("#"):
+            from components.color_picker_widget import clean_motif_name
+            raw_motif = str(self._booking_data.get("motif") or self._booking_data.get("color_theme") or self._booking_data.get("color") or "")
+            motif_init = clean_motif_name(raw_motif)
+            if motif_init and motif_init.lower() != "standard":
                 self.f_motif.setText(motif_init)
-            elif motif_init and not motif_init.startswith("#"):
-                self.f_motif.setText(motif_init)
+            else:
+                self.f_motif.setText(motif_init or "Standard")
 
         # Initial date conflict check
         self._check_date_availability()
@@ -1730,9 +1731,21 @@ class BookingModal(QDialog):
                 self._cat_to_bucket[str(c).strip().lower()] = b["id"]
         buckets_active = len(self._pkg_buckets) > 0
 
-        all_items = repo.get_available_menu_items()
-        if not all_items:
-            all_items = default_items
+        # When a package has defined menu items, only show those package items so the user
+        # chooses strictly from the package's menu (rather than seeing the whole restaurant catalog).
+        if default_items:
+            assigned_names = { (p.get("item_name") or p.get("name") or "").strip().lower() for p in default_items if (p.get("item_name") or p.get("name")) }
+            items_source = list(default_items)
+            if prechecked_original:
+                avail_lookup = { (it.get("item") or it.get("name") or "").strip().lower(): it for it in (repo.get_available_menu_items() or []) }
+                for sel in prechecked_original:
+                    sel_key = str(sel).strip().lower()
+                    if sel_key and sel_key not in assigned_names and sel_key in avail_lookup:
+                        items_source.append(avail_lookup[sel_key])
+                        assigned_names.add(sel_key)
+            all_items = items_source
+        else:
+            all_items = repo.get_available_menu_items() or []
 
         # Group items by category. When buckets are active, only show categories
         # that belong to some bucket (others are not selectable for this package).
@@ -2684,9 +2697,9 @@ class BookingModal(QDialog):
             "total":           total,
             "amount_paid":     recorded_down,
             "down_payment":    recorded_down,
-            "color_theme":     motif_val,
-            "color":           motif_val,
-            "motif":           motif_val,
+            "color_theme":     clean_motif_name(motif_val),
+            "color":           clean_motif_name(motif_val),
+            "motif":           clean_motif_name(motif_val),
             "status":          orig_status or "PENDING",
         }
         self.booking_saved.emit(data)
