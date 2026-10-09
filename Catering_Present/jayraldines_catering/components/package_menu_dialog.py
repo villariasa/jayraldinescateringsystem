@@ -198,7 +198,21 @@ class PackageMenuSelectionDialog(QDialog):
                 self._cat_to_bucket[str(c).strip().lower()] = b["id"]
         buckets_active = len(self._pkg_buckets) > 0
 
-        all_items = repo.get_available_menu_items() or default_items
+        # When a package has defined menu items, only show those package items so the user
+        # chooses strictly from the package's menu (rather than seeing the whole restaurant catalog).
+        if default_items:
+            assigned_names = { (p.get("item_name") or p.get("name") or "").strip().lower() for p in default_items if (p.get("item_name") or p.get("name")) }
+            items_source = list(default_items)
+            if self._initial_selected:
+                avail_lookup = { (it.get("item") or it.get("name") or "").strip().lower(): it for it in (repo.get_available_menu_items() or []) }
+                for sel in self._initial_selected:
+                    sel_key = str(sel).strip().lower()
+                    if sel_key and sel_key not in assigned_names and sel_key in avail_lookup:
+                        items_source.append(avail_lookup[sel_key])
+                        assigned_names.add(sel_key)
+            all_items = items_source
+        else:
+            all_items = repo.get_available_menu_items() or []
 
         # Prechecked selection
         if self._initial_selected:
