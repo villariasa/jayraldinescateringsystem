@@ -288,18 +288,30 @@ export function getFoodSets() {
     rows = [];
   }
   return rows.map((r) => {
-    const dishes = fetchAll("SELECT * FROM package_items WHERE pi_package_id = ? ORDER BY pi_id ASC", [r.pkg_id]);
+    let dishes = fetchAll("SELECT * FROM package_items WHERE pi_package_id = ? ORDER BY pi_id ASC", [r.pkg_id]);
+    if ((!dishes || dishes.length === 0) && r.pkg_description && r.pkg_description.includes("(") && r.pkg_description.includes(")")) {
+      const match = r.pkg_description.match(/\((.*?)\)/);
+      if (match && match[1]) {
+        const dishNames = match[1].split(",").map((s) => s.trim()).filter(Boolean);
+        dishes = dishNames.map((n) => ({
+          pi_item_name: n,
+          pi_category: "Main Dish",
+          pi_custom_price: 0,
+          pi_quantity: 1,
+        }));
+      }
+    }
     return {
       id: r.pkg_id,
       name: r.pkg_name,
       description: r.pkg_description || "",
       price_per_pax: Number(r.pkg_price_per_pax),
       min_pax: Number(r.pkg_min_pax || 20),
-      dishes: dishes.map((d) => ({
-        name: d.pi_item_name,
-        category: d.pi_category || "Main Dish",
-        price: Number(d.pi_custom_price || 0),
-        quantity: Number(d.pi_quantity || 1),
+      dishes: (dishes || []).map((d) => ({
+        name: d.pi_item_name || d.name,
+        category: d.pi_category || d.category || "Main Dish",
+        price: Number(d.pi_custom_price || d.price || 0),
+        quantity: Number(d.pi_quantity || d.quantity || 1),
       })),
     };
   });
