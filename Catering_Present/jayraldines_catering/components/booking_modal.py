@@ -33,7 +33,7 @@ from utils.theme import ThemeManager
 from utils.animations import animate_dialog_open, animate_slide_fade_in
 import utils.menu_store as menu_store
 import utils.repository as repo
-from components.color_picker_widget import ColorThemeSelector
+from components.color_picker_widget import ColorThemeSelector, clean_motif_name
 
 
 def _is_light():
@@ -643,6 +643,7 @@ class BookingModal(QDialog):
         self.f_occasion.setStyleSheet(_combo_style())
         self._occasions = repo.get_all_occasions()
         self.f_occasion.addItems(self._occasions)
+        self.f_occasion.currentTextChanged.connect(self._on_occasion_changed)
         v1.addWidget(self.f_occasion)
         v2 = QVBoxLayout()
         v2.addWidget(_field_label("Venue (Leave blank or 'To be followed')"))
@@ -907,6 +908,20 @@ class BookingModal(QDialog):
         if new_type != getattr(self, "_order_type", "package"):
             self._order_type = new_type
             self._step2_dirty = True
+            if new_type == "food_set" and hasattr(self, "f_occasion"):
+                cur_occ = self.f_occasion.currentText().strip()
+                if not cur_occ or cur_occ.lower() in ("wedding", "birthday", "corporate"):
+                    idx = self.f_occasion.findText("Food Set")
+                    if idx >= 0:
+                        self.f_occasion.setCurrentIndex(idx)
+
+    def _on_occasion_changed(self, text):
+        """Auto-sync Order Type when occasion is set to 'Food Set' or similar."""
+        if str(text).strip().lower() == "food set":
+            if hasattr(self, "f_order_type"):
+                idx = self.f_order_type.findText("Food Set")
+                if idx >= 0 and self.f_order_type.currentIndex() != idx:
+                    self.f_order_type.setCurrentIndex(idx)
 
     def _build_step2(self):
         """Build step 2 (Menu): a Packages/Custom Menu segmented switch.
@@ -1224,16 +1239,68 @@ class BookingModal(QDialog):
             })
         return out
 
+    def _update_badge_style(self, badge_lbl, is_selected):
+        """Style the Food Set card checkmark badge."""
+        if is_selected:
+            badge_lbl.setText("✓ Selected")
+            badge_lbl.setStyleSheet(
+                "background: #E11D48; color: #FFFFFF; font-size: 11px; font-weight: 700; "
+                "border-radius: 12px; padding: 4px 10px; border: 1px solid #E11D48;"
+            )
+        else:
+            badge_lbl.setText("+ Select")
+            badge_lbl.setStyleSheet(
+                "background: transparent; color: #94A3B8; font-size: 11px; font-weight: 600; "
+                "border-radius: 12px; padding: 4px 10px; border: 1px dashed #475569;"
+            )
+
+    def _on_fs_card_clicked(self, _event, pkg_id):
+        """Clicking the card or badge toggles selection between 0 and 1 (or max allowed)."""
+        sp = getattr(self, "_fs_qty_spins", {}).get(pkg_id)
+        if not sp:
+            return
+        if sp.value() > 0:
+            sp.setValue(0)
+        else:
+            target = self.f_num_sets.value() if hasattr(self, "f_num_sets") else 0
+            cur_tot = sum(s.value() for s in getattr(self, "_fs_qty_spins", {}).values())
+            if target > 0 and cur_tot >= target:
+                self._update_fs_summary(f"⚠️ Target limit of {target} set(s) reached. Increase No. of Sets in Event Details or unselect another set first.")
+                return
+            sp.setValue(1)
+        self._on_fs_qty_changed(pkg_id)
+
+    def _on_fs_stepper(self, pkg_id, delta):
+        """Increment or decrement food set quantity via [-] and [+] buttons."""
+        sp = getattr(self, "_fs_qty_spins", {}).get(pkg_id)
+        if not sp:
+            return
+        if delta < 0:
+            sp.setValue(max(0, sp.value() + delta))
+        else:
+            target = self.f_num_sets.value() if hasattr(self, "f_num_sets") else 0
+            cur_tot = sum(s.value() for s in getattr(self, "_fs_qty_spins", {}).values())
+            if target > 0 and cur_tot >= target:
+                self._update_fs_summary(f"⚠️ Target limit of {target} set(s) reached. Increase No. of Sets in Event Details or unselect another set first.")
+                return
+            sp.setValue(sp.value() + delta)
+        self._on_fs_qty_changed(pkg_id)
+
+    def _on_fs_unselect(self, pkg_id):
+        """Unselect a food set by resetting its quantity to 0."""
+        sp = getattr(self, "_fs_qty_spins", {}).get(pkg_id)
+        if sp:
+            sp.setValue(0)
+            self._on_fs_qty_changed(pkg_id)
+
     def _populate_food_set_step(self, lay):
         """Build the "Choose Sets" pane: one card per predefined Food Set
-        (Set A-E, ``pkg_is_set=1``) with a quantity stepper (0..200, supports
-        picking the same set multiple times) and a "Customize Dishes" button
-        that reuses ``PackageMenuSelectionDialog`` to edit that set's dishes.
+        (Set A-E, ``pkg_is_set=1``) with click-to-select, checkmark badge,
+        stepper buttons ([-] / [+]), direct entry, inclusions list, and target cap enforcement.
         """
         note = QLabel(
-            "Choose one or more predefined Food Sets below. You can select the same "
-            "set multiple times or mix different sets. Use \"Customize Dishes\" to "
-            "change what each set includes."
+            "Choose one or more predefined Food Sets below. Click a card to select/unselect it, "
+            "or use [-] and [+] to adjust quantities. You can select the same set multiple times or mix sets."
         )
         note.setWordWrap(True)
         note.setStyleSheet(_muted_style(12))
@@ -1241,6 +1308,10 @@ class BookingModal(QDialog):
 
         self._fs_set_packages = self._get_food_set_packages()
         self._fs_qty_spins = {}
+        self._fs_cards = {}
+        self._fs_badges = {}
+        self._fs_inclusions_lbls = {}
+        self._fs_unselect_btns = {}
         if not hasattr(self, "_fs_dish_selected"):
             self._fs_dish_selected = {}
 
@@ -1275,92 +1346,252 @@ class BookingModal(QDialog):
 
         for pkg in self._fs_set_packages:
             pkg_id = pkg["id"]
-            card = QFrame()
-            card.setObjectName("packageCard")
-            card.setStyleSheet(_package_card_style(selected=False))
-            card_lay = QHBoxLayout(card)
-            card_lay.setContentsMargins(16, 12, 16, 12)
-            card_lay.setSpacing(12)
-
-            info = QVBoxLayout()
-            info.setSpacing(3)
-            n_lbl = QLabel(pkg["name"])
-            n_lbl.setStyleSheet(_package_name_style())
-            d_lbl = QLabel(pkg.get("description") or f"Min: {pkg.get('min_pax', 1)} set")
-            d_lbl.setStyleSheet(_package_desc_style())
-            d_lbl.setWordWrap(True)
-            info.addWidget(n_lbl)
-            info.addWidget(d_lbl)
-            card_lay.addLayout(info, 1)
-
-            p_lbl = QLabel(f"₱{float(pkg['price_per_pax']):,.2f}/set")
-            p_lbl.setStyleSheet("font-size: 13.5px; font-weight: 700; color: #E11D48; margin-right: 6px;")
-            card_lay.addWidget(p_lbl)
-
-            qty_lbl = QLabel("Qty:")
-            qty_lbl.setStyleSheet(_field_label("Qty:").styleSheet())
-            card_lay.addWidget(qty_lbl)
-
-            qty_spin = QSpinBox()
-            qty_spin.setRange(0, 200)
             init_qty = int(existing_sets_by_id.get(pkg_id, {}).get("quantity") or 0)
-            qty_spin.setValue(init_qty)
-            qty_spin.setFixedWidth(70)
-            qty_spin.valueChanged.connect(lambda _v, pid=pkg_id: self._on_fs_qty_changed(pid))
-            self._fs_qty_spins[pkg_id] = qty_spin
-            card_lay.addWidget(qty_spin)
+            is_selected = (init_qty > 0)
 
-            customize_btn = QPushButton("🍽️ Customize Dishes")
-            customize_btn.setCursor(Qt.PointingHandCursor)
-            customize_btn.setStyleSheet(
-                "background: rgba(225, 29, 72, 0.12); color: #E11D48; border: 1px solid rgba(225, 29, 72, 0.3);"
-                " border-radius: 6px; font-size: 11.5px; font-weight: 700; padding: 5px 10px;"
-            )
-            customize_btn.clicked.connect(lambda _, pid=pkg_id, p=pkg: self._open_fs_customize_dialog(pid, p))
-            card_lay.addWidget(customize_btn)
-
-            lay.addWidget(card)
-
-            # Pre-seed the dish-selection cache from an edited booking's set row.
+            # Pre-seed dish-selection cache from edited booking if present
             if pkg_id in existing_sets_by_id and pkg_id not in self._fs_dish_selected:
                 dish_names = [d.get("name") for d in existing_sets_by_id[pkg_id].get("dishes", []) if d.get("name")]
                 if dish_names:
                     self._fs_dish_selected[pkg_id] = dish_names
 
+            # Fetch inclusions list
+            cached_dishes = self._fs_dish_selected.get(pkg_id)
+            if cached_dishes is None:
+                try:
+                    default_items = repo.get_package_items(pkg_id)
+                    cached_dishes = [p.get("item_name") for p in default_items if p.get("item_name")]
+                except Exception:
+                    cached_dishes = []
+
+            card = QFrame()
+            card.setObjectName("packageCard")
+            card.setCursor(Qt.PointingHandCursor)
+            card.setStyleSheet(_package_card_style(selected=is_selected))
+            self._fs_cards[pkg_id] = card
+
+            card_lay = QVBoxLayout(card)
+            card_lay.setContentsMargins(16, 12, 16, 12)
+            card_lay.setSpacing(8)
+
+            # Top Row: Info (Left) + Badge (Right)
+            top_row = QHBoxLayout()
+            top_row.setSpacing(12)
+
+            info = QVBoxLayout()
+            info.setSpacing(3)
+            n_lbl = QLabel(pkg["name"])
+            n_lbl.setStyleSheet(_package_name_style())
+            d_lbl = QLabel(pkg.get("description") or f"Min: {pkg.get('min_pax', 1)} set (good for 22 pax)")
+            d_lbl.setStyleSheet(_package_desc_style())
+            d_lbl.setWordWrap(True)
+            info.addWidget(n_lbl)
+            info.addWidget(d_lbl)
+
+            inclusions_text = "Inclusions: " + (", ".join(cached_dishes) if cached_dishes else "Standard set dishes")
+            inc_lbl = QLabel(inclusions_text)
+            inc_lbl.setStyleSheet("font-size: 11.5px; color: #94A3B8; line-height: 1.4;")
+            inc_lbl.setWordWrap(True)
+            self._fs_inclusions_lbls[pkg_id] = inc_lbl
+            info.addWidget(inc_lbl)
+            top_row.addLayout(info, 1)
+
+            # Badge Indicator (clickable)
+            badge_lbl = QLabel()
+            badge_lbl.setCursor(Qt.PointingHandCursor)
+            self._update_badge_style(badge_lbl, is_selected)
+            self._fs_badges[pkg_id] = badge_lbl
+            top_row.addWidget(badge_lbl, 0, Qt.AlignTop | Qt.AlignRight)
+            card_lay.addLayout(top_row)
+
+            # Bottom Row: Price (Left) + Controls (Right)
+            bottom_row = QHBoxLayout()
+            bottom_row.setSpacing(8)
+
+            p_lbl = QLabel(f"₱{float(pkg['price_per_pax']):,.2f} / set")
+            p_lbl.setStyleSheet("font-size: 13.5px; font-weight: 700; color: #E11D48;")
+            bottom_row.addWidget(p_lbl)
+            bottom_row.addStretch(1)
+
+            # Stepper Minus Button
+            btn_minus = QPushButton("−")
+            btn_minus.setFixedSize(30, 30)
+            btn_minus.setCursor(Qt.PointingHandCursor)
+            btn_minus.setStyleSheet(
+                "QPushButton { background: rgba(255,255,255,0.08); border: 1px solid #374151; "
+                "border-radius: 6px; font-size: 15px; font-weight: 700; color: #F3F4F6; } "
+                "QPushButton:hover { background: rgba(225,29,72,0.2); border-color: #E11D48; }"
+            )
+
+            # Quantity SpinBox
+            qty_spin = QSpinBox()
+            qty_spin.setRange(0, 200)
+            qty_spin.setValue(init_qty)
+            qty_spin.setFixedWidth(56)
+            qty_spin.setFixedHeight(30)
+            qty_spin.setAlignment(Qt.AlignCenter)
+            qty_spin.setStyleSheet(
+                "QSpinBox { background: rgba(0,0,0,0.25); border: 1px solid #374151; "
+                "border-radius: 6px; color: #F9FAFB; font-weight: 700; font-size: 13px; }"
+            )
+            self._fs_qty_spins[pkg_id] = qty_spin
+
+            # Stepper Plus Button
+            btn_plus = QPushButton("+")
+            btn_plus.setFixedSize(30, 30)
+            btn_plus.setCursor(Qt.PointingHandCursor)
+            btn_plus.setStyleSheet(
+                "QPushButton { background: rgba(255,255,255,0.08); border: 1px solid #374151; "
+                "border-radius: 6px; font-size: 15px; font-weight: 700; color: #F3F4F6; } "
+                "QPushButton:hover { background: rgba(225,29,72,0.2); border-color: #E11D48; }"
+            )
+
+            customize_btn = QPushButton("🍽️ Customize Dishes")
+            customize_btn.setCursor(Qt.PointingHandCursor)
+            customize_btn.setStyleSheet(
+                "background: rgba(225, 29, 72, 0.12); color: #E11D48; border: 1px solid rgba(225, 29, 72, 0.3);"
+                " border-radius: 6px; font-size: 11.5px; font-weight: 700; padding: 6px 10px;"
+            )
+            customize_btn.clicked.connect(lambda _, pid=pkg_id, p=pkg: self._open_fs_customize_dialog(pid, p))
+
+            unselect_btn = QPushButton("✕ Unselect")
+            unselect_btn.setCursor(Qt.PointingHandCursor)
+            unselect_btn.setStyleSheet(
+                "QPushButton { background: transparent; color: #EF4444; border: 1px solid rgba(239,68,68,0.4); "
+                "border-radius: 6px; font-size: 11.5px; font-weight: 700; padding: 6px 10px; } "
+                "QPushButton:hover { background: rgba(239,68,68,0.15); border-color: #EF4444; }"
+            )
+            unselect_btn.setVisible(is_selected)
+            self._fs_unselect_btns[pkg_id] = unselect_btn
+
+            # Wire buttons and spinbox
+            btn_minus.clicked.connect(lambda _, pid=pkg_id: self._on_fs_stepper(pid, -1))
+            btn_plus.clicked.connect(lambda _, pid=pkg_id: self._on_fs_stepper(pid, 1))
+            unselect_btn.clicked.connect(lambda _, pid=pkg_id: self._on_fs_unselect(pid))
+            qty_spin.valueChanged.connect(lambda _v, pid=pkg_id: self._on_fs_qty_changed(pid))
+
+            bottom_row.addWidget(btn_minus)
+            bottom_row.addWidget(qty_spin)
+            bottom_row.addWidget(btn_plus)
+            bottom_row.addWidget(customize_btn)
+            bottom_row.addWidget(unselect_btn)
+            card_lay.addLayout(bottom_row)
+
+            # Make card and label elements clickable to toggle selection
+            card.mousePressEvent = lambda e, pid=pkg_id: self._on_fs_card_clicked(e, pid)
+            n_lbl.mousePressEvent = lambda e, pid=pkg_id: self._on_fs_card_clicked(e, pid)
+            d_lbl.mousePressEvent = lambda e, pid=pkg_id: self._on_fs_card_clicked(e, pid)
+            inc_lbl.mousePressEvent = lambda e, pid=pkg_id: self._on_fs_card_clicked(e, pid)
+            badge_lbl.mousePressEvent = lambda e, pid=pkg_id: self._on_fs_card_clicked(e, pid)
+
+            lay.addWidget(card)
+
         self._fs_summary_lbl = QLabel("")
         self._fs_summary_lbl.setWordWrap(True)
-        self._fs_summary_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #10B981; padding-top: 6px;")
+        self._fs_summary_lbl.setStyleSheet("font-size: 12.5px; font-weight: 700; color: #10B981; padding-top: 6px;")
         lay.addWidget(self._fs_summary_lbl)
         lay.addStretch()
         self._update_fs_summary()
 
-    def _on_fs_qty_changed(self, _pkg_id):
-        """React to a Food Set card's quantity stepper changing."""
+    def _on_fs_qty_changed(self, pkg_id):
+        """React to a Food Set card's quantity changing (via click, stepper, or typing)."""
+        sp = getattr(self, "_fs_qty_spins", {}).get(pkg_id)
+        if not sp:
+            return
+        target = self.f_num_sets.value() if hasattr(self, "f_num_sets") else 0
+        if target > 0:
+            other_tot = sum(s.value() for pid, s in self._fs_qty_spins.items() if pid != pkg_id)
+            if (other_tot + sp.value()) > target:
+                allowed = max(0, target - other_tot)
+                sp.blockSignals(True)
+                sp.setValue(allowed)
+                sp.blockSignals(False)
+                self._update_fs_summary(f"⚠️ Target limit of {target} set(s) reached. Capped to {allowed} for this set.")
+
+        qty = sp.value()
+        is_sel = (qty > 0)
+        card = getattr(self, "_fs_cards", {}).get(pkg_id)
+        if card:
+            card.setStyleSheet(_package_card_style(selected=is_sel))
+        badge = getattr(self, "_fs_badges", {}).get(pkg_id)
+        if badge:
+            self._update_badge_style(badge, is_sel)
+        unselect_btn = getattr(self, "_fs_unselect_btns", {}).get(pkg_id)
+        if unselect_btn:
+            unselect_btn.setVisible(is_sel)
+
+        if target <= 0:
+            new_tot = sum(s.value() for s in self._fs_qty_spins.values())
+            if hasattr(self, "f_num_sets"):
+                self.f_num_sets.blockSignals(True)
+                self.f_num_sets.setValue(new_tot)
+                self.f_num_sets.blockSignals(False)
+
         self._update_fs_summary()
         self._update_cost()
 
-    def _update_fs_summary(self):
-        """Refresh the "N set(s) selected - Base Total: PhP..." summary label."""
+    def _update_fs_summary(self, warning_msg=None):
+        """Refresh the Food Sets summary label with progress against target."""
         if not hasattr(self, "_fs_summary_lbl"):
             return
         total_sets = sum(sp.value() for sp in getattr(self, "_fs_qty_spins", {}).values())
+        target_sets = self.f_num_sets.value() if hasattr(self, "f_num_sets") else 0
         total_cost = 0.0
         for pkg in getattr(self, "_fs_set_packages", []):
-            sp = self._fs_qty_spins.get(pkg["id"])
+            sp = getattr(self, "_fs_qty_spins", {}).get(pkg["id"])
             if sp:
                 total_cost += sp.value() * float(pkg["price_per_pax"])
-        self._fs_summary_lbl.setText(f"✓ {total_sets} set(s) selected — Base Total: ₱{total_cost:,.2f}")
+
+        if warning_msg:
+            self._fs_summary_lbl.setText(f"{warning_msg} — Base Total: ₱{total_cost:,.2f}")
+            self._fs_summary_lbl.setStyleSheet("font-size: 12.5px; font-weight: 700; color: #F59E0B; padding-top: 6px;")
+            return
+
+        if target_sets > 0:
+            if total_sets == target_sets:
+                msg = f"✓ Target met: {total_sets} / {target_sets} sets selected — Base Total: ₱{total_cost:,.2f}"
+                color = "#10B981"
+            elif total_sets < target_sets:
+                rem = target_sets - total_sets
+                msg = f"⚠️ Selected {total_sets} / {target_sets} sets ({rem} more needed) — Base Total: ₱{total_cost:,.2f}"
+                color = "#F59E0B"
+            else:
+                over = total_sets - target_sets
+                msg = f"⚠️ Selected {total_sets} / {target_sets} sets ({over} over target limit) — Base Total: ₱{total_cost:,.2f}"
+                color = "#EF4444"
+        elif total_sets > 0:
+            msg = f"✓ {total_sets} set(s) selected — Base Total: ₱{total_cost:,.2f}"
+            color = "#10B981"
+        else:
+            msg = "Please click a Food Set above to select."
+            color = "#94A3B8"
+
+        self._fs_summary_lbl.setText(msg)
+        self._fs_summary_lbl.setStyleSheet(f"font-size: 12.5px; font-weight: 700; color: {color}; padding-top: 6px;")
 
     def _open_fs_customize_dialog(self, pkg_id, pkg):
         """Open ``PackageMenuSelectionDialog`` to customize one Food Set's dishes."""
         from components.package_menu_dialog import PackageMenuSelectionDialog
+        sp = getattr(self, "_fs_qty_spins", {}).get(pkg_id)
+        if sp and sp.value() == 0:
+            target = self.f_num_sets.value() if hasattr(self, "f_num_sets") else 0
+            cur_tot = sum(s.value() for s in getattr(self, "_fs_qty_spins", {}).values())
+            if target > 0 and cur_tot >= target:
+                self._update_fs_summary(f"⚠️ Target limit of {target} set(s) reached. Increase No. of Sets to add more.")
+                return
+            sp.setValue(1)
+
         current_selected = self._fs_dish_selected.get(pkg_id)
         if current_selected is None:
             default_items = repo.get_package_items(pkg_id)
             current_selected = [p.get("item_name") for p in default_items if p.get("item_name")]
         dlg = PackageMenuSelectionDialog(pkg, selected_names=current_selected, parent=self)
         if dlg.exec() == QDialog.Accepted:
-            self._fs_dish_selected[pkg_id] = dlg.get_selected_dishes()
+            chosen = dlg.get_selected_dishes()
+            self._fs_dish_selected[pkg_id] = chosen
+            if hasattr(self, "_fs_inclusions_lbls") and pkg_id in self._fs_inclusions_lbls:
+                txt = "Inclusions: " + (", ".join(chosen) if chosen else "No dishes selected")
+                self._fs_inclusions_lbls[pkg_id].setText(txt)
 
     def _rebuild_step2(self):
         """Tear down and rebuild step 2 (Menu) in place, e.g. after Order Type changes.
@@ -2400,6 +2631,9 @@ class BookingModal(QDialog):
             self._btn_next.setText("Next  ")
             self._btn_next.setIcon(get_icon("chevron-right", color="#F9FAFB", size=QSize(14, 14)))
 
+        if self._step == 2 and getattr(self, "_order_type", "package") == "food_set":
+            self._update_fs_summary()
+
     def _validate_current(self):
         """Validate (and lightly normalize) the currently visible step.
 
@@ -2434,11 +2668,28 @@ class BookingModal(QDialog):
                 self.f_venue.setStyleSheet("")
         if self._step == 2 and getattr(self, "_order_type", "package") == "food_set":
             total_sets = sum(sp.value() for sp in getattr(self, "_fs_qty_spins", {}).values())
+            target_sets = self.f_num_sets.value() if hasattr(self, "f_num_sets") else 0
             if total_sets <= 0:
                 if hasattr(self, "_fs_summary_lbl"):
                     self._fs_summary_lbl.setText("⚠️ Please select at least 1 Food Set (qty > 0) to continue.")
-                    self._fs_summary_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #F59E0B; padding-top: 6px;")
+                    self._fs_summary_lbl.setStyleSheet("font-size: 12.5px; font-weight: 700; color: #F59E0B; padding-top: 6px;")
                 return False
+            if target_sets > 0 and total_sets < target_sets:
+                if hasattr(self, "_fs_summary_lbl"):
+                    rem = target_sets - total_sets
+                    self._fs_summary_lbl.setText(f"⚠️ Target requirement: {target_sets} sets required ({total_sets} selected, {rem} more needed). Please select {rem} more set(s) or adjust No. of Sets in Event Details.")
+                    self._fs_summary_lbl.setStyleSheet("font-size: 12.5px; font-weight: 700; color: #F59E0B; padding-top: 6px;")
+                return False
+            if target_sets > 0 and total_sets > target_sets:
+                if hasattr(self, "_fs_summary_lbl"):
+                    over = total_sets - target_sets
+                    self._fs_summary_lbl.setText(f"⚠️ Target exceeded: {total_sets} / {target_sets} sets selected ({over} over limit). Please adjust before proceeding.")
+                    self._fs_summary_lbl.setStyleSheet("font-size: 12.5px; font-weight: 700; color: #EF4444; padding-top: 6px;")
+                return False
+            if target_sets <= 0 and hasattr(self, "f_num_sets"):
+                self.f_num_sets.blockSignals(True)
+                self.f_num_sets.setValue(total_sets)
+                self.f_num_sets.blockSignals(False)
         return True
 
     def _go_next(self):
