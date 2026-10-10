@@ -1878,7 +1878,24 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
         ORDER BY bmi.bmi_id ASC
     """, (db_id,))
     if dish_rows:
-        d["dishes"] = [dict(r) for r in dish_rows]
+        deduped = []
+        seen = {}
+        for r in dish_rows:
+            rd = dict(r)
+            nm = (rd.get("name") or "").strip()
+            if not nm:
+                continue
+            key = nm.lower()
+            cat = (rd.get("category") or "").strip()
+            if key not in seen:
+                seen[key] = len(deduped)
+                deduped.append(rd)
+            else:
+                idx = seen[key]
+                existing_cat = (deduped[idx].get("category") or "").strip()
+                if not existing_cat and cat:
+                    deduped[idx]["category"] = cat
+        d["dishes"] = deduped
     elif d.get("package_id"):
         pkg_items = get_package_items(d["package_id"])
         d["dishes"] = [{"name": pi["item_name"], "category": pi["category"]} for pi in pkg_items]
@@ -2046,7 +2063,8 @@ def create_booking(data: dict) -> Optional[dict]:
 
             # Save selected package dishes into booking_menu_items
             selected_dishes = data.get("selected_dishes") or []
-            if selected_dishes:
+            sets = data.get("sets") or []
+            if selected_dishes and not sets:
                 try:
                     db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = %s", (b_id,))
                     for itm in selected_dishes:
@@ -2070,10 +2088,10 @@ def create_booking(data: dict) -> Optional[dict]:
             # entry: {set_id, name, quantity, unit_price, dishes:[{name,category,price,quantity}]}.
             # Dishes are ALSO flattened into booking_menu_items for backward
             # compatibility with order-print / kitchen / export readers.
-            sets = data.get("sets") or []
             if sets:
                 try:
                     db.execute("DELETE FROM booking_sets WHERE bs_booking_id = %s", (b_id,))
+                    db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = %s", (b_id,))
                     for sort_i, s in enumerate(sets):
                         if not isinstance(s, dict):
                             continue
