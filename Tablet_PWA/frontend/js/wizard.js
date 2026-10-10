@@ -500,7 +500,73 @@ function renderCart() {
   const selectedCount = d.menuSelections.length;
 
   let selectedDishesHtml = "";
-  if (selectedCount > 0) {
+  if (d.flowType === "food_set") {
+    const sets = d.setSelections || [];
+    const setDishes = [];
+    sets.forEach((s) => {
+      (s.dishes || []).forEach((dd) => {
+        setDishes.push({ name: dd.name, category: `${s.name} · Included`, price: 0, removable: false });
+      });
+    });
+    const repDishes = (d.menuSelections || []).map((m, idx) => ({
+      name: m.item_name,
+      category: m.is_replacement ? "Set Replacement · Included" : (m.category || "Add-on"),
+      price: m.price || 0,
+      removable: true,
+      menu_item_id: m.menu_item_id,
+      index: idx,
+    }));
+    const totalCount = setDishes.length + repDishes.length;
+    if (totalCount > 0) {
+      selectedDishesHtml = `
+        <div class="cart-section-header" style="display:flex; justify-content:space-between; align-items:center; margin:10px 0 8px;">
+          <span class="cart-section-title" style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted);">Food Set Menu</span>
+          <span class="cart-section-badge">${totalCount} DISHES</span>
+        </div>
+        <div class="cart-selected-dishes-container" id="cart-selected-dishes-list">
+          ${setDishes.map((sd) => `
+            <div class="cart-dish-row-wrapper" style="pointer-events:none;">
+              <div class="cart-dish-row-content">
+                <div class="cart-dish-text-col">
+                  <div class="cart-dish-name">${escapeHtml(sd.name)}</div>
+                  <div class="cart-dish-category" style="color:var(--success); font-weight:700;">${escapeHtml(sd.category)}</div>
+                </div>
+                <div class="cart-dish-price-col">
+                  <span class="cart-dish-included">Included</span>
+                </div>
+              </div>
+            </div>
+          `).join("")}
+          ${repDishes.map((m) => `
+            <div class="cart-dish-row-wrapper" data-menu-id="${m.menu_item_id}" data-index="${m.index}">
+              <div class="cart-dish-reveal-action" data-remove-id="${m.menu_item_id}" role="button" aria-label="Remove ${escapeHtml(m.name)}">
+                <span>REMOVE</span>
+              </div>
+              <div class="cart-dish-row-content">
+                <div class="cart-dish-text-col">
+                  <div class="cart-dish-name">${escapeHtml(m.name)}</div>
+                  <div class="cart-dish-category" style="color:var(--gold); font-weight:700;">${escapeHtml(m.category)}</div>
+                </div>
+                <div class="cart-dish-price-col">
+                  ${m.price ? `<span class="cart-dish-price">+ ${peso(m.price)}</span>` : `<span class="cart-dish-included" style="color:var(--gold);">Included</span>`}
+                </div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    } else {
+      selectedDishesHtml = `
+        <div class="cart-section-header" style="display:flex; justify-content:space-between; align-items:center; margin:10px 0 8px;">
+          <span class="cart-section-title" style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted);">Food Set Menu</span>
+          <span class="cart-section-badge" style="background:var(--border) !important; color:var(--text-muted) !important;">0 SELECTED</span>
+        </div>
+        <div class="cart-empty-dishes">
+          No food set selected yet. Tap a food set card to select.
+        </div>
+      `;
+    }
+  } else if (selectedCount > 0) {
     selectedDishesHtml = `
       <div class="cart-section-header" style="display:flex; justify-content:space-between; align-items:center; margin:10px 0 8px;">
         <span class="cart-section-title" style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted);">Selected Menu</span>
@@ -932,26 +998,46 @@ function renderFoodSetCards(d) {
     return `<p style="color:var(--text-muted); font-style:italic; padding:20px;">No predefined Food Sets found. Ask the owner to mark packages as "Food Set" in the Menu section.</p>`;
   }
   return `
-    <div class="kiosk-grid">
+    <div class="kiosk-grid" id="food-sets-grid">
       ${foodSetsCache.map((set) => {
         const sel = findSetSelection(d, set.id);
         const qty = sel ? sel.quantity : 0;
+        const dishes = (sel && sel.dishes && sel.dishes.length) ? sel.dishes : (set.dishes || []);
+        const removedCount = sel && sel.removedDishes ? sel.removedDishes.length : 0;
         return `
-        <div class="kiosk-food-card select-card ${qty > 0 ? "selected" : ""}" data-set-id="${set.id}">
+        <div class="kiosk-food-card select-card food-set-card ${qty > 0 ? "selected" : ""}" data-set-id="${set.id}" style="cursor:pointer; position:relative; user-select:none;">
           <div class="kiosk-card-body">
-            <h4 class="kiosk-card-title">${escapeHtml(set.name)}</h4>
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+              <h4 class="kiosk-card-title">${escapeHtml(set.name)}</h4>
+              <div class="kiosk-card-badge item-check-badge" style="position:static; margin:0; flex-shrink:0;">
+                ${qty > 0 ? icon("checkCircle") : icon("plus")}
+              </div>
+            </div>
             <p class="kiosk-card-desc">${escapeHtml(set.description || `Min: ${set.min_pax || 20} pax`)}</p>
+            ${dishes.length > 0 ? `
+              <div style="font-size:11.5px; color:var(--text-muted); margin:6px 0 10px; line-height:1.4;">
+                <b style="color:var(--text);">Inclusions:</b> ${dishes.map((x) => escapeHtml(x.name)).join(", ")}
+                ${removedCount > 0 ? `<div style="color:var(--gold); font-weight:700; margin-top:3px;">🔄 ${removedCount} dish(es) removed (to replace in Menu tab)</div>` : ""}
+              </div>
+            ` : ""}
             <div class="kiosk-card-footer" style="flex-wrap:wrap; gap:8px;">
               <span class="kiosk-price-tag">${peso(set.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted);"> / set</span></span>
               <div style="display:flex; align-items:center; gap:6px;">
-                <button type="button" class="btn btn-secondary btn-fs-qty-minus" data-set-id="${set.id}" style="width:32px; height:32px; padding:0;">−</button>
+                <button type="button" class="btn btn-secondary btn-fs-qty-minus" data-set-id="${set.id}" style="width:32px; height:32px; padding:0;" title="Decrease quantity">−</button>
                 <span class="btn-fs-qty-val" data-set-id="${set.id}" style="min-width:28px; text-align:center; font-weight:800;">${qty}</span>
-                <button type="button" class="btn btn-secondary btn-fs-qty-plus" data-set-id="${set.id}" style="width:32px; height:32px; padding:0;">+</button>
+                <button type="button" class="btn btn-secondary btn-fs-qty-plus" data-set-id="${set.id}" style="width:32px; height:32px; padding:0;" title="Increase quantity">+</button>
               </div>
             </div>
-            <button type="button" class="btn btn-outline btn-fs-customize" data-set-id="${set.id}" style="margin-top:8px; width:100%; font-size:12px;">
-              ${icon("utensils")} Customize Dishes
-            </button>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button type="button" class="btn ${qty > 0 ? 'btn-outline' : 'btn-secondary'} btn-fs-customize" data-set-id="${set.id}" style="flex:1; font-size:12px; font-weight:700;">
+                ${icon("utensils")} Customize Dishes
+              </button>
+              ${qty > 0 ? `
+                <button type="button" class="btn btn-ghost btn-fs-unselect" data-set-id="${set.id}" style="font-size:12px; color:var(--danger,#ef4444); font-weight:700; padding:6px 10px;" title="Unselect this food set">
+                  Unselect
+                </button>
+              ` : ""}
+            </div>
           </div>
         </div>
       `;
@@ -964,8 +1050,28 @@ function updateFsSummary(card, d) {
   const el = card.querySelector("#fs-summary");
   if (!el) return;
   const totalSets = setSelectionsTotalQty(d);
+  const targetSets = Number(d.event.numSets || 0);
   const totalCost = setsTotal(d);
-  el.textContent = totalSets > 0 ? `✓ ${totalSets} set(s) selected — Base Total: ${peso(totalCost)}` : "";
+  const totalRemoved = (d.setSelections || []).reduce((sum, s) => sum + (s.removedCount || 0), 0);
+
+  let targetMsg = "";
+  if (targetSets > 0) {
+    if (totalSets === targetSets) {
+      targetMsg = `<span style="color:var(--success); font-weight:800;">✓ Target met: ${totalSets} / ${targetSets} sets selected</span>`;
+    } else if (totalSets < targetSets) {
+      targetMsg = `<span style="color:var(--gold); font-weight:800;">⚠️ Selected ${totalSets} / ${targetSets} sets (${targetSets - totalSets} more needed)</span>`;
+    } else {
+      targetMsg = `<span style="color:var(--danger,#ef4444); font-weight:800;">⚠️ Selected ${totalSets} / ${targetSets} sets (${totalSets - targetSets} over target)</span>`;
+    }
+  } else if (totalSets > 0) {
+    targetMsg = `<span style="color:var(--success); font-weight:800;">✓ ${totalSets} set(s) selected</span>`;
+  }
+
+  if (totalSets > 0 || targetSets > 0) {
+    el.innerHTML = `${targetMsg} — Base Total: <b>${peso(totalCost)}</b>${totalRemoved > 0 ? ` <span style="color:var(--gold); margin-left:8px;">(🔄 ${totalRemoved} dish replacement${totalRemoved > 1 ? "es" : ""} required in Menu tab)</span>` : ""}`;
+  } else {
+    el.textContent = "";
+  }
 }
 
 function upsertSetSelection(d, set, quantity) {
@@ -976,9 +1082,16 @@ function upsertSetSelection(d, set, quantity) {
     return;
   }
   if (!sel) {
+    const origDishes = (set.dishes || []).map((dd) => ({ ...dd }));
     sel = {
-      set_id: set.id, name: set.name, quantity: 0, unit_price: Number(set.price_per_pax) || 0,
-      dishes: (set.dishes || []).map((dd) => ({ ...dd })),
+      set_id: set.id,
+      name: set.name,
+      quantity: 0,
+      unit_price: Number(set.price_per_pax) || 0,
+      originalDishes: origDishes,
+      dishes: origDishes.map((dd) => ({ ...dd })),
+      removedDishes: [],
+      removedCount: 0,
     };
     d.setSelections.push(sel);
   }
@@ -989,102 +1102,301 @@ function wireFoodSetCards(card, d) {
   const listEl = card.querySelector("#food-sets-list");
   if (!listEl) return;
 
-  function refreshCardUi(setId) {
-    const sel = findSetSelection(d, setId);
-    const qty = sel ? sel.quantity : 0;
-    const valEl = listEl.querySelector(`.btn-fs-qty-val[data-set-id="${setId}"]`);
-    if (valEl) valEl.textContent = qty;
-    const cardEl = listEl.querySelector(`.select-card[data-set-id="${setId}"]`);
-    if (cardEl) cardEl.classList.toggle("selected", qty > 0);
+  function refreshList() {
+    listEl.innerHTML = renderFoodSetCards(d);
+    attachListeners();
     updateFsSummary(card, d);
     renderCart();
   }
 
-  listEl.querySelectorAll(".btn-fs-qty-plus").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const setId = Number(btn.dataset.setId);
-      const set = foodSetsCache.find((s) => Number(s.id) === setId);
-      if (!set) return;
-      const sel = findSetSelection(d, setId);
-      upsertSetSelection(d, set, (sel ? sel.quantity : 0) + 1);
-      refreshCardUi(setId);
-    });
-  });
-  listEl.querySelectorAll(".btn-fs-qty-minus").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const setId = Number(btn.dataset.setId);
-      const set = foodSetsCache.find((s) => Number(s.id) === setId);
-      if (!set) return;
-      const sel = findSetSelection(d, setId);
-      upsertSetSelection(d, set, Math.max(0, (sel ? sel.quantity : 0) - 1));
-      refreshCardUi(setId);
-    });
-  });
-  listEl.querySelectorAll(".btn-fs-customize").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const setId = Number(btn.dataset.setId);
-      const set = foodSetsCache.find((s) => Number(s.id) === setId);
-      if (!set) return;
-      // Auto-select the set (qty >= 1) when the staff opens the customizer.
-      let sel = findSetSelection(d, setId);
-      if (!sel) { upsertSetSelection(d, set, 1); refreshCardUi(setId); sel = findSetSelection(d, setId); }
-      openFoodSetCustomizeModal(set, sel, () => refreshCardUi(setId));
-    });
-  });
+  function handleAddSet(setId) {
+    const set = foodSetsCache.find((s) => Number(s.id) === Number(setId));
+    if (!set) return;
+    const total = setSelectionsTotalQty(d);
+    const target = Number(d.event.numSets || 0);
+    if (target > 0 && total >= target) {
+      toast(`Target limit of ${target} set(s) reached. Increase No. of Sets to add more.`, "info");
+      return;
+    }
+    const sel = findSetSelection(d, setId);
+    const curQty = sel ? sel.quantity : 0;
+    upsertSetSelection(d, set, curQty + 1);
+    toast(curQty === 0 ? `Selected ${set.name}` : `Added +1 ${set.name}`, "success");
 
+    // If no target was declared upfront (target === 0), auto-sync target with selections
+    if (target <= 0) {
+      const newTotal = setSelectionsTotalQty(d);
+      d.event.numSets = newTotal;
+      d.event.pax = newTotal * 22;
+      const paxInput = card.querySelector("#e-pax");
+      if (paxInput) paxInput.value = newTotal;
+      const numSetsHidden = card.querySelector("#e-num-sets");
+      if (numSetsHidden) numSetsHidden.value = newTotal;
+    }
+    refreshList();
+  }
+
+  function handleRemoveSet(setId, decrementOnly = false) {
+    const set = foodSetsCache.find((s) => Number(s.id) === Number(setId));
+    if (!set) return;
+    const sel = findSetSelection(d, setId);
+    if (!sel || sel.quantity <= 0) return;
+    const newQty = decrementOnly ? Math.max(0, sel.quantity - 1) : 0;
+    upsertSetSelection(d, set, newQty);
+    toast(newQty > 0 ? `Decreased ${set.name}` : `Unselected ${set.name}`, "info");
+
+    refreshList();
+  }
+
+  function attachListeners() {
+    // Stepper Minus button
+    listEl.querySelectorAll(".btn-fs-qty-minus").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        handleRemoveSet(btn.dataset.setId, true);
+      });
+    });
+
+    // Stepper Plus button
+    listEl.querySelectorAll(".btn-fs-qty-plus").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        handleAddSet(btn.dataset.setId);
+      });
+    });
+
+    // Unselect button
+    listEl.querySelectorAll(".btn-fs-unselect").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        handleRemoveSet(btn.dataset.setId, false);
+      });
+    });
+
+    // Customize Dishes button
+    listEl.querySelectorAll(".btn-fs-customize").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const setId = Number(btn.dataset.setId);
+        const set = foodSetsCache.find((s) => Number(s.id) === setId);
+        if (!set) return;
+        let sel = findSetSelection(d, setId);
+        if (!sel || sel.quantity <= 0) {
+          const total = setSelectionsTotalQty(d);
+          const target = Number(d.event.numSets || 0);
+          if (target > 0 && total >= target) {
+            toast(`Target limit of ${target} set(s) reached. Increase No. of Sets to add more.`, "info");
+            return;
+          }
+          upsertSetSelection(d, set, 1);
+          sel = findSetSelection(d, setId);
+        }
+        btn.disabled = true;
+        try {
+          await openFoodSetCustomizeModal(set, sel, card, () => refreshList());
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Card click toggles selection
+    listEl.querySelectorAll(".food-set-card").forEach((cardEl) => {
+      cardEl.addEventListener("click", (e) => {
+        if (e.target.closest("button") || e.target.closest(".btn-fs-customize") || e.target.closest(".btn-fs-unselect")) {
+          return;
+        }
+        const setId = Number(cardEl.dataset.setId);
+        const sel = findSetSelection(d, setId);
+        if (sel && sel.quantity > 0) {
+          handleRemoveSet(setId, false);
+        } else {
+          handleAddSet(setId);
+        }
+      });
+    });
+  }
+
+  attachListeners();
   updateFsSummary(card, d);
 }
 
-function openFoodSetCustomizeModal(set, sel, onSaved) {
+async function openFoodSetCustomizeModal(set, sel, cardContext, onSaved) {
   const modalId = "fs-customize-modal";
-  const dishes = sel.dishes && sel.dishes.length ? sel.dishes : (set.dishes || []).map((dd) => ({ ...dd }));
-  sel.dishes = dishes;
+  // Ensure dishes are loaded for this set
+  if (!set.dishes || !set.dishes.length) {
+    try {
+      const items = await api.getPackageItems(set.id);
+      if (items && items.length) {
+        set.dishes = items.map((it) => ({
+          name: it.item_name || it.name,
+          category: it.category || "Main Dish",
+          price: Number(it.price || 0),
+          quantity: 1,
+        }));
+      }
+    } catch (_) {}
+  }
+
+  // Fallback if still empty: parse from description
+  if ((!set.dishes || !set.dishes.length) && set.description && set.description.includes("(") && set.description.includes(")")) {
+    const match = set.description.match(/\((.*?)\)/);
+    if (match && match[1]) {
+      set.dishes = match[1].split(",").map((s) => s.trim()).filter(Boolean).map((n) => ({
+        name: n,
+        category: "Main Dish",
+        price: 0,
+        quantity: 1,
+      }));
+    }
+  }
+
+  if (!sel.originalDishes || !sel.originalDishes.length) {
+    sel.originalDishes = (set.dishes || []).map((dd) => ({ ...dd }));
+  }
+  if (!sel.dishes || !sel.dishes.length) {
+    sel.dishes = (sel.originalDishes || []).map((dd) => ({ ...dd }));
+  }
+  if (!sel.removedDishes) {
+    sel.removedDishes = [];
+  }
+
+  let keptDishes = sel.dishes.map((dd) => ({ ...dd }));
+  let removedDishes = sel.removedDishes.map((dd) => ({ ...dd }));
+  const originalList = sel.originalDishes.length ? sel.originalDishes : (set.dishes || []);
+
+  function buildModalBodyHtml() {
+    const remCount = removedDishes.length;
+    return `
+      <p style="color:var(--text-muted); font-size:13px; margin:0 0 14px; line-height:1.5;">
+        Customize the dishes for <b>${escapeHtml(set.name)}</b>. If you remove any dish, you will be expected to select an <b>exact 1-for-1 replacement</b> in the next Menu Selection tab.
+      </p>
+
+      <div style="margin-bottom:14px;">
+        ${remCount > 0 ? `
+          <div style="background:rgba(234,179,8,0.12); border:1.5px solid rgba(234,179,8,0.4); border-radius:10px; padding:12px 14px; font-size:13px; color:var(--gold); font-weight:700; display:flex; align-items:center; gap:8px;">
+            ${icon("refresh")} <span><b>${remCount} dish(es) removed</b> — Expecting <b>${remCount} replacement dish(es)</b> in the next Menu Selection tab.</span>
+          </div>
+        ` : `
+          <div style="background:rgba(16,185,129,0.1); border:1.5px solid rgba(16,185,129,0.3); border-radius:10px; padding:12px 14px; font-size:13px; color:var(--success); font-weight:600; display:flex; align-items:center; gap:8px;">
+            ${icon("checkCircle")} <span>All standard dishes included. (0 replacements needed).</span>
+          </div>
+        `}
+      </div>
+
+      <div id="fs-dish-rows" style="display:flex; flex-direction:column; gap:10px; max-height:360px; overflow-y:auto; padding-right:4px;">
+        ${originalList.map((origDish) => {
+          const isKept = keptDishes.some((k) => k.name.toLowerCase() === origDish.name.toLowerCase());
+          return `
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; border:1.5px solid ${isKept ? 'var(--border)' : 'rgba(239,68,68,0.4)'}; background:${isKept ? 'var(--card-bg)' : 'rgba(239,68,68,0.06)'}; border-radius:10px; padding:10px 14px;">
+              <div style="flex:1;">
+                <div style="font-weight:700; font-size:14px; ${isKept ? '' : 'text-decoration:line-through; opacity:0.75; color:var(--danger,#ef4444);'}">
+                  ${escapeHtml(origDish.name)}
+                </div>
+                <div style="font-size:11.5px; color:var(--text-muted); margin-top:2px;">
+                  ${escapeHtml(origDish.category || "Main Dish")} · 
+                  <span style="font-weight:700; color:${isKept ? 'var(--success)' : 'var(--danger,#ef4444)'};">
+                    ${isKept ? "✓ Included in Set" : "✕ Removed (Needs 1 Replacement)"}
+                  </span>
+                </div>
+              </div>
+              <div>
+                ${isKept ? `
+                  <button type="button" class="btn btn-outline fs-dish-remove-btn" data-dish-name="${escapeHtml(origDish.name)}" style="color:var(--danger,#ef4444); border-color:var(--danger,#ef4444); font-size:12px; padding:6px 12px; font-weight:700; display:inline-flex; align-items:center; gap:6px;">
+                    ${icon("trash")} Remove Dish
+                  </button>
+                ` : `
+                  <button type="button" class="btn btn-secondary fs-dish-restore-btn" data-dish-name="${escapeHtml(origDish.name)}" style="font-size:12px; padding:6px 12px; font-weight:700; display:inline-flex; align-items:center; gap:6px;">
+                    ${icon("refresh")} Restore Dish
+                  </button>
+                `}
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function rebindModalHandlers(modalEl) {
+    modalEl.querySelectorAll(".fs-dish-remove-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const dName = btn.dataset.dishName;
+        const idx = keptDishes.findIndex((k) => k.name.toLowerCase() === dName.toLowerCase());
+        if (idx !== -1) {
+          const removed = keptDishes.splice(idx, 1)[0];
+          removedDishes.push(removed);
+          updateModalView(modalEl);
+        }
+      });
+    });
+
+    modalEl.querySelectorAll(".fs-dish-restore-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const dName = btn.dataset.dishName;
+        const idx = removedDishes.findIndex((r) => r.name.toLowerCase() === dName.toLowerCase());
+        if (idx !== -1) {
+          const restored = removedDishes.splice(idx, 1)[0];
+          keptDishes.push(restored);
+          updateModalView(modalEl);
+        }
+      });
+    });
+  }
+
+  function updateModalView(modalEl) {
+    const bodyContainer = modalEl.querySelector(".modal-body") || modalEl;
+    bodyContainer.innerHTML = buildModalBodyHtml();
+    rebindModalHandlers(modalEl);
+  }
+
   openModal({
     id: modalId,
-    title: `${icon("utensils")} Customize ${escapeHtml(set.name)}`,
-    bodyHtml: `
-      <p style="color:var(--text-muted); font-size:13px; margin:0 0 12px;">Adjust the quantity of each dish included in this set (per set unit).</p>
-      <div id="fs-dish-rows" style="display:flex; flex-direction:column; gap:10px;">
-        ${dishes.map((dish, idx) => `
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; border:1px solid var(--border); border-radius:8px; padding:8px 12px;">
-            <div>
-              <div style="font-weight:700; font-size:13px;">${escapeHtml(dish.name)}</div>
-              <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(dish.category || "Main Dish")}</div>
-            </div>
-            <div style="display:flex; align-items:center; gap:6px;">
-              <button type="button" class="btn btn-secondary fs-dish-qty-minus" data-idx="${idx}" style="width:28px; height:28px; padding:0;">−</button>
-              <span class="fs-dish-qty-val" data-idx="${idx}" style="min-width:24px; text-align:center; font-weight:800;">${dish.quantity || 1}</span>
-              <button type="button" class="btn btn-secondary fs-dish-qty-plus" data-idx="${idx}" style="width:28px; height:28px; padding:0;">+</button>
-            </div>
-          </div>
-        `).join("")}
-      </div>
-    `,
+    title: `${icon("utensils")} Customize ${escapeHtml(set.name)} Dishes`,
+    bodyHtml: buildModalBodyHtml(),
     footerHtml: `
       <button class="btn btn-secondary" data-close>Cancel</button>
-      <button class="btn btn-primary" id="btn-fs-save-dishes">${icon("check")} Save</button>
+      <button class="btn btn-outline" id="btn-fs-save-dishes">${icon("check")} Save Changes</button>
+      <button class="btn btn-primary" id="btn-fs-save-and-proceed" style="font-weight:800; display:inline-flex; align-items:center; gap:6px;">
+        Save &amp; Go to Menu Selection ${icon("arrowRight")}
+      </button>
     `,
   });
+
   const modalEl = document.getElementById(modalId);
-  const rowsEl = modalEl.querySelector("#fs-dish-rows");
-  rowsEl.querySelectorAll(".fs-dish-qty-plus").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.dataset.idx);
-      dishes[idx].quantity = (Number(dishes[idx].quantity) || 1) + 1;
-      rowsEl.querySelector(`.fs-dish-qty-val[data-idx="${idx}"]`).textContent = dishes[idx].quantity;
-    });
-  });
-  rowsEl.querySelectorAll(".fs-dish-qty-minus").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.dataset.idx);
-      dishes[idx].quantity = Math.max(1, (Number(dishes[idx].quantity) || 1) - 1);
-      rowsEl.querySelector(`.fs-dish-qty-val[data-idx="${idx}"]`).textContent = dishes[idx].quantity;
-    });
-  });
-  modalEl.querySelector("#btn-fs-save-dishes").addEventListener("click", () => {
-    sel.dishes = dishes;
+  rebindModalHandlers(modalEl);
+
+  function applySavedDishes() {
+    sel.originalDishes = originalList.map((d) => ({ ...d }));
+    sel.dishes = keptDishes.map((d) => ({ ...d }));
+    sel.removedDishes = removedDishes.map((d) => ({ ...d }));
+    sel.removedCount = removedDishes.length;
     closeModal(modalId);
     if (typeof onSaved === "function") onSaved();
+  }
+
+  modalEl.querySelector("#btn-fs-save-dishes")?.addEventListener("click", () => {
+    applySavedDishes();
+    toast(`Saved customizations for ${set.name}`, "success");
+  });
+
+  modalEl.querySelector("#btn-fs-save-and-proceed")?.addEventListener("click", () => {
+    applySavedDishes();
+    if (wizard.step === 2) {
+      const stepNext = document.getElementById("wiz-next") || document.getElementById("sticky-pkg-next-top");
+      if (stepNext) {
+        stepNext.click();
+      } else {
+        wizard.step = 3;
+        render();
+      }
+    } else if (wizard.step === 3) {
+      render();
+    }
   });
 }
 
@@ -1092,15 +1404,42 @@ function openFoodSetCustomizeModal(set, sel, onSaved) {
 
 async function renderStepPackage(card) {
   const d = wizard.draft;
-  card.innerHTML = `<h2 style="margin:0 0 10px;">${icon("package")} Event &amp; Package</h2><p style="color:var(--text-muted);">Fetching packages from Live Database…</p>`;
-  try {
-    const [pkgs, occs, sets] = await Promise.all([
-      api.getPackages(),
-      api.getOccasions().catch(() => []),
-      api.getFoodSets().catch(() => [])
-    ]);
+  if (!packagesCache.length || !foodSetsCache.length) {
+    card.innerHTML = `<h2 style="margin:0 0 10px;">${icon("package")} Event &amp; Package</h2><p style="color:var(--text-muted);">Fetching packages from Live Database…</p>`;
+    try {
+      const [pkgs, occs, sets] = await Promise.all([
+        api.getPackages(),
+        api.getOccasions().catch(() => []),
+        api.getFoodSets().catch(() => [])
+      ]);
     packagesCache = pkgs.filter((p) => !p.is_set);
     foodSetsCache = sets && sets.length ? sets : pkgs.filter((p) => p.is_set);
+    for (const set of foodSetsCache) {
+      if (!set.dishes || !set.dishes.length) {
+        try {
+          const items = await api.getPackageItems(set.id);
+          if (items && items.length) {
+            set.dishes = items.map((it) => ({
+              name: it.item_name || it.name,
+              category: it.category || "Main Dish",
+              price: Number(it.price || 0),
+              quantity: 1,
+            }));
+          }
+        } catch (_) {}
+      }
+      if ((!set.dishes || !set.dishes.length) && set.description && set.description.includes("(") && set.description.includes(")")) {
+        const match = set.description.match(/\((.*?)\)/);
+        if (match && match[1]) {
+          set.dishes = match[1].split(",").map((s) => s.trim()).filter(Boolean).map((n) => ({
+            name: n,
+            category: "Main Dish",
+            price: 0,
+            quantity: 1,
+          }));
+        }
+      }
+    }
     if (occs && occs.length > 0) {
       occasionsCache = occs.map((o) => (typeof o === "string" ? o : o.name));
     }
@@ -1122,6 +1461,7 @@ async function renderStepPackage(card) {
     card.querySelector("#retry-live-packages")?.addEventListener("click", () => renderStepPackage(card));
     return;
   }
+  }
 
   // If a package was pre-selected from Quick Options, ensure its full data is synced
   if (d.package.id && packagesCache.length) {
@@ -1139,6 +1479,10 @@ async function renderStepPackage(card) {
   }
 
   if (!d.flowType) d.flowType = "package"; // default for existing/quick-option drafts
+  if (d.flowType === "food_set") {
+    d.event.numSets = d.event.numSets || setSelectionsTotalQty(d) || 1;
+    d.event.pax = (d.event.numSets || 1) * 22;
+  }
 
   const ORDER_TYPES = [
     { key: "package", label: "Packages", desc: "Choose a buffet tier package" },
@@ -1189,10 +1533,10 @@ async function renderStepPackage(card) {
     </div>
     <div class="grid-2">
       <div class="form-group">
-        <label id="lbl-order-qty">${isFoodSet(d.package.name) ? "No. of Sets (Min: 1 Set) *" : "No. of Pax *"}</label>
-        <input type="number" class="form-control" id="e-pax" min="1" max="2000" value="${d.event.pax || 1}">
+        <label id="lbl-order-qty">${d.flowType === "food_set" || isFoodSet(d.package.name) ? "No. of Sets (Min: 1 Set) *" : "No. of Pax *"}</label>
+        <input type="number" class="form-control" id="e-pax" min="1" max="2000" value="${d.flowType === "food_set" ? (d.event.numSets || setSelectionsTotalQty(d) || 1) : (d.event.pax || 60)}">
         <span id="lbl-order-hint" style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">
-          ${ isFoodSet(d.package.name) ? "1 Set is good for 22 persons (4 dishes). Minimum order: 1 set." : "Enter the total number of guests (pax)." }
+          ${ d.flowType === "food_set" || isFoodSet(d.package.name) ? "1 Set is good for 22 persons (4 dishes). Specify target number of sets, then choose sets below." : "Enter the total number of guests (pax)." }
         </span>
       </div>
       <div class="form-group">
@@ -1203,12 +1547,13 @@ async function renderStepPackage(card) {
             const list = [...((occasionsCache && occasionsCache.length > 0) ? occasionsCache : OCCASIONS)];
             if (!list.some(x => String(x).trim().toLowerCase() === "food set")) list.unshift("Food Set");
             if (!list.some(x => String(x).trim().toLowerCase() === "food packs")) list.unshift("Food Packs");
-            return list.map((occ) => `<option value="${escapeHtml(occ)}" ${(d.event.occasion || '').toLowerCase() === occ.toLowerCase() ? "selected" : ""}>${escapeHtml(occ)}</option>`).join("");
+            const curOcc = (d.event.occasion || (d.flowType === "food_set" ? "Food Set" : "")).toLowerCase();
+            return list.map((occ) => `<option value="${escapeHtml(occ)}" ${curOcc === occ.toLowerCase() ? "selected" : ""}>${escapeHtml(occ)}</option>`).join("");
           })()}
         </select>
       </div>
     </div>
-    <div class="grid-2" style="grid-template-columns:1fr 1fr 1fr;">
+    <div class="grid-2" style="grid-template-columns:${d.flowType === "food_set" ? "1fr 1fr" : "1fr 1fr 1fr"};">
       <div class="form-group">
         <label style="display:flex; align-items:center; gap:6px;">
           <input type="checkbox" id="e-pickup-enabled" ${d.event.pickupTime ? "checked" : ""} style="width:auto;"> Pickup Time
@@ -1221,10 +1566,12 @@ async function renderStepPackage(card) {
         </label>
         <input type="time" class="form-control" id="e-dropoff-time" value="${d.event.dropoffTime || ''}" ${d.event.dropoffTime ? "" : "disabled"}>
       </div>
-      <div class="form-group">
-        <label>No. of Sets</label>
-        <input type="number" class="form-control" id="e-num-sets" min="0" max="2000" value="${d.event.numSets || 0}">
-      </div>
+      ${d.flowType !== "food_set" ? `
+        <div class="form-group" id="grp-num-sets">
+          <label>No. of Sets</label>
+          <input type="number" class="form-control" id="e-num-sets" min="0" max="2000" value="${d.event.numSets || 0}">
+        </div>
+      ` : `<input type="hidden" id="e-num-sets" value="${d.event.numSets || setSelectionsTotalQty(d) || 1}">`}
     </div>
     <div class="grid-2">
       <div class="form-group">
@@ -1411,9 +1758,22 @@ async function renderStepPackage(card) {
     }
   });
 
-  // Occasion -> Venue City
+  // Occasion -> Venue City (auto-switch Order Type if user picks "Food Set")
   occasionSelect?.addEventListener("change", () => {
-    if (occasionSelect.value) venueCityInput?.focus();
+    if (occasionSelect.value) {
+      if (occasionSelect.value.trim().toLowerCase() === "food set" && d.flowType !== "food_set") {
+        harvestStepPackageFields();
+        d.flowType = "food_set";
+        d.package.id = null;
+        d.package.name = "";
+        d.package.pricePerPax = 0;
+        d.package.baseTotal = 0;
+        d.event.occasion = "Food Set";
+        renderStepPackage(card);
+        return;
+      }
+      venueCityInput?.focus();
+    }
   });
 
   // Venue City Search and Selection -> Venue Street
@@ -1460,15 +1820,52 @@ async function renderStepPackage(card) {
   pickupChk?.addEventListener("change", () => { if (pickupTimeInput) pickupTimeInput.disabled = !pickupChk.checked; });
   dropoffChk?.addEventListener("change", () => { if (dropoffTimeInput) dropoffTimeInput.disabled = !dropoffChk.checked; });
 
+  function harvestStepPackageFields() {
+    d.event.date = card.querySelector("#e-date")?.value || d.event.date;
+    d.event.time = card.querySelector("#e-time")?.value || d.event.time;
+    d.event.endTime = card.querySelector("#e-end-time")?.value || d.event.endTime;
+    const paxVal = Number(card.querySelector("#e-pax")?.value || 0);
+    const numSetsVal = Number(card.querySelector("#e-num-sets")?.value || 0);
+    if (d.flowType === "food_set") {
+      d.event.numSets = paxVal || numSetsVal || d.event.numSets || 0;
+      d.event.pax = (d.event.numSets || 1) * 22;
+    } else {
+      if (paxVal > 0) d.event.pax = paxVal;
+      d.event.numSets = numSetsVal;
+    }
+    d.event.occasion = (card.querySelector("#e-occasion")?.value || d.event.occasion || "").trim();
+    d.event.venueStreet = (card.querySelector("#e-venue-street")?.value || "").trim();
+    d.event.venueCity = (card.querySelector("#e-venue-city")?.value || "").trim();
+    d.event.motif = (card.querySelector("#e-motif")?.value || "").trim() || d.event.motif;
+    d.event.pickupTime = (card.querySelector("#e-pickup-enabled")?.checked && card.querySelector("#e-pickup-time")?.value) ? card.querySelector("#e-pickup-time").value : "";
+    d.event.dropoffTime = (card.querySelector("#e-dropoff-enabled")?.checked && card.querySelector("#e-dropoff-time")?.value) ? card.querySelector("#e-dropoff-time").value : "";
+  }
+
   // Order Type selector (Food Tray / Packages / Food Set) — switching type
   // rebuilds this step's branch pane (package grid / nothing / Sets A-E).
   card.querySelectorAll("[data-order-type]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const newType = btn.dataset.orderType;
       if (newType === d.flowType) return;
+      harvestStepPackageFields();
       d.flowType = newType;
-      if (newType !== "package") { d.package.id = null; d.package.name = ""; d.package.pricePerPax = 0; d.package.baseTotal = 0; }
-      if (newType !== "food_set") d.setSelections = [];
+      if (newType === "food_set") {
+        d.package.id = null;
+        d.package.name = "";
+        d.package.pricePerPax = 0;
+        d.package.baseTotal = 0;
+        if (!d.event.occasion || d.event.occasion.toLowerCase() === "general event" || d.event.occasion.toLowerCase() === "other special event") {
+          d.event.occasion = "Food Set";
+        }
+      } else if (newType === "package") {
+        d.setSelections = [];
+      } else if (newType === "food_tray") {
+        d.package.id = null;
+        d.package.name = "";
+        d.package.pricePerPax = 0;
+        d.package.baseTotal = 0;
+        d.setSelections = [];
+      }
       renderStepPackage(card);
     });
   });
@@ -1509,9 +1906,23 @@ async function renderStepPackage(card) {
     renderCart();
   }
 
-  paxInput?.addEventListener("input", syncFromPricePerPax);
-  priceInput?.addEventListener("input", syncFromPricePerPax);
-  baseInput?.addEventListener("input", syncFromBaseTotal);
+  if (d.flowType === "food_set") {
+    const handleSetQtyInput = () => {
+      const val = Math.max(0, Number(paxInput?.value || 0));
+      d.event.numSets = val;
+      d.event.pax = (val || 1) * 22;
+      const numSetsHidden = card.querySelector("#e-num-sets");
+      if (numSetsHidden) numSetsHidden.value = val;
+      updateFsSummary(card, d);
+      renderCart();
+    };
+    paxInput?.addEventListener("input", handleSetQtyInput);
+    paxInput?.addEventListener("change", handleSetQtyInput);
+  } else {
+    paxInput?.addEventListener("input", syncFromPricePerPax);
+    priceInput?.addEventListener("input", syncFromPricePerPax);
+    baseInput?.addEventListener("input", syncFromBaseTotal);
+  }
 
   async function selectPackage(pkg) {
     card.querySelectorAll(".select-card").forEach((c) => {
@@ -1597,7 +2008,7 @@ async function renderStepPackage(card) {
     syncFromPricePerPax();
   }
 
-  card.querySelectorAll(".select-card").forEach((el) => {
+  card.querySelectorAll("#pkg-grid .select-card").forEach((el) => {
     el.addEventListener("click", (e) => {
       if (e.target.closest(".btn-view-pkg-details")) return;
       const pkg = packagesCache.find((p) => String(p.id) === el.dataset.id);
@@ -1614,33 +2025,24 @@ async function renderStepPackage(card) {
   });
 
   footer("Next Step", () => {
-    d.event.date = card.querySelector("#e-date").value;
-    d.event.time = card.querySelector("#e-time").value || "To be followed";
-    d.event.endTime = card.querySelector("#e-end-time")?.value || "";
-    d.event.pax = Number(paxInput.value || 1);
-    const selOcc = (card.querySelector("#e-occasion")?.value || "").trim();
-    if (isFoodSet(d.package.name) && (!selOcc || selOcc.toLowerCase() === "general event" || selOcc.toLowerCase() === "other special event")) {
-      d.event.occasion = "Food Set";
-    } else {
-      d.event.occasion = selOcc || (isFoodSet(d.package.name) ? "Food Set" : "General Event");
-    }
-    d.event.venueStreet = (venueStreetInput.value || "").trim();
-    d.event.venueCity = (venueCityInput.value || "").trim();
+    harvestStepPackageFields();
     const venueCombined = [d.event.venueStreet, d.event.venueCity].filter(Boolean).join(", ");
     d.event.venue = venueCombined || "To be followed";
-    d.event.motif = (card.querySelector("#e-motif")?.value || "").trim() || "Standard";
-    d.event.pickupTime = (pickupChk?.checked && pickupTimeInput?.value) ? pickupTimeInput.value : "";
-    d.event.dropoffTime = (dropoffChk?.checked && dropoffTimeInput?.value) ? dropoffTimeInput.value : "";
-    d.event.numSets = Number(card.querySelector("#e-num-sets")?.value || 0);
     if (priceInput) d.package.pricePerPax = Number(priceInput.value || 0);
     if (baseInput) d.package.baseTotal = Number(baseInput.value || 0);
 
     if (!d.event.date) { toast("Event date is required.", "error"); return; }
 
     if (d.flowType === "food_set") {
-      if (setSelectionsTotalQty(d) <= 0) { toast("Please select at least 1 Food Set (qty > 0) to continue.", "error"); return; }
-      d.event.pax = setSelectionsTotalQty(d) * 22; // informational pax estimate (22 pax/set)
-      d.event.numSets = setSelectionsTotalQty(d);
+      const totalQty = setSelectionsTotalQty(d);
+      if (totalQty <= 0) { toast("Please select at least 1 Food Set (qty > 0) to continue.", "error"); return; }
+      const targetSets = Number(d.event.numSets || 0);
+      if (targetSets > 0 && totalQty !== targetSets) {
+        toast(`Please select exactly ${targetSets} set(s) to match No. of Sets (currently ${totalQty} selected).`, "error");
+        return;
+      }
+      d.event.numSets = totalQty;
+      d.event.pax = totalQty * 22; // informational pax estimate (22 pax/set)
     } else if (d.flowType === "food_tray") {
       // Food Tray: no package required — base total may be set manually here
       // or left at 0 and finished via priced add-on dishes on the Menu step.
@@ -1718,15 +2120,21 @@ async function renderStepMenu(card) {
     .filter(([cat]) => !hasBuckets || bucketOf(cat))
     .sort(([catA], [catB]) => sortCatFn(catA, catB));
   const totalAll = visibleEntries.reduce((sum, [, arr]) => sum + (arr ? arr.length : 0), 0);
+  const isFoodSet = d.flowType === "food_set";
+  const totalReplacementsNeeded = isFoodSet ? (d.setSelections || []).reduce((sum, s) => sum + (s.removedCount || 0), 0) : 0;
 
   card.innerHTML = `
     <div class="kiosk-menu-header-row" style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;">
       <div class="kiosk-menu-header-info" style="flex:1; min-width:220px;">
         <h2 style="margin:0 0 4px; display:flex; align-items:center; gap:10px;">
-          ${icon("utensils")} Mix &amp; Match Menu Dishes
+          ${icon("utensils")} ${isFoodSet ? "Food Set Menu &amp; Replacements" : "Mix &amp; Match Menu Dishes"}
         </h2>
         <p style="color:var(--text-muted); margin:0; font-size:13px;">
-          Select the dishes for your catering buffet. Tap dish photo or card to add or remove.
+          ${isFoodSet
+            ? (totalReplacementsNeeded > 0
+                ? `You removed dishes from your set. Select <b>exactly ${totalReplacementsNeeded} replacement dish${totalReplacementsNeeded > 1 ? "es" : ""}</b> below.`
+                : "All standard dishes included in your Food Set. You can select optional add-ons below.")
+            : "Select the dishes for your catering buffet. Tap dish photo or card to add or remove."}
         </p>
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
@@ -1735,6 +2143,56 @@ async function renderStepMenu(card) {
         </button>
       </div>
     </div>
+
+    ${isFoodSet ? `
+      <!-- Food Set Replacement Status Banner -->
+      <div class="card card-elevated" id="fs-menu-status-banner" style="margin-bottom:14px; border:1.5px solid var(--accent); padding:16px 20px; background:linear-gradient(135deg, rgba(225,29,72,0.06) 0%, var(--card) 100%); border-radius:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
+          <div style="flex:1; min-width:260px;">
+            <h3 style="margin:0 0 6px; font-size:16px; display:flex; align-items:center; gap:8px;">
+              ${icon("utensils")} Food Set: ${(d.setSelections || []).map((s) => `${escapeHtml(s.name)} (x${s.quantity})`).join(", ") || "None"}
+            </h3>
+            <div style="font-size:12.5px; color:var(--text-muted); line-height:1.6;">
+              ${(d.setSelections || []).map((s) => `
+                <div>
+                  <b style="color:var(--text);">${escapeHtml(s.name)} Inclusions:</b>
+                  ${(s.dishes || []).map((dd) => `<span class="pill pill-paid" style="font-size:11px; margin-right:4px; padding:2px 7px;">${escapeHtml(dd.name)}</span>`).join("")}
+                  ${(s.removedDishes && s.removedDishes.length > 0) ? `
+                    <div style="color:var(--danger,#ef4444); font-size:11.5px; margin-top:2px;">
+                      ✕ Removed from set: ${s.removedDishes.map((r) => escapeHtml(r.name)).join(", ")}
+                    </div>
+                  ` : ""}
+                </div>
+              `).join("")}
+            </div>
+          </div>
+          <div>
+            <button type="button" class="btn btn-outline" id="btn-re-customize-food-set" style="font-size:12px; font-weight:700; display:inline-flex; align-items:center; gap:6px;">
+              ${icon("settings")} Customize Set Dishes
+            </button>
+          </div>
+        </div>
+
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          ${totalReplacementsNeeded > 0 ? `
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <span class="pill ${d.menuSelections.length === totalReplacementsNeeded ? 'pill-paid' : 'pill-partial'}" id="fs-rep-pill-badge" style="font-size:13px; font-weight:800; padding:6px 12px;">
+                🔄 Replacements: <span id="fs-replacement-count">${d.menuSelections.length}</span> / ${totalReplacementsNeeded} Selected
+              </span>
+              <span id="fs-rep-status-text" style="font-size:12.5px; color:${d.menuSelections.length === totalReplacementsNeeded ? 'var(--success)' : 'var(--gold)'}; font-weight:700;">
+                ${d.menuSelections.length === totalReplacementsNeeded
+                  ? `✓ Exactly ${totalReplacementsNeeded} replacement dish(es) selected! Ready to proceed.`
+                  : `⚠️ Choose ${totalReplacementsNeeded - d.menuSelections.length} more replacement dish(es) from the menu below.`}
+              </span>
+            </div>
+          ` : `
+            <div style="font-size:12.5px; color:var(--success); font-weight:700; display:flex; align-items:center; gap:6px;">
+              ${icon("checkCircle")} All standard dishes included in your Food Set. No replacements needed.
+            </div>
+          `}
+        </div>
+      </div>
+    ` : ""}
 
     <!-- Live Search Bar & Category Navigation (STICKY ON SCROLL) -->
     <div class="kiosk-menu-sticky-filter-bar" id="kiosk-menu-sticky-filter-bar">
@@ -1787,6 +2245,21 @@ async function renderStepMenu(card) {
           <div class="kiosk-grid">
             ${items.map((it) => {
               const isSel = selectedIds.has(it.menu_item_id);
+              let priceDisplay = it.price ? `+ ${peso(it.price)}` : `<span style="font-size:13px; color:var(--success); font-weight:700;">Included</span>`;
+              let statusDisplay = it.price ? "Add-on" : "Buffet Included";
+              if (isFoodSet) {
+                const isAlreadyInSet = (d.setSelections || []).some((s) => (s.dishes || []).some((dd) => (dd.name || '').toLowerCase() === (it.name || '').toLowerCase()));
+                if (isSel) {
+                  priceDisplay = `<span style="font-size:13px; color:var(--success); font-weight:700;">Set Replacement</span>`;
+                  statusDisplay = "Replacement (Included)";
+                } else if (isAlreadyInSet) {
+                  priceDisplay = `<span style="font-size:13px; color:var(--success); font-weight:700;">Included in Set</span>`;
+                  statusDisplay = "Set Default";
+                } else if (totalReplacementsNeeded > 0) {
+                  priceDisplay = `<span style="font-size:13px; color:var(--gold); font-weight:700;">Free Swap</span>`;
+                  statusDisplay = "Available Replacement";
+                }
+              }
               return `
                 <div class="kiosk-food-card select-card ${isSel ? "selected" : ""}" data-item-id="${it.menu_item_id}" data-item-name="${escapeHtml((it.name || '').toLowerCase())}" data-item-desc="${escapeHtml((it.description || '').toLowerCase())}" data-item-cat="${escapeHtml(cat.toLowerCase())}">
                   <div class="kiosk-card-img-wrap">
@@ -1809,8 +2282,8 @@ async function renderStepMenu(card) {
                     </div>
                     <p class="kiosk-card-desc">${escapeHtml(it.description || "Freshly prepared catering specialty.")}</p>
                     <div class="kiosk-card-footer">
-                      <span class="kiosk-price-tag">${it.price ? `+ ${peso(it.price)}` : `<span style="font-size:13px; color:var(--success); font-weight:700;">Included</span>`}</span>
-                      <span class="kiosk-status-pill">${it.price ? "Add-on" : "Buffet Included"}</span>
+                      <span class="kiosk-price-tag">${priceDisplay}</span>
+                      <span class="kiosk-status-pill">${statusDisplay}</span>
                     </div>
                   </div>
                 </div>
@@ -1827,6 +2300,21 @@ async function renderStepMenu(card) {
       <button type="button" class="btn btn-secondary" id="btn-clear-search-empty">Clear Search Filter</button>
     </div>
   `;
+
+  // Wire re-customize button if on Food Set flow
+  card.querySelector("#btn-re-customize-food-set")?.addEventListener("click", async () => {
+    const sets = d.setSelections || [];
+    if (!sets.length) return;
+    const firstSet = sets[0];
+    const fullSet = foodSetsCache.find((s) => Number(s.id) === Number(firstSet.set_id)) || firstSet;
+    await openFoodSetCustomizeModal(fullSet, firstSet, card, () => {
+      const newNeeded = (d.setSelections || []).reduce((sum, s) => sum + (s.removedCount || 0), 0);
+      if (d.menuSelections.length > newNeeded) {
+        d.menuSelections = d.menuSelections.slice(0, newNeeded);
+      }
+      renderStepMenu(card);
+    });
+  });
 
   // Search logic
   const searchInput = card.querySelector("#menu-dish-search");
@@ -1945,6 +2433,31 @@ async function renderStepMenu(card) {
         if (pillEl) pillEl.className = `pill ${cnt >= (Number(b.limit) || 0) && cnt > 0 ? "pill-paid" : "pill-partial"}`;
       });
     }
+
+    if (isFoodSet && totalReplacementsNeeded > 0) {
+      const cntEl = card.querySelector("#fs-replacement-count");
+      if (cntEl) cntEl.textContent = String(d.menuSelections.length);
+      const repBadge = card.querySelector("#fs-rep-pill-badge");
+      if (repBadge) {
+        repBadge.className = `pill ${d.menuSelections.length === totalReplacementsNeeded ? 'pill-paid' : 'pill-partial'}`;
+      }
+      const statusText = card.querySelector("#fs-rep-status-text");
+      if (statusText) {
+        if (d.menuSelections.length === totalReplacementsNeeded) {
+          statusText.style.color = "var(--success)";
+          statusText.textContent = `✓ Exactly ${totalReplacementsNeeded} replacement dish(es) selected! Ready to proceed.`;
+        } else {
+          statusText.style.color = "var(--gold)";
+          statusText.textContent = `⚠️ Choose ${totalReplacementsNeeded - d.menuSelections.length} more replacement dish(es) from the menu below.`;
+        }
+      }
+      const wizNext = document.getElementById("wiz-next");
+      if (wizNext) {
+        wizNext.textContent = d.menuSelections.length < totalReplacementsNeeded
+          ? `Select Replacements (${d.menuSelections.length}/${totalReplacementsNeeded})`
+          : `Next: Event Add-ons (${d.menuSelections.length} Replacements Chosen)`;
+      }
+    }
   }
   window._updateStep3Counts = updateCounts;
 
@@ -1964,14 +2477,62 @@ async function renderStepMenu(card) {
     return true;
   };
 
-  const goNextStep = () => { wizard.step = 4; render(); };
+  const goNextStep = () => {
+    if (isFoodSet && totalReplacementsNeeded > 0 && d.menuSelections.length < totalReplacementsNeeded) {
+      const rem = totalReplacementsNeeded - d.menuSelections.length;
+      toast(`Please select ${rem} more replacement dish${rem > 1 ? "es" : ""} to complete your Food Set before proceeding.`, "error");
+      return;
+    }
+    wizard.step = 4;
+    render();
+  };
+
   const topNextBtn = card.querySelector("#sticky-next-btn-top");
   if (topNextBtn) topNextBtn.addEventListener("click", goNextStep);
 
   const allItems = Object.values(menuGroupedCache).flat();
   card.querySelectorAll(".select-card").forEach((el) => {
     const item = allItems.find((it) => String(it.menu_item_id) === el.dataset.itemId);
+    if (!item) return;
     el.addEventListener("click", () => {
+      if (isFoodSet) {
+        const isAlreadySelected = d.menuSelections.some((m) => String(m.menu_item_id) === String(item.menu_item_id));
+        if (!isAlreadySelected) {
+          if (totalReplacementsNeeded > 0) {
+            if (d.menuSelections.length >= totalReplacementsNeeded) {
+              toast(`You have already chosen all ${totalReplacementsNeeded} replacement dish${totalReplacementsNeeded > 1 ? "es" : ""}. To choose another dish, unselect one of your chosen replacements first.`, "info");
+              return;
+            }
+            d.menuSelections.push({
+              menu_item_id: item.menu_item_id,
+              item_name: item.name,
+              category: item.category,
+              price: 0,
+              is_replacement: true,
+              quantity: 1,
+            });
+          } else {
+            d.menuSelections.push({
+              menu_item_id: item.menu_item_id,
+              item_name: item.name,
+              category: item.category,
+              price: Number(item.price || 0),
+              is_replacement: false,
+              quantity: 1,
+            });
+          }
+          el.classList.add("selected");
+          el.querySelector(".item-check-badge").innerHTML = icon("checkCircle");
+        } else {
+          d.menuSelections = d.menuSelections.filter((m) => String(m.menu_item_id) !== String(item.menu_item_id));
+          el.classList.remove("selected");
+          el.querySelector(".item-check-badge").innerHTML = icon("plus");
+        }
+        updateCounts();
+        renderCart();
+        return;
+      }
+
       const idx = d.menuSelections.findIndex((m) => m.menu_item_id === item.menu_item_id);
       if (idx === -1) {
         if (!canAdd(item)) return;
@@ -1997,8 +2558,39 @@ async function renderStepMenu(card) {
       if (!item) return;
       const isSelected = d.menuSelections.some((m) => m.menu_item_id === item.menu_item_id);
       openDishDetailsModal(item, isSelected, () => {
-        const idx = d.menuSelections.findIndex((m) => m.menu_item_id === item.menu_item_id);
         const cardEl = card.querySelector(`.select-card[data-item-id="${item.menu_item_id}"]`);
+        if (isFoodSet) {
+          const isAlreadyIn = d.menuSelections.some((m) => String(m.menu_item_id) === String(item.menu_item_id));
+          if (!isAlreadyIn) {
+            if (totalReplacementsNeeded > 0 && d.menuSelections.length >= totalReplacementsNeeded) {
+              toast(`You have already chosen all ${totalReplacementsNeeded} replacement dish${totalReplacementsNeeded > 1 ? "es" : ""}.`, "info");
+              return;
+            }
+            d.menuSelections.push({
+              menu_item_id: item.menu_item_id,
+              item_name: item.name,
+              category: item.category,
+              price: totalReplacementsNeeded > 0 ? 0 : Number(item.price || 0),
+              is_replacement: totalReplacementsNeeded > 0,
+              quantity: 1,
+            });
+            if (cardEl) {
+              cardEl.classList.add("selected");
+              cardEl.querySelector(".item-check-badge").innerHTML = icon("checkCircle");
+            }
+          } else {
+            d.menuSelections = d.menuSelections.filter((m) => String(m.menu_item_id) !== String(item.menu_item_id));
+            if (cardEl) {
+              cardEl.classList.remove("selected");
+              cardEl.querySelector(".item-check-badge").innerHTML = icon("plus");
+            }
+          }
+          updateCounts();
+          renderCart();
+          return;
+        }
+
+        const idx = d.menuSelections.findIndex((m) => m.menu_item_id === item.menu_item_id);
         if (idx === -1) {
           if (!canAdd(item)) return;
           d.menuSelections.push({ menu_item_id: item.menu_item_id, item_name: item.name, category: item.category, price: item.price, quantity: 1 });
@@ -2021,10 +2613,14 @@ async function renderStepMenu(card) {
   updateCounts();
 
   footer(
-    window.innerWidth < 640
-      ? `Next: Add-ons (${d.menuSelections.length})`
-      : `Next Step: Event Add-ons (${d.menuSelections.length} Chosen)`,
-    () => { wizard.step = 4; render(); }
+    isFoodSet && totalReplacementsNeeded > 0
+      ? (d.menuSelections.length < totalReplacementsNeeded
+          ? `Select Replacements (${d.menuSelections.length}/${totalReplacementsNeeded})`
+          : `Next Step: Event Add-ons (${d.menuSelections.length} Chosen)`)
+      : (window.innerWidth < 640
+          ? `Next: Add-ons (${d.menuSelections.length})`
+          : `Next Step: Event Add-ons (${d.menuSelections.length} Chosen)`),
+    goNextStep
   );
 }
 
@@ -2270,13 +2866,21 @@ function renderStepPreview(card) {
       ${d.flowType === "food_set" ? `
         ${(d.setSelections || []).map((s) => `
           <div style="color:var(--gold); font-weight:700; font-size:15px; margin-bottom:4px;">${escapeHtml(s.name)} x${s.quantity} (${peso(s.unit_price)} / set)</div>
+          <div style="font-size:12.5px; color:var(--text-muted); margin-bottom:8px; line-height:1.5;">
+            <b>Dishes:</b> ${(s.dishes || []).map((dd) => escapeHtml(dd.name)).join(", ") || "None"}
+          </div>
         `).join("") || `<p style="color:var(--text-muted); font-size:13px;">No sets selected.</p>`}
+        ${d.menuSelections.length > 0 ? `
+          <div style="border-top:1px dashed var(--border); padding-top:8px; margin-top:8px; font-size:13px; line-height:1.6;">
+            <b>Replacements &amp; Menu:</b> ${d.menuSelections.map((m) => `${escapeHtml(m.item_name)} (${m.is_replacement ? 'Set Replacement · Included' : peso(m.price)})`).join(", ")}
+          </div>
+        ` : ""}
       ` : `
         <div style="color:var(--gold); font-weight:700; font-size:15px; margin-bottom:8px;">${escapeHtml(d.package.name || "Food Tray (Custom Menu)")} ${d.package.pricePerPax ? `(${peso(d.package.pricePerPax)} / set)` : ""}</div>
+        <p style="color:var(--text-muted); font-size:13px; margin:0; line-height:1.6;">
+          ${d.menuSelections.map((m) => escapeHtml(m.item_name)).join(", ") || "No specific dishes selected."}
+        </p>
       `}
-      <p style="color:var(--text-muted); font-size:13px; margin:0; line-height:1.6;">
-        ${d.menuSelections.map((m) => escapeHtml(m.item_name)).join(", ") || "No specific dishes selected."}
-      </p>
     </div>
 
     <div class="card" style="border:1.5px solid var(--accent); padding:20px; background:linear-gradient(135deg, rgba(225,29,72,0.1) 0%, var(--card) 100%);">
@@ -2412,7 +3016,17 @@ function renderStepPreview(card) {
           package_id: d.package.id,
           base_total: grandTotal(d) - chargesTotal(d),
           menu_selections: d.menuSelections,
-          sets: d.setSelections || [],
+          sets: d.flowType === "food_set" ? (d.setSelections || []).map((s) => {
+            const kept = (s.dishes || []).map((dd) => ({ ...dd }));
+            const reps = (d.menuSelections || []).filter((m) => m.is_replacement).map((m) => ({
+              name: m.item_name,
+              category: m.category || "Main Dish",
+              price: 0,
+              quantity: 1,
+              is_replacement: true,
+            }));
+            return { ...s, dishes: [...kept, ...reps] };
+          }) : (d.setSelections || []),
           additional_charges: d.additionalCharges,
           down_payment: d.downPayment,
           payment_method: d.paymentMethod,
