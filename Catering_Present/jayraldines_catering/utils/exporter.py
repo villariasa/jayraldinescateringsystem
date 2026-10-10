@@ -884,7 +884,25 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
             except Exception:
                 pass
 
-        dishes  = booking_detail.get("selected_dishes") or booking_detail.get("dishes") or []
+        raw_dishes = booking_detail.get("selected_dishes") or booking_detail.get("dishes") or []
+        dishes = []
+        seen_d = {}
+        for d in raw_dishes:
+            if isinstance(d, dict):
+                nm = (d.get("name") or d.get("item_name") or "").strip()
+                cat = (d.get("category") or d.get("mi_category") or "").strip()
+            else:
+                nm, cat = str(d).strip(), ""
+            if not nm:
+                continue
+            k = nm.lower()
+            if k not in seen_d:
+                seen_d[k] = len(dishes)
+                dishes.append({"name": nm, "category": cat})
+            else:
+                idx = seen_d[k]
+                if not dishes[idx]["category"] and cat:
+                    dishes[idx]["category"] = cat
         rcpt_no = (inv.get("invoice") or inv.get("invoice_ref") or booking_detail.get("ref")
                    or booking_detail.get("booking_ref") or "—")
         _raw_created = (inv.get("created_at") or booking_detail.get("created_at")
@@ -1196,24 +1214,21 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         fY = footerDividerY + 13
         ic_megaphone(centerX - 188, fY - 7)
         T(centerX + 6, fY, "WE INVITE YOU TO SEE HOW WE CAN HELP YOUR EVENT; THE BEST IT CAN POSSIBLY BE!!!", 8, bold=True, color=RED, align="center")
+        fY += 13
+        addr_text = f"Located at {biz_address}"
+        addr_w = stringWidth(addr_text, "Helvetica", 7.5)
+        ic_pin(centerX - addr_w / 2.0 - 13, fY - 7)
+        T(centerX, fY, addr_text, 7.5, bold=False, color=FOOT, align="center")
         fY += 12
-        T(centerX, fY, f"Located at {biz_address}", 7.5, bold=False, color=FOOT, align="center")
-        fY += 11
-        T(centerX, fY, f"Please feel free to call us at {biz_contact}", 7.5, bold=False, color=FOOT, align="center")
-        fY += 11
-        T(centerX, fY, "Find us on Facebook: Jayraldine's Catering Services", 7.5, bold=False, color=FOOT, align="center")
-
-        fY += 15
-        col1W = 165
-        col2W = 175
-        ic_pin(marginX + 2, fY - 7)
-        T(marginX + 13, fY, f"Located at {biz_address}", 6.8, bold=False, color=FOOT)
-        LINE(marginX + col1W, fY - 7, marginX + col1W, fY + 2, 1, RED)
-        ic_phone(marginX + col1W + 6, fY - 7)
-        T(marginX + col1W + 18, fY, f"Please feel free to call us at {biz_contact}", 6.8, bold=False, color=FOOT)
-        LINE(marginX + col1W + col2W, fY - 7, marginX + col1W + col2W, fY + 2, 1, RED)
-        ic_fb(marginX + col1W + col2W + 6, fY - 7)
-        T(marginX + col1W + col2W + 18, fY, "Find us on Facebook: Jayraldine's Catering Services", 6.8, bold=False, color=FOOT)
+        contact_text = f"Please feel free to call us at {biz_contact}"
+        contact_w = stringWidth(contact_text, "Helvetica", 7.5)
+        ic_phone(centerX - contact_w / 2.0 - 13, fY - 7)
+        T(centerX, fY, contact_text, 7.5, bold=False, color=FOOT, align="center")
+        fY += 12
+        fb_text = "Find us on Facebook: Jayraldine's Catering Services"
+        fb_w = stringWidth(fb_text, "Helvetica", 7.5)
+        ic_fb(centerX - fb_w / 2.0 - 13, fY - 7)
+        T(centerX, fY, fb_text, 7.5, bold=False, color=FOOT, align="center")
 
         c.showPage()
         c.save()
@@ -1370,11 +1385,30 @@ def export_order_slip_pdf(path: str, booking: dict, business: dict) -> bool:
         # Package & Dishes Section
         story.append(Paragraph(f"MENU & DISHES — <font color='{_C_RED.hexval()}'>{pkg_name.upper()}</font>", styles["SectionHead"]))
 
-        dishes = booking.get("dishes") or []
+        raw_dishes = booking.get("dishes") or []
         # Fallback: derive dishes from a comma-separated "menu_value" string.
-        if not dishes and booking.get("menu_value"):
-            raw_dishes = [d.strip() for d in str(booking["menu_value"]).split(",") if d.strip()]
-            dishes = [{"name": rd, "category": "Selected Dishes"} for rd in raw_dishes]
+        if not raw_dishes and booking.get("menu_value"):
+            raw_splits = [d.strip() for d in str(booking["menu_value"]).split(",") if d.strip()]
+            raw_dishes = [{"name": rd, "category": "Selected Dishes"} for rd in raw_splits]
+
+        dishes = []
+        seen_d = {}
+        for d in raw_dishes:
+            if isinstance(d, dict):
+                nm = (d.get("name") or d.get("item_name") or "").strip()
+                cat = (d.get("category") or d.get("mi_category") or "").strip()
+            else:
+                nm, cat = str(d).strip(), ""
+            if not nm:
+                continue
+            k = nm.lower()
+            if k not in seen_d:
+                seen_d[k] = len(dishes)
+                dishes.append({"name": nm, "category": cat})
+            else:
+                idx = seen_d[k]
+                if not dishes[idx]["category"] and cat:
+                    dishes[idx]["category"] = cat
 
         if dishes:
             # Group dish names by course/category for the kitchen table.
