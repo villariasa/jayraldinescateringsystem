@@ -833,11 +833,30 @@ class OrderPrintDialog(QDialog):
         status_str = html.escape(str(booking.get("status") or ("PAID" if bal_f == 0 else "PARTIAL" if paid_f > 0 else "PENDING")).upper())
         pay_mode = html.escape(str(booking.get("payment_mode") or "Cash"))
 
-        # Dishes
-        dishes = booking.get("dishes") or []
-        if not dishes and booking.get("menu_value"):
+        # Dishes (deduplicate by dish name to prevent repeated entries on order slip)
+        raw_dishes_list = booking.get("dishes") or []
+        if not raw_dishes_list and booking.get("menu_value"):
             raw_dishes = [d.strip() for d in str(booking["menu_value"]).split(",") if d.strip()]
-            dishes = [{"name": rd} for rd in raw_dishes]
+            raw_dishes_list = [{"name": rd} for rd in raw_dishes]
+
+        dishes = []
+        seen_dishes = {}
+        for d in raw_dishes_list:
+            if isinstance(d, dict):
+                d_nm = (d.get("name") or d.get("item_name") or "").strip()
+                d_cat = (d.get("category") or d.get("mi_category") or "").strip()
+            else:
+                d_nm, d_cat = str(d).strip(), ""
+            if not d_nm:
+                continue
+            key = d_nm.lower()
+            if key not in seen_dishes:
+                seen_dishes[key] = len(dishes)
+                dishes.append({"name": d_nm, "category": d_cat})
+            else:
+                idx = seen_dishes[key]
+                if not dishes[idx]["category"] and d_cat:
+                    dishes[idx]["category"] = d_cat
 
         dish_items_html = []
         for idx, d in enumerate(dishes[:10], 1):
@@ -848,12 +867,12 @@ class OrderPrintDialog(QDialog):
             # PWA's exporter.js format: "1. Dish Name (Category)"
             dish_items_html.append(f"""
                 <tr>
-                    <td style="width:20px; font-weight:normal; color:#0F172A; font-size:11.5px; padding:2px 0; vertical-align:top;">{idx}.</td>
-                    <td style="font-size:11.5px; color:#0F172A; padding:2px 0; vertical-align:top;">{d_full}</td>
+                    <td style="width:20px; font-weight:normal; color:#0F172A; font-size:11px; padding:2px 0; vertical-align:top;">{idx}.</td>
+                    <td style="font-size:11px; color:#0F172A; padding:2px 0; vertical-align:top; word-break:break-word;">{d_full}</td>
                 </tr>
             """)
         if not dish_items_html:
-            dish_items_html.append('<tr><td colspan="2" style="font-size:11.5px; color:#64748B; font-style:italic; padding:4px 0;">Standard Package Inclusions</td></tr>')
+            dish_items_html.append('<tr><td colspan="2" style="font-size:11px; color:#64748B; font-style:italic; padding:4px 0;">Standard Package Inclusions</td></tr>')
 
         # Add-ons
         addons_html = []
@@ -900,8 +919,8 @@ class OrderPrintDialog(QDialog):
             icon_uri = self._icon_data_uri(icon_name)
             icon_img = f'<img src="{icon_uri}" width="11" height="11" style="vertical-align:middle; margin-right:5px;" />' if icon_uri else ""
             return f"""
-                <div style="border:1px solid #CBD5E1; border-radius:6px; padding:8px 10px 9px 10px; margin-bottom:8px;">
-                    <div style="font-size:10px; font-weight:900; color:#0F172A; text-transform:uppercase; letter-spacing:0.3px; padding-bottom:4px; margin-bottom:6px; border-bottom:1px solid #E2E8F0;">{icon_img}{title}</div>
+                <div style="border:1px solid #CBD5E1; border-radius:6px; padding:7px 10px 8px 10px; margin-bottom:6px;">
+                    <div style="font-size:10px; font-weight:900; color:#0F172A; text-transform:uppercase; letter-spacing:0.3px; padding-bottom:3px; margin-bottom:5px; border-bottom:1px solid #E2E8F0;">{icon_img}{title}</div>
             """
 
         _card_close = "</div>"
@@ -910,8 +929,8 @@ class OrderPrintDialog(QDialog):
             weight = "800" if bold_value else "normal"
             return f"""
                 <tr>
-                    <td style="width:100px; font-weight:700; color:#334155; font-size:11px; padding:2.5px 0; vertical-align:top;">{label}</td>
-                    <td style="font-size:11px; font-weight:{weight}; color:#0F172A; padding:2.5px 0; vertical-align:top;">{value}</td>
+                    <td style="width:105px; white-space:nowrap; font-weight:700; color:#334155; font-size:11px; padding:2px 0; vertical-align:top;">{label}</td>
+                    <td style="font-size:11px; font-weight:{weight}; color:#0F172A; padding:2px 0; vertical-align:top; word-break:break-word;">{value}</td>
                 </tr>
             """
 
@@ -945,16 +964,18 @@ class OrderPrintDialog(QDialog):
         payment_details_card = _card_open("coins", "PAYMENT DETAILS") + f"""
             <table width="100%" style="width:100%; border-collapse:collapse;">
                 <tr>
-                    <td style="font-weight:700; color:#334155; font-size:11px; padding:2.5px 0;">Total Amount:</td>
-                    <td style="font-size:11.5px; font-weight:900; color:#0F172A; text-align:right; padding:2.5px 0;">{total_str}</td>
+                    <td style="width:105px; white-space:nowrap; font-weight:700; color:#334155; font-size:11px; padding:2px 0; vertical-align:top;">Total Amount:</td>
+                    <td style="font-size:11.5px; font-weight:900; color:#0F172A; text-align:right; padding:2px 0; vertical-align:top;">{total_str}</td>
                 </tr>
                 <tr>
-                    <td style="font-weight:700; color:#334155; font-size:11px; padding:2.5px 0;">Downpayment:</td>
-                    <td style="font-size:11px; color:#0F172A; text-align:right; padding:2.5px 0;">{down_str} ({pay_mode} - {status_str})</td>
+                    <td style="width:105px; white-space:nowrap; font-weight:700; color:#334155; font-size:11px; padding:2px 0; vertical-align:top;">Downpayment:</td>
+                    <td style="font-size:11px; color:#0F172A; text-align:right; padding:2px 0; vertical-align:top;">
+                        <span style="font-weight:700;">{down_str}</span> <span style="font-size:10px; color:#64748B;">({pay_mode} - {status_str})</span>
+                    </td>
                 </tr>
                 <tr>
-                    <td style="font-weight:700; color:#334155; font-size:11px; padding:2.5px 0;">Balance Due:</td>
-                    <td style="font-size:12px; font-weight:900; color:#0F172A; text-align:right; padding:2.5px 0;">{bal_str}</td>
+                    <td style="width:105px; white-space:nowrap; font-weight:700; color:#334155; font-size:11px; padding:2px 0; vertical-align:top;">Balance Due:</td>
+                    <td style="font-size:12px; font-weight:900; color:#0F172A; text-align:right; padding:2px 0; vertical-align:top;">{bal_str}</td>
                 </tr>
             </table>
         """ + _card_close
@@ -992,11 +1013,11 @@ class OrderPrintDialog(QDialog):
             _inc_lines = [html.escape(line.strip().lstrip("•-* ").strip()) for line in candidates if line.strip().lstrip("•-* ").strip()]
             if _inc_lines:
                 inclusions_lines_html = "".join(
-                    f'<div style="font-size:10px; color:#334155; padding:1.5px 0; font-weight:600;">• {line}</div>'
-                    for line in _inc_lines[:15]
+                    f'<div style="font-size:9.5px; color:#334155; padding:1px 0; line-height:1.25; font-weight:normal; word-break:break-word;">&bull; {line}</div>'
+                    for line in _inc_lines[:8]
                 )
                 inclusions_html = f"""
-                    <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; padding-bottom:2px; margin-bottom:3px; margin-top:5px; letter-spacing:0.3px;">INCLUSIONS:</div>
+                    <div style="font-size:10px; font-weight:900; color:#0F172A; text-transform:uppercase; padding-bottom:1px; margin-bottom:2px; margin-top:4px; letter-spacing:0.3px;">INCLUSIONS:</div>
                     {inclusions_lines_html}
                 """
 
@@ -1054,17 +1075,17 @@ class OrderPrintDialog(QDialog):
             <hr style="border:none; border-top:2px solid #DC2626; margin:8px 0 12px 0;" />
 
             <!-- UPPER SECTION (THE ORDER - 2 COLUMNS OF CARDS) -->
-            <table width="100%" style="width:100%; border-collapse:collapse;">
+            <table width="100%" style="width:100%; table-layout:fixed; border-collapse:collapse;">
                 <tr>
                     <!-- Left Sub-Column: Client Info / Event Details / Payment Details cards -->
-                    <td style="width:48%; vertical-align:top; padding-right:14px;">
+                    <td style="width:50%; vertical-align:top; padding-right:8px;">
                         {client_info_card}
                         {event_details_card}
                         {payment_details_card}
                     </td>
 
                     <!-- Right Sub-Column: Package & Menu card -->
-                    <td style="width:52%; vertical-align:top; padding-left:0;">
+                    <td style="width:50%; vertical-align:top; padding-left:8px;">
                         {package_menu_card}
                     </td>
                 </tr>
@@ -1125,17 +1146,10 @@ class OrderPrintDialog(QDialog):
             <hr style="border:none; border-top:2px solid #DC2626; margin:10px 0 8px 0;" />
             <div style="text-align:center;">
                 <div style="font-size:10px; font-weight:900; color:#DC2626; letter-spacing:0.2px;">{megaphone_img}WE INVITE YOU TO SEE HOW WE CAN HELP YOUR EVENT; THE BEST IT CAN POSSIBLY BE!!!</div>
-                <div style="font-size:9px; color:#0F172A; margin-top:5px;">Located at {address_biz}</div>
-                <div style="font-size:9px; color:#0F172A; margin-top:2px;">Please feel free to call us at {contact_biz}</div>
-                <div style="font-size:9px; color:#0F172A; margin-top:2px;">Find us on Facebook: <b>{biz_name_title}</b></div>
+                <div style="font-size:9px; color:#0F172A; margin-top:5px;">{pin_img}Located at {address_biz}</div>
+                <div style="font-size:9px; color:#0F172A; margin-top:3px;">{phone_img}Please feel free to call us at {contact_biz}</div>
+                <div style="font-size:9px; color:#0F172A; margin-top:3px;">{fb_img}Find us on Facebook: <b>{biz_name_title}</b></div>
             </div>
-            <table width="100%" style="width:100%; border-collapse:collapse; margin-top:6px;">
-                <tr>
-                    <td style="width:33.33%; text-align:center; font-size:7.5px; color:#0F172A; padding:2px 4px;">{pin_img}Located at {address_biz}</td>
-                    <td style="width:33.33%; text-align:center; font-size:7.5px; color:#0F172A; border-left:1px solid #DC2626; padding:2px 4px;">{phone_img}Please feel free to call us at {contact_biz}</td>
-                    <td style="width:33.34%; text-align:center; font-size:7.5px; color:#0F172A; border-left:1px solid #DC2626; padding:2px 4px;">{fb_img}Find us on Facebook: <b>{biz_name_title}</b></td>
-                </tr>
-            </table>
         </div>
         """
 
