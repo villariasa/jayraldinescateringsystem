@@ -1321,6 +1321,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 ("kitchen_tasks",              "SELECT * FROM kitchen_tasks ORDER BY kt_id"),
                 ("inventory",                  "SELECT * FROM inventory ORDER BY inv_id"),
                 ("calendar_events",            "SELECT * FROM calendar_events ORDER BY ce_id"),
+                ("expense_categories",         "SELECT * FROM expense_categories ORDER BY ec_id"),
                 ("expenses",                   "SELECT * FROM expenses ORDER BY exp_id"),
                 ("cash_flow_transactions",     "SELECT * FROM cash_flow_transactions ORDER BY cft_id"),
                 ("notifications",              "SELECT * FROM notifications ORDER BY notif_id"),
@@ -1754,11 +1755,195 @@ def perform_server_sync(payload: dict) -> dict:
     candidate_custs = payload.get("customers") or []
     candidate_bks = payload.get("bookings") or []
 
+    # 1. Load existing tombstones from deleted_records
+    del_b_rows = db.fetchall("SELECT dr_ref FROM deleted_records WHERE dr_table = 'bookings'") or []
+    deleted_booking_refs = {r["dr_ref"] for r in del_b_rows if r.get("dr_ref")}
+
+    del_c_rows = db.fetchall("SELECT dr_record_id, dr_ref FROM deleted_records WHERE dr_table = 'customers'") or []
+    deleted_customer_ids = {int(r["dr_record_id"]) for r in del_c_rows if r.get("dr_record_id") is not None}
+    deleted_customer_refs = {r["dr_ref"] for r in del_c_rows if r.get("dr_ref")}
+
+    del_p_rows = db.fetchall("SELECT dr_record_id, dr_ref FROM deleted_records WHERE dr_table = 'packages'") or []
+    deleted_package_ids = {int(r["dr_record_id"]) for r in del_p_rows if r.get("dr_record_id") is not None}
+
+    del_m_rows = db.fetchall("SELECT dr_record_id, dr_ref FROM deleted_records WHERE dr_table = 'menu_items'") or []
+    deleted_menu_item_ids = {int(r["dr_record_id"]) for r in del_m_rows if r.get("dr_record_id") is not None}
+
+    del_o_rows = db.fetchall("SELECT dr_record_id, dr_ref FROM deleted_records WHERE dr_table = 'occasions'") or []
+    deleted_occasion_ids = {int(r["dr_record_id"]) for r in del_o_rows if r.get("dr_record_id") is not None}
+    deleted_occasion_names = {r["dr_ref"].replace("occasion_", "").lower() for r in del_o_rows if r.get("dr_ref", "").startswith("occasion_")}
+
+    has_processed_deletions = False
+
+    # 2. Process incoming deletions sent from tablet
+    # (a) Bookings
+    incoming_deletes = payload.get("deleted_booking_refs") or []
+    for d_ref in incoming_deletes:
+        d_ref = (d_ref or "").strip()
+        if not d_ref:
+            continue
+        try:
+            row = db.fetchone("SELECT bk_id FROM bookings WHERE bk_booking_ref = %s" if db.get_engine_type() == "postgres" else "SELECT bk_id FROM bookings WHERE bk_booking_ref = ?", (d_ref,))
+            if row and row.get("bk_id"):
+                bkid = row["bk_id"]
+                if db.get_engine_type() == "postgres":
+                    db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = %s", (bkid,))
+                    db.execute("DELETE FROM booking_additional_charges WHERE ac_booking_id = %s", (bkid,))
+                    db.execute("DELETE FROM invoices WHERE inv_booking_id = %s", (bkid,))
+                    db.execute("DELETE FROM bookings WHERE bk_id = %s", (bkid,))
+                    db.execute("INSERT INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', %s) ON CONFLICT DO NOTHING", (d_ref,))
+                else:
+                    db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = ?", (bkid,))
+                    db.execute("DELETE FROM booking_additional_charges WHERE ac_booking_id = ?", (bkid,))
+                    db.execute("DELETE FROM invoices WHERE inv_booking_id = ?", (bkid,))
+                    db.execute("DELETE FROM bookings WHERE bk_id = ?", (bkid,))
+                    db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', ?)", (d_ref,))
+            else:
+                if db.get_engine_type() == "postgres":
+                    db.execute("INSERT INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', %s) ON CONFLICT DO NOTHING", (d_ref,))
+                else:
+                    db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', ?)", (d_ref,))
+            deleted_booking_refs.add(d_ref)
+            has_processed_deletions = True
+            logger.info(f"[SyncServer] Processed tablet deletion for booking {d_ref}")
+        except Exception as dex:
+            logger.warning(f"[SyncServer] Error processing tablet deletion of {d_ref}: {dex}")
+
+    # (b) Customers
+    incoming_del_customers = payload.get("deleted_customer_ids") or []
+    for cid in incoming_del_customers:
+        try:
+            cid_int = int(cid)
+        except (ValueError, TypeError):
+            continue
+        try:
+            cnt_chk = db.fetchone("SELECT COUNT(*) AS cnt FROM bookings WHERE bk_customer_id = %s" if db.get_engine_type() == "postgres" else "SELECT COUNT(*) AS cnt FROM bookings WHERE bk_customer_id = ?", (cid_int,))
+            b_cnt = cnt_chk["cnt"] if cnt_chk else 0
+            if b_cnt > 0:
+                if db.get_engine_type() == "postgres":
+                    db.execute("UPDATE customers SET cus_status = 'Inactive'::customer_status WHERE cus_id = %s", (cid_int,))
+                else:
+                    db.execute("UPDATE customers SET cus_status = 'Inactive' WHERE cus_id = ?", (cid_int,))
+            else:
+                if db.get_engine_type() == "postgres":
+                    db.execute("DELETE FROM customers WHERE cus_id = %s", (cid_int,))
+                else:
+                    db.execute("DELETE FROM customers WHERE cus_id = ?", (cid_int,))
+            ref_val = f"customer_{cid_int}"
+            if db.get_engine_type() == "postgres":
+                db.execute("INSERT INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('customers', %s, %s) ON CONFLICT (dr_ref) DO NOTHING", (ref_val, cid_int))
+            else:
+                db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('customers', ?, ?)", (ref_val, cid_int))
+            deleted_customer_ids.add(cid_int)
+            deleted_customer_refs.add(ref_val)
+            has_processed_deletions = True
+            logger.info(f"[SyncServer] Processed tablet deletion for customer {cid_int}")
+        except Exception as dex:
+            logger.warning(f"[SyncServer] Error processing tablet deletion of customer {cid}: {dex}")
+
+    # (c) Packages
+    incoming_del_packages = payload.get("deleted_package_ids") or []
+    for pid in incoming_del_packages:
+        try:
+            pid_int = int(pid)
+        except (ValueError, TypeError):
+            continue
+        try:
+            ref_val = f"package_{pid_int}"
+            if db.get_engine_type() == "postgres":
+                db.execute("DELETE FROM package_buckets WHERE pb_package_id = %s", (pid_int,))
+                db.execute("DELETE FROM package_items WHERE pi_package_id = %s", (pid_int,))
+                db.execute("DELETE FROM packages WHERE pkg_id = %s", (pid_int,))
+                db.execute("INSERT INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('packages', %s, %s) ON CONFLICT (dr_ref) DO NOTHING", (ref_val, pid_int))
+            else:
+                db.execute("DELETE FROM package_buckets WHERE pb_package_id = ?", (pid_int,))
+                db.execute("DELETE FROM package_items WHERE pi_package_id = ?", (pid_int,))
+                db.execute("DELETE FROM packages WHERE pkg_id = ?", (pid_int,))
+                db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('packages', ?, ?)", (ref_val, pid_int))
+            deleted_package_ids.add(pid_int)
+            has_processed_deletions = True
+            logger.info(f"[SyncServer] Processed tablet deletion for package {pid_int}")
+        except Exception as dex:
+            logger.warning(f"[SyncServer] Error processing tablet deletion of package {pid}: {dex}")
+
+    # (d) Menu items
+    incoming_del_menu_items = payload.get("deleted_menu_item_ids") or []
+    for mid in incoming_del_menu_items:
+        try:
+            mid_int = int(mid)
+        except (ValueError, TypeError):
+            continue
+        try:
+            ref_val = f"menu_item_{mid_int}"
+            if db.get_engine_type() == "postgres":
+                db.execute("DELETE FROM package_items WHERE pi_menu_item_id = %s", (mid_int,))
+                db.execute("DELETE FROM menu_items WHERE mi_id = %s", (mid_int,))
+                db.execute("INSERT INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('menu_items', %s, %s) ON CONFLICT (dr_ref) DO NOTHING", (ref_val, mid_int))
+            else:
+                db.execute("DELETE FROM package_items WHERE pi_menu_item_id = ?", (mid_int,))
+                db.execute("DELETE FROM menu_items WHERE mi_id = ?", (mid_int,))
+                db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('menu_items', ?, ?)", (ref_val, mid_int))
+            deleted_menu_item_ids.add(mid_int)
+            has_processed_deletions = True
+            logger.info(f"[SyncServer] Processed tablet deletion for menu item {mid_int}")
+        except Exception as dex:
+            logger.warning(f"[SyncServer] Error processing tablet deletion of menu item {mid}: {dex}")
+
+    # (e) Occasions
+    incoming_del_occasions = payload.get("deleted_occasion_names") or []
+    incoming_del_occ_ids = payload.get("deleted_occasion_ids") or []
+    for oname in incoming_del_occasions:
+        oname = (oname or "").strip()
+        if not oname:
+            continue
+        try:
+            ref_val = f"occasion_{oname.lower()}"
+            if db.get_engine_type() == "postgres":
+                db.execute("DELETE FROM occasions WHERE LOWER(occ_name) = LOWER(%s)", (oname,))
+                db.execute("INSERT INTO deleted_records (dr_table, dr_ref) VALUES ('occasions', %s) ON CONFLICT (dr_ref) DO NOTHING", (ref_val,))
+            else:
+                db.execute("DELETE FROM occasions WHERE LOWER(occ_name) = LOWER(?)", (oname,))
+                db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref) VALUES ('occasions', ?)", (ref_val,))
+            deleted_occasion_names.add(oname.lower())
+            has_processed_deletions = True
+            logger.info(f"[SyncServer] Processed tablet deletion for occasion {oname}")
+        except Exception as dex:
+            logger.warning(f"[SyncServer] Error processing tablet deletion of occasion {oname}: {dex}")
+
+    for oid in incoming_del_occ_ids:
+        try:
+            oid_int = int(oid)
+        except (ValueError, TypeError):
+            continue
+        try:
+            ref_val = f"occasion_id_{oid_int}"
+            if db.get_engine_type() == "postgres":
+                db.execute("DELETE FROM occasions WHERE occ_id = %s", (oid_int,))
+                db.execute("INSERT INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('occasions', %s, %s) ON CONFLICT (dr_ref) DO NOTHING", (ref_val, oid_int))
+            else:
+                db.execute("DELETE FROM occasions WHERE occ_id = ?", (oid_int,))
+                db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('occasions', ?, ?)", (ref_val, oid_int))
+            deleted_occasion_ids.add(oid_int)
+            has_processed_deletions = True
+        except Exception:
+            pass
+
+    if has_processed_deletions:
+        bump_db_version()
+
     pushed_customers = 0
     synced_customer_names = []
     seen_c = set()
 
     for c in candidate_custs:
+        c_id = c.get("cus_id") or c.get("id")
+        if c_id:
+            try:
+                if int(c_id) in deleted_customer_ids or f"customer_{c_id}" in deleted_customer_refs:
+                    logger.info(f"[SyncServer] Rejecting resurrect of deleted customer ID {c_id}")
+                    continue
+            except (ValueError, TypeError):
+                pass
         c_name = (c.get("cus_name") or c.get("name") or "").strip()
         c_contact = (c.get("cus_contact") or c.get("contact") or "").strip()
         c_email = (c.get("cus_email") or c.get("email") or "").strip()
@@ -1821,41 +2006,6 @@ def perform_server_sync(payload: dict) -> dict:
                 pass
         synced_customer_names.append(c_name)
 
-    deleted_b_rows = db.fetchall("SELECT dr_ref FROM deleted_records WHERE dr_table = 'bookings'") or []
-    deleted_booking_refs = {r["dr_ref"] for r in deleted_b_rows if r.get("dr_ref")}
-
-    # Process deletions sent from tablet (e.g. Auntie canceled or deleted a booking)
-    incoming_deletes = payload.get("deleted_booking_refs") or []
-    for d_ref in incoming_deletes:
-        d_ref = (d_ref or "").strip()
-        if not d_ref:
-            continue
-        try:
-            row = db.fetchone("SELECT bk_id FROM bookings WHERE bk_booking_ref = %s" if db.get_engine_type() == "postgres" else "SELECT bk_id FROM bookings WHERE bk_booking_ref = ?", (d_ref,))
-            if row and row.get("bk_id"):
-                bkid = row["bk_id"]
-                if db.get_engine_type() == "postgres":
-                    db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = %s", (bkid,))
-                    db.execute("DELETE FROM booking_additional_charges WHERE ac_booking_id = %s", (bkid,))
-                    db.execute("DELETE FROM invoices WHERE inv_booking_id = %s", (bkid,))
-                    db.execute("DELETE FROM bookings WHERE bk_id = %s", (bkid,))
-                    db.execute("INSERT INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', %s) ON CONFLICT DO NOTHING", (d_ref,))
-                else:
-                    db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = ?", (bkid,))
-                    db.execute("DELETE FROM booking_additional_charges WHERE ac_booking_id = ?", (bkid,))
-                    db.execute("DELETE FROM invoices WHERE inv_booking_id = ?", (bkid,))
-                    db.execute("DELETE FROM bookings WHERE bk_id = ?", (bkid,))
-                    db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', ?)", (d_ref,))
-            else:
-                if db.get_engine_type() == "postgres":
-                    db.execute("INSERT INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', %s) ON CONFLICT DO NOTHING", (d_ref,))
-                else:
-                    db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref) VALUES ('bookings', ?)", (d_ref,))
-            deleted_booking_refs.add(d_ref)
-            logger.info(f"[SyncServer] Processed tablet deletion for booking {d_ref}")
-        except Exception as dex:
-            logger.warning(f"[SyncServer] Error processing tablet deletion of {d_ref}: {dex}")
-
     pushed_bookings = 0
     synced_booking_refs = []
     seen_b = set()
@@ -1873,57 +2023,65 @@ def perform_server_sync(payload: dict) -> dict:
 
         chk_b_sql = "SELECT bk_id FROM bookings WHERE bk_booking_ref = %s LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT bk_id FROM bookings WHERE bk_booking_ref = ? LIMIT 1"
         existing_b = db.fetchone(chk_b_sql, (ref,))
-        if not existing_b:
-            cust_name = b.get("bk_customer_name") or b.get("customer_name") or "Walk-in Guest"
-            addr = b.get("bk_address") or b.get("address") or ""
-            venue = b.get("bk_venue") or b.get("venue") or "To be followed"
-            ev_date = b.get("bk_event_date") or b.get("event_date") or datetime.now().strftime("%Y-%m-%d")
-            ev_time = b.get("bk_event_time") or b.get("event_time") or "To be followed"
-            ev_end_time = b.get("bk_event_end_time") or b.get("event_end_time") or None
-            occ = b.get("bk_occasion") or b.get("occasion") or "General Event"
-            pax = int(b.get("bk_pax") or b.get("pax") or 1)
-            total = float(b.get("bk_total_amount") or b.get("total_amount") or 0.0)
-            base_tot = float(b.get("bk_base_total") or b.get("base_total") or total)
-            pay_mode = b.get("bk_payment_mode") or b.get("payment_mode") or "Cash"
-            if pay_mode not in ["Cash", "Bank Transfer", "GCash", "PayMaya"]:
-                pay_mode = "Cash"
-            down_pay = float(b.get("bk_down_payment") or b.get("down_payment") or b.get("bk_amount_paid") or b.get("amount_paid") or 0.0)
-            paid = down_pay
-            dp_status = b.get("bk_down_payment_status") or b.get("down_payment_status") or ("PAID" if down_pay > 0 else "PENDING")
-            
-            # Extract customer notes / special instructions
-            notes = (b.get("bk_special_notes") or b.get("special_notes") or b.get("bk_notes") or b.get("notes") or "").strip()
-            
-            # Lookup customer id and contact info
-            c_chk_sql = "SELECT cus_id, cus_contact, cus_email FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT cus_id, cus_contact, cus_email FROM customers WHERE LOWER(cus_name) = LOWER(?) LIMIT 1"
-            cust_row = db.fetchone(c_chk_sql, (cust_name,))
-            cust_id = cust_row["cus_id"] if cust_row else None
-            cust_contact = (b.get("bk_contact") or b.get("contact") or b.get("phone") or (cust_row.get("cus_contact") if cust_row else "") or "").strip()
-            cust_email = (b.get("bk_email") or b.get("email") or (cust_row.get("cus_email") if cust_row else "") or "").strip()
+        
+        cust_name = b.get("bk_customer_name") or b.get("customer_name") or "Walk-in Guest"
+        addr = b.get("bk_address") or b.get("address") or ""
+        venue = b.get("bk_venue") or b.get("venue") or "To be followed"
+        ev_date = b.get("bk_event_date") or b.get("event_date") or datetime.now().strftime("%Y-%m-%d")
+        ev_time = b.get("bk_event_time") or b.get("event_time") or "To be followed"
+        ev_end_time = b.get("bk_event_end_time") or b.get("event_end_time") or None
+        pickup_time = b.get("bk_pickup_time") or b.get("pickup_time") or None
+        dropoff_time = b.get("bk_dropoff_time") or b.get("dropoff_time") or None
+        occ = b.get("bk_occasion") or b.get("occasion") or "General Event"
+        pax = int(b.get("bk_pax") or b.get("pax") or 1)
+        num_sets = int(b.get("bk_num_sets") or b.get("num_sets") or 0)
+        total = float(b.get("bk_total_amount") or b.get("total_amount") or 0.0)
+        base_tot = float(b.get("bk_base_total") or b.get("base_total") or total)
+        menu_type = str(b.get("bk_menu_type") or b.get("menu_type") or "package").strip()
+        color_theme = str(b.get("bk_color_theme") or b.get("color_theme") or b.get("color") or b.get("motif") or "#2563EB").strip()
+        pay_mode = b.get("bk_payment_mode") or b.get("payment_mode") or "Cash"
+        if pay_mode not in ["Cash", "Bank Transfer", "GCash", "PayMaya"]:
+            pay_mode = "Cash"
+        down_pay = float(b.get("bk_down_payment") or b.get("down_payment") or b.get("bk_amount_paid") or b.get("amount_paid") or 0.0)
+        paid = down_pay
+        dp_status = b.get("bk_down_payment_status") or b.get("down_payment_status") or ("PAID" if down_pay > 0 else "PENDING")
+        
+        # Extract customer notes / special instructions
+        notes = (b.get("bk_special_notes") or b.get("special_notes") or b.get("bk_notes") or b.get("notes") or "").strip()
+        
+        # Lookup customer id and contact info
+        c_chk_sql = "SELECT cus_id, cus_contact, cus_email FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT cus_id, cus_contact, cus_email FROM customers WHERE LOWER(cus_name) = LOWER(?) LIMIT 1"
+        cust_row = db.fetchone(c_chk_sql, (cust_name,))
+        cust_id = cust_row["cus_id"] if cust_row else None
+        cust_contact = (b.get("bk_contact") or b.get("contact") or b.get("phone") or (cust_row.get("cus_contact") if cust_row else "") or "").strip()
+        cust_email = (b.get("bk_email") or b.get("email") or (cust_row.get("cus_email") if cust_row else "") or "").strip()
 
-            pkg_id = b.get("bk_package_id") or b.get("package_id") or None
-            if pkg_id:
-                try:
-                    chk_p_sql = "SELECT pkg_id FROM packages WHERE pkg_id = %s" if db.get_engine_type() == "postgres" else "SELECT pkg_id FROM packages WHERE pkg_id = ?"
-                    chk = db.fetchone(chk_p_sql, (pkg_id,))
-                    if not chk:
-                        pkg_id = None
-                except Exception:
-                    pkg_id = None
-
+        pkg_id = b.get("bk_package_id") or b.get("package_id") or None
+        if pkg_id:
             try:
-                bk_id = None
+                chk_p_sql = "SELECT pkg_id FROM packages WHERE pkg_id = %s" if db.get_engine_type() == "postgres" else "SELECT pkg_id FROM packages WHERE pkg_id = ?"
+                chk = db.fetchone(chk_p_sql, (pkg_id,))
+                if not chk:
+                    pkg_id = None
+            except Exception:
+                pkg_id = None
+
+        try:
+            bk_id = None
+            if not existing_b:
                 if db.get_engine_type() == "postgres":
                     row = db.fetchone("""
                         INSERT INTO bookings (
                             bk_booking_ref, bk_customer_id, bk_customer_name, bk_contact, bk_email, bk_address,
-                            bk_event_date, bk_event_time, bk_event_end_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
-                            bk_base_total, bk_payment_mode, bk_amount_paid, bk_down_payment,
+                            bk_event_date, bk_event_time, bk_event_end_time, bk_pickup_time, bk_dropoff_time,
+                            bk_venue, bk_occasion, bk_pax, bk_num_sets, bk_total_amount,
+                            bk_base_total, bk_menu_type, bk_color_theme, bk_payment_mode, bk_amount_paid, bk_down_payment,
                             bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id
                         ) VALUES (
                             %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s::payment_method, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s::payment_method, %s, %s,
                             %s, %s::booking_status, %s, %s, %s
                         )
                         ON CONFLICT (bk_booking_ref) DO UPDATE SET
@@ -1932,99 +2090,257 @@ def perform_server_sync(payload: dict) -> dict:
                             bk_contact = COALESCE(NULLIF(EXCLUDED.bk_contact, ''), bookings.bk_contact),
                             bk_email = COALESCE(NULLIF(EXCLUDED.bk_email, ''), bookings.bk_email),
                             bk_event_end_time = COALESCE(EXCLUDED.bk_event_end_time, bookings.bk_event_end_time),
+                            bk_pickup_time = COALESCE(EXCLUDED.bk_pickup_time, bookings.bk_pickup_time),
+                            bk_dropoff_time = COALESCE(EXCLUDED.bk_dropoff_time, bookings.bk_dropoff_time),
+                            bk_occasion = EXCLUDED.bk_occasion,
+                            bk_venue = EXCLUDED.bk_venue,
+                            bk_pax = EXCLUDED.bk_pax,
+                            bk_num_sets = EXCLUDED.bk_num_sets,
+                            bk_total_amount = EXCLUDED.bk_total_amount,
+                            bk_base_total = EXCLUDED.bk_base_total,
+                            bk_menu_type = EXCLUDED.bk_menu_type,
+                            bk_color_theme = EXCLUDED.bk_color_theme,
                             bk_amount_paid = EXCLUDED.bk_amount_paid,
                             bk_down_payment = EXCLUDED.bk_down_payment,
-                            bk_down_payment_status = EXCLUDED.bk_down_payment_status
+                            bk_down_payment_status = EXCLUDED.bk_down_payment_status,
+                            bk_package_id = EXCLUDED.bk_package_id
                         RETURNING bk_id;
                     """, (
                         ref, cust_id, cust_name, cust_contact, cust_email, addr,
-                        ev_date, ev_time, ev_end_time, venue, occ, pax, total,
-                        base_tot, pay_mode, paid, down_pay,
+                        ev_date, ev_time, ev_end_time, pickup_time, dropoff_time,
+                        venue, occ, pax, num_sets, total,
+                        base_tot, menu_type, color_theme, pay_mode, paid, down_pay,
                         dp_status, "PENDING", notes, notes, pkg_id
                     ))
                     if row:
                         bk_id = row.get("bk_id")
                 else:
                     db.execute("""
-                        INSERT OR REPLACE INTO bookings (
+                        INSERT INTO bookings (
                             bk_booking_ref, bk_customer_id, bk_customer_name, bk_contact, bk_email, bk_address,
-                            bk_event_date, bk_event_time, bk_event_end_time, bk_venue, bk_occasion, bk_pax, bk_total_amount,
-                            bk_base_total, bk_payment_mode, bk_amount_paid, bk_down_payment,
+                            bk_event_date, bk_event_time, bk_event_end_time, bk_pickup_time, bk_dropoff_time,
+                            bk_venue, bk_occasion, bk_pax, bk_num_sets, bk_total_amount,
+                            bk_base_total, bk_menu_type, bk_color_theme, bk_payment_mode, bk_amount_paid, bk_down_payment,
                             bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         ref, cust_id, cust_name, cust_contact, cust_email, addr,
-                        ev_date, ev_time, ev_end_time, venue, occ, pax, total,
-                        base_tot, pay_mode, paid, down_pay,
+                        ev_date, ev_time, ev_end_time, pickup_time, dropoff_time,
+                        venue, occ, pax, num_sets, total,
+                        base_tot, menu_type, color_theme, pay_mode, paid, down_pay,
                         dp_status, "PENDING", notes, notes, pkg_id
                     ))
                     b_chk = db.fetchone("SELECT bk_id FROM bookings WHERE bk_booking_ref = ?", (ref,))
                     if b_chk:
                         bk_id = b_chk.get("bk_id")
+            else:
+                bk_id = existing_b.get("bk_id")
+                if db.get_engine_type() == "postgres":
+                    db.execute("""
+                        UPDATE bookings SET
+                            bk_customer_name = %s,
+                            bk_contact = COALESCE(NULLIF(%s, ''), bk_contact),
+                            bk_email = COALESCE(NULLIF(%s, ''), bk_email),
+                            bk_address = %s,
+                            bk_event_date = %s,
+                            bk_event_time = %s,
+                            bk_event_end_time = COALESCE(%s, bk_event_end_time),
+                            bk_pickup_time = COALESCE(%s, bk_pickup_time),
+                            bk_dropoff_time = COALESCE(%s, bk_dropoff_time),
+                            bk_venue = %s,
+                            bk_occasion = %s,
+                            bk_pax = %s,
+                            bk_num_sets = %s,
+                            bk_total_amount = %s,
+                            bk_base_total = %s,
+                            bk_menu_type = %s,
+                            bk_color_theme = %s,
+                            bk_payment_mode = %s::payment_method,
+                            bk_amount_paid = %s,
+                            bk_down_payment = %s,
+                            bk_down_payment_status = %s,
+                            bk_special_notes = %s,
+                            bk_notes = %s,
+                            bk_package_id = %s
+                        WHERE bk_id = %s
+                    """, (
+                        cust_name, cust_contact, cust_email, addr,
+                        ev_date, ev_time, ev_end_time, pickup_time, dropoff_time,
+                        venue, occ, pax, num_sets, total,
+                        base_tot, menu_type, color_theme, pay_mode, paid, down_pay,
+                        dp_status, notes, notes, pkg_id,
+                        bk_id
+                    ))
+                else:
+                    db.execute("""
+                        UPDATE bookings SET
+                            bk_customer_name = ?,
+                            bk_contact = COALESCE(NULLIF(?, ''), bk_contact),
+                            bk_email = COALESCE(NULLIF(?, ''), bk_email),
+                            bk_address = ?,
+                            bk_event_date = ?,
+                            bk_event_time = ?,
+                            bk_event_end_time = COALESCE(?, bk_event_end_time),
+                            bk_pickup_time = COALESCE(?, bk_pickup_time),
+                            bk_dropoff_time = COALESCE(?, bk_dropoff_time),
+                            bk_venue = ?,
+                            bk_occasion = ?,
+                            bk_pax = ?,
+                            bk_num_sets = ?,
+                            bk_total_amount = ?,
+                            bk_base_total = ?,
+                            bk_menu_type = ?,
+                            bk_color_theme = ?,
+                            bk_payment_mode = ?,
+                            bk_amount_paid = ?,
+                            bk_down_payment = ?,
+                            bk_down_payment_status = ?,
+                            bk_special_notes = ?,
+                            bk_notes = ?,
+                            bk_package_id = ?
+                        WHERE bk_id = ?
+                    """, (
+                        cust_name, cust_contact, cust_email, addr,
+                        ev_date, ev_time, ev_end_time, pickup_time, dropoff_time,
+                        venue, occ, pax, num_sets, total,
+                        base_tot, menu_type, color_theme, pay_mode, paid, down_pay,
+                        dp_status, notes, notes, pkg_id,
+                        bk_id
+                    ))
 
-                if bk_id:
-                    pushed_bookings += 1
+            if bk_id:
+                pushed_bookings += 1
 
-                    # Handle booking items if sent
-                    items = b.get("menu_items") or b.get("items") or []
-                    for itm in items:
-                        try:
-                            itm_id = itm.get("bmi_item_id") or itm.get("item_id") or itm.get("mi_id") or None
-                            # The tablet's payload already carries the dish
-                            # name/category/price/quantity (its own local
-                            # booking_menu_items row, synced as-is) - this
-                            # used to be extracted only to resolve a MISSING
-                            # item_id and then thrown away, so the INSERT
-                            # below never wrote bmi_item_name/bmi_category,
-                            # leaving every tablet-created booking's dishes
-                            # NULL (rendered as a raw Python dict repr on the
-                            # printed order slip instead of the dish name).
-                            itm_name = (itm.get("bmi_item_name") or itm.get("name") or itm.get("item_name") or "").strip()
-                            itm_category = (itm.get("bmi_category") or itm.get("category") or "").strip()
-                            itm_price = itm.get("bmi_price") if itm.get("bmi_price") is not None else itm.get("price")
-                            itm_qty = itm.get("bmi_quantity") if itm.get("bmi_quantity") is not None else itm.get("quantity")
-                            if itm_id:
-                                try:
-                                    chk_mi = db.fetchone("SELECT mi_id, mi_name, mi_category FROM menu_items WHERE mi_id = %s" if db.get_engine_type() == "postgres" else "SELECT mi_id, mi_name, mi_category FROM menu_items WHERE mi_id = ?", (itm_id,))
-                                    if not chk_mi:
-                                        itm_id = None
+                # Handle food sets (booking_sets & booking_set_items) if sent
+                has_sets_key = ("booking_sets" in b) or ("sets" in b)
+                raw_sets = b.get("booking_sets") if "booking_sets" in b else b.get("sets")
+                if has_sets_key and raw_sets is not None:
+                    try:
+                        if db.get_engine_type() == "postgres":
+                            db.execute("DELETE FROM booking_sets WHERE bs_booking_id = %s", (bk_id,))
+                            db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = %s", (bk_id,))
+                        else:
+                            db.execute("DELETE FROM booking_sets WHERE bs_booking_id = ?", (bk_id,))
+                            db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = ?", (bk_id,))
+                        for sort_i, s in enumerate(raw_sets):
+                            if not isinstance(s, dict):
+                                continue
+                            s_id = s.get("set_id") or s.get("bs_set_id") or s.get("package_id")
+                            s_name = s.get("name") or s.get("bs_set_name") or s.get("set_name") or ""
+                            s_qty = int(s.get("quantity") or s.get("bs_quantity") or s.get("qty") or 1)
+                            s_price = float(s.get("unit_price") or s.get("bs_unit_price") or s.get("price") or 0.0)
+                            if db.get_engine_type() == "postgres":
+                                db.execute("""
+                                    INSERT INTO booking_sets (bs_booking_id, bs_set_id, bs_set_name, bs_quantity, bs_unit_price, bs_sort)
+                                    VALUES (%s, %s, %s, %s, %s, %s)
+                                """, (bk_id, s_id, s_name, s_qty, s_price, sort_i))
+                                bs_row = db.fetchone(
+                                    "SELECT bs_id FROM booking_sets WHERE bs_booking_id = %s AND bs_sort = %s ORDER BY bs_id DESC",
+                                    (bk_id, sort_i)
+                                )
+                            else:
+                                db.execute("""
+                                    INSERT INTO booking_sets (bs_booking_id, bs_set_id, bs_set_name, bs_quantity, bs_unit_price, bs_sort)
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                """, (bk_id, s_id, s_name, s_qty, s_price, sort_i))
+                                bs_row = db.fetchone(
+                                    "SELECT bs_id FROM booking_sets WHERE bs_booking_id = ? AND bs_sort = ? ORDER BY bs_id DESC",
+                                    (bk_id, sort_i)
+                                )
+                            bs_id = bs_row["bs_id"] if bs_row else None
+                            for d in (s.get("dishes") or []):
+                                if isinstance(d, dict):
+                                    d_name = d.get("name") or d.get("item_name") or ""
+                                    d_cat = d.get("category") or "Main Dish"
+                                    d_price = float(d.get("price") or 0.0)
+                                    d_qty = int(d.get("quantity") or 1)
+                                else:
+                                    d_name, d_cat, d_price, d_qty = str(d).strip(), "Main Dish", 0.0, 1
+                                if not d_name:
+                                    continue
+                                if bs_id:
+                                    if db.get_engine_type() == "postgres":
+                                        db.execute("""
+                                            INSERT INTO booking_set_items (bsi_set_row_id, bsi_item_name, bsi_category, bsi_price, bsi_quantity)
+                                            VALUES (%s, %s, %s, %s, %s)
+                                        """, (bs_id, d_name, d_cat, d_price, d_qty))
                                     else:
-                                        # Payload didn't include a name/category - fall
-                                        # back to the server's own menu_items record for
-                                        # this id (this used to only apply when the name
-                                        # was ALSO missing, so a payload with a name but
-                                        # no real category - e.g. a tablet-side booking
-                                        # saved before this same bug was fixed there too -
-                                        # still fell through to the generic "Selected
-                                        # Dishes" placeholder below).
-                                        if not itm_name:
-                                            itm_name = chk_mi.get("mi_name") or ""
-                                        itm_category = itm_category or (chk_mi.get("mi_category") or "")
-                                except Exception:
-                                    itm_id = None
-                            if not itm_id and itm_name:
-                                chk_name = db.fetchone("SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(?) LIMIT 1", (itm_name,))
-                                if chk_name:
-                                    itm_id = chk_name["mi_id"]
-                            if itm_id or itm_name:
+                                        db.execute("""
+                                            INSERT INTO booking_set_items (bsi_set_row_id, bsi_item_name, bsi_category, bsi_price, bsi_quantity)
+                                            VALUES (?, ?, ?, ?, ?)
+                                        """, (bs_id, d_name, d_cat, d_price, d_qty))
+                                # backward-compat flatten
                                 if db.get_engine_type() == "postgres":
                                     db.execute("""
                                         INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
-                                        VALUES (%s, %s, %s, %s, %s, %s)
-                                        ON CONFLICT DO NOTHING;
-                                    """, (bk_id, itm_id, itm_name or "", itm_category or "Selected Dishes", itm_price or 0.0, itm_qty or 1))
+                                        VALUES (%s, NULL, %s, %s, %s, %s)
+                                    """, (bk_id, d_name, (s_name or d_cat), d_price, d_qty * s_qty))
                                 else:
                                     db.execute("""
-                                        INSERT OR IGNORE INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
-                                        VALUES (?, ?, ?, ?, ?, ?)
-                                    """, (bk_id, itm_id, itm_name or "", itm_category or "Selected Dishes", itm_price or 0.0, itm_qty or 1))
-                        except Exception as bmie:
-                            logger.warning(f"[SyncServer] booking_menu_item note: {bmie}")
+                                        INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
+                                        VALUES (?, NULL, ?, ?, ?, ?)
+                                    """, (bk_id, d_name, (s_name or d_cat), d_price, d_qty * s_qty))
+                    except Exception as bse:
+                        logger.warning(f"[SyncServer] booking_sets ingest note: {bse}")
 
-                    # Handle booking additional charges (add-ons) if sent
-                    add_charges = b.get("additional_charges") or b.get("charges") or []
-                    for chg in add_charges:
-                        try:
+                # Handle standard booking menu items if sent (and not already populated via food sets)
+                has_items_key = ("menu_items" in b) or ("items" in b)
+                raw_items = b.get("menu_items") if "menu_items" in b else b.get("items")
+                if has_items_key and raw_items is not None and not (has_sets_key and raw_sets):
+                    try:
+                        if db.get_engine_type() == "postgres":
+                            db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = %s", (bk_id,))
+                        else:
+                            db.execute("DELETE FROM booking_menu_items WHERE bmi_booking_id = ?", (bk_id,))
+                        for itm in raw_items:
+                            try:
+                                itm_id = itm.get("bmi_item_id") or itm.get("item_id") or itm.get("mi_id") or None
+                                itm_name = (itm.get("bmi_item_name") or itm.get("name") or itm.get("item_name") or "").strip()
+                                itm_category = (itm.get("bmi_category") or itm.get("category") or "").strip()
+                                itm_price = itm.get("bmi_price") if itm.get("bmi_price") is not None else itm.get("price")
+                                itm_qty = itm.get("bmi_quantity") if itm.get("bmi_quantity") is not None else itm.get("quantity")
+                                if itm_id:
+                                    try:
+                                        chk_mi = db.fetchone("SELECT mi_id, mi_name, mi_category FROM menu_items WHERE mi_id = %s" if db.get_engine_type() == "postgres" else "SELECT mi_id, mi_name, mi_category FROM menu_items WHERE mi_id = ?", (itm_id,))
+                                        if not chk_mi:
+                                            itm_id = None
+                                        else:
+                                            if not itm_name:
+                                                itm_name = chk_mi.get("mi_name") or ""
+                                            itm_category = itm_category or (chk_mi.get("mi_category") or "")
+                                    except Exception:
+                                        itm_id = None
+                                if not itm_id and itm_name:
+                                    chk_name = db.fetchone("SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT mi_id FROM menu_items WHERE LOWER(mi_name) = LOWER(?) LIMIT 1", (itm_name,))
+                                    if chk_name:
+                                        itm_id = chk_name["mi_id"]
+                                if itm_id or itm_name:
+                                    if db.get_engine_type() == "postgres":
+                                        db.execute("""
+                                            INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
+                                            VALUES (%s, %s, %s, %s, %s, %s)
+                                            ON CONFLICT DO NOTHING;
+                                        """, (bk_id, itm_id, itm_name or "", itm_category or "Selected Dishes", itm_price or 0.0, itm_qty or 1))
+                                    else:
+                                        db.execute("""
+                                            INSERT OR IGNORE INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity)
+                                            VALUES (?, ?, ?, ?, ?, ?)
+                                        """, (bk_id, itm_id, itm_name or "", itm_category or "Selected Dishes", itm_price or 0.0, itm_qty or 1))
+                            except Exception as bmie:
+                                logger.warning(f"[SyncServer] booking_menu_item note: {bmie}")
+                    except Exception as itmse:
+                        logger.warning(f"[SyncServer] booking_menu_items sync note: {itmse}")
+
+                # Handle booking additional charges (add-ons) if sent
+                has_charges_key = ("additional_charges" in b) or ("charges" in b)
+                raw_charges = b.get("additional_charges") if "additional_charges" in b else b.get("charges")
+                if has_charges_key and raw_charges is not None:
+                    try:
+                        if db.get_engine_type() == "postgres":
+                            db.execute("DELETE FROM booking_additional_charges WHERE ac_booking_id = %s", (bk_id,))
+                        else:
+                            db.execute("DELETE FROM booking_additional_charges WHERE ac_booking_id = ?", (bk_id,))
+                        for chg in raw_charges:
                             desc = (chg.get("ac_description") or chg.get("description") or "").strip()
                             amt = float(chg.get("ac_amount") if chg.get("ac_amount") is not None else (chg.get("amount") or 0.0))
                             date_added = chg.get("ac_date_added") or chg.get("date_added") or ev_date
@@ -2040,110 +2356,118 @@ def perform_server_sync(payload: dict) -> dict:
                                         INSERT INTO booking_additional_charges (ac_booking_id, ac_description, ac_amount, ac_date_added, ac_added_by)
                                         VALUES (?, ?, ?, ?, ?)
                                     """, (bk_id, desc, amt, date_added, added_by))
-                        except Exception as che:
-                            logger.warning(f"[SyncServer] booking_additional_charges insert note: {che}")
+                    except Exception as che:
+                        logger.warning(f"[SyncServer] booking_additional_charges insert note: {che}")
 
-                    # Create invoice
-                    try:
-                        inv_num = ref.replace("TB-", "INV-").replace("BK-", "INV-")
-                        if not inv_num.startswith("INV-"):
-                            inv_num = f"INV-{ref}"
-                        inv_balance = max(0.0, total - paid)
-                        inv_status = "Paid" if paid >= total and total > 0 else ("Partial" if paid > 0 else "Unpaid")
-                        inv_id = None
+                # Create or update invoice
+                try:
+                    inv_num = ref.replace("TB-", "INV-").replace("BK-", "INV-")
+                    if not inv_num.startswith("INV-"):
+                        inv_num = f"INV-{ref}"
+                    inv_balance = max(0.0, total - paid)
+                    inv_status = "Paid" if paid >= total and total > 0 else ("Partial" if paid > 0 else "Unpaid")
+                    inv_id = None
+                    if db.get_engine_type() == "postgres":
+                        inv_row = db.fetchone("""
+                            INSERT INTO invoices (
+                                inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name,
+                                inv_event_date, inv_total_amount, inv_amount_paid, inv_balance,
+                                inv_down_payment, inv_status, inv_payment_verified
+                            )
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::invoice_status, %s)
+                            ON CONFLICT (inv_invoice_ref) DO UPDATE SET
+                                inv_customer_name = EXCLUDED.inv_customer_name,
+                                inv_event_date = EXCLUDED.inv_event_date,
+                                inv_total_amount = EXCLUDED.inv_total_amount,
+                                inv_amount_paid = EXCLUDED.inv_amount_paid,
+                                inv_balance = EXCLUDED.inv_balance,
+                                inv_down_payment = EXCLUDED.inv_down_payment,
+                                inv_status = EXCLUDED.inv_status
+                            RETURNING inv_id;
+                        """, (bk_id, inv_num, inv_num, cust_name, ev_date, total, paid, inv_balance, down_pay, inv_status, 1 if paid > 0 else 0))
+                        inv_id = inv_row["inv_id"] if inv_row else None
+                    else:
+                        db.execute("""
+                            INSERT OR REPLACE INTO invoices (
+                                inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name,
+                                inv_event_date, inv_total_amount, inv_amount_paid, inv_balance,
+                                inv_down_payment, inv_status, inv_payment_verified
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (bk_id, inv_num, inv_num, cust_name, ev_date, total, paid, inv_balance, down_pay, inv_status, 1 if paid > 0 else 0))
+                        inv_chk = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = ? LIMIT 1", (bk_id,))
+                        inv_id = inv_chk["inv_id"] if inv_chk else None
+
+                    if inv_id and paid > 0:
+                        from datetime import date as _d_today
+                        pay_record_date = _d_today.today().strftime("%Y-%m-%d")
                         if db.get_engine_type() == "postgres":
-                            inv_row = db.fetchone("""
-                                INSERT INTO invoices (
-                                    inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name,
-                                    inv_event_date, inv_total_amount, inv_amount_paid, inv_balance,
-                                    inv_down_payment, inv_status, inv_payment_verified
-                                )
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::invoice_status, %s)
-                                ON CONFLICT DO NOTHING
-                                RETURNING inv_id;
-                            """, (bk_id, inv_num, inv_num, cust_name, ev_date, total, paid, inv_balance, down_pay, inv_status, 1 if paid > 0 else 0))
-                            inv_id = inv_row["inv_id"] if inv_row else None
+                            db.execute("""
+                                INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
+                                VALUES (%s, %s, %s, %s, %s, 1)
+                            """, (inv_id, paid, pay_record_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
                         else:
                             db.execute("""
-                                INSERT OR IGNORE INTO invoices (
-                                    inv_booking_id, inv_invoice_ref, inv_invoice_number, inv_customer_name,
-                                    inv_event_date, inv_total_amount, inv_amount_paid, inv_balance,
-                                    inv_down_payment, inv_status, inv_payment_verified
-                                )
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """, (bk_id, inv_num, inv_num, cust_name, ev_date, total, paid, inv_balance, down_pay, inv_status, 1 if paid > 0 else 0))
-                            inv_chk = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = ? LIMIT 1", (bk_id,))
-                            inv_id = inv_chk["inv_id"] if inv_chk else None
+                                INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
+                                VALUES (?, ?, ?, ?, ?, 1)
+                            """, (inv_id, paid, pay_record_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
 
-                        if inv_id and paid > 0:
-                            from datetime import date as _d_today
-                            pay_record_date = _d_today.today().strftime("%Y-%m-%d")
-                            if db.get_engine_type() == "postgres":
-                                db.execute("""
-                                    INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
-                                    VALUES (%s, %s, %s, %s, %s, 1)
-                                """, (inv_id, paid, pay_record_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
-                            else:
-                                db.execute("""
-                                    INSERT INTO payment_records (pr_invoice_id, pr_amount, pr_payment_date, pr_method, pr_note, pr_is_downpayment)
-                                    VALUES (?, ?, ?, ?, ?, 1)
-                                """, (inv_id, paid, pay_record_date, pay_mode, f"Tablet Kiosk Down Payment: {notes}" if notes else "Tablet Kiosk Down Payment"))
+                    if cust_id:
+                        if db.get_engine_type() == "postgres":
+                            db.execute("""
+                                UPDATE customers
+                                SET cus_total_events = (
+                                    SELECT COUNT(*) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
+                                ),
+                                cus_total_spent = (
+                                    SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
+                                ),
+                                cus_updated_at = NOW()
+                                WHERE cus_id = %s
+                            """, (cust_id, cust_id, cust_id))
+                        else:
+                            db.execute("""
+                                UPDATE customers
+                                SET cus_total_events = (
+                                    SELECT COUNT(*) FROM bookings WHERE bk_customer_id = ? AND bk_status != 'CANCELLED'
+                                ),
+                                cus_total_spent = (
+                                    SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE bk_customer_id = ? AND bk_status != 'CANCELLED'
+                                ),
+                                cus_updated_at = CURRENT_TIMESTAMP
+                                WHERE cus_id = ?
+                            """, (cust_id, cust_id, cust_id))
 
-                        if cust_id:
-                            if db.get_engine_type() == "postgres":
-                                db.execute("""
-                                    UPDATE customers
-                                    SET cus_total_events = (
-                                        SELECT COUNT(*) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
-                                    ),
-                                    cus_total_spent = (
-                                        SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE bk_customer_id = %s AND bk_status != 'CANCELLED'
-                                    ),
-                                    cus_updated_at = NOW()
-                                    WHERE cus_id = %s
-                                """, (cust_id, cust_id, cust_id))
-                            else:
-                                db.execute("""
-                                    UPDATE customers
-                                    SET cus_total_events = (
-                                        SELECT COUNT(*) FROM bookings WHERE bk_customer_id = ? AND bk_status != 'CANCELLED'
-                                    ),
-                                    cus_total_spent = (
-                                        SELECT COALESCE(SUM(bk_total_amount), 0.0) FROM bookings WHERE bk_customer_id = ? AND bk_status != 'CANCELLED'
-                                    ),
-                                    cus_updated_at = CURRENT_TIMESTAMP
-                                    WHERE cus_id = ?
-                                """, (cust_id, cust_id, cust_id))
+                    # Log creation/sync in Audit Logs
+                    try:
+                        import utils.repository as repo
+                        repo.write_audit_log(
+                            actor=f"Kiosk ({cust_name})",
+                            action="UPDATE" if existing_b else "CREATE",
+                            table_name="bookings",
+                            record_id=bk_id,
+                            new_value={
+                                "ref": ref,
+                                "customer": cust_name,
+                                "total": total,
+                                "base_total": base_tot,
+                                "down_payment": down_pay,
+                                "motif": color_theme,
+                                "menu_type": menu_type,
+                                "num_sets": num_sets,
+                                "notes": notes
+                            },
+                            device="Tablet Kiosk"
+                        )
+                    except Exception:
+                        pass
+                except Exception as ie:
+                    logger.warning(f"[SyncServer] Invoice insert/update note: {ie}")
 
-                        # Log creation in Audit Logs by Tablet Kiosk
-                        try:
-                            import utils.repository as repo
-                            repo.write_audit_log(
-                                actor=f"Kiosk ({cust_name})",
-                                action="CREATE",
-                                table_name="bookings",
-                                record_id=bk_id,
-                                new_value={
-                                    "ref": ref,
-                                    "customer": cust_name,
-                                    "total": total,
-                                    "down_payment": down_pay,
-                                    "notes": notes
-                                },
-                                device="Tablet Kiosk"
-                            )
-                        except Exception:
-                            pass
-                    except Exception as ie:
-                        logger.warning(f"[SyncServer] Invoice insert note: {ie}")
-            except Exception as e:
-                logger.warning(f"[SyncServer] Failed to insert booking {ref}: {e}")
-                # Do NOT append to synced_booking_refs on failure — tablet keeps it pending for retry
-        else:
-            # Booking already exists in DB — PC is source of truth for edits.
-            # Do NOT overwrite PC totals or re-insert charges deleted on the PC.
             synced_booking_refs.append(ref)
-            continue
+        except Exception as e:
+            logger.warning(f"[SyncServer] Failed to process booking {ref}: {e}")
+            # Do NOT append to synced_booking_refs on failure — tablet keeps it pending for retry
 
     # Pull latest packages
     try:
@@ -2381,6 +2705,15 @@ def perform_server_sync(payload: dict) -> dict:
         "synced_customer_names": synced_customer_names,
         "deleted_booking_refs": list(deleted_booking_refs),
         "deleted_booking_refs_handled": True,
+        "deleted_customer_ids": list(deleted_customer_ids),
+        "deleted_customer_ids_handled": True,
+        "deleted_package_ids": list(deleted_package_ids),
+        "deleted_package_ids_handled": True,
+        "deleted_menu_item_ids": list(deleted_menu_item_ids),
+        "deleted_menu_item_ids_handled": True,
+        "deleted_occasion_ids": list(deleted_occasion_ids),
+        "deleted_occasion_names": list(deleted_occasion_names),
+        "deleted_occasion_ids_handled": True,
         "payment_updates": payment_updates,
     }
 
