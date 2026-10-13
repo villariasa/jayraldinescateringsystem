@@ -227,12 +227,25 @@ def delete_customer(customer_id: int) -> None:
     except Exception:
         pass
     db.callproc_void("sp_delete_customer", in_params=(customer_id,))
+    try:
+        ref_val = f"customer_{customer_id}"
+        if db.get_engine_type() == "postgres":
+            db.execute("INSERT INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('customers', %s, %s) ON CONFLICT (dr_ref) DO NOTHING", (ref_val, customer_id))
+        else:
+            db.execute("INSERT OR REPLACE INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('customers', ?, ?)", (ref_val, customer_id))
+    except Exception:
+        pass
     write_audit_log(
         action="DELETE",
         table_name="customers",
         record_id=customer_id,
         old_value={"name": c_name or f"Customer #{customer_id}"}
     )
+    try:
+        from utils.db_sync_server import bump_db_version
+        bump_db_version()
+    except Exception:
+        pass
 
 
 
@@ -660,6 +673,14 @@ def delete_menu_item(arg1: int, arg2: int = None) -> None:
         pass
     db.callproc_void("sp_delete_menu_item", in_params=(item_id,))
     try:
+        ref_val = f"menu_item_{item_id}"
+        if db.get_engine_type() == "postgres":
+            db.execute("INSERT INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('menu_items', %s, %s) ON CONFLICT (dr_ref) DO NOTHING", (ref_val, item_id))
+        else:
+            db.execute("INSERT OR REPLACE INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('menu_items', ?, ?)", (ref_val, item_id))
+    except Exception:
+        pass
+    try:
         menu_store.remove_item(idx)
     except Exception:
         pass
@@ -784,12 +805,25 @@ def delete_occasion(name: str) -> None:
     if not name:
         return
     db.execute("DELETE FROM occasions WHERE occ_name = %s", (name.strip(),))
+    try:
+        ref_val = f"occasion_{name.strip().lower()}"
+        if db.get_engine_type() == "postgres":
+            db.execute("INSERT INTO deleted_records (dr_table, dr_ref) VALUES ('occasions', %s) ON CONFLICT (dr_ref) DO NOTHING", (ref_val,))
+        else:
+            db.execute("INSERT OR REPLACE INTO deleted_records (dr_table, dr_ref) VALUES ('occasions', ?)", (ref_val,))
+    except Exception:
+        pass
     write_audit_log(
         action="DELETE",
         table_name="occasions",
         record_id=0,
         old_value={"name": name.strip()}
     )
+    try:
+        from utils.db_sync_server import bump_db_version
+        bump_db_version()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -1474,6 +1508,14 @@ def delete_package(db_id: int) -> bool:
         pass
     try:
         db.callproc_void("sp_delete_package", in_params=(db_id,))
+        try:
+            ref_val = f"package_{db_id}"
+            if db.get_engine_type() == "postgres":
+                db.execute("INSERT INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('packages', %s, %s) ON CONFLICT (dr_ref) DO NOTHING", (ref_val, db_id))
+            else:
+                db.execute("INSERT OR REPLACE INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('packages', ?, ?)", (ref_val, db_id))
+        except Exception:
+            pass
         write_audit_log(
             action="DELETE",
             table_name="packages",
@@ -1513,7 +1555,11 @@ _BOOKING_ROW_SQL = """
                b.bk_venue                AS venue,
                b.bk_occasion             AS occasion,
                b.bk_pax                  AS pax,
+               b.bk_num_sets             AS num_sets,
                b.bk_total_amount         AS total_amount,
+               b.bk_base_total           AS base_total,
+               b.bk_pickup_time          AS pickup_time,
+               b.bk_dropoff_time         AS dropoff_time,
                COALESCE(
                    NULLIF(b.bk_amount_paid, 0),
                    (SELECT inv.inv_amount_paid FROM invoices inv WHERE inv.inv_booking_id = b.bk_id LIMIT 1),
@@ -1574,8 +1620,13 @@ def _rows_to_booking_dicts(rows) -> list[dict]:
             "venue":               r.get("venue") or "",
             "occasion":            r.get("occasion") or "",
             "pax":                 str(r["pax"] or "0"),
+            "num_sets":            int(r.get("num_sets") or 0),
             "total":               f"₱ {tot_val:,.2f}",
             "total_amount":        tot_val,
+            "base_total":          float(r.get("base_total") or 0.0),
+            "bk_base_total":       float(r.get("base_total") or 0.0),
+            "pickup_time":         r.get("pickup_time") or "",
+            "dropoff_time":        r.get("dropoff_time") or "",
             "amount_paid":         effective_paid,
             "down_payment":        dp_val if dp_val > 0 else effective_paid,
             "balance":             bal_val,
@@ -1807,6 +1858,8 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
                b.bk_pax AS pax,
                b.bk_total_amount AS total,
                b.bk_total_amount AS total_amount,
+               b.bk_base_total AS base_total,
+               b.bk_base_total AS bk_base_total,
                b.bk_payment_mode AS payment_mode,
                b.bk_amount_paid AS amount_paid,
                COALESCE(b.bk_down_payment, b.bk_amount_paid, 0.0) AS down_payment,
@@ -2047,6 +2100,13 @@ def create_booking(data: dict) -> Optional[dict]:
         )
         if result and result.get("p_booking_id"):
             b_id = result["p_booking_id"]
+            base_amt = _parse_amount(data.get("base_total") or data.get("bk_base_total") or total_amt)
+            if base_amt is not None:
+                try:
+                    db.execute("UPDATE bookings SET bk_base_total = %s WHERE bk_id = %s", (base_amt, b_id))
+                except Exception:
+                    pass
+
             if data.get("color_theme"):
                 try:
                     db.execute("UPDATE bookings SET bk_color_theme = %s WHERE bk_id = %s", (str(data["color_theme"]).strip(), b_id))
@@ -2167,6 +2227,8 @@ def create_booking(data: dict) -> Optional[dict]:
                 "ref": result.get("p_booking_ref"),
                 "booking_id": b_id,
                 "booking_ref": result.get("p_booking_ref"),
+                "p_booking_id": b_id,
+                "p_booking_ref": result.get("p_booking_ref"),
             }
         return None
     except Exception as e:
@@ -2238,6 +2300,13 @@ def update_booking(db_id: int, data: dict) -> None:
                 data.get("num_sets") or 0,
             ),
         )
+
+        base_amt = _parse_amount(data.get("base_total") or data.get("bk_base_total") or total_amt)
+        if base_amt is not None:
+            try:
+                db.execute("UPDATE bookings SET bk_base_total = %s WHERE bk_id = %s", (base_amt, db_id))
+            except Exception:
+                pass
 
         if data.get("event_end_time") or data.get("end_time"):
             end_t = _parse_time(data.get("event_end_time") or data.get("end_time"))
@@ -3940,7 +4009,7 @@ def get_business_info() -> dict:
         ORDER BY bi_id ASC LIMIT 1
     """)
     if not row:
-        return {"name": "Jayraldine's Catering", "contact": "Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017",
+        return {"name": "Jayraldine's Catering", "contact": "Globe: (0945) 9813826 · Landline: 238-9417",
                 "email": "admin@jayraldines.com", "address": "121 Katipunan Street, Barangay Calamba, Cebu City"}
     return dict(row)
 
