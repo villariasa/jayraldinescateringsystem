@@ -53,6 +53,7 @@ _SNAPSHOT_TABLES = [
     "menu_items",
     "packages",
     "package_items",
+    "package_buckets",
     # Customers & Follow-ups
     "customer_loyalty_tiers",
     "customers",
@@ -74,6 +75,7 @@ _SNAPSHOT_TABLES = [
     "inventory",
     "calendar_events",
     # Expenses & Cash Flow
+    "expense_categories",
     "expenses",
     "cash_flow_transactions",
     # Notifications & Audits
@@ -95,6 +97,7 @@ _TABLE_PKS = {
     "menu_items":                  "mi_id",
     "packages":                    "pkg_id",
     "package_items":               "pi_id",
+    "package_buckets":             "pb_id",
     "customer_loyalty_tiers":      "cl_id",
     "customers":                   "cus_id",
     "customer_addresses":          "ca_id",
@@ -110,6 +113,7 @@ _TABLE_PKS = {
     "kitchen_tasks":               "kt_id",
     "inventory":                   "inv_id",
     "calendar_events":             "ce_id",
+    "expense_categories":          "ec_id",
     "expenses":                    "exp_id",
     "cash_flow_transactions":      "cft_id",
     "notifications":               "notif_id",
