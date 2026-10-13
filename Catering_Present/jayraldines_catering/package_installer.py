@@ -106,7 +106,6 @@ def create_installer():
         "--uac-admin",
         "--distpath", str(output_dir),
 
-        "--exclude-module", "reportlab",
         "--exclude-module", "openpyxl",
         "--exclude-module", "tkinter",
         "--exclude-module", "matplotlib",
@@ -117,7 +116,6 @@ def create_installer():
         "--exclude-module", "PySide6.QtWebEngineWidgets",
         "--exclude-module", "PySide6.QtMultimedia",
         "--exclude-module", "PySide6.QtOpenGL",
-        "--exclude-module", "PySide6.QtPdf",
         "--exclude-module", "PySide6.QtQuick",
         "--exclude-module", "PySide6.QtQml",
         "--exclude-module", "PySide6.Qt3DCore",
