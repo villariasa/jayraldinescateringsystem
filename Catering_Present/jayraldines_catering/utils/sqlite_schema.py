@@ -787,13 +787,13 @@ def init_sqlite_db(conn: sqlite3.Connection):
     # Seed Business Info if empty
     cursor.execute("SELECT COUNT(*) FROM business_info")
     if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO business_info (bi_name, bi_contact, bi_address) VALUES ('Jayraldine''s Catering', 'Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017', '121 Katipunan Street, Barangay Calamba, Cebu City')")
+        cursor.execute("INSERT INTO business_info (bi_name, bi_contact, bi_address) VALUES ('Jayraldine''s Catering', 'Globe: (0945) 9813826 · Landline: 238-9417', '121 Katipunan Street, Barangay Calamba, Cebu City')")
     else:
         cursor.execute("""
             UPDATE business_info
-            SET bi_contact = 'Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017',
+            SET bi_contact = 'Globe: (0945) 9813826 · Landline: 238-9417',
                 bi_address = '121 Katipunan Street, Barangay Calamba, Cebu City'
-            WHERE bi_contact LIKE '%912%345%6789%' OR bi_contact = '' OR bi_contact IS NULL
+            WHERE bi_contact LIKE '%912%345%6789%' OR bi_contact LIKE '%255-3113%' OR bi_contact LIKE '%0917-651-9555%' OR bi_contact = '' OR bi_contact IS NULL
         """)
 
     # Clean up hex numbers in bk_color_theme so human-readable motifs appear
