@@ -75,7 +75,7 @@ from components.owner_auth_dialog import OwnerAuthDialog
 # from it after startup sees the persisted values, not the hard-coded defaults.
 _BUSINESS_INFO = {
     "name":    "Jayraldine's Catering",
-    "contact": "Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017",
+    "contact": "Globe: (0945) 9813826 · Landline: 238-9417",
     "email":   "admin@jayraldines.com",
     "address": "121 Katipunan Street, Barangay Calamba, Cebu City",
 }
