@@ -132,7 +132,7 @@ function _getTabletDeviceInfo() {
     device_id: devId,
     hostname: detected.hostname,
     os_info: detected.os_info,
-    app_version: "v2.4.0",
+    app_version: "v2.5.0",
     active_module: "Customer Booking Kiosk"
   };
 }
@@ -1085,8 +1085,18 @@ export const api = {
       const menuImageSync = await _flushPendingMenuItemImageUploads(host, port);
       const { bookings, customers } = repo.getPendingSyncRecords();
       let localDeletedRefs = [];
+      let localDeletedCustomerIds = [];
+      let localDeletedPackageIds = [];
+      let localDeletedMenuItemIds = [];
+      let localDeletedOccasionIds = [];
+      let localDeletedOccasionNames = [];
       try {
         localDeletedRefs = JSON.parse(localStorage.getItem("jayraldines_deleted_booking_refs") || "[]");
+        localDeletedCustomerIds = JSON.parse(localStorage.getItem("jayraldines_deleted_customer_ids") || "[]");
+        localDeletedPackageIds = JSON.parse(localStorage.getItem("jayraldines_deleted_package_ids") || "[]");
+        localDeletedMenuItemIds = JSON.parse(localStorage.getItem("jayraldines_deleted_menu_item_ids") || "[]");
+        localDeletedOccasionIds = JSON.parse(localStorage.getItem("jayraldines_deleted_occasion_ids") || "[]");
+        localDeletedOccasionNames = JSON.parse(localStorage.getItem("jayraldines_deleted_occasion_names") || "[]");
       } catch (_) {}
       const res = await api.performLanSync({
         ...params,
@@ -1098,11 +1108,37 @@ export const api = {
         bookings: params.bookings || bookings || [],
         customers: params.customers || customers || [],
         deleted_booking_refs: localDeletedRefs,
+        deleted_customer_ids: localDeletedCustomerIds,
+        deleted_package_ids: localDeletedPackageIds,
+        deleted_menu_item_ids: localDeletedMenuItemIds,
+        deleted_occasion_ids: localDeletedOccasionIds,
+        deleted_occasion_names: localDeletedOccasionNames,
       });
 
       if (res && res.deleted_booking_refs_handled) {
         try {
           localStorage.removeItem("jayraldines_deleted_booking_refs");
+        } catch (_) {}
+      }
+      if (res && res.deleted_customer_ids_handled) {
+        try {
+          localStorage.removeItem("jayraldines_deleted_customer_ids");
+        } catch (_) {}
+      }
+      if (res && res.deleted_package_ids_handled) {
+        try {
+          localStorage.removeItem("jayraldines_deleted_package_ids");
+        } catch (_) {}
+      }
+      if (res && res.deleted_menu_item_ids_handled) {
+        try {
+          localStorage.removeItem("jayraldines_deleted_menu_item_ids");
+        } catch (_) {}
+      }
+      if (res && res.deleted_occasion_ids_handled) {
+        try {
+          localStorage.removeItem("jayraldines_deleted_occasion_ids");
+          localStorage.removeItem("jayraldines_deleted_occasion_names");
         } catch (_) {}
       }
 
@@ -1129,6 +1165,18 @@ export const api = {
       }
       if (res.deleted_booking_refs && res.deleted_booking_refs.length > 0) {
         repo.purgeDeletedBookings(res.deleted_booking_refs);
+      }
+      if (res.deleted_customer_ids && res.deleted_customer_ids.length > 0) {
+        repo.purgeDeletedCustomers(res.deleted_customer_ids);
+      }
+      if (res.deleted_package_ids && res.deleted_package_ids.length > 0) {
+        repo.purgeDeletedPackages(res.deleted_package_ids);
+      }
+      if (res.deleted_menu_item_ids && res.deleted_menu_item_ids.length > 0) {
+        repo.purgeDeletedMenuItems(res.deleted_menu_item_ids);
+      }
+      if ((res.deleted_occasion_ids && res.deleted_occasion_ids.length > 0) || (res.deleted_occasion_names && res.deleted_occasion_names.length > 0)) {
+        repo.purgeDeletedOccasions(res.deleted_occasion_ids || [], res.deleted_occasion_names || []);
       }
 
       const detail = {
