@@ -1037,7 +1037,7 @@ class BookingModal(QDialog):
                 sel_btn.setObjectName("primaryButton" if i == 0 else "secondaryButton")
                 sel_btn.setMinimumWidth(88)
                 sel_btn.setCursor(Qt.PointingHandCursor)
-                sel_btn.clicked.connect(lambda _, idx=i, c=card: self._select_package(idx, c, open_popup=True))
+                sel_btn.clicked.connect(lambda _, idx=i, c=card: self._select_package(idx, c, open_popup=False))
                 actions_layout.addWidget(sel_btn)
 
                 menu_btn = QPushButton("🍽️ Dishes")
@@ -1063,8 +1063,8 @@ class BookingModal(QDialog):
 
                 card_lay.addLayout(actions_layout)
 
-                # Clicking anywhere on the card also selects it and opens the dish popup.
-                card.mousePressEvent = lambda e, idx=i, c=card: self._select_package(idx, c, open_popup=True)
+                # Clicking anywhere on the card selects it (without forcing open the popup dialog).
+                card.mousePressEvent = lambda e, idx=i, c=card: self._select_package(idx, c, open_popup=False)
 
                 self._pkg_btns.append((card, sel_btn))
                 self._pkg_cards.append(card)
@@ -1715,7 +1715,7 @@ class BookingModal(QDialog):
         if hasattr(self, "lbl_pax_title"):
             self.lbl_pax_title.setText("📦 Quantity (Sets):" if is_set else "👥 Quantity (Pax):")
 
-    def _select_package(self, idx, clicked_card=None, open_popup=True):
+    def _select_package(self, idx, clicked_card=None, open_popup=False):
         """Select package ``idx``, update visuals/pricing, and optionally open the popup.
 
         Switches to Packages mode, adjusts the pax spin box down to the package's
@@ -1786,14 +1786,13 @@ class BookingModal(QDialog):
         if not hasattr(self, "_pkg_selected_dishes"):
             self._pkg_selected_dishes = {}
 
-        # Resolve the pre-selected dishes: cached choice, else edit-mode booking, else defaults.
+        # Resolve the pre-selected dishes: cached choice, else edit-mode booking, else empty (dishes are choices).
         current_selected = self._pkg_selected_dishes.get(pkg_id)
         if current_selected is None:
             if getattr(self, "_edit_mode", False) and self._booking_data and self._booking_data.get("dishes"):
                 current_selected = [d.get("name") for d in self._booking_data["dishes"] if d.get("name")]
             else:
-                default_items = repo.get_package_items(pkg_id)
-                current_selected = [p.get("item_name") for p in default_items if p.get("item_name")]
+                current_selected = []
 
         from components.package_menu_dialog import PackageMenuSelectionDialog
         dlg = PackageMenuSelectionDialog(pkg, selected_names=current_selected, parent=self)
@@ -1829,13 +1828,7 @@ class BookingModal(QDialog):
         """
         if not hasattr(self, "_custom_checks"):
             return
-        chosen = getattr(self, "_pkg_selected_dishes", {}).get(pkg_id)
-        if not chosen and pkg_id is not None:
-            try:
-                pkg_items = repo.get_package_items(pkg_id) or []
-                chosen = [p.get("item_name") for p in pkg_items if p.get("item_name")]
-            except Exception:
-                chosen = []
+        chosen = getattr(self, "_pkg_selected_dishes", {}).get(pkg_id) or []
         sel_lowers = {s.strip().lower() for s in (chosen or [])}
         for chk, itm in self._custom_checks:
             name = (itm.get("item") or itm.get("name") or itm.get("item_name", "")).strip().lower()
@@ -1954,7 +1947,8 @@ class BookingModal(QDialog):
         default_names = {p["item_name"].strip().lower() for p in default_items if p.get("item_name")}
 
         # Decide which dishes start checked, in priority order:
-        # cached user selection -> dishes from the booking being edited -> package defaults.
+        # cached user selection -> dishes from the booking being edited.
+        # For new bookings, dishes are NEVER auto-checked: they are menu choices for the user to select.
         if hasattr(self, "_pkg_selected_dishes") and pkg_id in self._pkg_selected_dishes:
             prechecked_original = [s for s in self._pkg_selected_dishes[pkg_id] if s]
             prechecked = {s.strip().lower() for s in prechecked_original}
@@ -1962,14 +1956,14 @@ class BookingModal(QDialog):
             prechecked_original = [d.get("name", "") for d in self._booking_data["dishes"] if d.get("name")]
             prechecked = {s.strip().lower() for s in prechecked_original}
         else:
-            prechecked_original = [p["item_name"] for p in default_items if p.get("item_name")]
-            prechecked = set(default_names)
+            prechecked_original = []
+            prechecked = set()
 
         # Seed cache if not yet set
         if not hasattr(self, "_pkg_selected_dishes"):
             self._pkg_selected_dishes = {}
         if pkg_id not in self._pkg_selected_dishes:
-            self._pkg_selected_dishes[pkg_id] = [p["item_name"] for p in default_items if p.get("item_name")]
+            self._pkg_selected_dishes[pkg_id] = list(prechecked_original)
 
         # Load this package's selection buckets (dish/dessert quotas). With no
         # buckets the picker stays unlimited (legacy behavior).
@@ -2055,7 +2049,7 @@ class BookingModal(QDialog):
                 else:
                     chk.toggled.connect(self._on_pkg_dish_toggled)
 
-                is_default_badge = QLabel("Package Default" if i_name.strip().lower() in default_names else "")
+                is_default_badge = QLabel("Package Choice" if i_name.strip().lower() in default_names else "")
                 is_default_badge.setStyleSheet("font-size: 10px; font-weight: 600; color: #10B981; background: rgba(16, 185, 129, 0.1); border-radius: 4px; padding: 1px 6px;")
                 if not is_default_badge.text():
                     is_default_badge.hide()
@@ -2111,7 +2105,10 @@ class BookingModal(QDialog):
         """
         cnt = sum(1 for chk, _ in getattr(self, "_pkg_dish_checks", []) if chk.isChecked())
         if hasattr(self, "_pkg_dishes_count_lbl"):
-            self._pkg_dishes_count_lbl.setText(f"✓ {cnt} dishes selected for this package order")
+            if cnt > 0:
+                self._pkg_dishes_count_lbl.setText(f"✓ {cnt} dishes selected for this package order")
+            else:
+                self._pkg_dishes_count_lbl.setText("0 dishes selected — select choices below")
         pkg_idx = getattr(self, "_selected_pkg", 0)
         db_pkgs = getattr(self, "_db_packages", [])
         if db_pkgs and pkg_idx is not None and pkg_idx < len(db_pkgs):
@@ -2861,10 +2858,6 @@ class BookingModal(QDialog):
                     for chk, dish in getattr(self, "_pkg_dish_checks", [])
                     if chk.isChecked() and (dish.get("item") or dish.get("name") or dish.get("item_name"))
                 ]
-            # As a last resort, fall back to the package's default dishes.
-            if not selected_dishes and package_id:
-                default_items = repo.get_package_items(package_id)
-                selected_dishes = [p["item_name"] for p in default_items if p.get("item_name")]
 
         pax = self.f_pay_pax.value() if hasattr(self, "f_pay_pax") else self.f_pax.value()
         
