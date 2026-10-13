@@ -53,6 +53,8 @@ a = Analysis(
         "PySide6.QtOpenGL",
         "PySide6.QtOpenGLWidgets",
         "PySide6.QtNetwork",
+        "PySide6.QtPdf",
+        "PySide6.QtPdfWidgets",
         # UI Pages
         "ui.dashboard_page",
         "ui.booking_page",
