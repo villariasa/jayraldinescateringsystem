@@ -214,11 +214,11 @@ class PackageMenuSelectionDialog(QDialog):
         else:
             all_items = repo.get_available_menu_items() or []
 
-        # Prechecked selection
-        if self._initial_selected:
-            prechecked = set(self._initial_selected)
+        # Prechecked selection - dishes are choices; only pre-check if already explicitly selected
+        if self._initial_selected is not None:
+            prechecked = {str(s).strip().lower() for s in self._initial_selected if s}
         else:
-            prechecked = self._default_names
+            prechecked = set()
 
         # Group by category. With buckets active, only show bucketed categories.
         by_cat = {}
@@ -289,7 +289,7 @@ class PackageMenuSelectionDialog(QDialog):
                     chk.toggled.connect(self._on_toggled)
 
                 is_default = i_name.lower() in self._default_names
-                badge = QLabel("Package Default" if is_default else "")
+                badge = QLabel("Package Choice" if is_default else "")
                 badge.setStyleSheet("font-size: 10px; font-weight: 700; color: #10B981; background: rgba(16, 185, 129, 0.12); border-radius: 4px; padding: 1px 7px;")
                 if not is_default:
                     badge.hide()
