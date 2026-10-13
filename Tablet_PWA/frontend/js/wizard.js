@@ -1941,26 +1941,19 @@ async function renderStepPackage(card) {
     d.package.minPax = 1;
     d.package.description = pkg.description;
 
-    // Pre-populate menu selections with default package items so Step 3 is auto-checked
+    // Package items: load the available items for this package.
+    // Per client requirement: package menus must start UNCHECKED so the user explicitly chooses.
     try {
-      const items = await api.getPackageItems(pkg.id);
-      if (items && items.length > 0) {
-        d.menuSelections = items.map((it) => ({
-          menu_item_id: it.item_id,
-          item_name: it.item_name,
-          category: it.category || "Main Course",
-          price: 0,
-          quantity: 1,
-        }));
-      }
+      d.package.items = await api.getPackageItems(pkg.id) || [];
     } catch (e) {
-      console.warn("Could not load default package items:", e);
+      d.package.items = [];
     }
+    d.menuSelections = [];
 
     // Load this package's selection buckets (dish/dessert quotas). A package
     // with no buckets => unlimited selection (legacy behavior, no enforcement).
     try {
-      d.package.buckets = await api.getPackageBuckets(pkg.id);
+      d.package.buckets = await api.getPackageBuckets(pkg.id) || [];
     } catch (e) {
       d.package.buckets = [];
     }
@@ -2105,6 +2098,15 @@ async function renderStepMenu(card) {
 
   const categories = Object.keys(menuGroupedCache).sort(sortCatFn);
 
+  // Load this package's items if not loaded
+  let pkgItems = (d.package && Array.isArray(d.package.items)) ? d.package.items : [];
+  if ((!pkgItems || !pkgItems.length) && d.package && d.package.id) {
+    try {
+      pkgItems = await api.getPackageItems(d.package.id) || [];
+      d.package.items = pkgItems;
+    } catch (_) {}
+  }
+
   // ── Selection buckets (dish/dessert quotas) ──────────────────────────
   // A package with buckets limits how many dishes may be picked per bucket
   // ("up to N"). No buckets => unlimited (legacy behavior).
@@ -2112,13 +2114,88 @@ async function renderStepMenu(card) {
   const hasBuckets = pkgBuckets.length > 0;
   const _catBucket = {};
   for (const b of pkgBuckets) for (const c of (b.categories || [])) _catBucket[String(c).toLowerCase().trim()] = b;
+  const bucketById = (id) => pkgBuckets.find((b) => Number(b.id) === Number(id));
+  const bucketOfItem = (item) => {
+    if (!item) return null;
+    const bId = item.bucket_id ?? item.pi_bucket_id;
+    if (bId !== undefined && bId !== null) {
+      const found = bucketById(bId);
+      if (found) return found;
+    }
+    return _catBucket[String(item.category || "").toLowerCase().trim()] || null;
+  };
   const bucketOf = (cat) => _catBucket[String(cat || "").toLowerCase().trim()] || null;
-  const countInBucket = (b) => d.menuSelections.filter((m) => bucketOf(m.category) === b).length;
-  // When buckets are defined, only show categories that belong to a bucket.
-  const visibleCategories = (hasBuckets ? categories.filter((c) => bucketOf(c)) : categories).sort(sortCatFn);
-  const visibleEntries = Object.entries(menuGroupedCache)
-    .filter(([cat]) => !hasBuckets || bucketOf(cat))
-    .sort(([catA], [catB]) => sortCatFn(catA, catB));
+  const countInBucket = (b) => d.menuSelections.filter((m) => bucketOfItem(m) === b).length;
+
+  // Build a lookup map of all menu items (for image and description enrichment)
+  const allMenuItemsMap = new Map();
+  for (const list of Object.values(menuGroupedCache)) {
+    for (const it of list) {
+      if (it.menu_item_id) allMenuItemsMap.set(String(it.menu_item_id), it);
+      if (it.name) allMenuItemsMap.set(String(it.name).toLowerCase().trim(), it);
+    }
+  }
+
+  // If a package is active, per client requirement: ONLY display menus that belong to that package!
+  let visibleEntries = [];
+  if (d.flowType === "package" && pkgItems.length > 0) {
+    if (hasBuckets) {
+      visibleEntries = pkgBuckets.map((bucket) => {
+        const items = pkgItems.filter((it) => bucketOfItem(it) === bucket).map((it) => {
+          const detail = allMenuItemsMap.get(String(it.menu_item_id)) || allMenuItemsMap.get(String(it.name || it.item_name || "").toLowerCase().trim()) || {};
+          return {
+            menu_item_id: it.menu_item_id || it.id,
+            name: it.name || it.item_name,
+            category: bucket.name,
+            price: 0,
+            image: detail.image || it.image || "",
+            description: detail.description || it.description || "",
+            bucket_id: bucket.id,
+          };
+        });
+        return [bucket.name, items];
+      }).filter(([, arr]) => arr.length > 0);
+
+      const unassigned = pkgItems.filter((it) => !bucketOfItem(it)).map((it) => {
+        const detail = allMenuItemsMap.get(String(it.menu_item_id)) || allMenuItemsMap.get(String(it.name || it.item_name || "").toLowerCase().trim()) || {};
+        return {
+          menu_item_id: it.menu_item_id || it.id,
+          name: it.name || it.item_name,
+          category: it.category || "Main Course",
+          price: 0,
+          image: detail.image || it.image || "",
+          description: detail.description || it.description || "",
+        };
+      });
+      if (unassigned.length > 0) {
+        visibleEntries.push(["Other Dishes", unassigned]);
+      }
+    } else {
+      const catMap = {};
+      pkgItems.forEach((it) => {
+        const cat = it.category || "Main Course";
+        if (!catMap[cat]) catMap[cat] = [];
+        const detail = allMenuItemsMap.get(String(it.menu_item_id)) || allMenuItemsMap.get(String(it.name || it.item_name || "").toLowerCase().trim()) || {};
+        catMap[cat].push({
+          menu_item_id: it.menu_item_id || it.id,
+          name: it.name || it.item_name,
+          category: cat,
+          price: 0,
+          image: detail.image || it.image || "",
+          description: detail.description || it.description || "",
+        });
+      });
+      visibleEntries = Object.entries(catMap).sort(([cA], [cB]) => sortCatFn(cA, cB));
+    }
+  } else {
+    // Non-package flows (custom or food set): full menu
+    visibleEntries = Object.entries(menuGroupedCache)
+      .filter(([cat]) => !hasBuckets || bucketOf(cat))
+      .sort(([catA], [catB]) => sortCatFn(catA, catB));
+  }
+
+  const visibleCategories = visibleEntries.map(([cat]) => cat);
+  const visibleItemsMap = new Map(visibleEntries);
   const totalAll = visibleEntries.reduce((sum, [, arr]) => sum + (arr ? arr.length : 0), 0);
   const isFoodSet = d.flowType === "food_set";
   const totalReplacementsNeeded = isFoodSet ? (d.setSelections || []).reduce((sum, s) => sum + (s.removedCount || 0), 0) : 0;
@@ -2212,7 +2289,7 @@ async function renderStepMenu(card) {
           <span class="pill pill-partial" style="padding:2px 7px; font-size:11px;" id="all-selected-count">${totalAll}</span>
         </button>
         ${visibleCategories.map((cat, idx) => {
-          const catTotal = (menuGroupedCache[cat] || []).length;
+          const catTotal = (visibleItemsMap.get(cat) || []).length;
           return `
             <button type="button" class="kiosk-cat-pill" data-cat="${escapeHtml(cat)}">
               <span class="cat-pill-order-badge" style="display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; padding:0 5px; border-radius:10px; background:rgba(0,0,0,0.08); font-size:11px; font-weight:800; margin-right:6px;">${idx + 1}</span>
@@ -2396,14 +2473,14 @@ async function renderStepMenu(card) {
     for (const m of d.menuSelections) counts[m.category] = (counts[m.category] || 0) + 1;
     card.querySelectorAll("[data-count-for]").forEach((el) => {
       const cat = el.dataset.countFor;
-      const catTotal = (menuGroupedCache[cat] || []).length;
+      const catTotal = (visibleItemsMap.get(cat) || []).length;
       const cnt = counts[cat] || 0;
       el.textContent = cnt > 0 ? `${cnt} / ${catTotal} Selected` : `0 / ${catTotal} Selected`;
       el.className = `pill ${cnt > 0 ? "pill-paid" : "pill-partial"}`;
     });
     card.querySelectorAll("[data-pill-count]").forEach((el) => {
       const cat = el.dataset.pillCount;
-      const catTotal = Number(el.dataset.catTotal) || (menuGroupedCache[cat] || []).length;
+      const catTotal = Number(el.dataset.catTotal) || (visibleItemsMap.get(cat) || []).length;
       const cnt = counts[cat] || 0;
       if (cnt > 0) {
         el.textContent = `${cnt} / ${catTotal}`;
@@ -2465,13 +2542,15 @@ async function renderStepMenu(card) {
   // Returns true if the add is allowed. No buckets => always allowed.
   const canAdd = (item) => {
     if (!hasBuckets) return true;
-    const b = bucketOf(item.category);
+    const b = bucketOfItem(item);
     if (!b) {
       toast("This dish isn't part of the package selection.", "info");
       return false;
     }
-    if (countInBucket(b) >= (Number(b.limit) || 0)) {
-      toast(`You can only choose ${b.limit} from ${b.name}. Remove one to swap.`, "info");
+    const limit = Number(b.limit) || 0;
+    if (limit <= 0) return true;
+    if (countInBucket(b) >= limit) {
+      toast(`You can only choose ${limit} from ${b.name}. Remove one to swap.`, "info");
       return false;
     }
     return true;
@@ -2490,7 +2569,8 @@ async function renderStepMenu(card) {
   const topNextBtn = card.querySelector("#sticky-next-btn-top");
   if (topNextBtn) topNextBtn.addEventListener("click", goNextStep);
 
-  const allItems = Object.values(menuGroupedCache).flat();
+  const allVisibleItems = visibleEntries.map(([, arr]) => arr).flat();
+  const allItems = [...Object.values(menuGroupedCache).flat(), ...allVisibleItems];
   card.querySelectorAll(".select-card").forEach((el) => {
     const item = allItems.find((it) => String(it.menu_item_id) === el.dataset.itemId);
     if (!item) return;
@@ -2533,10 +2613,10 @@ async function renderStepMenu(card) {
         return;
       }
 
-      const idx = d.menuSelections.findIndex((m) => m.menu_item_id === item.menu_item_id);
+      const idx = d.menuSelections.findIndex((m) => String(m.menu_item_id) === String(item.menu_item_id));
       if (idx === -1) {
         if (!canAdd(item)) return;
-        d.menuSelections.push({ menu_item_id: item.menu_item_id, item_name: item.name, category: item.category, price: item.price, quantity: 1 });
+        d.menuSelections.push({ menu_item_id: item.menu_item_id, item_name: item.name, category: item.category, price: item.price || 0, quantity: 1, bucket_id: item.bucket_id });
         el.classList.add("selected");
         el.querySelector(".item-check-badge").innerHTML = icon("checkCircle");
       } else {
@@ -3120,8 +3200,105 @@ function renderReceipt(card) {
   }
 }
 
-function openPackageDetailsModal(p, selectCallback) {
+async function openPackageDetailsModal(p, selectCallback) {
   const modalId = "pkg-details-modal";
+  let pkgItems = [];
+  let pkgBuckets = [];
+  try {
+    pkgItems = await api.getPackageItems(p.id) || [];
+  } catch (_) {}
+  try {
+    pkgBuckets = await api.getPackageBuckets(p.id) || [];
+  } catch (_) {}
+
+  // Group items by bucket or category
+  let menuInclusionsHtml = "";
+  if (pkgItems && pkgItems.length > 0) {
+    if (pkgBuckets && pkgBuckets.length > 0) {
+      const bucketById = (id) => pkgBuckets.find((b) => Number(b.id) === Number(id));
+      const catBucket = {};
+      for (const b of pkgBuckets) {
+        for (const c of (b.categories || [])) {
+          catBucket[String(c).toLowerCase().trim()] = b;
+        }
+      }
+      const bucketOf = (item) => {
+        const bId = item.bucket_id ?? item.pi_bucket_id;
+        if (bId !== undefined && bId !== null) {
+          const found = bucketById(bId);
+          if (found) return found;
+        }
+        return catBucket[String(item.category || "").toLowerCase().trim()] || null;
+      };
+
+      const bucketSections = pkgBuckets.map((bucket) => {
+        const dishes = pkgItems.filter((it) => bucketOf(it) === bucket);
+        if (!dishes.length) return "";
+        return `
+          <div style="margin-bottom:12px; background:var(--card); padding:12px 14px; border-radius:var(--radius-sm); border:1px solid var(--border);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-weight:800; font-size:13px; color:var(--text);">${escapeHtml(bucket.name)}</span>
+              ${bucket.limit ? `<span class="pill pill-partial" style="font-size:10.5px;">Choose up to ${bucket.limit}</span>` : ""}
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:6px;">
+              ${dishes.map((d) => `
+                <div style="font-size:12px; color:var(--text); display:flex; align-items:center; gap:6px; background:var(--input-bg); padding:6px 10px; border-radius:6px;">
+                  <span style="color:var(--success); font-weight:800;">${icon("check")}</span> ${escapeHtml(d.name || d.item_name)}
+                </div>
+              `).join("")}
+            </div>
+          </div>
+        `;
+      }).filter(Boolean).join("");
+
+      const unassigned = pkgItems.filter((it) => !bucketOf(it));
+      const unassignedHtml = unassigned.length ? `
+        <div style="margin-bottom:12px; background:var(--card); padding:12px 14px; border-radius:var(--radius-sm); border:1px solid var(--border);">
+          <div style="font-weight:800; font-size:13px; color:var(--text); margin-bottom:8px;">Additional Inclusions</div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:6px;">
+            ${unassigned.map((d) => `
+              <div style="font-size:12px; color:var(--text); display:flex; align-items:center; gap:6px; background:var(--input-bg); padding:6px 10px; border-radius:6px;">
+                <span style="color:var(--success); font-weight:800;">${icon("check")}</span> ${escapeHtml(d.name || d.item_name)}
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      ` : "";
+
+      menuInclusionsHtml = `
+        <div>
+          <h4 style="font-size:13px; text-transform:uppercase; color:var(--text-muted); margin:0 0 8px; letter-spacing:0.04em;">Included Menu Types &amp; Dishes (${pkgItems.length} Dishes)</h4>
+          ${bucketSections}
+          ${unassignedHtml}
+        </div>
+      `;
+    } else {
+      const catMap = {};
+      pkgItems.forEach((d) => {
+        const c = d.category || "Main Course";
+        if (!catMap[c]) catMap[c] = [];
+        catMap[c].push(d);
+      });
+      menuInclusionsHtml = `
+        <div>
+          <h4 style="font-size:13px; text-transform:uppercase; color:var(--text-muted); margin:0 0 8px; letter-spacing:0.04em;">Included Dishes (${pkgItems.length} Dishes)</h4>
+          ${Object.entries(catMap).map(([cat, dishes]) => `
+            <div style="margin-bottom:10px; background:var(--card); padding:10px 14px; border-radius:var(--radius-sm); border:1px solid var(--border);">
+              <div style="font-weight:800; font-size:12.5px; color:var(--text); margin-bottom:6px;">${escapeHtml(cat)}</div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:6px;">
+                ${dishes.map((d) => `
+                  <div style="font-size:12px; color:var(--text); display:flex; align-items:center; gap:6px; background:var(--input-bg); padding:6px 10px; border-radius:6px;">
+                    <span style="color:var(--success); font-weight:800;">${icon("check")}</span> ${escapeHtml(d.name || d.item_name)}
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+  }
+
   openModal({
     id: modalId,
     title: `${icon("package")} ${escapeHtml(p.name)} Inclusions &amp; Details`,
@@ -3154,8 +3331,10 @@ function openPackageDetailsModal(p, selectCallback) {
           </p>
         </div>
 
+        ${menuInclusionsHtml}
+
         <div>
-          <h4 style="font-size:13px; text-transform:uppercase; color:var(--text-muted); margin:0 0 8px; letter-spacing:0.04em;">Buffet Catering Inclusions</h4>
+          <h4 style="font-size:13px; text-transform:uppercase; color:var(--text-muted); margin:0 0 8px; letter-spacing:0.04em;">Buffet Catering Setup &amp; Service Inclusions</h4>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
             <div class="card" style="padding:10px 12px; font-size:12.5px; display:flex; align-items:center; gap:8px;">
               <span style="color:var(--success); font-weight:700;">${icon("check")}</span> Buffet Table &amp; Skirting
