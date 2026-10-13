@@ -72,7 +72,7 @@ try:
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        HRFlowable, Image, KeepTogether, Flowable
+        HRFlowable, Image, KeepTogether, Flowable, PageBreak
     )
     REPORTLAB_OK = True
 
@@ -816,7 +816,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         # ── Resolve monetary fields (kept from the desktop data logic) ────
         biz_name    = business.get("name", "JAYRALDINE'S CATERING")
         biz_address = business.get("address", "121 Katipunan Street, Barangay Calamba, Cebu City")
-        biz_contact = business.get("contact", "Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017")
+        biz_contact = business.get("contact", "Globe: (0945) 9813826 · Landline: 238-9417")
 
         def _val(x):
             if x is None:
@@ -1238,40 +1238,12 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         return False
 
 
-def export_order_slip_pdf(path: str, booking: dict, business: dict) -> bool:
-    """Generate a clean Banquet Event Order (BEO) / Kitchen Order Slip PDF.
-    
-    Contains:
-    - Customer Name
-    - Event Location / Venue
-    - Event Date & Time
-    - Pax (Guest Count)
-    - Package Name & Categorized Dishes / Menu
-    - Additional Items / Add-ons strictly WITHOUT price amounts ("walay price amount")
-    - Event Notes / Operations Remarks
-
-    Params:
-        path: output PDF path.
-        booking: booking dict (id/name/venue/date/time/pax/package/dishes/
-            additional_charges/notes/...).
-        business: business profile dict (name/address/contact/email).
-    Returns:
-        True on success; False if ReportLab is missing or the build raises.
-    Side effects: writes `path`. Prices are deliberately stripped from add-ons.
-    """
-    if not REPORTLAB_OK:
-        return False
+def _build_order_slip_story(booking: dict, business: dict, styles: dict) -> list:
+    """Build the list of ReportLab Flowables for a single order/kitchen slip."""
+    import re
+    import utils.repository as _repo
     try:
-        import re  # used to strip price fragments out of add-on descriptions
-        doc = SimpleDocTemplate(
-            path, pagesize=A4,
-            leftMargin=_MARGIN, rightMargin=_MARGIN,
-            topMargin=_MARGIN, bottomMargin=_MARGIN,
-            title=f"Order Slip — {booking.get('id') or booking.get('booking_ref', 'Order')}",
-        )
-        styles = _styles()
         story = []
-
         biz_name    = business.get("name", "Jayraldine's Catering Services")
         biz_address = business.get("address", "")
         biz_contact = business.get("contact", "")
@@ -1285,6 +1257,7 @@ def export_order_slip_pdf(path: str, booking: dict, business: dict) -> bool:
         time_str  = _format_time_ampm(raw_t) if raw_t else "TBA"
         pax       = str(booking.get("pax", "100"))
         pkg_name_inv = str(booking.get("package_name") or booking.get("pkg_name") or "")
+        pkg_name  = pkg_name_inv or "Standard Package"
         occasion  = str(booking.get("occasion") or booking.get("bk_occasion") or "Catering Event")
         # Detect "food set/pack" style packages by name or occasion — these are counted in
         # sets/quantity rather than as a per-head guest count.
@@ -1519,10 +1492,59 @@ def export_order_slip_pdf(path: str, booking: dict, business: dict) -> bool:
             styles["Footer"],
         ))
 
+        return story
+    except Exception as exc:
+        print(f"[exporter] _build_order_slip_story failed: {exc}")
+        return []
+
+
+def export_order_slip_pdf(path: str, booking: dict, business: dict) -> bool:
+    """Generate a clean Banquet Event Order (BEO) / Kitchen Order Slip PDF for a single booking."""
+    if not REPORTLAB_OK:
+        return False
+    try:
+        doc = SimpleDocTemplate(
+            path, pagesize=A4,
+            leftMargin=_MARGIN, rightMargin=_MARGIN,
+            topMargin=_MARGIN, bottomMargin=_MARGIN,
+            title=f"Order Slip — {booking.get('id') or booking.get('booking_ref', 'Order')}",
+        )
+        styles = _styles()
+        story = _build_order_slip_story(booking, business, styles)
+        if not story:
+            return False
         doc.build(story)
         return True
     except Exception as exc:
         print(f"[exporter] Order Slip PDF failed: {exc}")
+        return False
+
+
+def export_order_slips_pdf(path: str, bookings: list, business: dict) -> bool:
+    """Generate a clean Banquet Event Order (BEO) / Kitchen Order Slip PDF for one or more bookings."""
+    if not REPORTLAB_OK or not bookings:
+        return False
+    if len(bookings) == 1:
+        return export_order_slip_pdf(path, bookings[0], business)
+    try:
+        doc = SimpleDocTemplate(
+            path, pagesize=A4,
+            leftMargin=_MARGIN, rightMargin=_MARGIN,
+            topMargin=_MARGIN, bottomMargin=_MARGIN,
+            title=f"Order Slips — {len(bookings)} Orders",
+        )
+        styles = _styles()
+        combined_story = []
+        for idx, b in enumerate(bookings):
+            if idx > 0:
+                combined_story.append(PageBreak())
+            combined_story.extend(_build_order_slip_story(b, business, styles))
+        if not combined_story:
+            return False
+        doc.build(combined_story)
+        return True
+    except Exception as exc:
+        print(f"[exporter] Order Slips PDF failed: {exc}")
         return False
 
 
