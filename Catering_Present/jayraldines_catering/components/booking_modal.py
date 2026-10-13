@@ -1745,7 +1745,7 @@ class BookingModal(QDialog):
                         self.f_pax.setValue(min_p)
             rate = float(pkg.get("price_per_pax", 0))
             pax_val = self.f_pay_pax.value() if hasattr(self, "f_pay_pax") else (self.f_pax.value() if hasattr(self, "f_pax") else 100)
-            if hasattr(self, "f_pay_package_total"):
+            if hasattr(self, "f_pay_package_total") and self.f_pay_package_total.value() <= 0:
                 self.f_pay_package_total.setValue(pax_val * rate)
 
         for i, (card, btn) in enumerate(getattr(self, "_pkg_btns", [])):
@@ -2289,10 +2289,17 @@ class BookingModal(QDialog):
         self.f_pay_package_total.setFixedHeight(34)
         self.f_pay_package_total.setMinimumWidth(130)
         
-        # Seed the editable base total from pax x selected package rate.
+        # Seed the editable base total from stored base total (on edit) or pax x selected package rate.
         pax_val = self.f_pax.value()
         initial_base_total = 0.0
-        if getattr(self, "_db_packages", None) and getattr(self, "_selected_pkg", 0) is not None:
+        if getattr(self, "_edit_mode", False) and getattr(self, "_booking_data", None):
+            stored_base = self._booking_data.get("base_total") or self._booking_data.get("bk_base_total")
+            if stored_base:
+                try:
+                    initial_base_total = float(stored_base)
+                except (ValueError, TypeError):
+                    initial_base_total = 0.0
+        if initial_base_total <= 0.0 and getattr(self, "_db_packages", None) and getattr(self, "_selected_pkg", 0) is not None:
             if self._selected_pkg < len(self._db_packages):
                 rate = float(self._db_packages[self._selected_pkg].get("price_per_pax", 0))
                 initial_base_total = pax_val * rate
@@ -2718,17 +2725,17 @@ class BookingModal(QDialog):
                         sp = getattr(self, "_fs_qty_spins", {}).get(pkg["id"])
                         if sp:
                             fs_total += sp.value() * float(pkg["price_per_pax"])
-                    if hasattr(self, "f_pay_package_total"):
+                    if hasattr(self, "f_pay_package_total") and self.f_pay_package_total.value() <= 0:
                         self.f_pay_package_total.setValue(fs_total)
                 elif getattr(self, "btn_custom", None) and self.btn_custom.isChecked():
                     rate = sum(float(item.get("price", 0)) for chk, item in getattr(self, "_custom_checks", []) if chk.isChecked())
-                    if hasattr(self, "f_pay_package_total"):
+                    if hasattr(self, "f_pay_package_total") and self.f_pay_package_total.value() <= 0:
                         self.f_pay_package_total.setValue(pax * rate)
                 else:
                     pkg_idx = getattr(self, "_selected_pkg", None)
                     db_pkgs = getattr(self, "_db_packages", [])
                     rate = float(db_pkgs[pkg_idx]["price_per_pax"]) if (pkg_idx is not None and db_pkgs and pkg_idx < len(db_pkgs)) else 0.0
-                    if hasattr(self, "f_pay_package_total"):
+                    if hasattr(self, "f_pay_package_total") and self.f_pay_package_total.value() <= 0:
                         self.f_pay_package_total.setValue(pax * rate)
                 self._update_cost()
             self._refresh_step(direction=1)
@@ -2968,6 +2975,8 @@ class BookingModal(QDialog):
             "package_id":      package_id,
             "selected_dishes": selected_dishes,
             "sets":            sets_payload,
+            "base_total":      base_total,
+            "bk_base_total":   base_total,
             "total":           total,
             "amount_paid":     recorded_down,
             "down_payment":    recorded_down,
