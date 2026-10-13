@@ -105,6 +105,13 @@ export function updateCustomer(customerId, name, contact = "", email = "", addre
 
 export function deleteCustomer(customerId) {
   if (!customerId) return false;
+  try {
+    const deleted = JSON.parse(localStorage.getItem("jayraldines_deleted_customer_ids") || "[]");
+    if (!deleted.includes(customerId)) {
+      deleted.push(customerId);
+      localStorage.setItem("jayraldines_deleted_customer_ids", JSON.stringify(deleted));
+    }
+  } catch (_) {}
   run("DELETE FROM customers WHERE cus_id = ?", [customerId]);
   return true;
 }
@@ -344,8 +351,16 @@ export function updatePackage(pkgId, name, description = "", pricePerPax = 0.0, 
 
 export function deletePackage(pkgId) {
   if (!pkgId) return false;
+  try {
+    const deleted = JSON.parse(localStorage.getItem("jayraldines_deleted_package_ids") || "[]");
+    if (!deleted.includes(pkgId)) {
+      deleted.push(pkgId);
+      localStorage.setItem("jayraldines_deleted_package_ids", JSON.stringify(deleted));
+    }
+  } catch (_) {}
   run("DELETE FROM entity_images WHERE entity_type = 'package' AND entity_id = ?", [pkgId]);
   run("DELETE FROM package_items WHERE pi_package_id = ?", [pkgId]);
+  run("DELETE FROM package_buckets WHERE pb_package_id = ?", [pkgId]);
   run("DELETE FROM packages WHERE pkg_id = ?", [pkgId]);
   return true;
 }
@@ -366,6 +381,8 @@ export function getPackageItems(pkgId) {
       item_name: r.pi_item_name || r.mi_name || "Dish",
       category: r.pi_category || r.mi_category || "Main Course",
       price: Number(r.pi_custom_price || r.mi_price || 0),
+      bucket_id: r.pi_bucket_id ?? null,
+      pi_bucket_id: r.pi_bucket_id ?? null,
     }));
   } catch (e) {
     try {
@@ -378,6 +395,8 @@ export function getPackageItems(pkgId) {
         item_name: r.pi_item_name || "Dish",
         category: r.pi_category || "Main Course",
         price: Number(r.pi_custom_price || 0),
+        bucket_id: r.pi_bucket_id ?? null,
+        pi_bucket_id: r.pi_bucket_id ?? null,
       }));
     } catch (_) {
       return [];
@@ -525,6 +544,13 @@ export function updateMenuItem(miId, name, category = "Main Dish", price = 0.0, 
 
 export function deleteMenuItem(miId) {
   if (!miId) return false;
+  try {
+    const deleted = JSON.parse(localStorage.getItem("jayraldines_deleted_menu_item_ids") || "[]");
+    if (!deleted.includes(miId)) {
+      deleted.push(miId);
+      localStorage.setItem("jayraldines_deleted_menu_item_ids", JSON.stringify(deleted));
+    }
+  } catch (_) {}
   run("DELETE FROM entity_images WHERE entity_type = 'menu_item' AND entity_id = ?", [miId]);
   run("DELETE FROM menu_items WHERE mi_id = ?", [miId]);
   return true;
@@ -652,15 +678,7 @@ export function createOrder(order) {
   const downPayment = Number(order.down_payment) || 0;
   const today = new Date().toISOString().slice(0, 10);
 
-  let resolvedOccasion = (order.occasion || "").trim();
-  if (!resolvedOccasion || resolvedOccasion.toLowerCase() === "general event" || resolvedOccasion.toLowerCase() === "other special event") {
-    const pkgName = (order.package_name || "").toLowerCase();
-    if (pkgName.includes("food set") || pkgName.includes("food pack") || pkgName.includes("foodset") || pkgName.includes("foodpack") || pkgName.includes("set of dish") || pkgName.startsWith("set ") || pkgName.includes(" set")) {
-      resolvedOccasion = "Food Set";
-    } else {
-      resolvedOccasion = resolvedOccasion || "General Event";
-    }
-  }
+  let resolvedOccasion = (order.occasion || "").trim() || "General Event";
 
   // 'package' | 'custom' | 'food_set' | 'food_tray' — set by the wizard's
   // Order-Type screen. Never hardcoded here — mirrors the desktop app.
@@ -983,6 +1001,7 @@ export function getPendingSyncRecords() {
     let items = [];
     let inv = null;
     let charges = [];
+    let sets = [];
     try {
       items = fetchAll("SELECT * FROM booking_menu_items WHERE bmi_booking_id = ?", [b.bk_id]);
     } catch (_) {}
@@ -992,11 +1011,35 @@ export function getPendingSyncRecords() {
     try {
       charges = fetchAll("SELECT * FROM booking_additional_charges WHERE ac_booking_id = ?", [b.bk_id]);
     } catch (_) {}
+    try {
+      const setRows = fetchAll("SELECT * FROM booking_sets WHERE bs_booking_id = ? ORDER BY bs_sort ASC, bs_id ASC", [b.bk_id]);
+      sets = setRows.map((s) => {
+        let setDishes = [];
+        try {
+          setDishes = fetchAll("SELECT * FROM booking_set_items WHERE bsi_set_row_id = ?", [s.bs_id]);
+        } catch (_) {}
+        return {
+          ...s,
+          set_id: s.bs_set_id,
+          name: s.bs_set_name,
+          quantity: s.bs_quantity,
+          unit_price: s.bs_unit_price,
+          dishes: setDishes.map((d) => ({
+            name: d.bsi_item_name,
+            category: d.bsi_category,
+            price: d.bsi_price,
+            quantity: d.bsi_quantity,
+          })),
+        };
+      });
+    } catch (_) {}
     return {
       ...b,
       menu_items: items,
       invoice: inv,
       additional_charges: charges,
+      booking_sets: sets,
+      sets: sets,
     };
   });
 
@@ -1119,7 +1162,7 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
   const pendingPackageImages = getPendingPackageImageMap();
   const pendingMenuItemImages = getPendingMenuItemImageMap();
 
-  if ((packages && packages.length > 0) || (menuItems && menuItems.length > 0) || (customers && customers.length > 0)) {
+  if (Array.isArray(packages) || Array.isArray(menuItems) || Array.isArray(customers) || Array.isArray(packageBuckets)) {
     replaceMasterTablesWithDbIds({
       packages: packages || [],
       menuItems: menuItems || [],
@@ -1179,19 +1222,21 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
     }
   }
 
-  if (occasions && occasions.length > 0) {
-    for (const occ of occasions) {
-      const name = (occ.occ_name || occ.name || "").trim();
-      if (name) {
-        try {
+  if (Array.isArray(occasions)) {
+    try {
+      run("DELETE FROM occasions");
+      for (const occ of occasions) {
+        const name = (occ.occ_name || occ.name || "").trim();
+        if (name) {
+          const active = (occ.occ_is_active != null) ? Number(occ.occ_is_active) : 1;
           if (occ.occ_id) {
-            run("INSERT OR REPLACE INTO occasions (occ_id, occ_name, occ_is_active) VALUES (?, ?, 1)", [occ.occ_id, name]);
+            run("INSERT OR REPLACE INTO occasions (occ_id, occ_name, occ_is_active) VALUES (?, ?, ?)", [occ.occ_id, name, active]);
           } else {
-            run("INSERT OR IGNORE INTO occasions (occ_name, occ_is_active) VALUES (?, 1)", [name]);
+            run("INSERT OR IGNORE INTO occasions (occ_name, occ_is_active) VALUES (?, ?)", [name, active]);
           }
-        } catch (_) {}
+        }
       }
-    }
+    } catch (_) {}
   }
 
   if (typeof window !== "undefined") {
@@ -1236,6 +1281,21 @@ export function updateOccasion(id, newName) {
 }
 
 export function deleteOccasion(id) {
+  try {
+    const occ = fetchOne("SELECT occ_id, occ_name FROM occasions WHERE occ_id = ?", [id]);
+    const deleted = JSON.parse(localStorage.getItem("jayraldines_deleted_occasion_ids") || "[]");
+    if (!deleted.includes(id)) {
+      deleted.push(id);
+      localStorage.setItem("jayraldines_deleted_occasion_ids", JSON.stringify(deleted));
+    }
+    if (occ && occ.occ_name) {
+      const deletedNames = JSON.parse(localStorage.getItem("jayraldines_deleted_occasion_names") || "[]");
+      if (!deletedNames.includes(occ.occ_name)) {
+        deletedNames.push(occ.occ_name);
+        localStorage.setItem("jayraldines_deleted_occasion_names", JSON.stringify(deletedNames));
+      }
+    }
+  } catch (_) {}
   run("DELETE FROM occasions WHERE occ_id = ?", [id]);
   return getAllOccasions();
 }
@@ -1251,6 +1311,48 @@ export function purgeDeletedBookings(refs = []) {
         run("DELETE FROM bookings WHERE bk_id = ?", [b.bk_id]);
       }
     } catch (_) {}
+  }
+}
+
+export function purgeDeletedCustomers(customerIds = []) {
+  if (!customerIds || customerIds.length === 0) return;
+  for (const id of customerIds) {
+    try { run("DELETE FROM customers WHERE cus_id = ?", [id]); } catch (_) {}
+  }
+}
+
+export function purgeDeletedPackages(pkgIds = []) {
+  if (!pkgIds || pkgIds.length === 0) return;
+  for (const id of pkgIds) {
+    try {
+      run("DELETE FROM entity_images WHERE entity_type = 'package' AND entity_id = ?", [id]);
+      run("DELETE FROM package_items WHERE pi_package_id = ?", [id]);
+      run("DELETE FROM package_buckets WHERE pb_package_id = ?", [id]);
+      run("DELETE FROM packages WHERE pkg_id = ?", [id]);
+    } catch (_) {}
+  }
+}
+
+export function purgeDeletedMenuItems(miIds = []) {
+  if (!miIds || miIds.length === 0) return;
+  for (const id of miIds) {
+    try {
+      run("DELETE FROM entity_images WHERE entity_type = 'menu_item' AND entity_id = ?", [id]);
+      run("DELETE FROM menu_items WHERE mi_id = ?", [id]);
+    } catch (_) {}
+  }
+}
+
+export function purgeDeletedOccasions(occIds = [], occNames = []) {
+  if (occIds && occIds.length > 0) {
+    for (const id of occIds) {
+      try { run("DELETE FROM occasions WHERE occ_id = ?", [id]); } catch (_) {}
+    }
+  }
+  if (occNames && occNames.length > 0) {
+    for (const name of occNames) {
+      try { run("DELETE FROM occasions WHERE LOWER(occ_name) = LOWER(?)", [name]); } catch (_) {}
+    }
   }
 }
 
