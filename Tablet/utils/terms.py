@@ -14,7 +14,7 @@ TERMS_TITLE = "Jayraldine's Catering Services — Terms & Conditions"
 
 TERMS_TEXT = """JAYRALDINE'S CATERING SERVICES
 Located at 121 Katipunan Street, Barangay Calamba, Cebu City.
-Tel. Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017
+Tel. Globe: (0945) 9813826 · Landline: 238-9417
 
 SERVICE INFORMATION:
 
