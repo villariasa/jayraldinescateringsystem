@@ -29,7 +29,7 @@ build_script:
   - "venv\\Scripts\\python.exe build_installer.py"
 
 artifacts:
-  - path: "%APP_DIR%\\installer_output\\*.exe"
+  - path: "%APP_DIR%\\installer_output\\Jayraldines_Catering_Setup_v*.exe"
     name: installer
 
 on_failure:
