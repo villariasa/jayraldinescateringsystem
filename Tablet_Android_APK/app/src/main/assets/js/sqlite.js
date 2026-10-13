@@ -501,7 +501,7 @@ export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], pa
   const stats = { packages: 0, menu_items: 0, package_items: 0, package_buckets: 0, customers: 0 };
   db.run("PRAGMA foreign_keys = OFF;");
   try {
-    if (packages && packages.length > 0) {
+    if (Array.isArray(packages)) {
       db.run("DELETE FROM package_buckets");
       db.run("DELETE FROM package_items");
       db.run("DELETE FROM packages");
@@ -530,7 +530,7 @@ export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], pa
       }
     }
 
-    if (menuItems && menuItems.length > 0) {
+    if (Array.isArray(menuItems)) {
       db.run("DELETE FROM menu_items");
       for (const m of menuItems) {
         const name = (m.mi_name || m.name || "").trim();
@@ -557,7 +557,8 @@ export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], pa
       }
     }
 
-    if (packageItems && packageItems.length > 0) {
+    if (Array.isArray(packageItems)) {
+      db.run("DELETE FROM package_items");
       for (const pi of packageItems) {
         const pkgId = pi.pi_package_id || pi.package_id;
         const itmName = (pi.pi_item_name || pi.item_name || "").trim();
@@ -569,7 +570,8 @@ export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], pa
       }
     }
 
-    if (packageBuckets && packageBuckets.length > 0) {
+    if (Array.isArray(packageBuckets)) {
+      db.run("DELETE FROM package_buckets");
       for (const pb of packageBuckets) {
         const pkgId = pb.pb_package_id || pb.package_id;
         const name = (pb.pb_name || pb.name || "").trim();
@@ -595,7 +597,7 @@ export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], pa
       }
     }
 
-    if (customers && customers.length > 0) {
+    if (Array.isArray(customers)) {
       // Remove any previously synced customers to accurately match database state
       db.run("DELETE FROM customers WHERE sync_status = 'synced' OR sync_status IS NULL");
       for (const c of customers) {
