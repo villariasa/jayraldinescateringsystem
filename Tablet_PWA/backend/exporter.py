@@ -259,7 +259,7 @@ def export_order_receipt_pdf(path: str, order: dict, business_name: str = "Jayra
             Spacer(1, 1.5),
             Paragraph("Located at 121 Katipunan St. Brgy Calamba Cebu City",
                       ParagraphStyle("co_addr", fontName="Helvetica", fontSize=7, textColor=colors.HexColor("#1E293B"), alignment=TA_CENTER, leading=8.5)),
-            Paragraph("Please feel free to call us at (032) 255-3113, (032) 238-9417 · Globe 0917-6519555, 0917-1051528",
+            Paragraph("Please feel free to call us at Globe: (0945) 9813826 · Landline: 238-9417",
                       ParagraphStyle("co_tel", fontName="Helvetica", fontSize=7, textColor=colors.HexColor("#1E293B"), alignment=TA_CENTER, leading=8.5)),
             Spacer(1, 1),
             Paragraph("<b>Find us on Facebook: Jayraldine's Catering Services</b>",
