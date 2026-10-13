@@ -1886,6 +1886,10 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
             num_sets = int(p[18]) if len(p) > 18 and p[18] is not None else 0
         except (ValueError, TypeError):
             num_sets = 0
+        try:
+            base_amt = float(p[19]) if len(p) > 19 and p[19] is not None else total_amt
+        except (ValueError, TypeError):
+            base_amt = total_amt
 
         # Status is ALWAYS PENDING for new bookings until manually confirmed by staff/admin
         cur.execute("""
@@ -1898,7 +1902,7 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')
         """, (
             booking_ref, cust_id, cust_name, p[3], event_d, event_t,
-            p[5], p[4], p[8], p[9], p[10], pkg_id, total_amt, total_amt,
+            p[5], p[4], p[8], p[9], p[10], pkg_id, total_amt, base_amt,
             pay_mode, amt_paid, amt_paid, pickup_time, dropoff_time, num_sets
         ))
         booking_id = cur.lastrowid
