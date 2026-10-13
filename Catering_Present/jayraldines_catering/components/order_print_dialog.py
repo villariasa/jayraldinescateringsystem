@@ -21,7 +21,7 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTextBrowser, QFileDialog, QMessageBox, QApplication,
-    QScrollArea, QWidget
+    QScrollArea, QWidget, QStackedWidget
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QTextDocument, QFont
@@ -126,7 +126,7 @@ class OrderPrintDialog(QDialog):
         self._business = repo.get_business_info() or {
             "name": "Jayraldine's Catering Services",
             "address": "121 Katipunan St. Brgy Calamba Cebu City",
-            "contact": "(032) 255-3113, (032) 238-9417 · Globe 0917-6519555, 0917-1051528",
+            "contact": "Globe: (0945) 9813826 · Landline: 238-9417",
             "email": "info@jayraldinescatering.com"
         }
         self._current_mode = "agreement"  # "agreement" (default) or "kitchen"
@@ -261,6 +261,8 @@ class OrderPrintDialog(QDialog):
         p_lay = QVBoxLayout(preview_card)
         p_lay.setContentsMargins(4, 4, 4, 4)
 
+        self._preview_stack = QStackedWidget()
+
         self._doc_browser = QTextBrowser()
         self._doc_browser.setOpenExternalLinks(False)
         self._doc_browser.setStyleSheet("""
@@ -272,10 +274,27 @@ class OrderPrintDialog(QDialog):
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             }
         """)
-        self._html_content = self._generate_slip_html()
-        self._doc_browser.setHtml(self._html_content)
-        p_lay.addWidget(self._doc_browser)
+        self._preview_stack.addWidget(self._doc_browser)
+
+        self._pdf_view = None
+        self._pdf_doc = None
+        self._preview_tmp_pdf = None
+        try:
+            from PySide6.QtPdf import QPdfDocument
+            from PySide6.QtPdfWidgets import QPdfView
+            self._pdf_doc = QPdfDocument(self)
+            self._pdf_view = QPdfView(self)
+            self._pdf_view.setDocument(self._pdf_doc)
+            self._pdf_view.setPageMode(QPdfView.PageMode.MultiPage)
+            self._pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
+            self._preview_stack.addWidget(self._pdf_view)
+        except Exception:
+            pass
+
+        p_lay.addWidget(self._preview_stack)
         root_lay.addWidget(preview_card, 1)
+
+        self._refresh_preview()
 
         # Bottom Action Bar
         bottom_bar = QHBoxLayout()
@@ -362,8 +381,7 @@ class OrderPrintDialog(QDialog):
             self._title_lbl.setText("Kitchen Dispatch Slip" if n == 1 else f"Kitchen Dispatch Slips ({n})")
             self._sub_lbl.setText("Official order dispatch sheet with menu dishes & additional items (prices hidden)")
             self._print_btn.setText("  Print Kitchen Slip" if n == 1 else f"  Print Kitchen Slips ({n})")
-        self._html_content = self._generate_slip_html()
-        self._doc_browser.setHtml(self._html_content)
+        self._refresh_preview()
 
     def _update_mode_buttons(self):
         if self._current_mode == "agreement":
@@ -613,7 +631,7 @@ class OrderPrintDialog(QDialog):
             <tr>
                 <td style="vertical-align:top;">
                     <div style="font-size:{h_title}; font-weight:900; color:#E11D48; line-height:1.1;">{biz.get('name', "Jayraldine's Catering")}</div>
-                    <div style="font-size:10px; color:#000000; margin-top:2px;">{biz.get('address', '121 Katipunan Street, Barangay Calamba, Cebu City')} &middot; Tel: {biz.get('contact', 'Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017')}</div>
+                    <div style="font-size:10px; color:#000000; margin-top:2px;">{biz.get('address', '121 Katipunan Street, Barangay Calamba, Cebu City')} &middot; Tel: {biz.get('contact', 'Globe: (0945) 9813826 · Landline: 238-9417')}</div>
                 </td>
                 <td style="text-align:right; vertical-align:top;">
                     <div style="font-size:10.5px; font-weight:800; color:#444444; text-transform:uppercase; letter-spacing:0.5px;">PACKAGE</div>
@@ -785,7 +803,7 @@ class OrderPrintDialog(QDialog):
         biz_name = "JAYRALDINE'S CATERING SERVICES"
         biz_name_title = "Jayraldine's Catering Services"
         address_biz = html.escape(str(biz.get("address") or "121 Katipunan Street, Barangay Calamba, Cebu City"))
-        contact_biz = html.escape(str(biz.get("contact") or "Globe: 255-3113 / 0917-651-9555 · Sun: 0922-775-9213 · Dito: 0991-652-8017"))
+        contact_biz = html.escape(str(biz.get("contact") or "Globe: (0945) 9813826 · Landline: 238-9417"))
         order_ref = html.escape(str(booking.get("id") or booking.get("booking_ref") or "ORD-SLIP"))
         cust_name = html.escape(str(booking.get("name") or booking.get("customer_name") or "Valued Client"))
         address = html.escape(str(booking.get("address") or booking.get("venue") or "—"))
@@ -1195,22 +1213,75 @@ class OrderPrintDialog(QDialog):
             i += 2
         return pages
 
-    def _render_exact_agreement_preview_html(self) -> Optional[str]:
-        """On-screen preview built by literally rendering the SAME PDF
-        Export PDF produces (exporter.export_receipt_pdf), rasterized page
-        images - not a hand-rebuilt HTML approximation of that layout.
+    def _generate_current_pdf(self, target_path: str) -> bool:
+        """Generate the exact ReportLab PDF for the current mode (agreement or kitchen)."""
+        if not exporter.REPORTLAB_OK:
+            return False
+        if self._current_mode == "agreement":
+            if len(self._bookings) == 1:
+                b = self._bookings[0]
+                return exporter.export_receipt_pdf(
+                    target_path, b, business=self._business,
+                    additional_charges=b.get("additional_charges", [])
+                )
+            else:
+                try:
+                    import pypdf
+                    merger = pypdf.PdfMerger()
+                    import tempfile
+                    temp_files = []
+                    for b in self._bookings:
+                        tfd, tpath = tempfile.mkstemp(suffix=".pdf")
+                        os.close(tfd)
+                        temp_files.append(tpath)
+                        if exporter.export_receipt_pdf(tpath, b, business=self._business, additional_charges=b.get("additional_charges", [])):
+                            merger.append(tpath)
+                    merger.write(target_path)
+                    merger.close()
+                    for tp in temp_files:
+                        try:
+                            os.remove(tp)
+                        except Exception:
+                            pass
+                    return True
+                except Exception:
+                    return exporter.export_receipt_pdf(
+                        target_path, self._bookings[0], business=self._business,
+                        additional_charges=self._bookings[0].get("additional_charges", [])
+                    )
+        else:
+            return exporter.export_order_slips_pdf(target_path, self._bookings, business=self._business)
 
-        This mirrors _print_agreement_via_pdf's existing rationale exactly
-        ("prints must be pixel-identical to Export PDF - same client
-        complaint every time they drifted apart"): the only way the preview
-        can never drift from the real PDF again is for it to BE the real
-        PDF, not a parallel reimplementation someone has to keep in sync by
-        hand. Returns None (caller falls back to _build_page_bodies()'s
-        hand-built HTML) if reportlab/QtPdf aren't available or anything
-        about the render fails - e.g. QtPdf is excluded from the frozen
-        PyInstaller build (see package_installer.py), so this always
-        degrades gracefully rather than breaking the dialog.
-        """
+    def _refresh_preview(self):
+        """Update preview using the exact ReportLab PDF via QPdfView, or fallback to rasterized/HTML browser."""
+        import tempfile
+        pdf_loaded = False
+        if exporter.REPORTLAB_OK:
+            try:
+                if getattr(self, "_preview_tmp_pdf", None) and os.path.exists(self._preview_tmp_pdf):
+                    try:
+                        os.remove(self._preview_tmp_pdf)
+                    except Exception:
+                        pass
+                fd, self._preview_tmp_pdf = tempfile.mkstemp(suffix=".pdf")
+                os.close(fd)
+                if self._generate_current_pdf(self._preview_tmp_pdf):
+                    if getattr(self, "_pdf_view", None) and getattr(self, "_pdf_doc", None):
+                        from PySide6.QtPdf import QPdfDocument
+                        if self._pdf_doc.load(self._preview_tmp_pdf) == QPdfDocument.Error.None_ and self._pdf_doc.pageCount() > 0:
+                            self._preview_stack.setCurrentWidget(self._pdf_view)
+                            pdf_loaded = True
+            except Exception as pe:
+                pass
+
+        if not pdf_loaded:
+            self._html_content = self._generate_slip_html()
+            self._doc_browser.setHtml(self._html_content)
+            self._preview_stack.setCurrentWidget(self._doc_browser)
+
+    def _render_exact_preview_html(self) -> Optional[str]:
+        """On-screen preview fallback built by rendering the exact ReportLab PDF
+        rasterized to PNG images when QPdfView widget is not available."""
         if not exporter.REPORTLAB_OK:
             return None
         try:
@@ -1220,71 +1291,57 @@ class OrderPrintDialog(QDialog):
         except Exception:
             return None
 
-        page_imgs = []
-        for booking in self._bookings:
-            tmp_path = None
-            try:
-                fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
-                os.close(fd)
-                if not exporter.export_receipt_pdf(
-                    tmp_path, booking, business=self._business,
-                    additional_charges=booking.get("additional_charges", [])
-                ):
-                    return None
-
-                pdf_doc = QPdfDocument(self)
-                if pdf_doc.load(tmp_path) != QPdfDocument.Error.None_:
-                    return None
-                if pdf_doc.pageCount() <= 0:
-                    return None
-
-                # Render at a DPI that maps each PDF page (in points) to
-                # exactly _SLIP_LAYOUT_WIDTH CSS px, so it sits at the same
-                # width as everything else in this preview.
-                for page_idx in range(pdf_doc.pageCount()):
-                    pt_size = pdf_doc.pagePointSize(page_idx)
-                    if pt_size.width() <= 0 or pt_size.height() <= 0:
-                        return None
-                    scale = _SLIP_LAYOUT_WIDTH / pt_size.width()
-                    px_w = max(1, round(pt_size.width() * scale))
-                    px_h = max(1, round(pt_size.height() * scale))
-                    image = pdf_doc.render(page_idx, QSize(px_w, px_h))
-                    if image.isNull():
-                        return None
-
-                    buf = QBuffer()
-                    buf.open(QIODevice.OpenModeFlag.WriteOnly)
-                    if not image.save(buf, "PNG"):
-                        return None
-                    encoded = base64.b64encode(bytes(buf.data())).decode("ascii")
-                    page_imgs.append(
-                        f'<img src="data:image/png;base64,{encoded}" width="{px_w}" height="{px_h}" style="display:block;" />'
-                    )
-            except Exception:
+        tmp_path = None
+        try:
+            fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+            os.close(fd)
+            if not self._generate_current_pdf(tmp_path):
                 return None
-            finally:
-                if tmp_path and os.path.exists(tmp_path):
-                    try:
-                        os.remove(tmp_path)
-                    except Exception:
-                        pass
 
-        if not page_imgs:
+            pdf_doc = QPdfDocument(self)
+            if pdf_doc.load(tmp_path) != QPdfDocument.Error.None_:
+                return None
+            if pdf_doc.pageCount() <= 0:
+                return None
+
+            page_imgs = []
+            for page_idx in range(pdf_doc.pageCount()):
+                pt_size = pdf_doc.pagePointSize(page_idx)
+                if pt_size.width() <= 0 or pt_size.height() <= 0:
+                    return None
+                scale = _SLIP_LAYOUT_WIDTH / pt_size.width()
+                px_w = max(1, round(pt_size.width() * scale))
+                px_h = max(1, round(pt_size.height() * scale))
+                image = pdf_doc.render(page_idx, QSize(px_w, px_h))
+                if image.isNull():
+                    return None
+
+                buf = QBuffer()
+                buf.open(QIODevice.OpenModeFlag.WriteOnly)
+                if not image.save(buf, "PNG"):
+                    return None
+                encoded = base64.b64encode(bytes(buf.data())).decode("ascii")
+                page_imgs.append(
+                    f'<img src="data:image/png;base64,{encoded}" width="{px_w}" height="{px_h}" style="display:block;" />'
+                )
+            if not page_imgs:
+                return None
+            joined = '<div style="page-break-after: always;"></div>'.join(page_imgs)
+            return f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head><body>{joined}</body></html>"
+        except Exception:
             return None
-        joined = '<div style="page-break-after: always;"></div>'.join(page_imgs)
-        return f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head><body>{joined}</body></html>"
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
     def _generate_slip_html(self) -> str:
-        """Full HTML for the on-screen scrollable preview - all pages
-        concatenated with CSS page-break-after hints between them.
-
-        Agreement mode prefers the exact rendered-PDF preview (see
-        _render_exact_agreement_preview_html); only falls back to the
-        hand-built HTML approximation below when that isn't available."""
-        if self._current_mode == "agreement":
-            exact_html = self._render_exact_agreement_preview_html()
-            if exact_html:
-                return exact_html
+        """Full HTML for the on-screen scrollable preview when QPdfView is unavailable."""
+        exact_html = self._render_exact_preview_html()
+        if exact_html:
+            return exact_html
         joined = '<div style="page-break-after: always;"></div>'.join(self._build_page_bodies())
         return f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head><body>{joined}</body></html>"
 
@@ -1426,11 +1483,10 @@ ADDITIONAL ITEMS (NO CHARGES):
         if not file_path:
             return
 
-        if self._current_mode == "agreement" and len(self._bookings) == 1 and exporter.REPORTLAB_OK:
-            b = self._bookings[0]
+        if exporter.REPORTLAB_OK:
             try:
-                if exporter.export_receipt_pdf(file_path, b, business=self._business, additional_charges=b.get("additional_charges", [])):
-                    success(self, message=f"Booking Agreement PDF exported successfully:\n{os.path.basename(file_path)}")
+                if self._generate_current_pdf(file_path):
+                    success(self, message=f"PDF exported successfully:\n{os.path.basename(file_path)}")
                     return
             except Exception as e:
                 print(f"[OrderPrintDialog] exporter fallback: {e}")
@@ -1452,24 +1508,15 @@ ADDITIONAL ITEMS (NO CHARGES):
         dialog = QPrintDialog(printer, self)
         dialog.setWindowTitle("Print Banquet Order Slip" if len(self._bookings) == 1 else "Print Banquet Order Slips")
         if dialog.exec() == QPrintDialog.Accepted:
-            # Booking Agreement prints must be pixel-identical to Export PDF
-            # (same client complaint every time they drifted apart) — render
-            # the exact same ReportLab-generated PDF onto the printer instead
-            # of the separate QTextDocument/HTML layout below. That HTML path
-            # only remains for Kitchen Slip mode and multi-booking prints,
-            # which export_receipt_pdf doesn't support.
-            if (self._current_mode == "agreement" and len(self._bookings) == 1
-                    and exporter.REPORTLAB_OK and self._print_agreement_via_pdf(printer)):
-                success(self, message="Order slip sent to printer successfully.")
+            if exporter.REPORTLAB_OK and self._print_via_pdf(printer):
+                success(self, message="Order slip sent to printer successfully." if len(self._bookings) == 1 else "Order slips sent to printer successfully.")
                 return
             self._print_document(printer)
             success(self, message="Order slip sent to printer successfully." if len(self._bookings) == 1 else "Order slips sent to printer successfully.")
 
-    def _print_agreement_via_pdf(self, printer) -> bool:
-        """Generate the official Booking Agreement PDF (same function Export
-        PDF uses) and rasterize its pages straight onto the printer, so
-        Print and Export PDF always match exactly. Returns False on any
-        failure so the caller can fall back to the HTML print path."""
+    def _print_via_pdf(self, printer) -> bool:
+        """Generate the official PDF (same function Export PDF uses) and rasterize
+        its pages straight onto the printer, so Print and Export PDF always match exactly."""
         import tempfile
         tmp_path = None
         try:
@@ -1477,13 +1524,9 @@ ADDITIONAL ITEMS (NO CHARGES):
             from PySide6.QtGui import QPainter
             from PySide6.QtCore import QSize, QRectF
 
-            b = self._bookings[0]
             fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
             os.close(fd)
-            if not exporter.export_receipt_pdf(
-                tmp_path, b, business=self._business,
-                additional_charges=b.get("additional_charges", [])
-            ):
+            if not self._generate_current_pdf(tmp_path):
                 return False
 
             pdf_doc = QPdfDocument(self)
@@ -1521,6 +1564,14 @@ ADDITIONAL ITEMS (NO CHARGES):
                     os.remove(tmp_path)
                 except Exception:
                     pass
+
+    def closeEvent(self, event):
+        if getattr(self, "_preview_tmp_pdf", None) and os.path.exists(self._preview_tmp_pdf):
+            try:
+                os.remove(self._preview_tmp_pdf)
+            except Exception:
+                pass
+        super().closeEvent(event)
 
     def _print_document(self, printer):
         # Each PHYSICAL A4 sheet is rendered from its own independent
