@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { wizard, chargesTotal, grandTotal, setsTotal, peso } from "./state.js";
-import { toast, escapeHtml, statusPill, openModal, closeModal } from "./views.js";
+import { toast, escapeHtml, statusPill, openModal, closeModal, confirmWithSlider } from "./views.js";
 import { icon } from "./icons.js";
 import { getTheme, toggleTheme } from "./app.js";
 import { mountLottie } from "./lottie-helper.js";
@@ -1127,7 +1127,7 @@ function wireFoodSetCards(card, d) {
     if (target <= 0) {
       const newTotal = setSelectionsTotalQty(d);
       d.event.numSets = newTotal;
-      d.event.pax = newTotal * 22;
+      d.event.pax = newTotal;
       const paxInput = card.querySelector("#e-pax");
       if (paxInput) paxInput.value = newTotal;
       const numSetsHidden = card.querySelector("#e-num-sets");
@@ -1481,7 +1481,7 @@ async function renderStepPackage(card) {
   if (!d.flowType) d.flowType = "package"; // default for existing/quick-option drafts
   if (d.flowType === "food_set") {
     d.event.numSets = d.event.numSets || setSelectionsTotalQty(d) || 1;
-    d.event.pax = (d.event.numSets || 1) * 22;
+    d.event.pax = d.event.numSets || 1;
   }
 
   const ORDER_TYPES = [
@@ -1536,7 +1536,7 @@ async function renderStepPackage(card) {
         <label id="lbl-order-qty">${d.flowType === "food_set" || isFoodSet(d.package.name) ? "No. of Sets (Min: 1 Set) *" : "No. of Pax *"}</label>
         <input type="number" class="form-control" id="e-pax" min="1" max="2000" value="${d.flowType === "food_set" ? (d.event.numSets || setSelectionsTotalQty(d) || 1) : (d.event.pax || 60)}">
         <span id="lbl-order-hint" style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">
-          ${ d.flowType === "food_set" || isFoodSet(d.package.name) ? "1 Set is good for 22 persons (4 dishes). Specify target number of sets, then choose sets below." : "Enter the total number of guests (pax)." }
+          ${ d.flowType === "food_set" || isFoodSet(d.package.name) ? "Specify target number of sets, then choose sets below." : "Enter the total number of guests (pax)." }
         </span>
       </div>
       <div class="form-group">
@@ -1646,7 +1646,7 @@ async function renderStepPackage(card) {
                 <p class="kiosk-card-desc">${escapeHtml(p.description || "Standard buffet catering setup.")}</p>
                 <div class="kiosk-card-footer">
                   <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / set</span></span>
-                  <span class="kiosk-status-pill">Min 1 Set (4 dishes good for 22 person)</span>
+                  <span class="kiosk-status-pill">Min ${p.min_pax || 1} Set</span>
                 </div>
               </div>
             </div>
@@ -1828,7 +1828,7 @@ async function renderStepPackage(card) {
     const numSetsVal = Number(card.querySelector("#e-num-sets")?.value || 0);
     if (d.flowType === "food_set") {
       d.event.numSets = paxVal || numSetsVal || d.event.numSets || 0;
-      d.event.pax = (d.event.numSets || 1) * 22;
+      d.event.pax = d.event.numSets || 1;
     } else {
       if (paxVal > 0) d.event.pax = paxVal;
       d.event.numSets = numSetsVal;
@@ -1910,7 +1910,7 @@ async function renderStepPackage(card) {
     const handleSetQtyInput = () => {
       const val = Math.max(0, Number(paxInput?.value || 0));
       d.event.numSets = val;
-      d.event.pax = (val || 1) * 22;
+      d.event.pax = val || 1;
       const numSetsHidden = card.querySelector("#e-num-sets");
       if (numSetsHidden) numSetsHidden.value = val;
       updateFsSummary(card, d);
@@ -1962,7 +1962,7 @@ async function renderStepPackage(card) {
     const qtyLbl = card.querySelector("#lbl-order-qty");
     if (qtyLbl) qtyLbl.textContent = isSet ? "No. of Sets (Min: 1 Set) *" : "No. of Pax *";
     const hintLbl = card.querySelector("#lbl-order-hint");
-    if (hintLbl) hintLbl.textContent = isSet ? "1 Set is good for 22 persons (4 dishes). Minimum order: 1 set." : "Enter the total number of guests (pax).";
+    if (hintLbl) hintLbl.textContent = isSet ? "Specify target number of sets, then choose sets below. Minimum order: 1 set." : "Enter the total number of guests (pax).";
     const priceRateLbl = card.querySelector("#lbl-price-rate");
     if (priceRateLbl) priceRateLbl.textContent = isSet ? "Price Per Set (₱)" : "Price Per Pax (₱)";
 
@@ -2035,7 +2035,7 @@ async function renderStepPackage(card) {
         return;
       }
       d.event.numSets = totalQty;
-      d.event.pax = totalQty * 22; // informational pax estimate (22 pax/set)
+      d.event.pax = totalQty;
     } else if (d.flowType === "food_tray") {
       // Food Tray: no package required — base total may be set manually here
       // or left at 0 and finished via priced add-on dishes on the Menu step.
@@ -3679,7 +3679,13 @@ export function openLightCalendarModal(onSelectDate, opts = {}) {
           const target = btn.dataset.calDel;
           const ref = btn.dataset.calRef || target;
           const cust = btn.dataset.calCust || "this booking";
-          if (!confirm(`Are you sure you want to delete/cancel booking ${ref} for ${cust}? This will remove it from the tablet and sync the cancellation to Central Server.`)) return;
+          const confirmed = await confirmWithSlider({
+            title: "Delete Booking",
+            message: `Are you sure you want to delete/cancel booking ${ref} for ${cust}?`,
+            submessage: "This will remove it from the tablet and sync the cancellation to Central Server.",
+            sliderLabel: "Slide to delete ➔",
+          });
+          if (!confirmed) return;
           const ok = await api.deleteBooking(target);
           if (ok) {
             toast(`Booking ${ref} was deleted.`, "success");
