@@ -5178,5 +5178,76 @@ body.wizard-mode {
   font-style: italic;
 }
 
+/* ==========================================================================
+   SLIDE TO CONFIRM WIDGET (DELETE CONFIRMATION)
+   ========================================================================== */
+.slide-confirm-box {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 12px 4px;
+  user-select: none;
+}
 
+.slide-confirm-track {
+  position: relative;
+  width: 100%;
+  height: 56px;
+  background: var(--input-bg, #1E293B);
+  border: 1.5px solid rgba(220, 38, 38, 0.4);
+  border-radius: 28px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  cursor: pointer;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
 
+.slide-confirm-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.25) 0%, rgba(220, 38, 38, 0.6) 100%);
+  pointer-events: none;
+  transition: width 0.05s linear;
+}
+
+.slide-confirm-text {
+  position: relative;
+  z-index: 1;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-muted, #94A3B8);
+  letter-spacing: 0.5px;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.slide-confirm-thumb {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.5);
+  cursor: grab;
+  z-index: 2;
+  transition: transform 0.05s linear;
+}
+
+.slide-confirm-thumb:active {
+  cursor: grabbing;
+}
