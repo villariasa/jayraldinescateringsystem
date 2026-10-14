@@ -279,6 +279,11 @@ class OrderPrintDialog(QDialog):
         self._pdf_view = None
         self._pdf_doc = None
         self._preview_tmp_pdf = None
+        # Why a PDF viewer widget might be unavailable - surfaced in the inline
+        # preview notice so a stripped PySide6 install (missing QtPdf /
+        # QtPdfWidgets, i.e. the PySide6-Addons package) is diagnosable instead
+        # of silently degrading to the old HTML mock.
+        self._pdf_widget_error: Optional[str] = None
         try:
             from PySide6.QtPdf import QPdfDocument
             from PySide6.QtPdfWidgets import QPdfView
@@ -288,8 +293,9 @@ class OrderPrintDialog(QDialog):
             self._pdf_view.setPageMode(QPdfView.PageMode.MultiPage)
             self._pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
             self._preview_stack.addWidget(self._pdf_view)
-        except Exception:
-            pass
+        except Exception as e:
+            self._pdf_widget_error = str(e)
+            print(f"[OrderPrintDialog] QtPdfWidgets/QtPdf unavailable, PDF viewer disabled: {e}")
 
         p_lay.addWidget(self._preview_stack)
         root_lay.addWidget(preview_card, 1)
@@ -571,10 +577,13 @@ class OrderPrintDialog(QDialog):
         date_str = str(booking.get("event_date") or booking.get("date") or "TBA")
         raw_t = booking.get("event_time") or booking.get("time") or ""
         time_str = repo.format_time_ampm(raw_t) if raw_t else "TBA"
-        pax = str(booking.get("pax", 100))
+        pax_raw = booking.get("pax", 0)
+        num_sets_raw = booking.get("num_sets") or booking.get("bk_num_sets") or 0
         occasion = str(booking.get("occasion") or "Banquet Catering")
         pkg_name = str(booking.get("package_name") or booking.get("menu_value") or "Standard Catering Package")
         is_food_set = is_food_set_pkg(pkg_name, occasion)
+        # FIX 1: For Set bookings, show num_sets on the strip — not pax (which was num_sets*22).
+        pax = str(num_sets_raw if is_food_set and num_sets_raw else pax_raw or 0)
         pax_lbl = "SET" if is_food_set else "PAX"
         contact = str(booking.get("contact") or "")
 
@@ -912,7 +921,9 @@ class OrderPrintDialog(QDialog):
         """ if addons_html else '<div style="font-size:10.5px; color:#64748B;">&bull; None specified.</div>'
 
         pax_label = "No. of Sets:" if is_food_set else "No. of Pax:"
-        pax_value = f"{pax} Set(s)" if is_food_set else f"{pax} Pax"
+        # FIX 1: Show num_sets for Set bookings instead of pax (pax = num_sets*22).
+        pax_qty_disp = str(num_sets_val) if is_food_set and num_sets_val else str(booking.get("pax") or 0)
+        pax_value = f"{pax_qty_disp} Set(s)" if is_food_set else f"{pax_qty_disp} Pax"
         special_instructions = notes or "Standard arrangement."
         pickup_val = html.escape(str(booking.get("pickup_time") or "").strip())
         dropoff_val = html.escape(str(booking.get("dropoff_time") or "").strip())
@@ -962,7 +973,8 @@ class OrderPrintDialog(QDialog):
 
         pickup_row = _row("Pickup Time:", pickup_val) if pickup_val else ""
         dropoff_row = _row("Drop-off Time:", dropoff_val) if dropoff_val else ""
-        num_sets_row = _row("No. of Sets:", str(num_sets_val), True) if num_sets_val and not is_food_set else ""
+        # FIX 1: Always show No. of Sets for food-set bookings — suppress only for non-set bookings.
+        num_sets_row = _row("No. of Sets:", str(num_sets_val), True) if num_sets_val else ""
 
         event_details_card = _card_open("calendar", "EVENT DETAILS") + f"""
             <table width="100%" style="width:100%; border-collapse:collapse;">
@@ -1252,54 +1264,104 @@ class OrderPrintDialog(QDialog):
         else:
             return exporter.export_order_slips_pdf(target_path, self._bookings, business=self._business)
 
-    def _refresh_preview(self):
-        """Update preview using the exact ReportLab PDF via QPdfView, or fallback to rasterized/HTML browser."""
-        import tempfile
-        pdf_loaded = False
+    def _generate_preview_pdf(self, target_path: str) -> bool:
+        """Produce the SAME real PDF that Export PDF / Print produce, so the
+        on-screen preview is always the true document - never a look-alike.
+        Prefers the ReportLab generator; if ReportLab is unavailable it falls
+        back to rendering the A4 page bodies straight to a genuine PDF via
+        QPrinter (QtPrintSupport), so a real PDF still exists either way."""
         if exporter.REPORTLAB_OK:
             try:
-                if getattr(self, "_preview_tmp_pdf", None) and os.path.exists(self._preview_tmp_pdf):
-                    try:
-                        os.remove(self._preview_tmp_pdf)
-                    except Exception:
-                        pass
-                fd, self._preview_tmp_pdf = tempfile.mkstemp(suffix=".pdf")
-                os.close(fd)
-                if self._generate_current_pdf(self._preview_tmp_pdf):
-                    if getattr(self, "_pdf_view", None) and getattr(self, "_pdf_doc", None):
-                        from PySide6.QtPdf import QPdfDocument
-                        if self._pdf_doc.load(self._preview_tmp_pdf) == QPdfDocument.Error.None_ and self._pdf_doc.pageCount() > 0:
-                            self._preview_stack.setCurrentWidget(self._pdf_view)
-                            pdf_loaded = True
-            except Exception as pe:
+                if self._generate_current_pdf(target_path):
+                    return True
+            except Exception as e:
+                print(f"[OrderPrintDialog] ReportLab preview generation failed, trying Qt: {e}")
+
+        if PRINTER_SUPPORT:
+            try:
+                printer = QPrinter(QPrinter.HighResolution)
+                self._configure_a4(printer)
+                printer.setOutputFormat(QPrinter.PdfFormat)
+                printer.setOutputFileName(target_path)
+                self._print_document(printer)
+                return os.path.exists(target_path) and os.path.getsize(target_path) > 0
+            except Exception as e:
+                print(f"[OrderPrintDialog] Qt HTML->PDF preview generation failed: {e}")
+        return False
+
+    def _refresh_preview(self):
+        """Render the current mode (agreement / kitchen) as an ACTUAL PDF and
+        show it in the PDF viewer. Order of preference:
+          1. QPdfView widget  - true scroll/zoom PDF viewer.
+          2. QtPdf rasterizer - real PDF pages drawn as images (when the
+             QPdfView *widget* is missing but QtPdf core is present).
+          3. A clear notice   - only when no Qt PDF rendering exists at all;
+             we never fall back to the old HTML look-alike, which did not
+             match the exported PDF and is exactly what the slip must avoid."""
+        import tempfile
+
+        # Always regenerate the real PDF to a fresh temp file.
+        if getattr(self, "_preview_tmp_pdf", None) and os.path.exists(self._preview_tmp_pdf):
+            try:
+                os.remove(self._preview_tmp_pdf)
+            except Exception:
                 pass
+        fd, self._preview_tmp_pdf = tempfile.mkstemp(suffix=".pdf")
+        os.close(fd)
 
-        if not pdf_loaded:
-            self._html_content = self._generate_slip_html()
-            self._doc_browser.setHtml(self._html_content)
+        if not self._generate_preview_pdf(self._preview_tmp_pdf):
+            self._show_preview_notice(
+                "Unable to build the PDF document for this slip.",
+                "The PDF generator could not run. Ensure <code>reportlab</code> "
+                "is installed (<code>pip install reportlab</code>). "
+                "Export PDF / Print below use the same generator."
+            )
+            return
+
+        # 1) True PDF viewer widget.
+        if getattr(self, "_pdf_view", None) and getattr(self, "_pdf_doc", None):
+            try:
+                from PySide6.QtPdf import QPdfDocument
+                if (self._pdf_doc.load(self._preview_tmp_pdf) == QPdfDocument.Error.None_
+                        and self._pdf_doc.pageCount() > 0):
+                    self._preview_stack.setCurrentWidget(self._pdf_view)
+                    return
+                print("[OrderPrintDialog] QPdfView could not load the generated PDF; trying rasterizer.")
+            except Exception as e:
+                print(f"[OrderPrintDialog] QPdfView load failed, trying rasterizer: {e}")
+
+        # 2) Rasterize the real PDF to images (QtPdf core without QtPdfWidgets).
+        raster_html = self._rasterize_pdf_to_html(self._preview_tmp_pdf)
+        if raster_html:
+            self._doc_browser.setHtml(raster_html)
             self._preview_stack.setCurrentWidget(self._doc_browser)
+            return
 
-    def _render_exact_preview_html(self) -> Optional[str]:
-        """On-screen preview fallback built by rendering the exact ReportLab PDF
-        rasterized to PNG images when QPdfView widget is not available."""
-        if not exporter.REPORTLAB_OK:
-            return None
+        # 3) No Qt PDF rendering available at all - tell the user precisely
+        #    what to install rather than showing a misleading HTML mock.
+        reason = self._pdf_widget_error or "QtPdf module not found"
+        self._show_preview_notice(
+            "A real PDF was generated, but this PySide6 build cannot display it inline.",
+            "The Qt PDF module is missing (" + html.escape(reason) + ").<br><br>"
+            "Install it with &nbsp;<code>pip install PySide6-Addons</code>&nbsp; "
+            "(provides QtPdf / QtPdfWidgets), then reopen this window.<br><br>"
+            "<b>Export PDF</b> and <b>Print</b> below already work."
+        )
+
+    def _rasterize_pdf_to_html(self, pdf_path: str) -> Optional[str]:
+        """Render each page of an already-generated PDF to a PNG and wrap them
+        in HTML, so the browser-based preview still shows the EXACT PDF (as
+        images) when the QPdfView widget is unavailable. Returns None if QtPdf
+        core rendering is not available."""
         try:
-            import tempfile
             from PySide6.QtPdf import QPdfDocument
             from PySide6.QtCore import QSize, QBuffer, QIODevice
         except Exception:
             return None
 
-        tmp_path = None
         try:
-            fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
-            os.close(fd)
-            if not self._generate_current_pdf(tmp_path):
-                return None
-
             pdf_doc = QPdfDocument(self)
-            if pdf_doc.load(tmp_path) != QPdfDocument.Error.None_:
+            if pdf_doc.load(pdf_path) != QPdfDocument.Error.None_:
                 return None
             if pdf_doc.pageCount() <= 0:
                 return None
@@ -1322,28 +1384,31 @@ class OrderPrintDialog(QDialog):
                     return None
                 encoded = base64.b64encode(bytes(buf.data())).decode("ascii")
                 page_imgs.append(
-                    f'<img src="data:image/png;base64,{encoded}" width="{px_w}" height="{px_h}" style="display:block;" />'
+                    f'<img src="data:image/png;base64,{encoded}" width="{px_w}" height="{px_h}" style="display:block; margin:0 auto 12px auto; box-shadow:0 1px 4px rgba(0,0,0,0.25);" />'
                 )
             if not page_imgs:
                 return None
-            joined = '<div style="page-break-after: always;"></div>'.join(page_imgs)
-            return f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head><body>{joined}</body></html>"
-        except Exception:
+            joined = "".join(page_imgs)
+            return (f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head>"
+                    f'<body style="background:#525659; margin:0; padding:12px;">{joined}</body></html>')
+        except Exception as e:
+            print(f"[OrderPrintDialog] PDF rasterization failed: {e}")
             return None
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except Exception:
-                    pass
 
-    def _generate_slip_html(self) -> str:
-        """Full HTML for the on-screen scrollable preview when QPdfView is unavailable."""
-        exact_html = self._render_exact_preview_html()
-        if exact_html:
-            return exact_html
-        joined = '<div style="page-break-after: always;"></div>'.join(self._build_page_bodies())
-        return f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head><body>{joined}</body></html>"
+    def _show_preview_notice(self, title: str, detail_html: str):
+        """Display a clear in-preview message (used only when the real PDF
+        cannot be rendered to the screen) instead of a misleading mock."""
+        notice = (
+            f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head>"
+            '<body style="background:#FFFFFF; color:#0F172A; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">'
+            '<div style="max-width:560px; margin:48px auto; padding:24px 28px; border:1px solid #FECACA; '
+            'border-radius:10px; background:#FEF2F2;">'
+            f'<div style="font-size:16px; font-weight:800; color:#B91C1C; margin-bottom:10px;">{html.escape(title)}</div>'
+            f'<div style="font-size:13px; line-height:1.6; color:#334155;">{detail_html}</div>'
+            "</div></body></html>"
+        )
+        self._doc_browser.setHtml(notice)
+        self._preview_stack.setCurrentWidget(self._doc_browser)
 
     def _copy_slip_text(self):
         blocks = []
