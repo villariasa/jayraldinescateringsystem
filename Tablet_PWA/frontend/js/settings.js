@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import * as repo from "./repository.js";
-import { openModal, closeModal, toast, escapeHtml, statusPill } from "./views.js";
+import { openModal, closeModal, toast, escapeHtml, statusPill, confirmWithSlider } from "./views.js";
 import { peso } from "./state.js";
 import { icon } from "./icons.js";
 import { mountLottie } from "./lottie-helper.js";
@@ -529,7 +529,13 @@ async function renderBookingsTab(content) {
         const id = Number(btn.dataset.deleteBooking);
         const ref = btn.dataset.ref || "";
         const cust = btn.dataset.customer || "this booking";
-        if (!confirm(`Are you sure you want to delete/cancel booking ${ref} for ${cust}? This will remove it from the tablet and sync the cancellation to the server.`)) return;
+        const confirmed = await confirmWithSlider({
+          title: "Delete Booking",
+          message: `Are you sure you want to delete/cancel booking ${ref} for ${cust}?`,
+          submessage: "This will remove it from the tablet and sync the cancellation to the server.",
+          sliderLabel: "Slide to delete ➔",
+        });
+        if (!confirmed) return;
         const ok = await api.deleteBooking(id);
         if (ok) {
           toast(`Booking ${ref} was deleted.`, "success");
@@ -702,7 +708,13 @@ export function openOrderDetailModal(bookingId) {
     document.querySelector(`#${modalId} #modal-delete-booking-btn`)?.addEventListener("click", async () => {
       const ref = order.booking_ref || `JC-${order.booking_id}`;
       const cust = order.customer || "this booking";
-      if (!confirm(`Are you sure you want to delete/cancel booking ${ref} for ${cust}? This will remove it from the tablet and sync the cancellation to the server.`)) return;
+      const confirmed = await confirmWithSlider({
+        title: "Delete Booking",
+        message: `Are you sure you want to delete/cancel booking ${ref} for ${cust}?`,
+        submessage: "This will remove it from the tablet and sync the cancellation to the server.",
+        sliderLabel: "Slide to delete ➔",
+      });
+      if (!confirmed) return;
       const ok = await api.deleteBooking(Number(bookingId));
       if (ok) {
         toast(`Booking ${ref} was deleted.`, "success");
