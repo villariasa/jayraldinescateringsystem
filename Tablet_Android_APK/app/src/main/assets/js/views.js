@@ -277,3 +277,150 @@ export function escapeHtml(str) {
   div.textContent = str == null ? "" : String(str);
   return div.innerHTML;
 }
+
+/**
+ * Slide-to-confirm modal dialog replacing native browser confirm().
+ * Resolves Promise<boolean> (true on confirmed slide, false on cancel/dismiss).
+ */
+export function confirmWithSlider({
+  title = "Confirm Action",
+  message = "Are you sure you want to proceed?",
+  submessage = "",
+  sliderLabel = "Slide to delete ➔",
+}) {
+  return new Promise((resolve) => {
+    const modalId = "slide-confirm-modal-" + Math.floor(Math.random() * 1000000);
+    let isResolved = false;
+
+    const cleanupAndResolve = (result) => {
+      if (isResolved) return;
+      isResolved = true;
+      closeModal(modalId);
+      resolve(result);
+    };
+
+    const bodyHtml = `
+      <div class="slide-confirm-box">
+        <div style="display:flex; align-items:flex-start; gap:14px; margin-bottom:8px;">
+          <div style="width:44px; height:44px; border-radius:12px; background:rgba(220, 38, 38, 0.12); color:#EF4444; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            ${icon("alertTriangle")}
+          </div>
+          <div style="flex:1;">
+            <div style="font-size:15px; font-weight:700; color:var(--text, #F8FAFC); line-height:1.4;">${escapeHtml(message)}</div>
+            ${submessage ? `<div style="font-size:13px; color:var(--text-muted, #94A3B8); margin-top:6px; line-height:1.4;">${escapeHtml(submessage)}</div>` : ""}
+          </div>
+        </div>
+
+        <div class="slide-confirm-track" id="${modalId}-track">
+          <div class="slide-confirm-fill" id="${modalId}-fill"></div>
+          <span class="slide-confirm-text" id="${modalId}-text">${escapeHtml(sliderLabel)}</span>
+          <div class="slide-confirm-thumb" id="${modalId}-thumb">
+            ${icon("arrowRight")}
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
+          <button type="button" class="btn btn-ghost" id="${modalId}-cancel-btn" style="padding:8px 16px;">Cancel</button>
+        </div>
+      </div>
+    `;
+
+    openModal({
+      id: modalId,
+      title: title,
+      bodyHtml,
+      large: false,
+      onClose: () => cleanupAndResolve(false),
+    });
+
+    setTimeout(() => {
+      const modalEl = document.getElementById(modalId);
+      if (!modalEl) return;
+      const cancelBtn = modalEl.querySelector(`#${modalId}-cancel-btn`);
+      if (cancelBtn) {
+        cancelBtn.addEventListener("click", () => cleanupAndResolve(false));
+      }
+
+      const track = modalEl.querySelector(`#${modalId}-track`);
+      const fill = modalEl.querySelector(`#${modalId}-fill`);
+      const thumb = modalEl.querySelector(`#${modalId}-thumb`);
+      const text = modalEl.querySelector(`#${modalId}-text`);
+      if (!track || !thumb) return;
+
+      let isDragging = false;
+      let startX = 0;
+      let currentX = 0;
+
+      const getMaxSlide = () => Math.max(10, track.clientWidth - thumb.clientWidth - 8);
+
+      const setPos = (x, animate = false) => {
+        const trans = animate ? "all 0.22s cubic-bezier(0.16, 1, 0.3, 1)" : "none";
+        thumb.style.transition = trans;
+        thumb.style.transform = `translateX(${x}px)`;
+        if (fill) {
+          fill.style.transition = trans;
+          fill.style.width = `${x + thumb.clientWidth / 2 + 4}px`;
+        }
+        if (text) {
+          const max = getMaxSlide();
+          const progress = max > 0 ? x / max : 0;
+          text.style.opacity = String(Math.max(0, 1 - progress * 1.5));
+        }
+      };
+
+      const onStart = (clientX) => {
+        isDragging = true;
+        startX = clientX;
+        currentX = 0;
+        setPos(0, false);
+      };
+
+      const onMove = (clientX) => {
+        if (!isDragging) return;
+        const max = getMaxSlide();
+        const delta = Math.max(0, Math.min(max, clientX - startX));
+        currentX = delta;
+        setPos(delta, false);
+      };
+
+      const onEnd = () => {
+        if (!isDragging) return;
+        isDragging = false;
+        const max = getMaxSlide();
+        if (max > 0 && currentX >= max * 0.75) {
+          setPos(max, true);
+          if (thumb) thumb.innerHTML = icon("check");
+          if (text) {
+            text.textContent = "Confirmed!";
+            text.style.opacity = "1";
+          }
+          setTimeout(() => cleanupAndResolve(true), 250);
+        } else {
+          setPos(0, true);
+        }
+      };
+
+      thumb.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try { thumb.setPointerCapture?.(e.pointerId); } catch (_) {}
+        onStart(e.clientX);
+      });
+
+      window.addEventListener("pointermove", (e) => {
+        if (isDragging) onMove(e.clientX);
+      });
+
+      window.addEventListener("pointerup", (e) => {
+        if (isDragging) {
+          try { thumb.releasePointerCapture?.(e.pointerId); } catch (_) {}
+          onEnd();
+        }
+      });
+
+      window.addEventListener("pointercancel", () => {
+        if (isDragging) onEnd();
+      });
+    }, 60);
+  });
+}
