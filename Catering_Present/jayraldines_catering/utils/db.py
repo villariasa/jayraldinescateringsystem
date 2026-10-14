@@ -1301,9 +1301,11 @@ def fetchall(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
     if not _ensure_connected():
         return []
     if _engine_type == "sqlite":
-        conn = _get_sqlite_read_conn() or _sqlite_conn
-        lock_ctx = _db_lock if conn is _sqlite_conn else contextlib.nullcontext()
-        with lock_ctx:
+        # Always serialize through _db_lock to prevent the cross-thread GC
+        # finalization race (sqlite3_close mid-query) that causes access violations
+        # when a tablet delete coincides with a concurrent snapshot/sync read.
+        with _db_lock:
+            conn = _get_sqlite_read_conn() or _sqlite_conn
             try:
                 clean_sql = _translate_pg_to_sqlite(sql)
                 actual_placeholders = clean_sql.count("?")
@@ -1313,6 +1315,14 @@ def fetchall(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
                 rows = cur.fetchall()
                 result = [dict(r) for r in rows]
                 cur.close()
+                # Deterministically close thread-local connections so sqlite3_close
+                # only ever runs on a thread that isn't mid-query.
+                if conn is not _sqlite_conn and conn is getattr(_tls, "read_conn", None):
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    _tls.read_conn = None
                 return result
             except Exception as exc:
                 log.error(f"[SQLite] fetchall failed on SQL: {sql[:100]} | Error: {exc}")
@@ -1367,9 +1377,9 @@ def fetchone(sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
     if not _ensure_connected():
         return None
     if _engine_type == "sqlite":
-        conn = _get_sqlite_read_conn() or _sqlite_conn
-        lock_ctx = _db_lock if conn is _sqlite_conn else contextlib.nullcontext()
-        with lock_ctx:
+        # Serialize through _db_lock — same reason as fetchall (crash fix).
+        with _db_lock:
+            conn = _get_sqlite_read_conn() or _sqlite_conn
             try:
                 clean_sql = _translate_pg_to_sqlite(sql)
                 actual_placeholders = clean_sql.count("?")
@@ -1379,6 +1389,13 @@ def fetchone(sql: str, params: tuple = ()) -> Optional[Dict[str, Any]]:
                 row = cur.fetchone()
                 result = dict(row) if row else None
                 cur.close()
+                # Deterministically close thread-local connection.
+                if conn is not _sqlite_conn and conn is getattr(_tls, "read_conn", None):
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    _tls.read_conn = None
                 return result
             except Exception as exc:
                 log.error(f"[SQLite] fetchone failed on SQL: {sql[:100]} | Error: {exc}")
