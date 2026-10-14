@@ -849,6 +849,9 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         from components.color_picker_widget import clean_motif_name
         motif    = clean_motif_name(booking_detail.get("motif") or booking_detail.get("color_theme") or "Standard")
         pax      = str(booking_detail.get("pax") or "—")
+        # FIX 1: For food-set bookings, use num_sets as the displayed quantity.
+        # pax = num_sets * 22 (old tablet logic) — never show that as "Sets".
+        num_sets_val = booking_detail.get("num_sets") or booking_detail.get("bk_num_sets") or 0
         notes    = clean_notes or "Standard arrangement."
         pay_mode = inv.get("payment_method") or booking_detail.get("payment_mode") or "Cash"
 
@@ -863,7 +866,8 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
                     or n.startswith("set ") or " set" in n)
         is_set   = _is_food_set(pkg_name) or _is_food_set(booking_detail.get("occasion") or booking_detail.get("bk_occasion"))
         pax_lbl  = "No. of Sets:" if is_set else "No. of Pax:"
-        pax_val  = f"{pax} {'Set(s)' if is_set else 'Pax'}"
+        qty_disp = str(num_sets_val) if is_set and num_sets_val else pax
+        pax_val  = f"{qty_disp} {'Set(s)' if is_set else 'Pax'}"
 
         # Package inclusions: booking-carried text, else the package description.
         pkg_inclusions = (booking_detail.get("package_inclusions")
@@ -1110,7 +1114,10 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         rY = startY + 31
         T(rightColX + 8, rY, f"PACKAGE: {str(pkg_name).upper()}", 10, bold=True, color=BLACK)
         rY += 13
-        _good = f"Quantity: {pax} {'Set(s)' if is_set else 'Pax'}"
+        # FIX 1: For Set bookings show num_sets, not pax (pax = num_sets*22).
+        _num_sets_c4 = booking_detail.get("num_sets") or booking_detail.get("bk_num_sets") or 0
+        _qty_c4 = str(_num_sets_c4) if is_set and _num_sets_c4 else pax
+        _good = f"Quantity: {_qty_c4} {'Set(s)' if is_set else 'Pax'}"
         T(rightColX + 8, rY, f"{_good}   ·   Base: {_peso(base_tot)}", 8.5, bold=False, color=BLACK)
         rY += 12
 
@@ -1256,6 +1263,8 @@ def _build_order_slip_story(booking: dict, business: dict, styles: dict) -> list
         raw_t     = booking.get("event_time") or booking.get("time") or ""
         time_str  = _format_time_ampm(raw_t) if raw_t else "TBA"
         pax       = str(booking.get("pax", "100"))
+        # FIX 1: For food-set invoice, use num_sets as the displayed count.
+        _num_sets_inv = booking.get("num_sets") or booking.get("bk_num_sets") or 0
         pkg_name_inv = str(booking.get("package_name") or booking.get("pkg_name") or "")
         pkg_name  = pkg_name_inv or "Standard Package"
         occasion  = str(booking.get("occasion") or booking.get("bk_occasion") or "Catering Event")
@@ -1263,7 +1272,8 @@ def _build_order_slip_story(booking: dict, business: dict, styles: dict) -> list
         # sets/quantity rather than as a per-head guest count.
         is_food_set_inv = any(k in pkg_name_inv.lower() for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or pkg_name_inv.lower().startswith("set ") or " set" in pkg_name_inv.lower() or any(k in occasion.lower() for k in ["food set", "food pack", "foodset", "foodpack", "set of dish"]) or occasion.lower().startswith("set ") or " set" in occasion.lower()
         guest_lbl = "Quantity:" if is_food_set_inv else "Guest Count:"
-        pax_disp = f"<b>{pax} Set(s)</b>" if is_food_set_inv else f"<b>{pax} Pax</b>"
+        _qty_inv = str(_num_sets_inv) if is_food_set_inv and _num_sets_inv else pax
+        pax_disp = f"<b>{_qty_inv} Set(s)</b>" if is_food_set_inv else f"<b>{pax} Pax</b>"
         from components.color_picker_widget import clean_motif_name
         motif     = clean_motif_name(booking.get("motif") or booking.get("color_theme") or booking.get("color") or "")
 
