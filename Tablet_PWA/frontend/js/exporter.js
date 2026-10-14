@@ -398,7 +398,9 @@ export function exportOrderReceiptPdf(order, businessName = "JAYRALDINE'S CATERI
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(15, 23, 42); // Black
-  doc.text(`Quantity: ${pax} ${isSet ? "Set(s)" : "Pax"}   ·   Base: ${peso(baseTotal)}`, rightColX + 8, rY);
+  // FIX 1: Use numSets (not pax) for Set bookings — pax = numSets*22 which is wrong here.
+  const qtyDisplay = isSet ? (numSets || pax) : pax;
+  doc.text(`Quantity: ${qtyDisplay} ${isSet ? "Set(s)" : "Pax"}   ·   Base: ${peso(baseTotal)}`, rightColX + 8, rY);
 
   rY += 12;
 
