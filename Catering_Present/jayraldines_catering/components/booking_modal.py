@@ -1004,7 +1004,7 @@ class BookingModal(QDialog):
                 n_lbl = QLabel(name)
                 n_lbl.setStyleSheet(_package_name_style())
 
-                display_desc = desc if desc else "Min set: 1 Set (4 dishes good for 22 person)"
+                display_desc = desc if desc else "Min: 1 Set"
                 if len(display_desc) > 85:
                     display_desc = display_desc[:82].rstrip() + "..."
 
@@ -1382,7 +1382,7 @@ class BookingModal(QDialog):
             info.setSpacing(3)
             n_lbl = QLabel(pkg["name"])
             n_lbl.setStyleSheet(_package_name_style())
-            d_lbl = QLabel(pkg.get("description") or f"Min: {pkg.get('min_pax', 1)} set (good for 22 pax)")
+            d_lbl = QLabel(pkg.get("description") or f"Min: {pkg.get('min_pax', 1)} set")
             d_lbl.setStyleSheet(_package_desc_style())
             d_lbl.setWordWrap(True)
             info.addWidget(n_lbl)
