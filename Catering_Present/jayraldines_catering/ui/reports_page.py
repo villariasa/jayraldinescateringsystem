@@ -507,28 +507,36 @@ class MonthlyCategoryChart(QVBoxLayout):
         self._build(db_data)
 
     def _build(self, db_data):
-        months      = [r["month"] for r in db_data]
-        food_orders = [r["food_orders"] for r in db_data]
-        events      = [r["events"]      for r in db_data]
+        months       = [r["month"] for r in db_data]
+        food_orders  = [r.get("food_orders", 0) for r in db_data]
+        events       = [r.get("events", 0)      for r in db_data]
+        food_service = [r.get("food_service", 0) for r in db_data]
 
         self._bar_food = QBarSet("Food Orders")
         self._bar_food.setColor(QColor("#F59E0B"))
         self._bar_evt  = QBarSet("Events")
         self._bar_evt.setColor(QColor(AccentManager().current))
+        self._bar_fs   = QBarSet("Food and Services")
+        self._bar_fs.setColor(QColor("#06B6D4"))
+
         _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
         self._bar_food.setLabelColor(QColor(_lbl_c))
         self._bar_evt.setLabelColor(QColor(_lbl_c))
+        self._bar_fs.setLabelColor(QColor(_lbl_c))
 
-        for f, e in zip(food_orders, events):
+        for f, e, fs in zip(food_orders, events, food_service):
             self._bar_food.append(f)
             self._bar_evt.append(e)
+            self._bar_fs.append(fs)
 
         self._bar_food.hovered.connect(self._on_hover_food)
         self._bar_evt.hovered.connect(self._on_hover_evt)
+        self._bar_fs.hovered.connect(self._on_hover_fs)
 
         self._series = QBarSeries()
         self._series.append(self._bar_food)
         self._series.append(self._bar_evt)
+        self._series.append(self._bar_fs)
 
         self._chart = QChart()
         self._chart.addSeries(self._series)
@@ -540,7 +548,7 @@ class MonthlyCategoryChart(QVBoxLayout):
         self._chart.addAxis(self._ax, Qt.AlignBottom)
         self._series.attachAxis(self._ax)
 
-        max_val = max(max(food_orders + events, default=0), 1)
+        max_val = max(max(food_orders + events + food_service, default=0), 1)
         self._ay = QValueAxis()
         self._ay.setRange(0, max_val * 1.3)
         self._ay.setLabelFormat("%d")
@@ -559,8 +567,9 @@ class MonthlyCategoryChart(QVBoxLayout):
         # Update summary label
         total_food = sum(food_orders)
         total_evt  = sum(events)
+        total_fs   = sum(food_service)
         self._summary_lbl.setText(
-            f"Events this year: {total_evt}  ·  Food Orders this year: {total_food}"
+            f"Events this year: {total_evt}  ·  Food Orders: {total_food}  ·  Food & Services: {total_fs}"
         )
 
     def reload(self, db_data):
@@ -569,28 +578,32 @@ class MonthlyCategoryChart(QVBoxLayout):
             return
         if not db_data:
             return
-        if not hasattr(self, "_bar_food"):
+        if not hasattr(self, "_bar_food") or not hasattr(self, "_bar_fs"):
             self._build(db_data)
             return
-        food_orders = [r["food_orders"] for r in db_data]
-        events      = [r["events"]      for r in db_data]
-        months      = [r["month"]       for r in db_data]
+        food_orders  = [r.get("food_orders", 0) for r in db_data]
+        events       = [r.get("events", 0)      for r in db_data]
+        food_service = [r.get("food_service", 0) for r in db_data]
+        months       = [r["month"]       for r in db_data]
 
         self._bar_food.remove(0, self._bar_food.count())
         self._bar_evt.remove(0,  self._bar_evt.count())
-        for f, e in zip(food_orders, events):
+        self._bar_fs.remove(0,   self._bar_fs.count())
+        for f, e, fs in zip(food_orders, events, food_service):
             self._bar_food.append(f)
             self._bar_evt.append(e)
+            self._bar_fs.append(fs)
 
         self._ax.clear()
         self._ax.append(months)
-        max_val = max(max(food_orders + events, default=0), 1)
+        max_val = max(max(food_orders + events + food_service, default=0), 1)
         self._ay.setRange(0, max_val * 1.3)
 
         total_food = sum(food_orders)
         total_evt  = sum(events)
+        total_fs   = sum(food_service)
         self._summary_lbl.setText(
-            f"Events this year: {total_evt}  ·  Food Orders this year: {total_food}"
+            f"Events this year: {total_evt}  ·  Food Orders: {total_food}  ·  Food & Services: {total_fs}"
         )
 
     def _on_hover_food(self, state, index):
@@ -602,6 +615,12 @@ class MonthlyCategoryChart(QVBoxLayout):
     def _on_hover_evt(self, state, index):
         if state and 0 <= index < 12:
             QToolTip.showText(QCursor.pos(), f"<b style='color:{AccentManager().current};'>Events</b><br>Month: {index+1}<br>Count: <b>{int(self._bar_evt.at(index))}</b>")
+        else:
+            QToolTip.hideText()
+
+    def _on_hover_fs(self, state, index):
+        if state and 0 <= index < 12:
+            QToolTip.showText(QCursor.pos(), f"<b style='color:#06B6D4;'>Food &amp; Services</b><br>Month: {index+1}<br>Count: <b>{int(self._bar_fs.at(index))}</b>")
         else:
             QToolTip.hideText()
 class OccasionBreakdownChart(QVBoxLayout):
