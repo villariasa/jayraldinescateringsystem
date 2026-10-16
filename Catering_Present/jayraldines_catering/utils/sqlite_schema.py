@@ -170,6 +170,7 @@ CREATE TABLE IF NOT EXISTS packages (
     pkg_min_pax INTEGER DEFAULT 30,
     pkg_image TEXT DEFAULT '',
     pkg_is_set INTEGER DEFAULT 0,   -- 1 = predefined Food Set (Set A-E), 0 = regular package
+    pkg_is_food_service INTEGER DEFAULT 0, -- 1 = Food and Services package, 0 = regular package
     pkg_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -710,6 +711,7 @@ def _ensure_columns(conn: sqlite3.Connection):
         ("menu_items", "image", "TEXT DEFAULT ''"),
         ("packages", "pkg_image", "TEXT DEFAULT ''"),
         ("packages", "pkg_is_set", "INTEGER DEFAULT 0"),
+        ("packages", "pkg_is_food_service", "INTEGER DEFAULT 0"),
         ("menu_categories", "mc_sort", "INTEGER DEFAULT 0"),
         ("package_items", "pi_bucket_id", "INTEGER"),
         # New booking fields (client request): pickup/drop-off time + number of sets
