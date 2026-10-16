@@ -1487,6 +1487,9 @@ class SyncServerHandler(BaseHTTPRequestHandler):
         try:
             price_val = pkg.get("price_per_pax") if pkg.get("price_per_pax") is not None else (pkg.get("pkg_price_per_pax") if pkg.get("pkg_price_per_pax") is not None else 0.0)
             is_set_val = 1 if (pkg.get("is_set") or pkg.get("pkg_is_set") or "set " in name.lower() or name.lower().startswith("set ")) else 0
+            is_fs_val = 1 if (pkg.get("is_food_service") or pkg.get("pkg_is_food_service") or "food and service" in name.lower() or "food & service" in name.lower()) else 0
+            if is_set_val and is_fs_val:
+                is_fs_val = 0
             data = {
                 "name": name,
                 "description": pkg.get("description", "") or "",
@@ -1495,6 +1498,8 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 "image": "",
                 "is_set": is_set_val,
                 "pkg_is_set": is_set_val,
+                "is_food_service": is_fs_val,
+                "pkg_is_food_service": is_fs_val,
             }
 
             raw_id = pkg.get("id") or pkg.get("pkg_id")
@@ -1518,7 +1523,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                     pkg_id = repo.add_package(data)
             if pkg_id:
                 try:
-                    db.execute("UPDATE packages SET pkg_is_set = %s WHERE pkg_id = %s" if db.get_engine_type() == "postgres" else "UPDATE packages SET pkg_is_set = ? WHERE pkg_id = ?", (is_set_val, pkg_id))
+                    db.execute("UPDATE packages SET pkg_is_set = %s, pkg_is_food_service = %s WHERE pkg_id = %s" if db.get_engine_type() == "postgres" else "UPDATE packages SET pkg_is_set = ?, pkg_is_food_service = ? WHERE pkg_id = ?", (is_set_val, is_fs_val, pkg_id))
                 except Exception:
                     pass
             else:
@@ -2476,7 +2481,8 @@ def perform_server_sync(payload: dict) -> dict:
                    COALESCE(pkg_price_per_pax, 0.0) AS pkg_price_per_pax,
                    COALESCE(pkg_min_pax, 30) AS pkg_min_pax,
                    COALESCE(pkg_image, '') AS pkg_image,
-                   COALESCE(pkg_is_set, 0) AS pkg_is_set
+                   COALESCE(pkg_is_set, 0) AS pkg_is_set,
+                   COALESCE(pkg_is_food_service, 0) AS pkg_is_food_service
             FROM packages
             ORDER BY pkg_id
         """) or []
@@ -2491,6 +2497,8 @@ def perform_server_sync(payload: dict) -> dict:
                 "image": _image_to_data_uri(r.get("pkg_image", "")),
                 "pkg_is_set": int(r.get("pkg_is_set") or 0),
                 "is_set": bool(r.get("pkg_is_set") or 0),
+                "pkg_is_food_service": int(r.get("pkg_is_food_service") or 0),
+                "is_food_service": bool(r.get("pkg_is_food_service") or 0),
             }
             for r in pkgs_raw
         ]
