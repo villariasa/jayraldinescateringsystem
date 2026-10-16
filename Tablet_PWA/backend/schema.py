@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS packages (
     pkg_price_per_pax REAL NOT NULL,
     pkg_min_pax INTEGER DEFAULT 30,
     pkg_is_set INTEGER DEFAULT 0,
+    pkg_is_food_service INTEGER DEFAULT 0,
     pkg_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -340,6 +341,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     # and pkg_is_set to flag predefined Food Sets A-E. Idempotent — guarded.
     _new_cols = [
         ("packages", "pkg_is_set", "INTEGER DEFAULT 0"),
+        ("packages", "pkg_is_food_service", "INTEGER DEFAULT 0"),
         ("bookings", "bk_pickup_time", "TEXT"),
         ("bookings", "bk_dropoff_time", "TEXT"),
         ("bookings", "bk_num_sets", "INTEGER DEFAULT 0"),
