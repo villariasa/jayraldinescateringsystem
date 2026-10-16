@@ -1027,7 +1027,9 @@ def get_all_packages() -> list[dict]:
                pkg_price_per_pax       AS price_per_pax,
                pkg_min_pax             AS min_pax,
                pkg_description         AS description,
-               COALESCE(pkg_image, '') AS image
+               COALESCE(pkg_image, '') AS image,
+               COALESCE(pkg_is_set, 0) AS is_set,
+               COALESCE(pkg_is_food_service, 0) AS is_food_service
         FROM packages
         ORDER BY pkg_price_per_pax ASC
     """)
@@ -1063,15 +1065,21 @@ def get_all_packages() -> list[dict]:
     result = []
     for r in pkg_rows:
         p_id = r["id"]
+        is_set = bool(r.get("is_set") or 0)
+        is_fs = bool(r.get("is_food_service") or 0)
+        cat = "food_set" if is_set else ("food_service" if is_fs else "package")
         result.append({
-            "id":            p_id,
-            "name":          r["name"],
-            "price_per_pax": float(r["price_per_pax"]),
-            "min_pax":       int(r["min_pax"]),
-            "description":   r["description"] or "",
-            "image":         r.get("image", "") or "",
-            "items":         items_by_pkg.get(p_id, []),
-            "buckets":       buckets_by_pkg.get(p_id, []),
+            "id":              p_id,
+            "name":            r["name"],
+            "price_per_pax":   float(r["price_per_pax"]),
+            "min_pax":         int(r["min_pax"]),
+            "description":     r["description"] or "",
+            "image":           r.get("image", "") or "",
+            "is_set":          is_set,
+            "is_food_service": is_fs,
+            "category":        cat,
+            "items":           items_by_pkg.get(p_id, []),
+            "buckets":         buckets_by_pkg.get(p_id, []),
         })
     return result
 
@@ -1123,7 +1131,9 @@ def get_packages_page(offset: int = 0, limit: int = 50) -> list[dict]:
                pkg_price_per_pax       AS price_per_pax,
                pkg_min_pax             AS min_pax,
                pkg_description         AS description,
-               COALESCE(pkg_image, '') AS image
+               COALESCE(pkg_image, '') AS image,
+               COALESCE(pkg_is_set, 0) AS is_set,
+               COALESCE(pkg_is_food_service, 0) AS is_food_service
         FROM packages
         ORDER BY pkg_price_per_pax ASC
         LIMIT %s OFFSET %s
@@ -1162,15 +1172,21 @@ def get_packages_page(offset: int = 0, limit: int = 50) -> list[dict]:
     result = []
     for r in pkg_rows:
         p_id = r["id"]
+        is_set = bool(r.get("is_set") or 0)
+        is_fs = bool(r.get("is_food_service") or 0)
+        cat = "food_set" if is_set else ("food_service" if is_fs else "package")
         result.append({
-            "id":            p_id,
-            "name":          r["name"],
-            "price_per_pax": float(r["price_per_pax"]),
-            "min_pax":       int(r["min_pax"]),
-            "description":   r["description"] or "",
-            "image":         r.get("image", "") or "",
-            "items":         items_by_pkg.get(p_id, []),
-            "buckets":       buckets_by_pkg.get(p_id, []),
+            "id":              p_id,
+            "name":            r["name"],
+            "price_per_pax":   float(r["price_per_pax"]),
+            "min_pax":         int(r["min_pax"]),
+            "description":     r["description"] or "",
+            "image":           r.get("image", "") or "",
+            "is_set":          is_set,
+            "is_food_service": is_fs,
+            "category":        cat,
+            "items":           items_by_pkg.get(p_id, []),
+            "buckets":         buckets_by_pkg.get(p_id, []),
         })
     return result
 
@@ -1385,6 +1401,11 @@ def add_package(data: dict) -> Optional[int]:
     if not pkg_name:
         return None
     image_val = data.get("image", "") or ""
+    is_set_val = 1 if (data.get("is_set") or data.get("pkg_is_set")) else 0
+    is_fs_val = 1 if (data.get("is_food_service") or data.get("pkg_is_food_service")) else 0
+    if is_set_val and is_fs_val:
+        is_fs_val = 0  # mutually exclusive
+
     try:
         existing = db.fetchone("SELECT pkg_id FROM packages WHERE LOWER(pkg_name) = LOWER(%s) LIMIT 1", (pkg_name,))
         if existing and existing.get("pkg_id"):
@@ -1394,9 +1415,11 @@ def add_package(data: dict) -> Optional[int]:
                 SET pkg_price_per_pax = %s,
                     pkg_min_pax = %s,
                     pkg_description = COALESCE(NULLIF(%s, ''), pkg_description),
-                    pkg_image = CASE WHEN %s <> '' THEN %s ELSE pkg_image END
+                    pkg_image = CASE WHEN %s <> '' THEN %s ELSE pkg_image END,
+                    pkg_is_set = %s,
+                    pkg_is_food_service = %s
                 WHERE pkg_id = %s
-            """, (data.get("price_per_pax", 0.0), data.get("min_pax", 1), data.get("description", ""), image_val, image_val, pkg_id))
+            """, (data.get("price_per_pax", 0.0), data.get("min_pax", 1), data.get("description", ""), image_val, image_val, is_set_val, is_fs_val, pkg_id))
             return pkg_id
 
         result = db.callproc_out(
@@ -1419,15 +1442,17 @@ def add_package(data: dict) -> Optional[int]:
     if not pkg_id:
         try:
             row = db.fetchone("""
-                INSERT INTO packages (pkg_name, pkg_price_per_pax, pkg_min_pax, pkg_description, pkg_image)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO packages (pkg_name, pkg_price_per_pax, pkg_min_pax, pkg_description, pkg_image, pkg_is_set, pkg_is_food_service)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (pkg_name) DO UPDATE SET
                     pkg_price_per_pax = EXCLUDED.pkg_price_per_pax,
                     pkg_min_pax = EXCLUDED.pkg_min_pax,
                     pkg_description = COALESCE(NULLIF(EXCLUDED.pkg_description, ''), packages.pkg_description),
-                    pkg_image = CASE WHEN EXCLUDED.pkg_image <> '' THEN EXCLUDED.pkg_image ELSE packages.pkg_image END
+                    pkg_image = CASE WHEN EXCLUDED.pkg_image <> '' THEN EXCLUDED.pkg_image ELSE packages.pkg_image END,
+                    pkg_is_set = EXCLUDED.pkg_is_set,
+                    pkg_is_food_service = EXCLUDED.pkg_is_food_service
                 RETURNING pkg_id
-            """, (pkg_name, data.get("price_per_pax", 0.0), data.get("min_pax", 1), data.get("description", ""), image_val))
+            """, (pkg_name, data.get("price_per_pax", 0.0), data.get("min_pax", 1), data.get("description", ""), image_val, is_set_val, is_fs_val))
             if row and row.get("pkg_id"):
                 pkg_id = row["pkg_id"]
         except Exception as exc:
@@ -1435,14 +1460,14 @@ def add_package(data: dict) -> Optional[int]:
 
     if pkg_id:
         try:
-            db.execute("UPDATE packages SET pkg_image = %s WHERE pkg_id = %s", (image_val, pkg_id))
+            db.execute("UPDATE packages SET pkg_image = %s, pkg_is_set = %s, pkg_is_food_service = %s WHERE pkg_id = %s", (image_val, is_set_val, is_fs_val, pkg_id))
         except Exception:
             pass
         write_audit_log(
             action="CREATE",
             table_name="packages",
             record_id=pkg_id,
-            new_value={"name": pkg_name, "price": data.get("price_per_pax"), "image": image_val}
+            new_value={"name": pkg_name, "price": data.get("price_per_pax"), "image": image_val, "is_set": is_set_val, "is_food_service": is_fs_val}
         )
         from utils.data_cache import DataCache
         DataCache.invalidate("packages")
@@ -1457,6 +1482,11 @@ def add_package(data: dict) -> Optional[int]:
 
 def update_package(db_id: int, data: dict) -> bool:
     image_val = data.get("image", "") or ""
+    is_set_val = 1 if (data.get("is_set") or data.get("pkg_is_set")) else 0
+    is_fs_val = 1 if (data.get("is_food_service") or data.get("pkg_is_food_service")) else 0
+    if is_set_val and is_fs_val:
+        is_fs_val = 0  # mutually exclusive
+
     try:
         db.callproc_void(
             "sp_update_package",
@@ -1476,14 +1506,14 @@ def update_package(db_id: int, data: dict) -> bool:
         db.execute("""
             UPDATE packages
             SET pkg_name = %s, pkg_price_per_pax = %s, pkg_min_pax = %s, pkg_description = %s,
-                pkg_image = %s
+                pkg_image = %s, pkg_is_set = %s, pkg_is_food_service = %s
             WHERE pkg_id = %s
-        """, (data["name"], data["price_per_pax"], data.get("min_pax", 1), data.get("description", ""), image_val, db_id))
+        """, (data["name"], data["price_per_pax"], data.get("min_pax", 1), data.get("description", ""), image_val, is_set_val, is_fs_val, db_id))
         write_audit_log(
             action="UPDATE",
             table_name="packages",
             record_id=db_id,
-            new_value={"name": data["name"], "price": data.get("price_per_pax"), "image": image_val}
+            new_value={"name": data["name"], "price": data.get("price_per_pax"), "image": image_val, "is_set": is_set_val, "is_food_service": is_fs_val}
         )
         from utils.data_cache import DataCache
         DataCache.invalidate("packages")
@@ -3813,10 +3843,10 @@ def _is_food_order(
 
 
 def get_monthly_category_counts(year: int | None = None) -> list[dict]:
-    """Per-month count of Food Orders vs Events for the given year (defaults to current year).
+    """Per-month count of Food Orders vs Events vs Food & Services for the given year (defaults to current year).
 
     Returns a list of 12 dicts (one per month 1–12) with keys:
-        month, month_num, food_orders, events, total
+        month, month_num, food_orders, events, food_service, total
     """
     from datetime import datetime as _dt
     yr = year or _dt.now().year
@@ -3829,6 +3859,7 @@ def get_monthly_category_counts(year: int | None = None) -> list[dict]:
             b.bk_special_notes,
             b.bk_menu_type,
             p.pkg_name,
+            COALESCE(p.pkg_is_food_service, 0) AS pkg_is_food_service,
             COALESCE(p.pkg_name, b.bk_menu_type, '') AS pkg_name_resolved
         FROM bookings b
         LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
@@ -3842,6 +3873,7 @@ def get_monthly_category_counts(year: int | None = None) -> list[dict]:
             b.bk_special_notes,
             b.bk_menu_type,
             p.pkg_name,
+            COALESCE(p.pkg_is_food_service, 0) AS pkg_is_food_service,
             COALESCE(p.pkg_name, b.bk_menu_type, '') AS pkg_name_resolved
         FROM bookings b
         LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
@@ -3852,18 +3884,36 @@ def get_monthly_category_counts(year: int | None = None) -> list[dict]:
     _MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     counts: dict[int, dict] = {
-        i: {"month": _MONTH_ABBR[i - 1], "month_num": i, "food_orders": 0, "events": 0, "total": 0}
+        i: {"month": _MONTH_ABBR[i - 1], "month_num": i, "food_orders": 0, "events": 0, "food_service": 0, "total": 0}
         for i in range(1, 13)
     }
     for r in (rows or []):
         mn = int(r.get("month_num") or 0)
         if 1 <= mn <= 12:
-            if _is_food_order(
-                pkg_name=r.get("pkg_name") or r.get("pkg_name_resolved") or "",
-                occasion=r.get("bk_occasion") or "",
-                notes=r.get("bk_notes") or "",
-                special_notes=r.get("bk_special_notes") or "",
-                menu_type=r.get("bk_menu_type") or "",
+            pkg_name_val = r.get("pkg_name") or r.get("pkg_name_resolved") or ""
+            occ_val = r.get("bk_occasion") or ""
+            notes_val = r.get("bk_notes") or ""
+            s_notes_val = r.get("bk_special_notes") or ""
+            mt_val = (r.get("bk_menu_type") or "").strip().lower()
+            is_pkg_fs = bool(r.get("pkg_is_food_service"))
+
+            is_fs = (
+                is_pkg_fs or
+                mt_val == "food_service" or
+                any(
+                    "food and service" in (x or "").lower() or "food & service" in (x or "").lower()
+                    for x in (pkg_name_val, occ_val, notes_val, s_notes_val)
+                )
+            )
+
+            if is_fs:
+                counts[mn]["food_service"] += 1
+            elif _is_food_order(
+                pkg_name=pkg_name_val,
+                occasion=occ_val,
+                notes=notes_val,
+                special_notes=s_notes_val,
+                menu_type=mt_val,
             ):
                 counts[mn]["food_orders"] += 1
             else:
