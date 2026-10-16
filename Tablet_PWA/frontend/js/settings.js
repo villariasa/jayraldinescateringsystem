@@ -755,6 +755,7 @@ async function renderPackagesTab(content) {
           <div class="management-card-meta">
             <span class="management-price-badge">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted);"> / pax</span></span>
             <span class="pill pill-partial">Min ${p.min_pax} pax</span>
+            ${p.is_set ? '<span class="pill pill-gold" style="font-weight:700;">Food Set</span>' : (p.is_food_service ? '<span class="pill" style="background:#06B6D4; color:#fff; font-weight:700;">Food &amp; Services</span>' : '')}
           </div>
           <div class="management-card-actions">
             <button class="btn btn-secondary" data-edit="${p.id}">
@@ -923,6 +924,19 @@ async function openPackageForm(content, pkg) {
             <button type="button" class="btn btn-ghost" id="remove-pkg-img-btn" style="${currentImage ? "" : "display:none;"}">${icon("trash")} Remove</button>
           </div>
         </div>
+      <div class="form-group" style="margin-top:10px;">
+        <label style="font-weight:700; margin-bottom:8px; display:block;">Package Category / Order Type</label>
+        <div style="display:flex; gap:16px; flex-wrap:wrap; padding:10px 14px; background:var(--bg-subtle,rgba(0,0,0,0.03)); border:1px solid var(--border,#cbd5e1); border-radius:8px;">
+          <label style="display:inline-flex; align-items:center; gap:8px; font-weight:600; cursor:pointer;">
+            <input type="checkbox" id="f-is-set" ${pkg?.is_set || pkg?.pkg_is_set ? "checked" : ""} style="width:18px; height:18px;">
+            <span>Food Set (Shows in "Food Set" wizard)</span>
+          </label>
+          <label style="display:inline-flex; align-items:center; gap:8px; font-weight:600; cursor:pointer;">
+            <input type="checkbox" id="f-is-food-service" ${pkg?.is_food_service || pkg?.pkg_is_food_service ? "checked" : ""} style="width:18px; height:18px;">
+            <span>Food and Services (Shows in "Food and Services" wizard)</span>
+          </label>
+        </div>
+        <span style="font-size:11px; color:var(--text-muted); margin-top:4px; display:block;">Leave both unchecked for a standard buffet package. Food Set and Food and Services are mutually exclusive.</span>
       </div>
 
       <hr style="border:none; border-top:1px solid var(--border,#e2e8f0); margin:14px 0;">
@@ -947,6 +961,15 @@ async function openPackageForm(content, pkg) {
   });
 
   const modal = document.getElementById(formId);
+  const cbIsSet = modal.querySelector("#f-is-set");
+  const cbIsFoodService = modal.querySelector("#f-is-food-service");
+  cbIsSet?.addEventListener("change", () => {
+    if (cbIsSet.checked && cbIsFoodService) cbIsFoodService.checked = false;
+  });
+  cbIsFoodService?.addEventListener("change", () => {
+    if (cbIsFoodService.checked && cbIsSet) cbIsSet.checked = false;
+  });
+
   const fileInput = modal.querySelector("#f-pkg-image-file");
   const chooseBtn = modal.querySelector("#choose-pkg-img-btn");
   const removeBtn = modal.querySelector("#remove-pkg-img-btn");
@@ -1074,12 +1097,19 @@ async function openPackageForm(content, pkg) {
     const rawPrice = modal.querySelector("#f-price").value;
     const pricePerPax = rawPrice !== "" && !isNaN(Number(rawPrice)) ? Math.max(0, Number(rawPrice)) : 0;
 
+    const isSet = cbIsSet && cbIsSet.checked ? 1 : 0;
+    const isFoodService = cbIsFoodService && cbIsFoodService.checked ? 1 : 0;
+
     const pkgPayload = {
       id: pkg?.id,
       name,
       description: modal.querySelector("#f-desc").value,
       price_per_pax: pricePerPax,
       min_pax: Number(modal.querySelector("#f-min").value || 30),
+      pkg_is_set: isSet,
+      is_set: Boolean(isSet),
+      pkg_is_food_service: isFoodService,
+      is_food_service: Boolean(isFoodService),
     };
     if (imageChanged || (!pkg && currentImage)) {
       pkgPayload.image = currentImage || "";
