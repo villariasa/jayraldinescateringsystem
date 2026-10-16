@@ -73,6 +73,8 @@ class PackageIn(BaseModel):
     description: str = ""
     price_per_pax: float = 350.0
     min_pax: int = 30
+    pkg_is_set: int = 0
+    pkg_is_food_service: int = 0
 
 
 class MenuItemIn(BaseModel):
@@ -538,6 +540,7 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
             ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_dropoff_time VARCHAR(50);
             ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_num_sets INT DEFAULT 0;
             ALTER TABLE packages ADD COLUMN IF NOT EXISTS pkg_is_set INT DEFAULT 0;
+            ALTER TABLE packages ADD COLUMN IF NOT EXISTS pkg_is_food_service INT DEFAULT 0;
 
             CREATE TABLE IF NOT EXISTS booking_sets (
                 bs_id SERIAL PRIMARY KEY,
@@ -776,18 +779,20 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
                 continue
             try:
                 pg_cur.execute(f"""
-                    INSERT INTO packages (pkg_name, pkg_description, {price_col}, pkg_min_pax, pkg_is_set)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO packages (pkg_name, pkg_description, {price_col}, pkg_min_pax, pkg_is_set, pkg_is_food_service)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (pkg_name) DO UPDATE SET
                         pkg_description = EXCLUDED.pkg_description,
                         {price_col} = EXCLUDED.{price_col},
                         pkg_min_pax = EXCLUDED.pkg_min_pax,
-                        pkg_is_set = EXCLUDED.pkg_is_set
+                        pkg_is_set = EXCLUDED.pkg_is_set,
+                        pkg_is_food_service = EXCLUDED.pkg_is_food_service
                 """, (
                     l_name, lp.get("pkg_description", ""),
                     float(lp["pkg_price_per_pax"]) if lp.get("pkg_price_per_pax") is not None else 350.0,
                     int(lp.get("pkg_min_pax") or 30),
                     int(lp.get("pkg_is_set") or 0),
+                    int(lp.get("pkg_is_food_service") or 0),
                 ))
             except Exception:
                 pass
@@ -800,7 +805,8 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
             SELECT pkg_id, pkg_name, COALESCE(pkg_description, '') AS pkg_description,
                    COALESCE({price_col}, 0.0) AS pkg_price_per_pax,
                    COALESCE(pkg_min_pax, 30) AS pkg_min_pax,
-                   COALESCE(pkg_is_set, 0) AS pkg_is_set
+                   COALESCE(pkg_is_set, 0) AS pkg_is_set,
+                   COALESCE(pkg_is_food_service, 0) AS pkg_is_food_service
             FROM packages
             WHERE {"pkg_is_active IS NOT FALSE" if "pkg_is_active" in pkg_cols else "1=1"}
             ORDER BY pkg_id
@@ -809,18 +815,20 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
         for p in pkgs:
             try:
                 db.execute("""
-                    INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_is_set)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_is_set, pkg_is_food_service)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(pkg_name) DO UPDATE SET
                         pkg_description = excluded.pkg_description,
                         pkg_price_per_pax = excluded.pkg_price_per_pax,
                         pkg_min_pax = excluded.pkg_min_pax,
-                        pkg_is_set = excluded.pkg_is_set
+                        pkg_is_set = excluded.pkg_is_set,
+                        pkg_is_food_service = excluded.pkg_is_food_service
                 """, (
                     p["pkg_name"], p.get("pkg_description", ""),
                     float(p["pkg_price_per_pax"]) if p.get("pkg_price_per_pax") is not None else 0.0,
                     int(p.get("pkg_min_pax") or 30),
                     int(p.get("pkg_is_set") or 0),
+                    int(p.get("pkg_is_food_service") or 0),
                 ))
             except Exception:
                 pass
