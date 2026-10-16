@@ -105,6 +105,7 @@ def get_packages() -> list[dict]:
             "id": r["pkg_id"], "name": r["pkg_name"], "description": r["pkg_description"] or "",
             "price_per_pax": float(r["pkg_price_per_pax"]), "min_pax": int(r["pkg_min_pax"] or 30),
             "is_set": bool(r.get("pkg_is_set") or 0),
+            "is_food_service": bool(r.get("pkg_is_food_service") or 0),
         }
         for r in rows
     ]
@@ -133,24 +134,30 @@ def get_food_sets() -> list[dict]:
     return sets
 
 
-def add_package(name: str, description: str = "", price_per_pax: float = 0.0, min_pax: int = 30) -> int:
+def add_package(name: str, description: str = "", price_per_pax: float = 0.0, min_pax: int = 30, is_set: int = 0, is_food_service: int = 0) -> int:
     name = (name or "").strip()
     if not name:
         raise ValueError("Package name is required.")
     return db.execute(
-        "INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax) VALUES (?, ?, ?, ?)",
-        (name, (description or "").strip(), float(price_per_pax if price_per_pax is not None else 0.0), int(min_pax or 30)),
+        "INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_is_set, pkg_is_food_service) VALUES (?, ?, ?, ?, ?, ?)",
+        (name, (description or "").strip(), float(price_per_pax if price_per_pax is not None else 0.0), int(min_pax or 30), int(is_set or 0), int(is_food_service or 0)),
     )
 
 
-def update_package(pkg_id: int, name: str, description: str = "", price_per_pax: float = 0.0, min_pax: int = 30) -> bool:
+def update_package(pkg_id: int, name: str, description: str = "", price_per_pax: float = 0.0, min_pax: int = 30, is_set: int = None, is_food_service: int = None) -> bool:
     name = (name or "").strip()
     if not name or not pkg_id:
         return False
-    db.execute(
-        "UPDATE packages SET pkg_name = ?, pkg_description = ?, pkg_price_per_pax = ?, pkg_min_pax = ? WHERE pkg_id = ?",
-        (name, (description or "").strip(), float(price_per_pax if price_per_pax is not None else 0.0), int(min_pax or 30), pkg_id),
-    )
+    if is_set is not None and is_food_service is not None:
+        db.execute(
+            "UPDATE packages SET pkg_name = ?, pkg_description = ?, pkg_price_per_pax = ?, pkg_min_pax = ?, pkg_is_set = ?, pkg_is_food_service = ? WHERE pkg_id = ?",
+            (name, (description or "").strip(), float(price_per_pax if price_per_pax is not None else 0.0), int(min_pax or 30), int(is_set or 0), int(is_food_service or 0), pkg_id),
+        )
+    else:
+        db.execute(
+            "UPDATE packages SET pkg_name = ?, pkg_description = ?, pkg_price_per_pax = ?, pkg_min_pax = ? WHERE pkg_id = ?",
+            (name, (description or "").strip(), float(price_per_pax if price_per_pax is not None else 0.0), int(min_pax or 30), pkg_id),
+        )
     return True
 
 
