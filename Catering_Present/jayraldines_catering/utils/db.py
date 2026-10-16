@@ -1788,12 +1788,14 @@ def _emulate_sqlite_procedure_out(proc: str, in_params: tuple, out_names: list) 
         out_dict["p_expense_id"] = cur.lastrowid
 
     elif proc == "sp_add_package":
-        # in_params: (name, price_per_pax, min_pax, description, [image])
+        # in_params: (name, price_per_pax, min_pax, description, [image], [is_set], [is_food_service])
         img = str(p[4]) if len(p) > 4 and p[4] is not None else ""
+        is_set = int(p[5]) if len(p) > 5 and p[5] is not None else 0
+        is_fs = int(p[6]) if len(p) > 6 and p[6] is not None else 0
         cur.execute("""
-            INSERT INTO packages (pkg_name, pkg_price_per_pax, pkg_min_pax, pkg_description, pkg_image)
-            VALUES (?, ?, ?, ?, ?)
-        """, (p[0], p[1], p[2], p[3], img))
+            INSERT INTO packages (pkg_name, pkg_price_per_pax, pkg_min_pax, pkg_description, pkg_image, pkg_is_set, pkg_is_food_service)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (p[0], p[1], p[2], p[3], img, is_set, is_fs))
         _sqlite_conn.commit()
         out_dict["p_package_id"] = cur.lastrowid
 
@@ -2153,13 +2155,20 @@ def _emulate_sqlite_procedure_void(proc: str, in_params: tuple) -> bool:
         cur.execute("DELETE FROM menu_items WHERE mi_id = ?", (p[0],))
 
     elif proc == "sp_update_package":
-        # (db_id, name, price_per_pax, min_pax, description, [image])
+        # (db_id, name, price_per_pax, min_pax, description, [image], [is_set], [is_food_service])
         img = str(p[5]) if len(p) > 5 and p[5] is not None else ""
-        cur.execute("""
-            UPDATE packages
-            SET pkg_name = ?, pkg_price_per_pax = ?, pkg_min_pax = ?, pkg_description = ?, pkg_image = ?
-            WHERE pkg_id = ?
-        """, (p[1], p[2], p[3], p[4], img, p[0]))
+        if len(p) > 7:
+            cur.execute("""
+                UPDATE packages
+                SET pkg_name = ?, pkg_price_per_pax = ?, pkg_min_pax = ?, pkg_description = ?, pkg_image = ?, pkg_is_set = ?, pkg_is_food_service = ?
+                WHERE pkg_id = ?
+            """, (p[1], p[2], p[3], p[4], img, int(p[6] or 0), int(p[7] or 0), p[0]))
+        else:
+            cur.execute("""
+                UPDATE packages
+                SET pkg_name = ?, pkg_price_per_pax = ?, pkg_min_pax = ?, pkg_description = ?, pkg_image = ?
+                WHERE pkg_id = ?
+            """, (p[1], p[2], p[3], p[4], img, p[0]))
 
     elif proc == "sp_delete_package":
         cur.execute("DELETE FROM packages WHERE pkg_id = ?", (p[0],))
