@@ -80,7 +80,9 @@ CREATE TABLE packages (
     pkg_price_per_pax   NUMERIC(10,2)   NOT NULL CHECK (pkg_price_per_pax >= 0),
     pkg_min_pax         INT             NOT NULL DEFAULT 1 CHECK (pkg_min_pax >= 1),
     pkg_description     TEXT,
-    pkg_image           TEXT            NOT NULL DEFAULT ''
+    pkg_image           TEXT            NOT NULL DEFAULT '',
+    pkg_is_set          INT             NOT NULL DEFAULT 0,
+    pkg_is_food_service INT             NOT NULL DEFAULT 0
 );
 
 -- =============================================================================
