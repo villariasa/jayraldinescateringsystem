@@ -903,20 +903,33 @@ class PackageDialog(QDialog):
         pm_row.addLayout(min_col)
         right.addLayout(pm_row)
 
-        # "Food Set" flag (packages.pkg_is_set): lets the owner author more
-        # predefined Food Sets (like Set A-E) that show up in the booking
-        # modal's "Choose Sets" step. repository.py is not modified for this -
-        # the flag is read/written directly via repo.db from this UI file
-        # (see _open_add_package_dialog / _edit_package_dict below).
-        self.chk_is_set = QCheckBox("This is a Food Set (shows in the booking wizard's \"Choose Sets\" step)")
+        # "Food Set" and "Food and Services" flags:
+        self.chk_is_set = QCheckBox("This is a Food Set (shows in \"Food Set\" order type)")
         self.chk_is_set.setStyleSheet("font-size: 12px; font-weight: 600;")
+        self.chk_is_food_service = QCheckBox("This is a Food and Services package (shows in \"Food and Services\")")
+        self.chk_is_food_service.setStyleSheet("font-size: 12px; font-weight: 600;")
+
+        def _on_is_set_toggled(checked):
+            if checked:
+                self.chk_is_food_service.setChecked(False)
+
+        def _on_is_fs_toggled(checked):
+            if checked:
+                self.chk_is_set.setChecked(False)
+
+        self.chk_is_set.toggled.connect(_on_is_set_toggled)
+        self.chk_is_food_service.toggled.connect(_on_is_fs_toggled)
+
         if self._edit_mode and self._pkg_id:
             try:
-                row = repo.db.fetchone("SELECT COALESCE(pkg_is_set, 0) AS is_set FROM packages WHERE pkg_id = %s", (self._pkg_id,))
-                self.chk_is_set.setChecked(bool(row and row.get("is_set")))
+                row = repo.db.fetchone("SELECT COALESCE(pkg_is_set, 0) AS is_set, COALESCE(pkg_is_food_service, 0) AS is_food_service FROM packages WHERE pkg_id = %s", (self._pkg_id,))
+                if row:
+                    self.chk_is_set.setChecked(bool(row.get("is_set")))
+                    self.chk_is_food_service.setChecked(bool(row.get("is_food_service")))
             except Exception:
                 pass
         right.addWidget(self.chk_is_set)
+        right.addWidget(self.chk_is_food_service)
 
         _ds_lbl = QLabel("Description"); _ds_lbl.setStyleSheet(_fld_lbl)
         right.addWidget(_ds_lbl)
@@ -1367,6 +1380,7 @@ class PackageDialog(QDialog):
             # Not a repository.py field; persisted directly via repo.db by the
             # caller (see _open_add_package_dialog / _edit_package_dict).
             "is_set":        self.chk_is_set.isChecked(),
+            "is_food_service": self.chk_is_food_service.isChecked(),
         }
         self.accept()
 
@@ -3369,7 +3383,12 @@ class MenuPage(QWidget):
 
         c1 = QVBoxLayout()
         c1.setSpacing(2)
-        name_lbl = QLabel(highlight_html(pkg["name"], getattr(self, "_filter_pkg_q", getattr(self, "_filter_q", ""))))
+        badge_html = ""
+        if pkg.get("is_set"):
+            badge_html = " <span style='background:rgba(245,158,11,0.2); color:#F59E0B; font-size:11px; padding:2px 6px; border-radius:4px; font-weight:700;'>Food Set</span>"
+        elif pkg.get("is_food_service"):
+            badge_html = " <span style='background:rgba(6,182,212,0.2); color:#06B6D4; font-size:11px; padding:2px 6px; border-radius:4px; font-weight:700;'>Food &amp; Services</span>"
+        name_lbl = QLabel(highlight_html(pkg["name"], getattr(self, "_filter_pkg_q", getattr(self, "_filter_q", ""))) + badge_html)
         name_lbl.setTextFormat(Qt.RichText)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
         desc_lbl = QLabel(pkg.get("description", "No description"))
@@ -3490,11 +3509,11 @@ class MenuPage(QWidget):
                     # directly here via repo.db (utils/repository.py is not modified).
                     try:
                         repo.db.execute(
-                            "UPDATE packages SET pkg_is_set = %s WHERE pkg_id = %s",
-                            (1 if result.get("is_set") else 0, pkg_id),
+                            "UPDATE packages SET pkg_is_set = %s, pkg_is_food_service = %s WHERE pkg_id = %s",
+                            (1 if result.get("is_set") else 0, 1 if result.get("is_food_service") else 0, pkg_id),
                         )
                     except Exception as exc:
-                        print(f"[menu_page] failed to persist pkg_is_set: {exc}")
+                        print(f"[menu_page] failed to persist pkg_is_set/pkg_is_food_service: {exc}")
                     self._packages_cache = repo.get_all_packages()
                     self._populate_packages_table()
                     try:
@@ -3599,11 +3618,11 @@ class MenuPage(QWidget):
                     # directly here via repo.db (utils/repository.py is not modified).
                     try:
                         repo.db.execute(
-                            "UPDATE packages SET pkg_is_set = %s WHERE pkg_id = %s",
-                            (1 if result.get("is_set") else 0, pkg["id"]),
+                            "UPDATE packages SET pkg_is_set = %s, pkg_is_food_service = %s WHERE pkg_id = %s",
+                            (1 if result.get("is_set") else 0, 1 if result.get("is_food_service") else 0, pkg["id"]),
                         )
                     except Exception as exc:
-                        print(f"[menu_page] failed to persist pkg_is_set: {exc}")
+                        print(f"[menu_page] failed to persist pkg_is_set/pkg_is_food_service: {exc}")
                     self._packages_cache = repo.get_all_packages()
                     self._populate_packages_table()
                     try:
