@@ -281,6 +281,7 @@ export function getPackages() {
     min_pax: Number(r.pkg_min_pax || 30),
     image: r.entity_image_data || r.image || r.pkg_image || null,
     is_set: !!Number(r.pkg_is_set || 0),
+    is_food_service: !!Number(r.pkg_is_food_service || 0),
   }));
 }
 
@@ -324,23 +325,28 @@ export function getFoodSets() {
   });
 }
 
-export function addPackage(name, description = "", pricePerPax = 0.0, minPax = 30, imageData = null) {
+export function addPackage(name, description = "", pricePerPax = 0.0, minPax = 30, imageData = null, isSet = 0, isFoodService = 0) {
   name = (name || "").trim();
   if (!name) throw new Error("Package name is required.");
   const img = imageData || "";
   const priceVal = pricePerPax != null ? Number(pricePerPax) : 0;
-  const pkgId = run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image) VALUES (?, ?, ?, ?, ?, ?)",
-    [name, (description || "").trim(), priceVal, Number(minPax) || 30, img, img]);
+  const pkgId = run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image, pkg_is_set, pkg_is_food_service) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    [name, (description || "").trim(), priceVal, Number(minPax) || 30, img, img, Number(isSet) || 0, Number(isFoodService) || 0]);
   if (imageData) saveEntityImage("package", pkgId, imageData);
   return pkgId;
 }
 
-export function updatePackage(pkgId, name, description = "", pricePerPax = 0.0, minPax = 30, imageData = undefined) {
+export function updatePackage(pkgId, name, description = "", pricePerPax = 0.0, minPax = 30, imageData = undefined, isSet = undefined, isFoodService = undefined) {
   name = (name || "").trim();
   if (!name || !pkgId) return false;
   const priceVal = pricePerPax != null ? Number(pricePerPax) : 0;
-  run("UPDATE packages SET pkg_name=?, pkg_description=?, pkg_price_per_pax=?, pkg_min_pax=? WHERE pkg_id=?",
-    [name, (description || "").trim(), priceVal, Number(minPax) || 30, pkgId]);
+  if (isSet !== undefined || isFoodService !== undefined) {
+    run("UPDATE packages SET pkg_name=?, pkg_description=?, pkg_price_per_pax=?, pkg_min_pax=?, pkg_is_set=COALESCE(?, pkg_is_set), pkg_is_food_service=COALESCE(?, pkg_is_food_service) WHERE pkg_id=?",
+      [name, (description || "").trim(), priceVal, Number(minPax) || 30, isSet !== undefined ? Number(isSet) : null, isFoodService !== undefined ? Number(isFoodService) : null, pkgId]);
+  } else {
+    run("UPDATE packages SET pkg_name=?, pkg_description=?, pkg_price_per_pax=?, pkg_min_pax=? WHERE pkg_id=?",
+      [name, (description || "").trim(), priceVal, Number(minPax) || 30, pkgId]);
+  }
   if (imageData !== undefined) {
     const img = imageData || "";
     run("UPDATE packages SET pkg_image = ?, image = ? WHERE pkg_id = ?", [img, img, pkgId]);
