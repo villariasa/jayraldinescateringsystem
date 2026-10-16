@@ -7,8 +7,8 @@ export function freshDraft() {
     customer: { id: null, name: "", contact: "", email: "", address: "" },
     event: { date: "", time: "18:00", venue: "", occasion: "", pax: 60, pickupTime: "", dropoffTime: "" },
     // Order Type picked on the wizard's Order-Type screen:
-    // 'package' | 'food_tray' | 'food_set'. Drives which branch the Event &
-    // Package step shows (package grid / nothing / Sets A-E picker).
+    // 'package' | 'food_tray' | 'food_set' | 'food_service'. Drives which branch the Event &
+    // Package step shows (package grid / nothing / Sets A-E picker / Food and Services package grid).
     flowType: "",
     package: { id: null, name: "", pricePerPax: 0, baseTotal: 0, minPax: 30 },
     // Food Set selections (flowType === 'food_set'). Supports MULTIPLE
