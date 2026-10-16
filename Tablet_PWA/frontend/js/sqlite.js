@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS packages (
     pkg_image TEXT DEFAULT '',
     image TEXT DEFAULT '',
     pkg_is_set INTEGER DEFAULT 0,
+    pkg_is_food_service INTEGER DEFAULT 0,
     pkg_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -377,8 +378,9 @@ export async function initDb() {
   try { db.run("ALTER TABLE occasions ADD COLUMN occ_is_active INTEGER DEFAULT 1;"); } catch (_) {}
   try { db.run("ALTER TABLE package_items ADD COLUMN pi_bucket_id INTEGER;"); } catch (_) {}
   // New fields (client request): pickup/drop-off time + number of sets, and
-  // pkg_is_set to flag the predefined Food Sets A-E. Idempotent — guarded.
+  // pkg_is_set / pkg_is_food_service to flag predefined Food Sets A-E & Food and Services. Idempotent — guarded.
   try { db.run("ALTER TABLE packages ADD COLUMN pkg_is_set INTEGER DEFAULT 0;"); } catch (_) {}
+  try { db.run("ALTER TABLE packages ADD COLUMN pkg_is_food_service INTEGER DEFAULT 0;"); } catch (_) {}
   try { db.run("ALTER TABLE bookings ADD COLUMN bk_pickup_time TEXT;"); } catch (_) {}
   try { db.run("ALTER TABLE bookings ADD COLUMN bk_dropoff_time TEXT;"); } catch (_) {}
   try { db.run("ALTER TABLE bookings ADD COLUMN bk_num_sets INTEGER DEFAULT 0;"); } catch (_) {}
@@ -514,12 +516,13 @@ export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], pa
         const minPax = Number(p.pkg_min_pax ?? p.min_pax) || 30;
         const img = p.image || p.pkg_image || "";
         const isSet = Number(p.pkg_is_set ?? p.is_set) || 0;
+        const isFoodService = Number(p.pkg_is_food_service ?? p.is_food_service) || 0;
         if (id) {
-          db.run("INSERT INTO packages (pkg_id, pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image, pkg_is_set) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [id, name, desc, price, minPax, img, img, isSet]);
+          db.run("INSERT INTO packages (pkg_id, pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image, pkg_is_set, pkg_is_food_service) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [id, name, desc, price, minPax, img, img, isSet, isFoodService]);
         } else {
-          db.run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image, pkg_is_set) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [name, desc, price, minPax, img, img, isSet]);
+          db.run("INSERT INTO packages (pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image, pkg_is_set, pkg_is_food_service) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [name, desc, price, minPax, img, img, isSet, isFoodService]);
         }
         const assignedId = id || db.exec("SELECT last_insert_rowid()")[0].values[0][0];
         if (img) {
