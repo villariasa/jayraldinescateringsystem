@@ -372,7 +372,7 @@ class BookingModal(QDialog):
             if b_pkg_id and b_dishes:
                 self._pkg_selected_dishes[b_pkg_id] = [d.get("name") for d in b_dishes if d.get("name")]
             b_menu_type = str(self._booking_data.get("menu_type") or "").strip().lower()
-            if b_menu_type in ("food_tray", "food_set"):
+            if b_menu_type in ("food_tray", "food_set", "food_service"):
                 self._order_type = b_menu_type
             # Seed the Food Set dish-selection cache from the booking being edited.
             for s in (self._booking_data.get("sets") or []):
@@ -620,8 +620,8 @@ class BookingModal(QDialog):
         self.f_order_type = QComboBox()
         self.f_order_type.setFixedHeight(38)
         self.f_order_type.setStyleSheet(_combo_style())
-        self.f_order_type.addItems(["Packages", "Food Tray", "Food Set"])
-        _ot_map = {"package": "Packages", "food_tray": "Food Tray", "food_set": "Food Set"}
+        self.f_order_type.addItems(["Packages", "Food Tray", "Food Set", "Food and Services"])
+        _ot_map = {"package": "Packages", "food_tray": "Food Tray", "food_set": "Food Set", "food_service": "Food and Services"}
         _ot_idx = self.f_order_type.findText(_ot_map.get(self._order_type, "Packages"))
         if _ot_idx >= 0:
             self.f_order_type.setCurrentIndex(_ot_idx)
@@ -641,7 +641,9 @@ class BookingModal(QDialog):
         if self.f_occasion.lineEdit():
             self.f_occasion.lineEdit().setPlaceholderText("Select or Type Occasion...")
         self.f_occasion.setStyleSheet(_combo_style())
-        self._occasions = repo.get_all_occasions()
+        self._occasions = repo.get_all_occasions() or []
+        if "Food and Services" not in self._occasions:
+            self._occasions.insert(0, "Food and Services")
         self.f_occasion.addItems(self._occasions)
         self.f_occasion.currentTextChanged.connect(self._on_occasion_changed)
         v1.addWidget(self.f_occasion)
@@ -896,14 +898,14 @@ class BookingModal(QDialog):
             self.lbl_date_warning.hide()
 
     def _on_order_type_changed(self, _idx):
-        """React to the Order Type combo (Packages / Food Tray / Food Set).
+        """React to the Order Type combo (Packages / Food Tray / Food Set / Food and Services).
 
         Normalizes the selected text into ``self._order_type`` and, if it
         actually changed, marks step 2 (Menu) dirty so it gets rebuilt with
         the matching pane the next time the wizard navigates into it.
         """
         text = self.f_order_type.currentText() if hasattr(self, "f_order_type") else "Packages"
-        mapping = {"Packages": "package", "Food Tray": "food_tray", "Food Set": "food_set"}
+        mapping = {"Packages": "package", "Food Tray": "food_tray", "Food Set": "food_set", "Food and Services": "food_service"}
         new_type = mapping.get(text, "package")
         if new_type != getattr(self, "_order_type", "package"):
             self._order_type = new_type
@@ -914,12 +916,24 @@ class BookingModal(QDialog):
                     idx = self.f_occasion.findText("Food Set")
                     if idx >= 0:
                         self.f_occasion.setCurrentIndex(idx)
+            elif new_type == "food_service" and hasattr(self, "f_occasion"):
+                cur_occ = self.f_occasion.currentText().strip()
+                if not cur_occ or cur_occ.lower() in ("wedding", "birthday", "corporate", "food set"):
+                    idx = self.f_occasion.findText("Food and Services")
+                    if idx >= 0:
+                        self.f_occasion.setCurrentIndex(idx)
 
     def _on_occasion_changed(self, text):
-        """Auto-sync Order Type when occasion is set to 'Food Set' or similar."""
-        if str(text).strip().lower() == "food set":
+        """Auto-sync Order Type when occasion is set to 'Food Set' or 'Food and Services'."""
+        t_lower = str(text).strip().lower()
+        if t_lower == "food set":
             if hasattr(self, "f_order_type"):
                 idx = self.f_order_type.findText("Food Set")
+                if idx >= 0 and self.f_order_type.currentIndex() != idx:
+                    self.f_order_type.setCurrentIndex(idx)
+        elif t_lower in ("food and services", "food & services", "food and service"):
+            if hasattr(self, "f_order_type"):
+                idx = self.f_order_type.findText("Food and Services")
                 if idx >= 0 and self.f_order_type.currentIndex() != idx:
                     self.f_order_type.setCurrentIndex(idx)
 
@@ -973,16 +987,22 @@ class BookingModal(QDialog):
         pkg_lay = QVBoxLayout(pkg_w)
         pkg_lay.setSpacing(12)
         pkg_lay.setContentsMargins(0, 0, 8, 0)
-        self._pkg_btns = []
-        self._pkg_dish_checks = []
-        self._db_packages = repo.get_all_packages()
+        all_pkgs = repo.get_all_packages() or []
+        if order_type == "food_service":
+            self._db_packages = [p for p in all_pkgs if p.get("is_food_service") or p.get("pkg_is_food_service")]
+        else:
+            self._db_packages = [p for p in all_pkgs if not p.get("is_set") and not p.get("is_food_service") and not p.get("pkg_is_food_service")]
+
         if not self._db_packages:
-            empty_lbl = QLabel("No packages defined yet.\nAsk the owner to add packages in the Menu section.")
+            empty_msg = ("No Food and Services packages defined yet.\nAsk the owner to add them in Menu Management."
+                         if order_type == "food_service" else
+                         "No packages defined yet.\nAsk the owner to add packages in the Menu section.")
+            empty_lbl = QLabel(empty_msg)
             empty_lbl.setStyleSheet("color: #98A2B3; font-size: 13px; font-style: italic; padding: 20px;")
             empty_lbl.setAlignment(Qt.AlignCenter)
             pkg_lay.addWidget(empty_lbl)
         else:
-            pkg_cards_lbl = QLabel("1. Choose Package Tier:")
+            pkg_cards_lbl = QLabel("1. Choose Food & Services Package:" if order_type == "food_service" else "1. Choose Package Tier:")
             pkg_cards_lbl.setStyleSheet("font-weight: 700; font-size: 13px; color: #E11D48; margin-top: 4px;")
             pkg_lay.addWidget(pkg_cards_lbl)
 
@@ -2839,14 +2859,14 @@ class BookingModal(QDialog):
             )
             selected_dishes = [it for it in selected_items if it]
         else:
-            menu_type = "package"
+            menu_type = "food_service" if order_type == "food_service" else "package"
             if db_pkgs and pkg_idx is not None and pkg_idx < len(db_pkgs):
                 pkg_obj = db_pkgs[pkg_idx]
                 menu_value = pkg_obj["name"]
                 rate = float(pkg_obj["price_per_pax"])
                 package_id = pkg_obj.get("id")
             else:
-                menu_value = "Standard Package"
+                menu_value = "Food & Services Package" if order_type == "food_service" else "Standard Package"
                 rate = 0.0
 
             # Prefer the cached per-package selection; else read the live checkboxes.
