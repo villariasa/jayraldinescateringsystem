@@ -533,7 +533,9 @@ export const api = {
 
   async createPackage(data) {
     await ready();
-    const id = repo.addPackage(data.name, data.description, data.price_per_pax, data.min_pax, data.image);
+    const isSet = data.pkg_is_set != null ? Number(data.pkg_is_set) : (data.is_set ? 1 : 0);
+    const isFs = data.pkg_is_food_service != null ? Number(data.pkg_is_food_service) : (data.is_food_service ? 1 : 0);
+    const id = repo.addPackage(data.name, data.description, data.price_per_pax, data.min_pax, data.image, isSet, isFs);
     const imageChanged = Boolean(data.image_changed || data.imageChanged || data.image);
     if (imageChanged) {
       repo.queuePackageImageUpload(id, data.image || "", !data.image);
@@ -544,6 +546,7 @@ export const api = {
     await _proxyPackageWrite("POST", "/api/packages", {
       name: data.name, description: data.description || "",
       price_per_pax: data.price_per_pax != null ? Number(data.price_per_pax) : 0, min_pax: Number(data.min_pax) || 30,
+      pkg_is_set: isSet, pkg_is_food_service: isFs,
     }).catch(() => {});
     api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Package upload queued:", e));
     return { id, image_sync: imageChanged ? "pending" : "none" };
@@ -551,7 +554,9 @@ export const api = {
   async updatePackage(id, data) {
     await ready();
     const imageChanged = Boolean(data.image_changed || data.imageChanged);
-    const ok = repo.updatePackage(id, data.name, data.description, data.price_per_pax, data.min_pax, imageChanged ? data.image : undefined);
+    const isSet = data.pkg_is_set != null ? Number(data.pkg_is_set) : (data.is_set != null ? (data.is_set ? 1 : 0) : undefined);
+    const isFs = data.pkg_is_food_service != null ? Number(data.pkg_is_food_service) : (data.is_food_service != null ? (data.is_food_service ? 1 : 0) : undefined);
+    const ok = repo.updatePackage(id, data.name, data.description, data.price_per_pax, data.min_pax, imageChanged ? data.image : undefined, isSet, isFs);
     if (imageChanged) {
       repo.queuePackageImageUpload(id, data.image || "", !data.image);
     }
@@ -563,6 +568,7 @@ export const api = {
       name: data.name, description: data.description || "",
       price_per_pax: data.price_per_pax != null ? Number(data.price_per_pax) : 0,
       min_pax: Number(data.min_pax) || 30,
+      pkg_is_set: isSet, pkg_is_food_service: isFs,
     }).catch(() => {});
     api.autoSyncPendingRecords().catch((e) => console.warn("[LiveDB] Package update note:", e));
     return { ok, image_sync: imageChanged ? "pending" : "unchanged" };
