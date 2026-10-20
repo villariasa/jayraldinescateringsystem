@@ -911,6 +911,7 @@ class BillingPage(QWidget):
         self._reload_deferred = False
         self.refresh_permissions()
         self._populate_customer_filter()
+        self._on_header_period_changed()
 
         # If a search is active, a reload must re-run the SEARCH (not the default
         # filter) so a refresh never silently drops the user's results.
@@ -950,9 +951,12 @@ class BillingPage(QWidget):
             # the FULL unfiltered list (get_all_invoices(), sorted by
             # created_at), so it must be filtered here the same way
             # get_invoices_page()'s WHERE clause would.
+            all_cached = list(cached)
             if self._filter_paid_status == "unpaid":
                 cached = [i for i in cached if i.get("status") in ("Unpaid", "Partial")]
-            self._summary = self._compute_summary_from_rows(cached)
+            self._summary = self._compute_summary_from_rows(cached, full_rows=all_cached)
+            run_async(self, repo.get_invoices_summary, self._on_initial_summary_loaded, None,
+                      self._filter_date_start, self._filter_date_end, self._filter_customer, self._filter_paid_status)
             self._cached_remainder = list(cached[self._page_size:])
             page = list(cached[:self._page_size])
             if len(cached) <= self._page_size:
@@ -1007,15 +1011,20 @@ class BillingPage(QWidget):
             self._has_more = False
         self._on_invoices_loaded(page, gen)
 
+    def _on_initial_summary_loaded(self, summary):
+        if summary:
+            self._summary = summary
+            self._apply_header_kpis()
+
     @staticmethod
-    def _compute_summary_from_rows(rows):
+    def _compute_summary_from_rows(rows, full_rows=None):
         """Compute the header KPI summary directly from a list of invoice rows.
 
-        Returns a dict with total_received (sum of paid), total_pending (sum of
-        outstanding balance across non-Paid invoices), and events_count (row
-        count). Deriving this from the same rows shown in the table guarantees
-        the header can't disagree with the list."""
-        total_rcv = sum(float(i.get("paid", 0.0) or 0.0) for i in rows)
+        Returns a dict with total_received (sum of paid from full_rows if provided,
+        else rows), total_pending (sum of outstanding balance across non-Paid invoices),
+        and events_count (row count)."""
+        source_for_rcv = full_rows if full_rows is not None else rows
+        total_rcv = sum(float(i.get("paid", 0.0) or 0.0) for i in source_for_rcv)
         total_pending = sum(max(0.0, float(i.get("amount", 0.0) or 0.0) - float(i.get("paid", 0.0) or 0.0)) for i in rows if i.get("status") != "Paid")
         return {"total_received": total_rcv, "total_pending": total_pending, "events_count": len(rows)}
 
@@ -1185,7 +1194,7 @@ class BillingPage(QWidget):
         self._header_period_combo = QComboBox()
         self._header_period_combo.setFixedHeight(34)
         self._header_period_combo.setMinimumWidth(190)
-        self._header_period_combo.addItem("All Time (Default)", None)
+        self._header_period_combo.addItem("All Time (Default)", "All Time")
         self._header_period_combo.addItem("Today (As of Today)", "Today (As of Today)")
         self._header_period_combo.addItem("This Week", "This Week")
         self._header_period_combo.addItem("This Month", "This Month")
@@ -1462,7 +1471,7 @@ class BillingPage(QWidget):
         # call so a list reload/search doesn't stomp the period-filtered
         # header back to matching the table.
         try:
-            source = self._header_summary if getattr(self, "_header_period", None) else self._compute_summary_from_rows(self._invoices)
+            source = self._header_summary if getattr(self, "_header_summary", None) is not None else self._summary
             total_rcv = source.get("total_received", 0.0)
             total_pending = source.get("total_pending", 0.0)
             events_cnt = source.get("events_count", 0)
@@ -1477,7 +1486,7 @@ class BillingPage(QWidget):
                 self._dp3_val.setText(f"{events_cnt} Event{'s' if events_cnt != 1 else ''}")
 
             period = getattr(self, "_header_period", None)
-            suffix = f" ({period})" if period else ""
+            suffix = f" ({period})" if (period and period not in ("All Time", "All Time (Default)")) else ""
             for lbl_attr, base in (
                 ("_dp1_lbl", "TOTAL RECEIVED"), ("_dp2_lbl", "UNPAID BALANCE"),
                 ("_dp4_lbl", "TOTAL (RECEIVED + UNPAID)"), ("_dp3_lbl", "ACTIVE EVENTS"),
@@ -1493,7 +1502,7 @@ class BillingPage(QWidget):
         from datetime import date, timedelta
         period = getattr(self, "_header_period", None)
         today = date.today()
-        if not period or period == "All Time":
+        if not period or period in ("All Time", "All Time (Default)"):
             return None, None
         if period == "Today (As of Today)":
             return today.isoformat(), today.isoformat()
@@ -1520,21 +1529,14 @@ class BillingPage(QWidget):
     def _on_header_period_changed(self):
         """Handler for the header 'Figures for' period combo.
 
-        Clearing the period reverts the header to matching the table. Selecting
-        a period fetches a summary scoped to that period's date range combined
-        with the list's current customer/paid-status filter, so the two
-        controls stack rather than override each other."""
-        self._header_period = self._header_period_combo.currentData()
-        if not self._header_period:
-            self._header_summary = None
-            self._apply_header_kpis()
-            return
+        Selecting a period (or All Time) fetches an aggregate summary scoped to
+        that period's date range, independent of the table's 'unpaid' list filter,
+        so the header accurately shows total received and unpaid balance across
+        all invoices in that period."""
+        self._header_period = self._header_period_combo.currentData() if hasattr(self, "_header_period_combo") else "All Time"
         date_start, date_end = self._current_header_period_range()
-        # Combine with whatever customer/paid-status filter is currently
-        # active on the invoice list, so the two controls stack instead of
-        # the period override silently discarding the list's own filter.
         run_async(self, repo.get_invoices_summary, self._on_header_summary_loaded, None,
-                  date_start, date_end, self._filter_customer, self._filter_paid_status)
+                  date_start, date_end, self._filter_customer, None)
 
     def _on_header_summary_loaded(self, summary):
         """UI-thread callback: store the period-scoped header summary (falling

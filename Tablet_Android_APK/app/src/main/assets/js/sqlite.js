@@ -516,7 +516,7 @@ export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], pa
         const minPax = Number(p.pkg_min_pax ?? p.min_pax) || 30;
         const img = p.image || p.pkg_image || "";
         const isSet = Number(p.pkg_is_set ?? p.is_set) || 0;
-        const isFoodService = Number(p.pkg_is_food_service ?? p.is_food_service) || 0;
+        const isFoodService = Number(p.pkg_is_food_service ?? p.is_food_service) || (name.toLowerCase().includes("food and service") || name.toLowerCase().includes("food & service") ? 1 : 0);
         if (id) {
           db.run("INSERT INTO packages (pkg_id, pkg_name, pkg_description, pkg_price_per_pax, pkg_min_pax, pkg_image, image, pkg_is_set, pkg_is_food_service) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [id, name, desc, price, minPax, img, img, isSet, isFoodService]);

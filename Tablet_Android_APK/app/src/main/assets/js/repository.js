@@ -281,7 +281,7 @@ export function getPackages() {
     min_pax: Number(r.pkg_min_pax || 30),
     image: r.entity_image_data || r.image || r.pkg_image || null,
     is_set: !!Number(r.pkg_is_set || 0),
-    is_food_service: !!Number(r.pkg_is_food_service || 0),
+    is_food_service: !!Number(r.pkg_is_food_service || 0) || Boolean(r.pkg_name && (r.pkg_name.toLowerCase().includes("food and service") || r.pkg_name.toLowerCase().includes("food & service"))),
   }));
 }
 
@@ -686,10 +686,10 @@ export function createOrder(order) {
 
   let resolvedOccasion = (order.occasion || "").trim() || "General Event";
 
-  // 'package' | 'custom' | 'food_set' | 'food_tray' — set by the wizard's
+  // 'package' | 'custom' | 'food_set' | 'food_tray' | 'food_service' — set by the wizard's
   // Order-Type screen. Never hardcoded here — mirrors the desktop app.
   let menuType = String(order.menu_type || "package").trim().toLowerCase();
-  if (!["package", "custom", "food_set", "food_tray"].includes(menuType)) menuType = "package";
+  if (!["package", "custom", "food_set", "food_tray", "food_service"].includes(menuType)) menuType = "package";
   const numSets = Number(order.num_sets) || 0;
 
   const bookingId = run(`

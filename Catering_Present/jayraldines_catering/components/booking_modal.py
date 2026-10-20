@@ -987,11 +987,14 @@ class BookingModal(QDialog):
         pkg_lay = QVBoxLayout(pkg_w)
         pkg_lay.setSpacing(12)
         pkg_lay.setContentsMargins(0, 0, 8, 0)
-        all_pkgs = repo.get_all_packages() or []
+        def _is_fs(p):
+            n = (p.get("name") or "").lower()
+            return bool(p.get("is_food_service") or p.get("pkg_is_food_service") or "food and service" in n or "food & service" in n)
+
         if order_type == "food_service":
-            self._db_packages = [p for p in all_pkgs if p.get("is_food_service") or p.get("pkg_is_food_service")]
+            self._db_packages = [p for p in all_pkgs if _is_fs(p)]
         else:
-            self._db_packages = [p for p in all_pkgs if not p.get("is_set") and not p.get("is_food_service") and not p.get("pkg_is_food_service")]
+            self._db_packages = [p for p in all_pkgs if not p.get("is_set") and not _is_fs(p)]
 
         if not self._db_packages:
             empty_msg = ("No Food and Services packages defined yet.\nAsk the owner to add them in Menu Management."

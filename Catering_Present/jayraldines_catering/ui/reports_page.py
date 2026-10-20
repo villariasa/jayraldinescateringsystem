@@ -754,7 +754,7 @@ class OccasionBreakdownChart(QVBoxLayout):
 # MAIN REPORTS PAGE
 # ─────────────────────────────────────────────
 # Selectable period-filter chips, in display order. "All Time" is the default.
-_PERIOD_LABELS = ["Today", "This Week", "This Month", "This Year", "Last Year", "All Time"]
+_PERIOD_LABELS = ["All Time", "Today", "Week", "Month", "Year"]
 
 
 class ReportsPage(QWidget):
@@ -827,13 +827,14 @@ class ReportsPage(QWidget):
         self._header_row.addWidget(self._btn_export)
         self.main_layout.addLayout(self._header_row)
 
-        # ── PERIOD FILTER CHIPS ───────────────────────────────────────────────
+        # ── PERIOD FILTER CHIPS & DYNAMIC SUB-SELECTORS ───────────────────────
         self._period_row = QHBoxLayout()
         self._period_row.setSpacing(8)
         self._period_btns = []
         from PySide6.QtWidgets import QButtonGroup, QGridLayout
         self._period_group = QButtonGroup(self)
         self._period_group.setExclusive(True)
+        _is_dark = ThemeManager().is_dark()
         for lbl in _PERIOD_LABELS:
             btn = QPushButton(lbl)
             btn.setCheckable(True)
@@ -843,7 +844,7 @@ class ReportsPage(QWidget):
             _period_style = (
                 "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
                 "background:transparent;border:1px solid #CBD5E1;"
-            ) if not ThemeManager().is_dark() else (
+            ) if not _is_dark else (
                 "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
                 "background:transparent;color:#9CA3AF;border:1px solid #374151;"
             )
@@ -852,6 +853,18 @@ class ReportsPage(QWidget):
             self._period_btns.append(btn)
             btn.toggled.connect(lambda checked, b=btn, p=lbl: self._on_period(b, p, checked))
             self._period_row.addWidget(btn)
+
+        # Style initial "All Time" checked button with accent tint
+        if self._period_btns:
+            _ar, _ag, _ab, _ = QColor(AccentManager().current).getRgb()
+            self._period_btns[0].setStyleSheet(
+                "border-radius:14px;font-size:12px;font-weight:700;padding:0 14px;"
+                "background:rgba(%d,%d,%d,.15);color:%s;border:1px solid rgba(%d,%d,%d,.4);"
+                % (_ar, _ag, _ab, AccentManager().current, _ar, _ag, _ab)
+            )
+
+        self._build_period_sub_controls()
+        self._period_row.addWidget(self._period_sub_widget)
         self._period_row.addStretch()
         self.main_layout.addLayout(self._period_row)
 
@@ -1200,38 +1213,253 @@ class ReportsPage(QWidget):
         if getattr(self, "_dirty", True) or getattr(self, "_cached_data", None) is None:
             self.reload()
 
-    # ── Period filter ─────────────────────────────────────────────────────────
+    # ── Period filter & Dynamic Sub-Controls ───────────────────────────────────
+
+    def _build_period_sub_controls(self):
+        """Construct the dynamic sub-selectors (Month, Week, Year) for period filtering."""
+        self._period_sub_widget = QWidget(self.scroll_content)
+        self._period_sub_layout = QHBoxLayout(self._period_sub_widget)
+        self._period_sub_layout.setContentsMargins(6, 0, 0, 0)
+        self._period_sub_layout.setSpacing(6)
+
+        _is_l = not ThemeManager().is_dark()
+        _accent = AccentManager().current
+        combo_style = (
+            f"QComboBox {{ padding: 2px 10px; border: 1px solid #CBD5E1; border-radius: 14px; background-color: #FFFFFF; color: #101828; font-size: 12px; font-weight: 600; min-height: 24px; }}"
+            f"QComboBox:focus {{ border: 1px solid {_accent}; }}"
+            f"QComboBox QAbstractItemView {{ background-color: #FFFFFF; color: #101828; border: 1px solid #E4E9F1; border-radius: 6px; selection-background-color: rgba(225,29,72,0.1); selection-color: #D31647; }}"
+        ) if _is_l else (
+            f"QComboBox {{ padding: 2px 10px; border: 1px solid #374151; border-radius: 14px; background-color: #1F2937; color: #F9FAFB; font-size: 12px; font-weight: 600; min-height: 24px; }}"
+            f"QComboBox:focus {{ border: 1px solid {_accent}; }}"
+            f"QComboBox QAbstractItemView {{ background-color: #1F2937; color: #F9FAFB; border: 1px solid #243244; border-radius: 6px; selection-background-color: rgba(225,29,72,0.2); selection-color: #E11D48; }}"
+        )
+
+        # Month combo
+        self._period_month_combo = QComboBox(self._period_sub_widget)
+        self._period_month_combo.setFixedHeight(28)
+        self._period_month_combo.setMinimumWidth(110)
+        self._period_month_combo.setStyleSheet(combo_style)
+        _months = [
+            ("January", 1), ("February", 2), ("March", 3), ("April", 4),
+            ("May", 5), ("June", 6), ("July", 7), ("August", 8),
+            ("September", 9), ("October", 10), ("November", 11), ("December", 12)
+        ]
+        for m_name, m_val in _months:
+            self._period_month_combo.addItem(m_name, m_val)
+        cur_mo = datetime.now().month
+        self._period_month_combo.setCurrentIndex(cur_mo - 1)
+        self._period_month_combo.currentIndexChanged.connect(lambda _: self._on_period_month_changed())
+        self._period_sub_layout.addWidget(self._period_month_combo)
+
+        # Week combo
+        self._period_week_combo = QComboBox(self._period_sub_widget)
+        self._period_week_combo.setFixedHeight(28)
+        self._period_week_combo.setMinimumWidth(140)
+        self._period_week_combo.setStyleSheet(combo_style)
+        self._period_week_combo.currentIndexChanged.connect(lambda _: self._on_period_sub_changed())
+        self._period_sub_layout.addWidget(self._period_week_combo)
+
+        # Year combo
+        self._period_year_combo = QComboBox(self._period_sub_widget)
+        self._period_year_combo.setFixedHeight(28)
+        self._period_year_combo.setMinimumWidth(85)
+        self._period_year_combo.setStyleSheet(combo_style)
+        self._populate_period_years()
+        self._period_year_combo.currentIndexChanged.connect(lambda _: self._on_period_year_changed())
+        self._period_sub_layout.addWidget(self._period_year_combo)
+
+        self._update_week_combo_options()
+        self._period_sub_widget.setVisible(False)
+
+    def _populate_period_years(self):
+        """Populate the period Year dropdown with transacted years from the DB."""
+        try:
+            years = repo.get_transacted_years()
+        except Exception:
+            years = [datetime.now().year]
+        if not years:
+            years = [datetime.now().year]
+
+        cur_year = datetime.now().year
+        self._suppress_period_sub = True
+        try:
+            if hasattr(self, "_period_year_combo"):
+                cur_sel = self._period_year_combo.currentData() or cur_year
+                self._period_year_combo.clear()
+                for y in years:
+                    self._period_year_combo.addItem(str(y), y)
+                idx = self._period_year_combo.findData(cur_sel)
+                if idx >= 0:
+                    self._period_year_combo.setCurrentIndex(idx)
+                else:
+                    self._period_year_combo.setCurrentIndex(0)
+        finally:
+            self._suppress_period_sub = False
+
+    def _update_week_combo_options(self):
+        """Recompute Week options (Week 1 to Week 4 or 5) for selected Year and Month."""
+        if not hasattr(self, "_period_week_combo") or not hasattr(self, "_period_month_combo"):
+            return
+        import calendar
+        from datetime import date
+        today = date.today()
+        yr = self._period_year_combo.currentData() if hasattr(self, "_period_year_combo") and self._period_year_combo.currentData() else today.year
+        mo = self._period_month_combo.currentData() if self._period_month_combo.currentData() else today.month
+        _, num_days = calendar.monthrange(yr, mo)
+
+        prev_wk = self._period_week_combo.currentData()
+        self._period_week_combo.blockSignals(True)
+        self._period_week_combo.clear()
+        self._period_week_combo.addItem("Week 1 (Days 1–7)", 1)
+        self._period_week_combo.addItem("Week 2 (Days 8–14)", 2)
+        self._period_week_combo.addItem("Week 3 (Days 15–21)", 3)
+        self._period_week_combo.addItem("Week 4 (Days 22–28)", 4)
+        if num_days > 28:
+            self._period_week_combo.addItem(f"Week 5 (Days 29–{num_days})", 5)
+
+        target_wk = prev_wk
+        if not target_wk:
+            if yr == today.year and mo == today.month:
+                target_wk = min((today.day - 1) // 7 + 1, 5 if num_days > 28 else 4)
+            else:
+                target_wk = 1
+        idx = self._period_week_combo.findData(target_wk)
+        if idx >= 0:
+            self._period_week_combo.setCurrentIndex(idx)
+        else:
+            self._period_week_combo.setCurrentIndex(0)
+        self._period_week_combo.blockSignals(False)
+
+    def _update_period_sub_controls_visibility(self):
+        """Show or hide Month, Week, and Year sub-controls according to active period."""
+        p = getattr(self, "_period", "All Time")
+        if not hasattr(self, "_period_sub_widget"):
+            return
+        if p in ("All Time", "Today"):
+            self._period_sub_widget.setVisible(False)
+        elif p == "Year":
+            self._period_sub_widget.setVisible(True)
+            self._period_year_combo.setVisible(True)
+            self._period_month_combo.setVisible(False)
+            self._period_week_combo.setVisible(False)
+        elif p == "Month":
+            self._period_sub_widget.setVisible(True)
+            self._period_month_combo.setVisible(True)
+            self._period_year_combo.setVisible(True)
+            self._period_week_combo.setVisible(False)
+        elif p == "Week":
+            self._period_sub_widget.setVisible(True)
+            self._period_month_combo.setVisible(True)
+            self._period_week_combo.setVisible(True)
+            self._period_year_combo.setVisible(True)
+            self._update_week_combo_options()
+
+    def _on_period_month_changed(self):
+        if getattr(self, "_suppress_period_sub", False):
+            return
+        if self._period == "Week":
+            self._suppress_period_sub = True
+            try:
+                self._update_week_combo_options()
+            finally:
+                self._suppress_period_sub = False
+        self._apply_period_filter()
+
+    def _on_period_year_changed(self):
+        if getattr(self, "_suppress_period_sub", False):
+            return
+        if self._period == "Week":
+            self._suppress_period_sub = True
+            try:
+                self._update_week_combo_options()
+            finally:
+                self._suppress_period_sub = False
+        # Sync sales evaluation year combo if present
+        if hasattr(self, "_eval_year_combo") and self._period == "Year":
+            yr = self._period_year_combo.currentData()
+            if yr:
+                idx = self._eval_year_combo.findText(str(yr))
+                if idx >= 0:
+                    self._eval_year_combo.setCurrentIndex(idx)
+        self._apply_period_filter()
+
+    def _on_period_sub_changed(self):
+        if getattr(self, "_suppress_period_sub", False):
+            return
+        self._apply_period_filter()
+
+    def _get_active_date_range(self):
+        """Return (start_date, end_date, human_label) for the active period selection."""
+        import calendar
+        from datetime import date
+        today = date.today()
+        p = getattr(self, "_period", "All Time")
+
+        if p == "Today":
+            return today, today, f"Today ({today.strftime('%b %d, %Y')})"
+
+        if p == "Week":
+            yr = self._period_year_combo.currentData() if hasattr(self, "_period_year_combo") and self._period_year_combo.currentData() else today.year
+            mo = self._period_month_combo.currentData() if hasattr(self, "_period_month_combo") and self._period_month_combo.currentData() else today.month
+            wk = self._period_week_combo.currentData() if hasattr(self, "_period_week_combo") and self._period_week_combo.currentData() else 1
+            _, num_days = calendar.monthrange(yr, mo)
+            start_day = (wk - 1) * 7 + 1
+            end_day = min(wk * 7, num_days)
+            start_d = date(yr, mo, start_day)
+            end_d = date(yr, mo, end_day)
+            m_name = calendar.month_name[mo]
+            return start_d, end_d, f"{m_name} {yr} · Week {wk} ({start_d.strftime('%b %d')} – {end_d.strftime('%b %d')})"
+
+        if p == "Month":
+            yr = self._period_year_combo.currentData() if hasattr(self, "_period_year_combo") and self._period_year_combo.currentData() else today.year
+            mo = self._period_month_combo.currentData() if hasattr(self, "_period_month_combo") and self._period_month_combo.currentData() else today.month
+            _, num_days = calendar.monthrange(yr, mo)
+            start_d = date(yr, mo, 1)
+            end_d = date(yr, mo, num_days)
+            m_name = calendar.month_name[mo]
+            return start_d, end_d, f"{m_name} {yr}"
+
+        if p == "Year":
+            yr = self._period_year_combo.currentData() if hasattr(self, "_period_year_combo") and self._period_year_combo.currentData() else today.year
+            start_d = date(yr, 1, 1)
+            end_d = date(yr, 12, 31)
+            return start_d, end_d, f"Year {yr}"
+
+        return None, None, "All Time"
 
     def _on_period(self, btn, period, checked):
-        """Handle a period chip toggle: restyle chips and re-render from cache.
-
-        Fires for both the newly-checked and newly-unchecked buttons; we only
-        act on the checked one. If a dataset is already cached we re-filter it in
-        place (fast, no DB hit); otherwise we kick a full ``reload``.
-        """
+        """Handle a period chip toggle: restyle chips, update sub-controls, and re-filter."""
         if not checked:
-            return  # ignore the "unchecked" half of the exclusive-group toggle
+            return  # ignore unchecked
         self._period = period
-        # Build an accent-tinted "active" style from the current accent RGB.
+        _is_dark = ThemeManager().is_dark()
         _ar, _ag, _ab, _ = QColor(AccentManager().current).getRgb()
         btn.setStyleSheet(
             "border-radius:14px;font-size:12px;font-weight:700;padding:0 14px;"
             "background:rgba(%d,%d,%d,.15);color:%s;border:1px solid rgba(%d,%d,%d,.4);"
             % (_ar, _ag, _ab, AccentManager().current, _ar, _ag, _ab)
         )
+        inactive_style = (
+            "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
+            "background:transparent;color:#475569;border:1px solid #CBD5E1;"
+        ) if not _is_dark else (
+            "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
+            "background:transparent;color:#9CA3AF;border:1px solid #374151;"
+        )
         for b in self._period_btns:
             if b is not btn:
-                b.setStyleSheet(
-                    "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
-                    "background:transparent;color:#9CA3AF;border:1px solid #374151;"
-                )
-        # Re-filter the already-loaded data client-side instead of re-querying.
+                b.setStyleSheet(inactive_style)
+
+        self._update_period_sub_controls_visibility()
+        self._apply_period_filter()
+
+    def _apply_period_filter(self):
+        """Apply active period date range to cached KPIs, tables, and expenses."""
         if getattr(self, "_cached_data", None):
             d = dict(self._cached_data)
-            d["period"] = period
+            d["period"] = self._period
             self._reload_kpis(d)
             self._reload_table(d.get("bookings", []))
-            # Sync handler toolbar controls to clean state for the chosen period
             self._suppress_exp_filter = True
             try:
                 if hasattr(self, "_exp_year_combo"):
@@ -1245,28 +1473,25 @@ class ReportsPage(QWidget):
             self._load_expenses(d.get("expenses", []), d.get("profit", []))
             if hasattr(self, "_locations_chart_layout") and hasattr(self._locations_chart_layout, "reload"):
                 self._locations_chart_layout.reload()
+
+            # Refresh category chart scoped to chosen year if appropriate
+            if hasattr(self, "_category_chart_layout") and hasattr(self._category_chart_layout, "reload"):
+                yr = self._period_year_combo.currentData() if hasattr(self, "_period_year_combo") and self._period_year_combo.currentData() else datetime.now().year
+                try:
+                    self._category_chart_layout.reload(repo.get_monthly_category_counts(yr))
+                except Exception:
+                    pass
         else:
-            self.reload()  # nothing cached yet — do a full async load
+            self.reload()
 
     def _period_sql_filter(self) -> str:
-        """Return a SQLite ``AND ...`` clause matching the active period.
-
-        Used by the export paths (which re-query the DB); returns "" for
-        "All Time" so no extra filter is appended. Dates are compared against
-        ``bk_event_date`` using SQLite's ``DATE``/``strftime`` helpers.
-        """
-        p = getattr(self, "_period", "All Time")
-        if p == "Today":
-            return "AND DATE(bk_event_date) = DATE('now')"
-        if p == "This Week":
-            return "AND DATE(bk_event_date) >= DATE('now', 'weekday 0', '-6 days') AND DATE(bk_event_date) <= DATE('now', 'weekday 0')"
-        if p == "This Month":
-            return "AND strftime('%Y-%m', bk_event_date) = strftime('%Y-%m', 'now')"
-        if p == "This Year":
-            return "AND strftime('%Y', bk_event_date) = strftime('%Y', 'now')"
-        if p == "Last Year":
-            return "AND CAST(strftime('%Y', bk_event_date) AS INT) = CAST(strftime('%Y', 'now') AS INT) - 1"
-        return ""
+        """Return a SQLite/Postgres ``AND ...`` clause matching the active period."""
+        start_d, end_d, _ = self._get_active_date_range()
+        if not start_d or not end_d:
+            return ""
+        if start_d == end_d:
+            return f"AND DATE(bk_event_date) = '{start_d.isoformat()}'"
+        return f"AND DATE(bk_event_date) >= '{start_d.isoformat()}' AND DATE(bk_event_date) <= '{end_d.isoformat()}'"
 
     def reload(self):
         """Kick off a background fetch of ALL reports data — never blocks the GUI."""
@@ -1344,6 +1569,7 @@ class ReportsPage(QWidget):
             if not isValid(self):
                 return
             self._cached_data = data
+            self._populate_period_years()
             # Synchronous sections first — they finish before any loader hide.
             self._reload_kpis(data)
             self._reload_sales_evaluation_from_data(data.get("sales_eval", {}), data.get("eval_year", datetime.now().year))
@@ -1574,31 +1800,16 @@ class ReportsPage(QWidget):
                     continue
             return None
 
+        start_d, end_d, period_label = self._get_active_date_range()
+
         # Filter bookings for period
         filtered_b = []
         for b in all_bookings:
             b_date = _get_date(b.get("date"))
             if not b_date:
                 continue
-
-            if p in ("All Time", "All", ""):
+            if start_d is None or (start_d <= b_date <= end_d):
                 filtered_b.append(b)
-            elif p == "Today" and b_date == today:
-                filtered_b.append(b)
-            elif p == "This Week":
-                start_w = today - timedelta(days=today.weekday())
-                end_w = start_w + timedelta(days=6)
-                if start_w <= b_date <= end_w:
-                    filtered_b.append(b)
-            elif p == "This Month":
-                if b_date.month == today.month and b_date.year == today.year:
-                    filtered_b.append(b)
-            elif p == "This Year":
-                if b_date.year == today.year:
-                    filtered_b.append(b)
-            elif p == "Last Year":
-                if b_date.year == today.year - 1:
-                    filtered_b.append(b)
 
         # Filter expenses for period
         filtered_e = []
@@ -1606,25 +1817,8 @@ class ReportsPage(QWidget):
             e_date = _get_date(e.get("date"))
             if not e_date:
                 continue
-
-            if p in ("All Time", "All", ""):
+            if start_d is None or (start_d <= e_date <= end_d):
                 filtered_e.append(e)
-            elif p == "Today" and e_date == today:
-                filtered_e.append(e)
-            elif p == "This Week":
-                start_w = today - timedelta(days=today.weekday())
-                end_w = start_w + timedelta(days=6)
-                if start_w <= e_date <= end_w:
-                    filtered_e.append(e)
-            elif p == "This Month":
-                if e_date.month == today.month and e_date.year == today.year:
-                    filtered_e.append(e)
-            elif p == "This Year":
-                if e_date.year == today.year:
-                    filtered_e.append(e)
-            elif p == "Last Year":
-                if e_date.year == today.year - 1:
-                    filtered_e.append(e)
 
         # Compute KPI numbers.
         # Revenue/pax count only "real" (confirmed/completed) bookings; but if the
@@ -1643,35 +1837,8 @@ class ReportsPage(QWidget):
         # "Unpaid"/Outstanding balance must match Billing's figure exactly -
         # both now go through repo.get_invoices_summary() (the invoices
         # table, excluding CANCELLED, correct per-invoice balance logic).
-        # This used to be re-derived here from the bookings table with
-        # different status-inclusion rules (only CONFIRMED/COMPLETED, or
-        # falling back to including CANCELLED when there were none), which
-        # is why it never agreed with Billing's number.
-        if p in ("All Time", "All", ""):
-            unpaid_start = unpaid_end = None
-        elif p == "Today":
-            unpaid_start = unpaid_end = today.isoformat()
-        elif p == "This Week":
-            start_w2 = today - timedelta(days=today.weekday())
-            unpaid_start, unpaid_end = start_w2.isoformat(), (start_w2 + timedelta(days=6)).isoformat()
-        elif p == "This Month":
-            # Full calendar month, not capped at today - matches Billing's
-            # header period fix (future-dated bookings within the month/
-            # year were being silently excluded from the outstanding total).
-            if today.month == 12:
-                next_month_start = date(today.year + 1, 1, 1)
-            else:
-                next_month_start = date(today.year, today.month + 1, 1)
-            unpaid_start = today.replace(day=1).isoformat()
-            unpaid_end = (next_month_start - timedelta(days=1)).isoformat()
-        elif p == "This Year":
-            unpaid_start = today.replace(month=1, day=1).isoformat()
-            unpaid_end = today.replace(month=12, day=31).isoformat()
-        elif p == "Last Year":
-            unpaid_start = date(today.year - 1, 1, 1).isoformat()
-            unpaid_end = date(today.year - 1, 12, 31).isoformat()
-        else:
-            unpaid_start = unpaid_end = None
+        unpaid_start = start_d.isoformat() if start_d else None
+        unpaid_end = end_d.isoformat() if end_d else None
         try:
             # Authoritative outstanding figure from the invoices table (matches Billing).
             total_unpaid = repo.get_invoices_summary(unpaid_start, unpaid_end).get("total_pending", 0.0)
@@ -1696,10 +1863,10 @@ class ReportsPage(QWidget):
         ]
         subs = [
             f"{today_bk} Today • {week_bk} Week • {month_bk} Month",
-            f"{total_bookings} Confirmed booking(s)" if total_bookings > 0 else "No income for period",
+            f"{total_bookings} Confirmed booking(s) ({period_label})" if total_bookings > 0 else f"No income for {period_label}",
             "All operational costs",
             "Revenue − Expenses",
-            f"{total_pax:,} Pax booked" if total_pax > 0 else "No guests for period",
+            f"{total_pax:,} Pax booked" if total_pax > 0 else f"No guests for {period_label}",
             "Outstanding balance",
         ]
         # Patch each pre-built KPI card in place: find its value/subtitle labels
@@ -1748,31 +1915,14 @@ class ReportsPage(QWidget):
                     continue
             return None
 
+        start_d, end_d, period_label = self._get_active_date_range()
         filtered_bookings = []
-        if p in ("All Time", "All", ""):
-            filtered_bookings = all_bookings
-        else:
-            for b in all_bookings:
-                b_date = _get_date(b.get("date"))
-                if not b_date:
-                    continue
-
-                if p == "Today" and b_date == today:
-                    filtered_bookings.append(b)
-                elif p == "This Week":
-                    start_w = today - timedelta(days=today.weekday())
-                    end_w = start_w + timedelta(days=6)
-                    if start_w <= b_date <= end_w:
-                        filtered_bookings.append(b)
-                elif p == "This Month":
-                    if b_date.month == today.month and b_date.year == today.year:
-                        filtered_bookings.append(b)
-                elif p == "This Year":
-                    if b_date.year == today.year:
-                        filtered_bookings.append(b)
-                elif p == "Last Year":
-                    if b_date.year == today.year - 1:
-                        filtered_bookings.append(b)
+        for b in all_bookings:
+            b_date = _get_date(b.get("date"))
+            if not b_date:
+                continue
+            if start_d is None or (start_d <= b_date <= end_d):
+                filtered_bookings.append(b)
 
         if not filtered_bookings:
             empty_lbl = QLabel("No booking statistics for this period.")
@@ -2028,31 +2178,17 @@ class ReportsPage(QWidget):
             else:
                 label = f"Year {sel_year}"
         else:
-            p = getattr(self, "_period", "All Time")
-            label = p
-            if p in ("All Time", "All", ""):
+            start_d, end_d, period_label = self._get_active_date_range()
+            label = period_label
+            if start_d is None and end_d is None:
                 filtered = list(raw_expenses)
             else:
                 for exp in raw_expenses:
                     d = self._parse_exp_date(exp.get("date", ""))
                     if not d:
                         continue
-                    if p == "Today" and d == today:
+                    if start_d <= d <= end_d:
                         filtered.append(exp)
-                    elif p == "This Week":
-                        start_w = today - timedelta(days=today.weekday())
-                        end_w = start_w + timedelta(days=6)
-                        if start_w <= d <= end_w:
-                            filtered.append(exp)
-                    elif p == "This Month":
-                        if d.month == today.month and d.year == today.year:
-                            filtered.append(exp)
-                    elif p == "This Year":
-                        if d.year == today.year:
-                            filtered.append(exp)
-                    elif p == "Last Year":
-                        if d.year == today.year - 1:
-                            filtered.append(exp)
 
         self._expenses = filtered
         self._exp_active_label = label
@@ -2476,7 +2612,8 @@ class ReportsPage(QWidget):
         fltr = self._period_sql_filter()
         kpis = repo.get_report_kpis(period_filter=fltr)
         bookings = repo.get_all_bookings(period_filter=fltr) or []
-        return kpis, bookings, self._period
+        _, _, period_label = self._get_active_date_range()
+        return kpis, bookings, period_label
 
     def _grab_chart_images(self) -> list:
         """High-resolution capture of each chart card into a temp PNG: [(title, png_path)]."""
@@ -2583,7 +2720,7 @@ class ReportsPage(QWidget):
             return
         entries = repo.get_audit_log(limit=500)
         business = repo.get_business_info()
-        ok = _exporter.export_daily_activity_report_pdf(path, entries, business, period_label=self._period or "All Time")
+        ok = _exporter.export_daily_activity_report_pdf(path, entries, business, period_label=self._get_active_date_range()[2])
         if ok:
             prompt_file_saved(self, path, title="Activity Report Exported", message="Activity / Audit log report PDF exported successfully.")
         else:

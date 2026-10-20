@@ -373,12 +373,12 @@ async function openPackagesQuickModal() {
                 <img src="${p.image}" alt="${escapeHtml(p.name)}" style="width:100%; height:100%; object-fit:cover;">
               </div>
             ` : ""}
-            <div class="pkg-badge">Per Set</div>
+            <div class="pkg-badge">${p.is_set ? "Food Set" : p.is_food_service ? "Food & Services" : "Buffet Tier"}</div>
             <h3 class="pkg-name">${escapeHtml(p.name)}</h3>
-            <div class="pkg-rate">${peso(p.price_per_pax)}<span class="pkg-unit"> / set</span></div>
+            <div class="pkg-rate">${peso(p.price_per_pax)}<span class="pkg-unit"> / ${p.is_set ? "set" : "pax"}</span></div>
             <p class="pkg-desc">${escapeHtml(p.description || "Complete buffet service with setup, tableware and crew.")}</p>
             <div class="pkg-meta">
-              <span>${icon("user")} Min ${p.min_pax || 1} Set</span>
+              <span>${icon("user")} Min ${p.min_pax || 1} ${p.is_set ? "Set(s)" : "Pax"}</span>
             </div>
             <button class="btn btn-primary btn-block select-pkg-start-btn" data-pkg-id="${p.id}" style="margin-top:14px;">
               Select &amp; Start Booking ${icon("arrowRight")}
@@ -1183,10 +1183,10 @@ async function openQuickPackagesModal() {
               ${p.image ? `<img src="${p.image}" alt="${escapeHtml(p.name)}" style="width:100%; height:100%; object-fit:cover;">` : `
                 <div style="width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; background:linear-gradient(135deg, rgba(225,29,72,0.15) 0%, rgba(16,26,54,0.4) 100%); color:var(--accent);">
                   ${icon("package")}
-                  <span style="font-size:12px; font-weight:700; color:var(--text-muted); margin-top:4px;">Buffet Tier</span>
+                  <span style="font-size:12px; font-weight:700; color:var(--text-muted); margin-top:4px;">${p.is_set ? "Food Set" : p.is_food_service ? "Food & Services" : "Buffet Tier"}</span>
                 </div>
               `}
-              <span class="pill pill-partial" style="position:absolute; top:10px; right:10px; font-size:11px; font-weight:700; box-shadow:var(--shadow-sm);">Min ${p.min_pax || 1} Set</span>
+              <span class="pill pill-partial" style="position:absolute; top:10px; right:10px; font-size:11px; font-weight:700; box-shadow:var(--shadow-sm);">Min ${p.min_pax || 1} ${p.is_set ? "Set(s)" : "Pax"}</span>
             </div>
 
             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -1195,7 +1195,7 @@ async function openQuickPackagesModal() {
               </div>
               <div style="text-align:right;">
                 <span style="font-size:20px; font-weight:800; color:var(--gold);">${peso(p.price_per_pax)}</span>
-                <span style="font-size:11px; color:var(--text-muted); display:block;">/ set</span>
+                <span style="font-size:11px; color:var(--text-muted); display:block;">/ ${p.is_set ? "set" : "pax"}</span>
               </div>
             </div>
             

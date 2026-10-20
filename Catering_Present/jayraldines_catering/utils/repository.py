@@ -2655,6 +2655,29 @@ def search_invoices(query: str, limit: int = 100) -> list[dict]:
     return _rows_to_invoice_dicts(rows)
 
 
+def get_transacted_years() -> list[int]:
+    """Return all distinct calendar years with bookings or invoices in descending order."""
+    cur_year = datetime.now().year
+    years = {cur_year}
+    try:
+        b_sql = "SELECT DISTINCT CAST(EXTRACT(YEAR FROM bk_event_date) AS INT) AS yr FROM bookings WHERE bk_event_date IS NOT NULL" if db.get_engine_type() == "postgres" else "SELECT DISTINCT CAST(strftime('%Y', bk_event_date) AS INT) AS yr FROM bookings WHERE bk_event_date IS NOT NULL AND bk_event_date != ''"
+        rows = db.fetchall(b_sql)
+        for r in (rows or []):
+            if r and r.get("yr"):
+                years.add(int(r["yr"]))
+    except Exception:
+        pass
+    try:
+        i_sql = "SELECT DISTINCT CAST(EXTRACT(YEAR FROM inv_event_date) AS INT) AS yr FROM invoices WHERE inv_event_date IS NOT NULL" if db.get_engine_type() == "postgres" else "SELECT DISTINCT CAST(strftime('%Y', inv_event_date) AS INT) AS yr FROM invoices WHERE inv_event_date IS NOT NULL AND inv_event_date != ''"
+        i_rows = db.fetchall(i_sql)
+        for r in (i_rows or []):
+            if r and r.get("yr"):
+                years.add(int(r["yr"]))
+    except Exception:
+        pass
+    return sorted(years, reverse=True)
+
+
 def get_default_billing_window() -> tuple[str, str]:
     """1 month back -> 2 months ahead of today, as ISO date strings. This is
     the default scope for the Billing list so it doesn't load the entire
@@ -2714,21 +2737,23 @@ def get_invoices_summary(date_start: str = None, date_end: str = None,
     if not row:
         return {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
 
+    pay_where = "WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')"
+    pay_params: list = []
     if date_start and date_end:
-        pay_where = "WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled') AND pr.pr_payment_date BETWEEN %s AND %s"
-        pay_params = [date_start, date_end]
-        if customer:
-            pay_where += " AND i.inv_customer_name ILIKE %s"
-            pay_params.append(f"%{customer}%")
-        p_row = db.fetchone(f"""
-            SELECT COALESCE(SUM(pr.pr_amount), 0.0) AS period_received
-            FROM payment_records pr
-            JOIN invoices i ON i.inv_id = pr.pr_invoice_id
-            {pay_where}
-        """, tuple(pay_params))
-        total_received_val = float(p_row["period_received"] if p_row and p_row.get("period_received") is not None else 0.0)
-    else:
-        total_received_val = float(row["total_received"] or 0.0)
+        pay_where += " AND pr.pr_payment_date BETWEEN %s AND %s"
+        pay_params.extend([date_start, date_end])
+    if customer:
+        pay_where += " AND i.inv_customer_name ILIKE %s"
+        pay_params.append(f"%{customer}%")
+    p_row = db.fetchone(f"""
+        SELECT COALESCE(SUM(pr.pr_amount), 0.0) AS period_received
+        FROM payment_records pr
+        JOIN invoices i ON i.inv_id = pr.pr_invoice_id
+        {pay_where}
+    """, tuple(pay_params))
+    total_received_val = float(p_row["period_received"] if p_row and p_row.get("period_received") is not None else 0.0)
+    if not date_start and not date_end:
+        total_received_val = max(total_received_val, float(row.get("total_received") or 0.0))
 
     return {
         "total_received": total_received_val,

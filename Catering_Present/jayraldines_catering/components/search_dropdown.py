@@ -187,12 +187,12 @@ def _build_suggestions(query: str) -> list[dict]:
             name = pkg.get("name", "")
             score = _score(name, q)
             if score:
-                desc = pkg.get("description") or f"Min {pkg.get('min_pax', 1)} Set"
+                desc = pkg.get("description") or f"Min {pkg.get('min_pax', 1)} {'Set' if pkg.get('is_set') else 'Pax'}"
                 results.append({
                     "type":  "Package",
                     "label": name,
                     "sub":   desc,
-                    "meta":  f"₱{float(pkg.get('price_per_pax', 0)):,.2f}/set",
+                    "meta":  f"₱{float(pkg.get('price_per_pax', 0)):,.2f}/{'set' if pkg.get('is_set') else 'pax'}",
                     "id":    pkg.get("id"),
                     "score": score,
                 })

@@ -1660,8 +1660,11 @@ async function renderStepPackage(card) {
                 </div>
                 <p class="kiosk-card-desc">${escapeHtml(p.description || "Standard buffet catering setup.")}</p>
                 <div class="kiosk-card-footer">
-                  <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / pax</span></span>
-                  <span class="kiosk-status-pill">Min ${p.min_pax || 1} Pax</span>
+                  <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / ${p.is_set || isFoodSet(p.name) ? "set" : "pax"}</span></span>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    ${p.is_food_service ? '<span class="kiosk-status-pill" style="background:#06B6D4; color:#fff; font-weight:700;">Food &amp; Services</span>' : ""}
+                    <span class="kiosk-status-pill">Min ${p.min_pax || 1} ${p.is_set || isFoodSet(p.name) ? "Set(s)" : "Pax"}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3367,12 +3370,12 @@ async function openPackageDetailsModal(p, selectCallback) {
 
         <div style="display:flex; justify-content:space-between; align-items:center; background:var(--card-elevated); padding:14px 18px; border-radius:var(--radius); border:1.5px solid var(--border);">
           <div>
-            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.04em;">Price Rate</div>
-            <div style="font-family:'Outfit',sans-serif; font-size:24px; font-weight:800; color:var(--gold);">${peso(p.price_per_pax)}<span style="font-size:13px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / ${isFoodSet(p.name) ? "set" : "pax"}</span></div>
+            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.04em;">Price Rate ${p.is_food_service ? '<span class="pill" style="background:#06B6D4; color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; margin-left:6px;">Food &amp; Services</span>' : ""}</div>
+            <div style="font-family:'Outfit',sans-serif; font-size:24px; font-weight:800; color:var(--gold);">${peso(p.price_per_pax)}<span style="font-size:13px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / ${p.is_set || isFoodSet(p.name) ? "set" : "pax"}</span></div>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.04em;">${isFoodSet(p.name) ? "Minimum Sets" : "Minimum Pax"}</div>
-            <div style="font-size:17px; font-weight:800; color:var(--text);">${p.min_pax} ${isFoodSet(p.name) ? "Set(s)" : "Pax"}</div>
+            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; letter-spacing:0.04em;">${p.is_set || isFoodSet(p.name) ? "Minimum Sets" : "Minimum Pax"}</div>
+            <div style="font-size:17px; font-weight:800; color:var(--text);">${p.min_pax} ${p.is_set || isFoodSet(p.name) ? "Set(s)" : "Pax"}</div>
           </div>
         </div>
 
@@ -3384,30 +3387,6 @@ async function openPackageDetailsModal(p, selectCallback) {
         </div>
 
         ${menuInclusionsHtml}
-
-        <div>
-          <h4 style="font-size:13px; text-transform:uppercase; color:var(--text-muted); margin:0 0 8px; letter-spacing:0.04em;">Buffet Catering Setup &amp; Service Inclusions</h4>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-            <div class="card" style="padding:10px 12px; font-size:12.5px; display:flex; align-items:center; gap:8px;">
-              <span style="color:var(--success); font-weight:700;">${icon("check")}</span> Buffet Table &amp; Skirting
-            </div>
-            <div class="card" style="padding:10px 12px; font-size:12.5px; display:flex; align-items:center; gap:8px;">
-              <span style="color:var(--success); font-weight:700;">${icon("check")}</span> Chafing Dishes &amp; Warmers
-            </div>
-            <div class="card" style="padding:10px 12px; font-size:12.5px; display:flex; align-items:center; gap:8px;">
-              <span style="color:var(--success); font-weight:700;">${icon("check")}</span> Complete Dining Tableware
-            </div>
-            <div class="card" style="padding:10px 12px; font-size:12.5px; display:flex; align-items:center; gap:8px;">
-              <span style="color:var(--success); font-weight:700;">${icon("check")}</span> Waiters &amp; Catering Staff
-            </div>
-            <div class="card" style="padding:10px 12px; font-size:12.5px; display:flex; align-items:center; gap:8px;">
-              <span style="color:var(--success); font-weight:700;">${icon("check")}</span> Purified Drinking Water &amp; Ice
-            </div>
-            <div class="card" style="padding:10px 12px; font-size:12.5px; display:flex; align-items:center; gap:8px;">
-              <span style="color:var(--success); font-weight:700;">${icon("check")}</span> Floral Table Centerpiece
-            </div>
-          </div>
-        </div>
       </div>
     `,
     footerHtml: `
