@@ -1,4 +1,4 @@
-# Jayraldine's Catering System — Enterprise Ecosystem
+# <img src="icons/sparkles.svg" width="28" height="28" align="center" /> Jayraldine's Catering System — Enterprise Ecosystem
 
 <div align="center">
 
@@ -18,7 +18,7 @@
 
 ---
 
-## 🏛️ System Architecture & Topography
+## <img src="icons/cpu-chip.svg" width="22" height="22" align="center" /> System Architecture & Topography
 
 Jayraldine's Catering System implements a hybrid local-first and client-server database topology. It guarantees zero operational downtime even during complete internet or network outages.
 
@@ -48,26 +48,26 @@ Jayraldine's Catering System implements a hybrid local-first and client-server d
 
 ---
 
-## 🌟 Key Components
+## <img src="icons/swatch.svg" width="22" height="22" align="center" /> Key Components
 
 ### 1. Enterprise Desktop Application (`Catering_Present/jayraldines_catering/`)
-- Built with **PySide6 (Qt)** with hardware-accelerated theme rendering.
-- Comprehensive booking lifecycle: inquiry, down payment, package selection, contract generation, and balance settlement.
-- Robust report generator: automated PDF receipts, billing statements, event calendar export, and sales analytics.
-- Multi-client LAN synchronization engine (`utils/client_sync.py` & `utils/db_sync_server.py`).
+- <img src="icons/check-badge.svg" width="16" height="16" align="center" /> Built with **PySide6 (Qt)** featuring hardware-accelerated theme rendering.
+- <img src="icons/check-badge.svg" width="16" height="16" align="center" /> Comprehensive booking lifecycle: inquiry, down payment, package selection, contract generation, and balance settlement.
+- <img src="icons/check-badge.svg" width="16" height="16" align="center" /> Robust report generator: automated PDF receipts, billing statements, event calendar export, and sales analytics.
+- <img src="icons/bolt.svg" width="16" height="16" align="center" /> Multi-client LAN synchronization engine (`utils/client_sync.py` & `utils/db_sync_server.py`).
 
 ### 2. Tablet Kiosk & Self-Service Ordering (`Tablet_PWA/`)
-- **Backend:** FastAPI microservice managing local SQLite transactions on port `8085`.
-- **Frontend:** Responsive, touch-optimized Progressive Web App (PWA) with offline-first local storage caching.
-- Direct thermal POS receipt printing support (58mm/80mm).
+- <img src="icons/cpu-chip.svg" width="16" height="16" align="center" /> **Backend:** FastAPI microservice managing local SQLite transactions on port `8085`.
+- <img src="icons/window.svg" width="16" height="16" align="center" /> **Frontend:** Responsive, touch-optimized Progressive Web App (PWA) with offline-first local storage caching.
+- <img src="icons/printer.svg" width="16" height="16" align="center" /> Direct thermal POS receipt printing support (58mm/80mm).
 
 ### 3. Android Tablet Native Wrapper (`Tablet_Android_APK/`)
-- Lightweight Android WebView bridge packaging the kiosk frontend for dedicated counter tablets.
-- Auto-booting kiosk lock mode with local network discovery.
+- <img src="icons/globe-alt.svg" width="16" height="16" align="center" /> Lightweight Android WebView bridge packaging the kiosk frontend for dedicated counter tablets.
+- <img src="icons/lock-closed.svg" width="16" height="16" align="center" /> Auto-booting kiosk lock mode with local network discovery.
 
 ---
 
-## 📁 Repository Layout
+## <img src="icons/archive-box.svg" width="22" height="22" align="center" /> Repository Layout
 
 ```
 jayraldinescateringsystem/
@@ -80,6 +80,7 @@ jayraldinescateringsystem/
 │   ├── backend/                   # FastAPI local server & SQLite manager
 │   └── frontend/                  # Touchscreen PWA interface (HTML5 / Vanilla JS)
 ├── Tablet_Android_APK/            # Native Android wrapper project
+├── icons/                         # Tailwind Heroicons suite
 ├── docs/                          # In-depth architectural specifications and manuals
 ├── ARCHITECTURE.md                # System topology and threading documentation
 ├── FILE_GUIDE.md                  # Quick-reference codebase routing map
@@ -88,7 +89,7 @@ jayraldinescateringsystem/
 
 ---
 
-## 🚀 Getting Started
+## <img src="icons/rocket-launch.svg" width="22" height="22" align="center" /> Getting Started
 
 ### Desktop Management Application
 
@@ -97,7 +98,7 @@ jayraldinescateringsystem/
 python --version
 
 # 2. Install requirements
-pip install -r Catering_Present/requirements.txt  # (or pip install PySide6 psycopg2-binary reportlab)
+pip install -r Catering_Present/requirements.txt
 
 # 3. Launch application
 run_desktop.bat
@@ -117,14 +118,14 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8085 --reload
 
 ---
 
-## 🔒 Security & RBAC
+## <img src="icons/lock-closed.svg" width="22" height="22" align="center" /> Security & RBAC
 
-- Multi-tier role-based access control (Admin, Cashier, Kitchen Staff).
-- Secure credential hashing and audited transaction histories.
-- Complete documentation available in [`docs/`](./docs/) and [`FILE_GUIDE.md`](./FILE_GUIDE.md).
+- <img src="icons/shield-check.svg" width="16" height="16" align="center" /> Multi-tier role-based access control (Admin, Cashier, Kitchen Staff).
+- <img src="icons/lock-closed.svg" width="16" height="16" align="center" /> Secure credential hashing and audited transaction histories.
+- <img src="icons/document-text.svg" width="16" height="16" align="center" /> Complete documentation available in [`docs/`](./docs/) and [`FILE_GUIDE.md`](./FILE_GUIDE.md).
 
 ---
 
-## 📄 License
+## <img src="icons/document-text.svg" width="22" height="22" align="center" /> License
 
 Proprietary © Medy Villarias. All rights reserved.
