@@ -197,6 +197,17 @@ CREATE TABLE IF NOT EXISTS package_buckets (
     pb_sort INTEGER DEFAULT 0
 );
 
+-- Package inclusions: short checklist-style perks shown to customers instead
+-- of a free-text description ("Unlimited Rice", "Free Use of Tables &
+-- Chairs", "1 Backdrop", ...). Deliberately separate from package_items
+-- (actual menu dishes) - these are non-food/marketing-style line items.
+CREATE TABLE IF NOT EXISTS package_inclusions (
+    pinc_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pinc_package_id INTEGER NOT NULL REFERENCES packages(pkg_id) ON DELETE CASCADE,
+    pinc_label TEXT NOT NULL,
+    pinc_sort_order INTEGER DEFAULT 0
+);
+
 -- Bookings & Orders
 CREATE TABLE IF NOT EXISTS bookings (
     bk_id INTEGER PRIMARY KEY AUTOINCREMENT,
