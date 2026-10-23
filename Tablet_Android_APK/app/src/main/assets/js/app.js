@@ -910,7 +910,7 @@ async function renderHome() {
     }
     playTapBurst(document.getElementById("hero-cloche-icon-box") || startOrderBtn, "cloche-tap-burst");
     setTimeout(() => {
-      openTermsModal();
+      startOrderWizard();
     }, 180);
   });
 
@@ -1087,68 +1087,10 @@ function toggleFullscreen() {
   }
 }
 
-// ── Terms & Conditions modal ─────────────────────────────────────────
-
-async function openTermsModal() {
-  const terms = await api.terms();
-  const modalId = "terms-modal";
-  openModal({
-    id: modalId,
-    title: `${icon("fileText")} ${escapeHtml(terms.title)}`,
-    large: true,
-    bodyHtml: `
-      <div class="terms-text" id="terms-scroll-box" style="max-height:48vh; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:18px 20px; border-radius:var(--radius);">${terms.html || escapeHtml(terms.text)}</div>
-      <div style="margin-top:16px; background:var(--card-elevated); padding:16px 20px; border-radius:var(--radius-md); border:1.5px solid var(--border); box-shadow:var(--shadow-sm);">
-        <label style="display:flex; align-items:center; gap:12px; cursor:pointer; font-weight:700; font-size:14px; color:var(--text);" id="terms-ack-label">
-          <input type="checkbox" id="terms-ack" disabled style="width:22px; height:22px; accent-color:var(--accent); cursor:pointer;">
-          <span>${escapeHtml(terms.acknowledgement_label)}</span>
-        </label>
-        <p id="scroll-hint" style="color:var(--gold); font-size:12.5px; font-weight:600; margin:8px 0 0 34px; display:flex; align-items:center; gap:6px;">
-          ${icon("info")} Please scroll to the very bottom of the terms above to unlock the agreement checkbox.
-        </p>
-      </div>
-    `,
-    footerHtml: `
-      <button class="btn btn-secondary" data-close>Cancel</button>
-      <button class="btn btn-primary" id="agree-btn" disabled>${icon("check")} I Agree &amp; Start Order</button>
-    `,
-  });
-
-  const body = document.querySelector(`#${modalId}-body`);
-  const scrollBox = body?.querySelector("#terms-scroll-box");
-  const ackBox = body?.querySelector("#terms-ack");
-  const hint = body?.querySelector("#scroll-hint");
-  const agreeBtn = document.querySelector(`#${modalId} #agree-btn`);
-
-  const checkScrolledToBottom = () => {
-    if (!scrollBox || !ackBox) return;
-    const isAtBottom = scrollBox.scrollHeight - scrollBox.scrollTop <= scrollBox.clientHeight + 40;
-    if (isAtBottom && ackBox.disabled) {
-      ackBox.disabled = false;
-      hint.style.color = "var(--success)";
-      hint.innerHTML = `${icon("checkCircle")} Terms fully reviewed! You may now check the box above to proceed.`;
-      toast("Terms reviewed! Check the box to start order.", "success");
-    }
-  };
-
-  scrollBox?.addEventListener("scroll", checkScrolledToBottom);
-  body?.addEventListener("scroll", checkScrolledToBottom);
-  setTimeout(checkScrolledToBottom, 400);
-
-  ackBox?.addEventListener("change", () => {
-    agreeBtn.disabled = !ackBox.checked;
-    if (ackBox.checked) {
-      hint.innerHTML = `<span style="color:var(--success); font-weight:700;">${icon("checkCircle")} Agreement confirmed. Click below to start your order!</span>`;
-    } else {
-      hint.innerHTML = `${icon("checkCircle")} Terms fully reviewed! You may now check the box above to proceed.`;
-    }
-  });
-
-  agreeBtn?.addEventListener("click", () => {
-    closeModal(modalId);
-    startOrderWizard();
-  });
-}
+// ── Terms & Conditions ───────────────────────────────────────────────
+// NOTE: the pre-wizard Terms modal gate has been removed. Terms &
+// Conditions are now step 7 inside the booking wizard itself
+// (see renderStepTerms() in wizard.js).
 
 function startOrderWizard() {
   mountWizard(app);
@@ -1233,7 +1175,7 @@ async function openQuickPackagesModal() {
       wizard.draft.package.baseTotal = pricePerPax * (wizard.draft.event.pax || 60);
 
       closeModal("quick-packages-modal");
-      openTermsModal();
+      startOrderWizard();
     });
   });
 }
@@ -1306,7 +1248,7 @@ async function openQuickEventTypesModal() {
       wizard.reset();
       wizard.draft.event.occasion = occasion;
       closeModal("quick-events-modal");
-      openTermsModal();
+      startOrderWizard();
     });
   });
 }
@@ -1526,7 +1468,7 @@ async function mountLandingMenuShowcase(explicitCategories = null) {
     grid.querySelectorAll(".btn-dish-book").forEach(btn => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        openTermsModal();
+        startOrderWizard();
       });
     });
   }
@@ -1559,7 +1501,7 @@ async function mountLandingMenuShowcase(explicitCategories = null) {
 
     if (startOrderBtn) {
       startOrderBtn.addEventListener("click", () => {
-        openTermsModal();
+        startOrderWizard();
       });
     }
   }
@@ -1710,7 +1652,7 @@ async function openQuickMenuModal({ initialCategory = "ALL", initialSearch = "" 
           btn.addEventListener("click", (e) => {
             e.stopPropagation();
             closeModal("quick-menu-modal");
-            openTermsModal();
+            startOrderWizard();
           });
         });
       }
@@ -1750,7 +1692,7 @@ async function openQuickMenuModal({ initialCategory = "ALL", initialSearch = "" 
 
   document.querySelector("#quick-menu-modal #btn-quick-menu-start-booking")?.addEventListener("click", () => {
     closeModal("quick-menu-modal");
-    openTermsModal();
+    startOrderWizard();
   });
 }
 
@@ -1806,7 +1748,7 @@ function openDishDetailModal(item) {
 
   document.querySelector("#dish-details-modal #btn-dish-detail-book-now")?.addEventListener("click", () => {
     closeModal("dish-details-modal");
-    openTermsModal();
+    startOrderWizard();
   });
 }
 
@@ -1857,7 +1799,7 @@ function openQuickAboutUsModal() {
 
   document.querySelector("#quick-about-modal #btn-start-order-about")?.addEventListener("click", () => {
     closeModal("quick-about-modal");
-    openTermsModal();
+    startOrderWizard();
   });
 }
 
