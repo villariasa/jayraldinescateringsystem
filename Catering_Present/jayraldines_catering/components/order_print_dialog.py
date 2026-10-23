@@ -671,16 +671,6 @@ class OrderPrintDialog(QDialog):
             </tr>
         </table>
 
-        <!-- Total Amount bar -->
-        <table width="100%" style="width:100%; border-collapse:collapse; border:1.5px solid #000000; border-top:none;">
-            <tr>
-                <td style="padding:{strip_pad}; text-align:center; color:#000000; vertical-align:middle;">
-                    <div style="font-size:{strip_lbl}; font-weight:700; text-transform:uppercase; line-height:1.0; margin:0;">TOTAL AMOUNT</div>
-                    <div style="font-size:{strip_val}; font-weight:900; line-height:1.1; margin-top:1px;">{total_amount_str}</div>
-                </td>
-            </tr>
-        </table>
-
         <!-- Main Body: Two-Column Split matching wireframe -->
         <table width="100%" style="width:100%; border-collapse:collapse; margin-top:{gap_top};">
             <tr>
@@ -1226,10 +1216,10 @@ class OrderPrintDialog(QDialog):
         return pages
 
     def _generate_current_pdf(self, target_path: str) -> bool:
-        """Generate the exact ReportLab PDF for the current mode (agreement or kitchen)."""
-        if not exporter.REPORTLAB_OK:
-            return False
+        """Generate the exact PDF for the current mode (agreement or kitchen)."""
         if self._current_mode == "agreement":
+            if not exporter.REPORTLAB_OK:
+                return False
             if len(self._bookings) == 1:
                 b = self._bookings[0]
                 return exporter.export_receipt_pdf(
@@ -1262,7 +1252,17 @@ class OrderPrintDialog(QDialog):
                         additional_charges=self._bookings[0].get("additional_charges", [])
                     )
         else:
-            return exporter.export_order_slips_pdf(target_path, self._bookings, business=self._business)
+            if PRINTER_SUPPORT:
+                try:
+                    printer = QPrinter(QPrinter.HighResolution)
+                    self._configure_a4(printer)
+                    printer.setOutputFormat(QPrinter.PdfFormat)
+                    printer.setOutputFileName(target_path)
+                    self._print_document(printer)
+                    return os.path.exists(target_path) and os.path.getsize(target_path) > 0
+                except Exception as e:
+                    print(f"[OrderPrintDialog] Kitchen PDF generation failed: {e}")
+            return False
 
     def _generate_preview_pdf(self, target_path: str) -> bool:
         """Produce the SAME real PDF that Export PDF / Print produce, so the
@@ -1289,15 +1289,21 @@ class OrderPrintDialog(QDialog):
                 print(f"[OrderPrintDialog] Qt HTML->PDF preview generation failed: {e}")
         return False
 
+    def _generate_slip_html(self) -> str:
+        """Full HTML for the on-screen scrollable preview of kitchen dispatch slips (1st image layout)."""
+        joined = '<div style="page-break-after: always; margin-bottom: 24px;"></div>'.join(self._build_page_bodies())
+        return f"<!DOCTYPE html><html><head>{self._BASE_STYLE}</head><body style=\"background:#FFFFFF; color:#000000; padding:16px;\">{joined}</body></html>"
+
     def _refresh_preview(self):
-        """Render the current mode (agreement / kitchen) as an ACTUAL PDF and
-        show it in the PDF viewer. Order of preference:
-          1. QPdfView widget  - true scroll/zoom PDF viewer.
-          2. QtPdf rasterizer - real PDF pages drawn as images (when the
-             QPdfView *widget* is missing but QtPdf core is present).
-          3. A clear notice   - only when no Qt PDF rendering exists at all;
-             we never fall back to the old HTML look-alike, which did not
-             match the exported PDF and is exactly what the slip must avoid."""
+        """Render the current mode (agreement / kitchen).
+        When kitchen mode: uses the original HTML half-sheet layout (1st image setup).
+        When agreement mode: uses the official ReportLab PDF (QPdfView or rasterizer)."""
+        if self._current_mode == "kitchen":
+            self._html_content = self._generate_slip_html()
+            self._doc_browser.setHtml(self._html_content)
+            self._preview_stack.setCurrentWidget(self._doc_browser)
+            return
+
         import tempfile
 
         # Always regenerate the real PDF to a fresh temp file.
@@ -1500,6 +1506,10 @@ TERMS AND CONDITIONS:
             addon_lines = [f"  [{idx}] {a}" for idx, a in enumerate(add_ons, 1)]
             addons_text = "\n".join(addon_lines) if addon_lines else "  None"
 
+            occasion = str(booking.get("occasion") or "")
+            is_food_set = is_food_set_pkg(pkg_name, occasion)
+            pax_line = f"SET:         {pax} Set(s)" if is_food_set else f"PAX:         {pax} Guests"
+
             blocks.append(f"""==================================================
 JAYRALDINE'S CATERING - BANQUET ORDER SLIP
 Order Ref: {order_ref}
@@ -1507,7 +1517,7 @@ Order Ref: {order_ref}
 DATE:        {date_str}
 NAME:        {cust_name}
 TIME:        {time_str}
-{f"SET:         {pax} Set(s)"}
+{pax_line}
 LOCATION:    {venue}
 PACKAGE:     {pkg_name}
 
@@ -1548,10 +1558,10 @@ ADDITIONAL ITEMS (NO CHARGES):
         if not file_path:
             return
 
-        if exporter.REPORTLAB_OK:
+        if self._current_mode == "agreement" and exporter.REPORTLAB_OK:
             try:
                 if self._generate_current_pdf(file_path):
-                    success(self, message=f"PDF exported successfully:\n{os.path.basename(file_path)}")
+                    success(self, message=f"Booking Agreement PDF exported successfully:\n{os.path.basename(file_path)}")
                     return
             except Exception as e:
                 print(f"[OrderPrintDialog] exporter fallback: {e}")
@@ -1561,7 +1571,7 @@ ADDITIONAL ITEMS (NO CHARGES):
         printer.setOutputFormat(QPrinter.PdfFormat)
         printer.setOutputFileName(file_path)
         self._print_document(printer)
-        success(self, message=f"PDF exported successfully:\n{os.path.basename(file_path)}")
+        success(self, message=f"Kitchen slip PDF exported successfully:\n{os.path.basename(file_path)}" if self._current_mode == "kitchen" else f"PDF exported successfully:\n{os.path.basename(file_path)}")
 
     def _print_order(self):
         if not PRINTER_SUPPORT:
@@ -1573,11 +1583,11 @@ ADDITIONAL ITEMS (NO CHARGES):
         dialog = QPrintDialog(printer, self)
         dialog.setWindowTitle("Print Banquet Order Slip" if len(self._bookings) == 1 else "Print Banquet Order Slips")
         if dialog.exec() == QPrintDialog.Accepted:
-            if exporter.REPORTLAB_OK and self._print_via_pdf(printer):
-                success(self, message="Order slip sent to printer successfully." if len(self._bookings) == 1 else "Order slips sent to printer successfully.")
+            if self._current_mode == "agreement" and exporter.REPORTLAB_OK and self._print_via_pdf(printer):
+                success(self, message="Booking agreement sent to printer successfully." if len(self._bookings) == 1 else "Booking agreements sent to printer successfully.")
                 return
             self._print_document(printer)
-            success(self, message="Order slip sent to printer successfully." if len(self._bookings) == 1 else "Order slips sent to printer successfully.")
+            success(self, message="Kitchen slip sent to printer successfully." if len(self._bookings) == 1 else "Kitchen slips sent to printer successfully.")
 
     def _print_via_pdf(self, printer) -> bool:
         """Generate the official PDF (same function Export PDF uses) and rasterize
