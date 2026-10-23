@@ -222,6 +222,8 @@ CREATE TABLE IF NOT EXISTS bookings (
     bk_status TEXT DEFAULT 'PENDING',
     bk_color_theme TEXT DEFAULT '#2563EB',
     bk_cancellation_reason TEXT,
+    bk_on_process INTEGER DEFAULT 0,
+    bk_survey_source TEXT DEFAULT '',
     bk_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -457,7 +459,11 @@ SELECT
     (SELECT COUNT(*) FROM bookings WHERE bk_status = 'PENDING') AS pending_bookings,
     (SELECT COALESCE(SUM(bk_total_amount), 0) FROM bookings
      WHERE DATE(bk_event_date) >= DATE('now', 'weekday 0', '-6 days')
-       AND DATE(bk_event_date) <= DATE('now', 'weekday 0')) AS weekly_revenue,
+       AND DATE(bk_event_date) <= DATE('now', 'weekday 0')
+       AND bk_status != 'CANCELLED'
+       AND COALESCE(bk_on_process, 0) = 0
+       AND bk_total_amount > 0
+       AND COALESCE(bk_amount_paid, 0) >= bk_total_amount) AS weekly_revenue,
     (SELECT COALESCE(SUM(inv_total_amount - inv_amount_paid), 0) FROM invoices WHERE inv_status != 'Paid') AS unpaid_invoices,
     (SELECT COALESCE(SUM(bk_pax), 0) FROM bookings WHERE DATE(bk_event_date) = DATE('now')) AS todays_pax;
 
@@ -718,6 +724,9 @@ def _ensure_columns(conn: sqlite3.Connection):
         ("bookings", "bk_pickup_time", "TEXT"),
         ("bookings", "bk_dropoff_time", "TEXT"),
         ("bookings", "bk_num_sets", "INTEGER DEFAULT 0"),
+        # On-process flag + "how did you hear about us" survey (client request)
+        ("bookings", "bk_on_process", "INTEGER DEFAULT 0"),
+        ("bookings", "bk_survey_source", "TEXT DEFAULT ''"),
     ]
     for table, col, col_def in cols_to_add:
         try:
