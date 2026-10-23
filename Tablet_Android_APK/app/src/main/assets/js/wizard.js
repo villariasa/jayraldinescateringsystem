@@ -13,6 +13,17 @@ const STEPS = [
   { step: 4, label: "Charges", title: "Add-ons & Charges", subtitle: "Select optional equipment & adjustments" },
   { step: 5, label: "Billing", title: "Billing & Payment", subtitle: "Set down payment & payment method" },
   { step: 6, label: "Preview", title: "Preview & Confirm", subtitle: "Review and place booking" },
+  { step: 7, label: "Terms", title: "Terms & Conditions", subtitle: "Review and accept our terms of service" },
+  { step: 8, label: "Survey", title: "Survey & Confirm", subtitle: "Tell us how you heard about us, then confirm your booking" },
+];
+
+const SURVEY_OPTIONS = [
+  { value: "word_of_mouth", label: "Word of Mouth / Personal Referral (Friend, Family, Colleague, or Business Partner)" },
+  { value: "social_media", label: "Social Media (Facebook, Instagram, TikTok, LinkedIn, YouTube)" },
+  { value: "search_engine", label: "Search Engine (Google, Bing, Yahoo search results)" },
+  { value: "online_advertising", label: "Online Advertising or Media (Paid online ads, sponsored posts, news articles, or blogs)" },
+  { value: "events_local_community", label: "Events & Local Community (Trade show, local event, flyer, or offline feature)" },
+  { value: "online_reviews", label: "Online Reviews & Recommendations (Google Reviews, Yelp, online forums, or review sites)" },
 ];
 
 const OCCASIONS = [
@@ -769,6 +780,8 @@ async function renderStep() {
     case 4: return renderStepAddons(target);
     case 5: return renderStepBilling(target);
     case 6: return renderStepPreview(target);
+    case 7: return renderStepTerms(target);
+    case 8: return renderStepSurvey(target);
   }
 }
 
@@ -2355,12 +2368,22 @@ async function renderStepMenu(card) {
         }).join("")}
       </div>
       ${hasBuckets ? `
-      <div class="kiosk-bucket-bar" id="kiosk-bucket-bar" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
-        ${pkgBuckets.map((b, i) => `
-          <span class="pill pill-partial" data-bucket-idx="${i}" style="font-size:12px; font-weight:700;">
-            ${escapeHtml(b.name)}: <span data-bucket-count="${i}">0</span> / ${Number(b.limit || 0)}
-          </span>
-        `).join("")}
+      <div class="kiosk-bucket-bar" id="kiosk-bucket-bar" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+        ${pkgBuckets.map((b, i) => {
+          const limit = Number(b.limit || 0);
+          return `
+          <div class="bucket-progress-pill" data-bucket-idx="${i}" title="Tap a dish from ${escapeHtml(b.name)} once full to swap it out.">
+            <div class="bucket-progress-top">
+              <span class="bucket-progress-name">${escapeHtml(b.name)}</span>
+              <span class="bucket-progress-count"><span data-bucket-count="${i}">0</span> / ${limit}</span>
+              <span class="bucket-progress-check" data-bucket-check="${i}" style="display:none;">${icon("checkCircle")}</span>
+            </div>
+            <div class="bucket-progress-track">
+              <div class="bucket-progress-fill" data-bucket-fill="${i}" style="width:0%;"></div>
+            </div>
+          </div>
+        `;
+        }).join("")}
       </div>` : ""}
     </div>
 
@@ -2430,6 +2453,17 @@ async function renderStepMenu(card) {
       <h3 style="margin:0 0 6px; color:var(--text);">No dishes found</h3>
       <p style="margin:0 0 16px; font-size:13.5px;">Try searching for a different dish name or category.</p>
       <button type="button" class="btn btn-secondary" id="btn-clear-search-empty">Clear Search Filter</button>
+    </div>
+
+    <!-- Your Selections Tray: always-visible sticky review/undo bar, sits above the step footer -->
+    <div class="kiosk-selection-tray" id="kiosk-selection-tray">
+      <button type="button" class="tray-toggle-btn" id="tray-toggle-btn">
+        <span class="tray-toggle-text">
+          <span id="tray-toggle-label">Your selections (0)</span>
+        </span>
+        <span class="tray-toggle-chevron" id="tray-toggle-chevron">&#9652;</span>
+      </button>
+      <div class="tray-chips-wrap" id="tray-chips-wrap"></div>
     </div>
   `;
 
@@ -2558,11 +2592,17 @@ async function renderStepMenu(card) {
     }
     if (hasBuckets) {
       pkgBuckets.forEach((b, i) => {
+        const limit = Number(b.limit) || 0;
         const cnt = countInBucket(b);
+        const isComplete = limit > 0 && cnt >= limit;
         const cntEl = card.querySelector(`[data-bucket-count="${i}"]`);
         if (cntEl) cntEl.textContent = String(cnt);
+        const fillEl = card.querySelector(`[data-bucket-fill="${i}"]`);
+        if (fillEl) fillEl.style.width = `${limit > 0 ? Math.min(100, (cnt / limit) * 100) : 0}%`;
         const pillEl = card.querySelector(`[data-bucket-idx="${i}"]`);
-        if (pillEl) pillEl.className = `pill ${cnt >= (Number(b.limit) || 0) && cnt > 0 ? "pill-paid" : "pill-partial"}`;
+        if (pillEl) pillEl.classList.toggle("complete", isComplete);
+        const checkEl = card.querySelector(`[data-bucket-check="${i}"]`);
+        if (checkEl) checkEl.style.display = isComplete ? "inline-flex" : "none";
       });
     }
 
@@ -2590,26 +2630,195 @@ async function renderStepMenu(card) {
           : `Next: Event Add-ons (${d.menuSelections.length} Replacements Chosen)`;
       }
     }
+
+    renderTray();
   }
   window._updateStep3Counts = updateCounts;
 
-  // "Up to N": allow removing always; block adding a dish once its bucket is full.
-  // Returns true if the add is allowed. No buckets => always allowed.
-  const canAdd = (item) => {
-    if (!hasBuckets) return true;
-    const b = bucketOfItem(item);
-    if (!b) {
-      toast("This dish isn't part of the package selection.", "info");
-      return false;
+  // ── "Your selections" tray: always-visible review/undo list ──────────
+  function renderTray() {
+    const trayWrap = card.querySelector("#tray-chips-wrap");
+    const toggleLabel = card.querySelector("#tray-toggle-label");
+    if (!trayWrap || !toggleLabel) return;
+
+    const total = d.menuSelections.length;
+    const capLabel = isFoodSet && totalReplacementsNeeded > 0 ? `${total}/${totalReplacementsNeeded}` : `${total}`;
+    toggleLabel.textContent = `Your selections (${capLabel})`;
+
+    if (total === 0) {
+      trayWrap.innerHTML = `<p class="tray-empty-msg">No dishes selected yet. Tap a dish card above to add it here.</p>`;
+      return;
     }
-    const limit = Number(b.limit) || 0;
-    if (limit <= 0) return true;
-    if (countInBucket(b) >= limit) {
-      toast(`You can only choose ${limit} from ${b.name}. Remove one to swap.`, "info");
-      return false;
+
+    // Group selections by bucket name (falls back to replacement/category label)
+    const groups = new Map();
+    for (const m of d.menuSelections) {
+      const b = bucketOfItem(m);
+      const groupName = b ? b.name : (isFoodSet ? "Replacement Dishes" : (m.category || "Selections"));
+      if (!groups.has(groupName)) groups.set(groupName, []);
+      groups.get(groupName).push(m);
     }
-    return true;
-  };
+
+    trayWrap.innerHTML = Array.from(groups.entries()).map(([groupName, sels]) => `
+      <div class="tray-group">
+        <span class="tray-group-label">${escapeHtml(groupName)}</span>
+        <div class="tray-group-chips">
+          ${sels.map((sel) => `
+            <span class="tray-chip" data-tray-chip-id="${escapeHtml(String(sel.menu_item_id))}">
+              ${escapeHtml(sel.item_name || "")}
+              <button type="button" class="tray-chip-remove" data-tray-remove="${escapeHtml(String(sel.menu_item_id))}" title="Remove this selection">${icon("close")}</button>
+            </span>
+          `).join("")}
+        </div>
+      </div>
+    `).join("");
+
+    trayWrap.querySelectorAll("[data-tray-remove]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        removeSelectionById(btn.dataset.trayRemove);
+        updateCounts();
+        renderCart();
+      });
+    });
+  }
+
+  let trayCollapsed = false;
+  card.querySelector("#tray-toggle-btn")?.addEventListener("click", () => {
+    trayCollapsed = !trayCollapsed;
+    card.querySelector("#kiosk-selection-tray")?.classList.toggle("collapsed", trayCollapsed);
+    const chevronEl = card.querySelector("#tray-toggle-chevron");
+    if (chevronEl) chevronEl.innerHTML = trayCollapsed ? "&#9662;" : "&#9652;";
+  });
+
+  // ── Shared selection helpers (grid taps, dish-details modal, tray chips) ──
+  function setCardSelected(itemId, selected) {
+    const cardEl = card.querySelector(`.select-card[data-item-id="${itemId}"]`);
+    if (!cardEl) return;
+    cardEl.classList.toggle("selected", selected);
+    const badge = cardEl.querySelector(".item-check-badge");
+    if (badge) badge.innerHTML = selected ? icon("checkCircle") : icon("plus");
+  }
+
+  function removeSelectionById(itemId) {
+    const idx = d.menuSelections.findIndex((m) => String(m.menu_item_id) === String(itemId));
+    if (idx === -1) return null;
+    const [removed] = d.menuSelections.splice(idx, 1);
+    setCardSelected(itemId, false);
+    return removed;
+  }
+
+  function addSelectionFor(item) {
+    if (isFoodSet) {
+      d.menuSelections.push({
+        menu_item_id: item.menu_item_id,
+        item_name: item.name,
+        category: item.category,
+        price: totalReplacementsNeeded > 0 ? 0 : Number(item.price || 0),
+        is_replacement: totalReplacementsNeeded > 0,
+        quantity: 1,
+      });
+    } else {
+      d.menuSelections.push({ menu_item_id: item.menu_item_id, item_name: item.name, category: item.category, price: Number(item.price || 0), quantity: 1, bucket_id: item.bucket_id });
+    }
+    setCardSelected(item.menu_item_id, true);
+  }
+
+  // Swap sheet: shown when a bucket (or replacement quota) with more than one
+  // slot is already full. Lists current occupants; tapping one removes it and
+  // adds the newly-tapped dish. Cancel closes without any change.
+  function openSwapSheet(label, currentSelections, item) {
+    const modalId = "menu-swap-sheet-modal";
+    const bodyHtml = `
+      <p style="color:var(--text-muted); font-size:13.5px; margin:0 0 14px; line-height:1.5;">
+        <b>${escapeHtml(label)}</b> already has the maximum allowed. Tap a dish below to remove it and add <b>${escapeHtml(item.name)}</b> instead.
+      </p>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        ${currentSelections.map((sel) => `
+          <button type="button" class="swap-sheet-row" data-swap-id="${escapeHtml(String(sel.menu_item_id))}">
+            <span>${escapeHtml(sel.item_name || "")}</span>
+            <span class="swap-sheet-row-action">${icon("refresh")} Swap</span>
+          </button>
+        `).join("")}
+      </div>
+    `;
+    openModal({
+      id: modalId,
+      title: `${icon("refresh")} Swap a Dish`,
+      bodyHtml,
+      footerHtml: `<button type="button" class="btn btn-secondary" data-close>Cancel</button>`,
+    });
+    const modalEl = document.getElementById(modalId);
+    modalEl?.querySelectorAll("[data-swap-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const removed = removeSelectionById(btn.dataset.swapId);
+        addSelectionFor(item);
+        closeModal(modalId);
+        updateCounts();
+        renderCart();
+        toast(`Swapped ${removed ? removed.item_name : "dish"} → ${item.name}`, "success");
+      });
+    });
+  }
+
+  // Unified tap handler for a dish card: toggles selection, or — if the
+  // relevant bucket/replacement quota is already full — swaps instead of
+  // just rejecting with a toast (limit 1 auto-swaps, limit >1 opens a picker).
+  function handleDishTap(item) {
+    const isAlreadySelected = d.menuSelections.some((m) => String(m.menu_item_id) === String(item.menu_item_id));
+
+    if (isAlreadySelected) {
+      removeSelectionById(item.menu_item_id);
+      updateCounts();
+      renderCart();
+      return;
+    }
+
+    if (isFoodSet) {
+      if (totalReplacementsNeeded > 0 && d.menuSelections.length >= totalReplacementsNeeded) {
+        if (totalReplacementsNeeded === 1) {
+          const removed = removeSelectionById(d.menuSelections[0].menu_item_id);
+          addSelectionFor(item);
+          updateCounts();
+          renderCart();
+          toast(`Swapped ${removed ? removed.item_name : "dish"} → ${item.name}`, "success");
+        } else {
+          openSwapSheet("Your replacement dishes", d.menuSelections.slice(), item);
+        }
+        return;
+      }
+      addSelectionFor(item);
+      updateCounts();
+      renderCart();
+      return;
+    }
+
+    if (hasBuckets) {
+      const b = bucketOfItem(item);
+      if (!b) {
+        toast("This dish isn't part of the package selection.", "info");
+        return;
+      }
+      const limit = Number(b.limit) || 0;
+      if (limit > 0 && countInBucket(b) >= limit) {
+        const currentInBucket = d.menuSelections.filter((m) => bucketOfItem(m) === b);
+        if (limit === 1) {
+          const removed = removeSelectionById(currentInBucket[0].menu_item_id);
+          addSelectionFor(item);
+          updateCounts();
+          renderCart();
+          toast(`Swapped ${removed ? removed.item_name : "dish"} → ${item.name}`, "success");
+        } else {
+          openSwapSheet(b.name, currentInBucket, item);
+        }
+        return;
+      }
+    }
+
+    addSelectionFor(item);
+    updateCounts();
+    renderCart();
+  }
 
   const goNextStep = () => {
     if (isFoodSet && totalReplacementsNeeded > 0 && d.menuSelections.length < totalReplacementsNeeded) {
@@ -2629,59 +2838,7 @@ async function renderStepMenu(card) {
   card.querySelectorAll(".select-card").forEach((el) => {
     const item = allItems.find((it) => String(it.menu_item_id) === el.dataset.itemId);
     if (!item) return;
-    el.addEventListener("click", () => {
-      if (isFoodSet) {
-        const isAlreadySelected = d.menuSelections.some((m) => String(m.menu_item_id) === String(item.menu_item_id));
-        if (!isAlreadySelected) {
-          if (totalReplacementsNeeded > 0) {
-            if (d.menuSelections.length >= totalReplacementsNeeded) {
-              toast(`You have already chosen all ${totalReplacementsNeeded} replacement dish${totalReplacementsNeeded > 1 ? "es" : ""}. To choose another dish, unselect one of your chosen replacements first.`, "info");
-              return;
-            }
-            d.menuSelections.push({
-              menu_item_id: item.menu_item_id,
-              item_name: item.name,
-              category: item.category,
-              price: 0,
-              is_replacement: true,
-              quantity: 1,
-            });
-          } else {
-            d.menuSelections.push({
-              menu_item_id: item.menu_item_id,
-              item_name: item.name,
-              category: item.category,
-              price: Number(item.price || 0),
-              is_replacement: false,
-              quantity: 1,
-            });
-          }
-          el.classList.add("selected");
-          el.querySelector(".item-check-badge").innerHTML = icon("checkCircle");
-        } else {
-          d.menuSelections = d.menuSelections.filter((m) => String(m.menu_item_id) !== String(item.menu_item_id));
-          el.classList.remove("selected");
-          el.querySelector(".item-check-badge").innerHTML = icon("plus");
-        }
-        updateCounts();
-        renderCart();
-        return;
-      }
-
-      const idx = d.menuSelections.findIndex((m) => String(m.menu_item_id) === String(item.menu_item_id));
-      if (idx === -1) {
-        if (!canAdd(item)) return;
-        d.menuSelections.push({ menu_item_id: item.menu_item_id, item_name: item.name, category: item.category, price: item.price || 0, quantity: 1, bucket_id: item.bucket_id });
-        el.classList.add("selected");
-        el.querySelector(".item-check-badge").innerHTML = icon("checkCircle");
-      } else {
-        d.menuSelections.splice(idx, 1);
-        el.classList.remove("selected");
-        el.querySelector(".item-check-badge").innerHTML = icon("plus");
-      }
-      updateCounts();
-      renderCart();
-    });
+    el.addEventListener("click", () => handleDishTap(item));
   });
 
   // Dish details viewer button
@@ -2692,57 +2849,7 @@ async function renderStepMenu(card) {
       const item = allItems.find((it) => String(it.menu_item_id) === String(itemId));
       if (!item) return;
       const isSelected = d.menuSelections.some((m) => m.menu_item_id === item.menu_item_id);
-      openDishDetailsModal(item, isSelected, () => {
-        const cardEl = card.querySelector(`.select-card[data-item-id="${item.menu_item_id}"]`);
-        if (isFoodSet) {
-          const isAlreadyIn = d.menuSelections.some((m) => String(m.menu_item_id) === String(item.menu_item_id));
-          if (!isAlreadyIn) {
-            if (totalReplacementsNeeded > 0 && d.menuSelections.length >= totalReplacementsNeeded) {
-              toast(`You have already chosen all ${totalReplacementsNeeded} replacement dish${totalReplacementsNeeded > 1 ? "es" : ""}.`, "info");
-              return;
-            }
-            d.menuSelections.push({
-              menu_item_id: item.menu_item_id,
-              item_name: item.name,
-              category: item.category,
-              price: totalReplacementsNeeded > 0 ? 0 : Number(item.price || 0),
-              is_replacement: totalReplacementsNeeded > 0,
-              quantity: 1,
-            });
-            if (cardEl) {
-              cardEl.classList.add("selected");
-              cardEl.querySelector(".item-check-badge").innerHTML = icon("checkCircle");
-            }
-          } else {
-            d.menuSelections = d.menuSelections.filter((m) => String(m.menu_item_id) !== String(item.menu_item_id));
-            if (cardEl) {
-              cardEl.classList.remove("selected");
-              cardEl.querySelector(".item-check-badge").innerHTML = icon("plus");
-            }
-          }
-          updateCounts();
-          renderCart();
-          return;
-        }
-
-        const idx = d.menuSelections.findIndex((m) => m.menu_item_id === item.menu_item_id);
-        if (idx === -1) {
-          if (!canAdd(item)) return;
-          d.menuSelections.push({ menu_item_id: item.menu_item_id, item_name: item.name, category: item.category, price: item.price, quantity: 1 });
-          if (cardEl) {
-            cardEl.classList.add("selected");
-            cardEl.querySelector(".item-check-badge").innerHTML = icon("checkCircle");
-          }
-        } else {
-          d.menuSelections.splice(idx, 1);
-          if (cardEl) {
-            cardEl.classList.remove("selected");
-            cardEl.querySelector(".item-check-badge").innerHTML = icon("plus");
-          }
-        }
-        updateCounts();
-        renderCart();
-      });
+      openDishDetailsModal(item, isSelected, () => handleDishTap(item));
     });
   });
   updateCounts();
@@ -3046,14 +3153,171 @@ function renderStepPreview(card) {
       ${icon("arrowLeft")} Back
     </button>
     <button class="btn btn-primary btn-lg" id="confirm-order">
-      ${icon("check")} Confirm &amp; Save Booking
+      ${icon("arrowRight")} Next: Terms &amp; Conditions
     </button>
   `;
   wrap.querySelector("#wiz-back").addEventListener("click", () => { wizard.step = 5; render(); });
+  wrap.querySelector("#confirm-order").addEventListener("click", () => { wizard.step = 7; render(); });
+}
 
-  function openBookingConfirmationDrawer() {
-    const confirmModalId = "booking-confirm-drawer";
-    const finalGrandTotal = grandTotal(d);
+// ── Step 7: Terms & Conditions ───────────────────────────────────────
+
+function renderStepTerms(card) {
+  const d = wizard.draft;
+
+  (async () => {
+    let terms;
+    try {
+      terms = await api.terms();
+    } catch (err) {
+      card.innerHTML = `<p style="color:var(--danger);">Failed to load Terms &amp; Conditions: ${escapeHtml(err.message)}</p>`;
+      return;
+    }
+
+    const alreadyAccepted = !!d.termsAccepted;
+
+    card.innerHTML = `
+      <h2 style="margin:0 0 8px; display:flex; align-items:center; gap:10px;">
+        ${icon("fileText")} ${escapeHtml(terms.title)}
+      </h2>
+      <p style="color:var(--text-muted); margin:0 0 20px; font-size:14px;">
+        Please review our Terms &amp; Conditions before confirming this booking.
+      </p>
+
+      <div class="terms-text" id="terms-scroll-box" style="max-height:55vh; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:18px 20px; border-radius:var(--radius);">${terms.html || escapeHtml(terms.text)}</div>
+      <div style="margin-top:16px; background:var(--card-elevated); padding:16px 20px; border-radius:var(--radius-md); border:1.5px solid var(--border); box-shadow:var(--shadow-sm);">
+        <label style="display:flex; align-items:center; gap:12px; cursor:pointer; font-weight:700; font-size:14px; color:var(--text);" id="terms-ack-label">
+          <input type="checkbox" id="terms-ack" ${alreadyAccepted ? "" : "disabled"} ${alreadyAccepted ? "checked" : ""} style="width:22px; height:22px; accent-color:var(--accent); cursor:pointer;">
+          <span>${escapeHtml(terms.acknowledgement_label)}</span>
+        </label>
+        <p id="scroll-hint" style="color:${alreadyAccepted ? "var(--success)" : "var(--gold)"}; font-size:12.5px; font-weight:600; margin:8px 0 0 34px; display:flex; align-items:center; gap:6px;">
+          ${alreadyAccepted
+            ? `${icon("checkCircle")} Agreement confirmed. You may proceed.`
+            : `${icon("info")} Please scroll to the very bottom of the terms above to unlock the agreement checkbox.`}
+        </p>
+      </div>
+    `;
+
+    const scrollBox = card.querySelector("#terms-scroll-box");
+    const ackBox = card.querySelector("#terms-ack");
+    const hint = card.querySelector("#scroll-hint");
+
+    const footerEl = stepFooter();
+    const wrap = footerEl || document.createElement("div");
+    if (!footerEl) {
+      wrap.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-top:28px; border-top:1.5px solid var(--border); padding-top:20px;";
+      card.appendChild(wrap);
+    }
+    wrap.className = "wizard-step-footer";
+    wrap.innerHTML = `
+      <button class="btn btn-secondary" id="wiz-back">
+        ${icon("arrowLeft")} Back
+      </button>
+      <button class="btn btn-primary btn-lg" id="terms-agree-btn" ${alreadyAccepted ? "" : "disabled"}>
+        ${icon("check")} I Agree — Continue
+      </button>
+    `;
+    wrap.querySelector("#wiz-back").addEventListener("click", () => { wizard.step = 6; render(); });
+    const agreeBtn = wrap.querySelector("#terms-agree-btn");
+
+    const checkScrolledToBottom = () => {
+      if (!scrollBox || !ackBox) return;
+      const isAtBottom = scrollBox.scrollHeight - scrollBox.scrollTop <= scrollBox.clientHeight + 40;
+      if (isAtBottom && ackBox.disabled) {
+        ackBox.disabled = false;
+        hint.style.color = "var(--success)";
+        hint.innerHTML = `${icon("checkCircle")} Terms fully reviewed! You may now check the box above to proceed.`;
+        toast("Terms reviewed! Check the box to continue.", "success");
+      }
+    };
+
+    scrollBox?.addEventListener("scroll", checkScrolledToBottom);
+    setTimeout(checkScrolledToBottom, 400);
+
+    ackBox?.addEventListener("change", () => {
+      agreeBtn.disabled = !ackBox.checked;
+      if (ackBox.checked) {
+        hint.innerHTML = `<span style="color:var(--success); font-weight:700;">${icon("checkCircle")} Agreement confirmed. Click below to continue!</span>`;
+      } else {
+        hint.innerHTML = `${icon("checkCircle")} Terms fully reviewed! You may now check the box above to proceed.`;
+      }
+    });
+
+    agreeBtn?.addEventListener("click", () => {
+      d.termsAccepted = true;
+      d.termsVersion = terms.version;
+      wizard.step = 8;
+      render();
+    });
+  })();
+}
+
+// ── Step 8: Survey & Confirm ─────────────────────────────────────────
+
+function renderStepSurvey(card) {
+  const d = wizard.draft;
+  if (!Array.isArray(d.surveySources)) d.surveySources = [];
+
+  card.innerHTML = `
+    <h2 style="margin:0 0 8px; display:flex; align-items:center; gap:10px;">
+      ${icon("checkCircle")} One last thing — how did you hear about us?
+    </h2>
+    <p style="color:var(--text-muted); margin:0 0 20px; font-size:14px;">
+      Select all that apply (optional)
+    </p>
+
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      ${SURVEY_OPTIONS.map((opt) => `
+        <label class="card card-elevated" style="display:flex; align-items:flex-start; gap:12px; padding:14px 16px; cursor:pointer;">
+          <input type="checkbox" class="survey-opt-check" data-value="${escapeHtml(opt.value)}" ${d.surveySources.includes(opt.value) ? "checked" : ""} style="width:20px; height:20px; min-width:20px; margin-top:2px; accent-color:var(--accent); cursor:pointer;">
+          <span style="font-size:14px; line-height:1.4;">${escapeHtml(opt.label)}</span>
+        </label>
+      `).join("")}
+    </div>
+  `;
+
+  card.querySelectorAll(".survey-opt-check").forEach((chk) => {
+    chk.addEventListener("change", () => {
+      const val = chk.dataset.value;
+      if (chk.checked) {
+        if (!d.surveySources.includes(val)) d.surveySources.push(val);
+      } else {
+        d.surveySources = d.surveySources.filter((v) => v !== val);
+      }
+    });
+  });
+
+  const footerEl = stepFooter();
+  const wrap = footerEl || document.createElement("div");
+  if (!footerEl) {
+    wrap.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-top:28px; border-top:1.5px solid var(--border); padding-top:20px;";
+    card.appendChild(wrap);
+  }
+  wrap.className = "wizard-step-footer";
+  wrap.innerHTML = `
+    <button class="btn btn-secondary" id="wiz-back">
+      ${icon("arrowLeft")} Back
+    </button>
+    <button class="btn btn-primary btn-lg" id="confirm-order">
+      ${icon("check")} Confirm &amp; Save Booking
+    </button>
+  `;
+  wrap.querySelector("#wiz-back").addEventListener("click", () => { wizard.step = 7; render(); });
+  wrap.querySelector("#confirm-order").addEventListener("click", () => {
+    if (!d.termsAccepted) {
+      toast("Please review and accept the Terms & Conditions first.", "error");
+      wizard.step = 7;
+      render();
+      return;
+    }
+    openBookingConfirmationDrawer(card);
+  });
+}
+
+function openBookingConfirmationDrawer(card) {
+  const d = wizard.draft;
+  const confirmModalId = "booking-confirm-drawer";
+  const finalGrandTotal = grandTotal(d);
     const balanceDue = Math.max(0, finalGrandTotal - Number(d.downPayment || 0));
 
     openModal({
@@ -3130,7 +3394,6 @@ function renderStepPreview(card) {
       finalBtn.disabled = true;
       finalBtn.innerHTML = `${icon("refresh")} Saving Booking…`;
       try {
-        const terms = await api.terms();
         const payload = {
           customer_id: d.customer.id,
           customer_name: d.customer.name,
@@ -3166,7 +3429,8 @@ function renderStepPreview(card) {
           down_payment: d.downPayment,
           payment_method: d.paymentMethod,
           notes: d.notes,
-          terms_version: terms.version,
+          terms_version: d.termsVersion,
+          survey_source: JSON.stringify(d.surveySources || []),
         };
         lastCreatedOrder = await api.placeOrder(payload);
         closeModal(confirmModalId);
@@ -3182,9 +3446,6 @@ function renderStepPreview(card) {
         finalBtn.innerHTML = `${icon("checkCircle")} Yes, Confirm Booking!`;
       }
     });
-  }
-
-  wrap.querySelector("#confirm-order").addEventListener("click", openBookingConfirmationDrawer);
 }
 
 function renderReceipt(card) {
