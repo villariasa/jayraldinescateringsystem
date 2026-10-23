@@ -15,7 +15,7 @@ itself fresh, and supports exporting the dashboard to PDF/Excel.
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame,
     QLabel, QPushButton, QProgressBar, QScrollArea,
-    QFileDialog, QMessageBox, QMenu, QSizePolicy, QStackedWidget
+    QFileDialog, QMessageBox, QMenu, QSizePolicy, QStackedWidget, QComboBox
 )
 from PySide6.QtCore import Qt, Signal, QSize, QTimer
 from PySide6.QtGui import QAction
@@ -1089,10 +1089,50 @@ class DashboardPage(QWidget):
         self._btn_this_month.setCursor(Qt.PointingHandCursor)
         self._btn_this_month.clicked.connect(lambda: self._set_date_filter_mode("month"))
 
+        self._btn_this_year = QPushButton("This Year")
+        self._btn_this_year.setObjectName("secondaryButton")
+        self._btn_this_year.setFixedHeight(32)
+        self._btn_this_year.setCursor(Qt.PointingHandCursor)
+        self._btn_this_year.clicked.connect(lambda: self._set_date_filter_mode("year"))
+
         f_lay.addWidget(self._btn_all_time)
         f_lay.addWidget(self._btn_today)
         f_lay.addWidget(self._btn_this_week)
         f_lay.addWidget(self._btn_this_month)
+        f_lay.addWidget(self._btn_this_year)
+
+        # Week/Month/Year sub-selectors (same pattern as the Reports page) -
+        # let the user pick a SPECIFIC week/month/year instead of only ever
+        # the current one. Hidden unless the matching mode button is active.
+        self._suppress_period_sub = False
+        self._period_sub_widget = QFrame()
+        sub_lay = QHBoxLayout(self._period_sub_widget)
+        sub_lay.setContentsMargins(0, 0, 0, 0)
+        sub_lay.setSpacing(6)
+
+        self._period_month_combo = QComboBox()
+        self._period_month_combo.setFixedHeight(32)
+        for i, m_name in enumerate([
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        ], start=1):
+            self._period_month_combo.addItem(m_name, i)
+        self._period_month_combo.setCurrentIndex(datetime.now().month - 1)
+        self._period_month_combo.currentIndexChanged.connect(self._on_period_month_changed)
+
+        self._period_week_combo = QComboBox()
+        self._period_week_combo.setFixedHeight(32)
+        self._period_week_combo.currentIndexChanged.connect(self._on_period_sub_changed)
+
+        self._period_year_combo = QComboBox()
+        self._period_year_combo.setFixedHeight(32)
+        self._period_year_combo.currentIndexChanged.connect(self._on_period_year_changed)
+
+        sub_lay.addWidget(self._period_month_combo)
+        sub_lay.addWidget(self._period_week_combo)
+        sub_lay.addWidget(self._period_year_combo)
+        self._period_sub_widget.setVisible(False)
+        f_lay.addWidget(self._period_sub_widget)
 
         f_lay.addSpacing(8)
         spec_lbl = QLabel("Specific Date:")
@@ -1114,6 +1154,8 @@ class DashboardPage(QWidget):
         f_lay.addWidget(self._filter_status_lbl)
 
         self.lay.addWidget(filter_bar)
+        self._populate_period_years()
+        self._update_week_combo_options()
 
         self.slideshow = WelcomeHeroSlideshow(self.content)
         self.slideshow.new_booking_requested.connect(self.new_booking_requested.emit)
@@ -1446,6 +1488,80 @@ class DashboardPage(QWidget):
             QMessageBox.warning(self, "Export Failed",
                 "Excel export failed. Make sure openpyxl is installed:\npip install openpyxl")
 
+    def _populate_period_years(self):
+        """Fill the year combo with every year that has data (same source as
+        the Reports page), always including the current year."""
+        try:
+            years = repo.get_transacted_years()
+        except Exception:
+            years = []
+        cur_year = datetime.now().year
+        if cur_year not in years:
+            years = sorted(set(years) | {cur_year}, reverse=True)
+        self._suppress_period_sub = True
+        self._period_year_combo.clear()
+        for y in years:
+            self._period_year_combo.addItem(str(y), y)
+        idx = self._period_year_combo.findData(cur_year)
+        self._period_year_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._suppress_period_sub = False
+
+    def _update_week_combo_options(self):
+        """Repopulate the week combo for the currently selected year/month -
+        weeks are groups of 7 days within that month (Week 1 = days 1-7, ...),
+        matching the Reports page's week definition exactly."""
+        import calendar
+        today = datetime.now().date()
+        yr = self._period_year_combo.currentData() or today.year
+        mo = self._period_month_combo.currentData() or today.month
+        _, num_days = calendar.monthrange(yr, mo)
+
+        self._suppress_period_sub = True
+        self._period_week_combo.clear()
+        self._period_week_combo.addItem("Week 1 (Days 1–7)", 1)
+        self._period_week_combo.addItem("Week 2 (Days 8–14)", 2)
+        self._period_week_combo.addItem("Week 3 (Days 15–21)", 3)
+        self._period_week_combo.addItem("Week 4 (Days 22–28)", 4)
+        if num_days > 28:
+            self._period_week_combo.addItem(f"Week 5 (Days 29–{num_days})", 5)
+
+        default_week = 1
+        if yr == today.year and mo == today.month:
+            default_week = min(5, (today.day - 1) // 7 + 1)
+        idx = self._period_week_combo.findData(default_week)
+        self._period_week_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._suppress_period_sub = False
+
+    def _update_period_sub_controls_visibility(self):
+        """Show only the combo(s) relevant to the active filter mode -
+        Week shows Month+Week+Year, Month shows Month+Year, Year shows only
+        Year, everything else hides the whole sub-control row."""
+        mode = getattr(self, "_filter_mode", "all")
+        show = mode in ("week", "month", "year")
+        self._period_sub_widget.setVisible(show)
+        self._period_month_combo.setVisible(mode in ("week", "month"))
+        self._period_week_combo.setVisible(mode == "week")
+        self._period_year_combo.setVisible(mode in ("week", "month", "year"))
+
+    def _on_period_month_changed(self, _idx=None):
+        if self._suppress_period_sub:
+            return
+        if getattr(self, "_filter_mode", "all") == "week":
+            self._update_week_combo_options()
+        self._set_date_filter_mode(self._filter_mode)
+
+    def _on_period_year_changed(self, _idx=None):
+        if self._suppress_period_sub:
+            return
+        if getattr(self, "_filter_mode", "all") == "week":
+            self._update_week_combo_options()
+        self._set_date_filter_mode(self._filter_mode)
+
+    def _on_period_sub_changed(self, _idx=None):
+        if self._suppress_period_sub:
+            return
+        self._set_date_filter_mode(self._filter_mode)
+
     def _set_date_filter_mode(self, mode: str, custom_date: str = None):
         """Apply a date-filter preset, update the status label, and reload data.
 
@@ -1459,7 +1575,7 @@ class DashboardPage(QWidget):
         :param custom_date: ``YYYY-MM-DD`` used only when ``mode == "custom"``.
         """
         import calendar
-        from datetime import timedelta
+        from datetime import date
         self._filter_mode = mode
         today = datetime.now().date()
 
@@ -1470,22 +1586,45 @@ class DashboardPage(QWidget):
             self._filter_date = today_str
             self._filter_status_lbl.setText(f"Showing: Today's Metrics ({today.strftime('%b %d, %Y')})")
         elif mode == "week":
-            # Monday-anchored week: back up to weekday()==0, then +6 for Sunday.
-            start_d = today - timedelta(days=today.weekday())
-            end_d = start_d + timedelta(days=6)
+            # A specific "week" (group of 7 days) within the selected
+            # year/month, chosen via the Week/Month/Year combos - same
+            # definition as the Reports page (Week 1 = days 1-7, etc.).
+            yr = self._period_year_combo.currentData() or today.year
+            mo = self._period_month_combo.currentData() or today.month
+            wk = self._period_week_combo.currentData() or 1
+            _, num_days = calendar.monthrange(yr, mo)
+            start_day = (wk - 1) * 7 + 1
+            end_day = min(wk * 7, num_days)
+            start_d = date(yr, mo, start_day)
+            end_d = date(yr, mo, end_day)
             self._filter_start = start_d.strftime("%Y-%m-%d")
             self._filter_end = end_d.strftime("%Y-%m-%d")
             self._filter_date = self._filter_start
-            self._filter_status_lbl.setText(f"Showing: This Week ({start_d.strftime('%b %d')} – {end_d.strftime('%b %d, %Y')})")
+            month_name = self._period_month_combo.currentText()
+            self._filter_status_lbl.setText(
+                f"Showing: {month_name} {yr} · Week {wk} ({start_d.strftime('%b %d')} – {end_d.strftime('%b %d, %Y')})"
+            )
         elif mode == "month":
-            # First to last calendar day of the current month.
-            start_d = today.replace(day=1)
-            last_day = calendar.monthrange(today.year, today.month)[1]
-            end_d = today.replace(day=last_day)
+            # First to last calendar day of the selected year/month.
+            yr = self._period_year_combo.currentData() or today.year
+            mo = self._period_month_combo.currentData() or today.month
+            last_day = calendar.monthrange(yr, mo)[1]
+            start_d = date(yr, mo, 1)
+            end_d = date(yr, mo, last_day)
             self._filter_start = start_d.strftime("%Y-%m-%d")
             self._filter_end = end_d.strftime("%Y-%m-%d")
             self._filter_date = self._filter_start
-            self._filter_status_lbl.setText(f"Showing: This Month ({today.strftime('%B %Y')})")
+            month_name = self._period_month_combo.currentText()
+            self._filter_status_lbl.setText(f"Showing: {month_name} {yr}")
+        elif mode == "year":
+            # Full calendar year selected via the Year combo.
+            yr = self._period_year_combo.currentData() or today.year
+            start_d = date(yr, 1, 1)
+            end_d = date(yr, 12, 31)
+            self._filter_start = start_d.strftime("%Y-%m-%d")
+            self._filter_end = end_d.strftime("%Y-%m-%d")
+            self._filter_date = self._filter_start
+            self._filter_status_lbl.setText(f"Showing: Year {yr}")
         elif mode == "custom" and custom_date:
             self._filter_start = custom_date
             self._filter_end = custom_date
@@ -1507,12 +1646,16 @@ class DashboardPage(QWidget):
             "today": getattr(self, "_btn_today", None),
             "week": getattr(self, "_btn_this_week", None),
             "month": getattr(self, "_btn_this_month", None),
+            "year": getattr(self, "_btn_this_year", None),
         }
         for b_mode, btn in btn_modes.items():
             if btn:
                 btn.setObjectName("primaryButton" if b_mode == self._filter_mode else "secondaryButton")
                 btn.style().unpolish(btn)
                 btn.style().polish(btn)
+
+        if hasattr(self, "_period_sub_widget"):
+            self._update_period_sub_controls_visibility()
 
         self._load_data(silent=True)
 
@@ -1661,11 +1804,11 @@ class DashboardPage(QWidget):
 
                 self._kpi_downpayment.update_title("Downpayments")
                 self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
-                self._kpi_downpayment.update_trend("Collected today")
+                self._kpi_downpayment.update_trend("Partial payments — not yet fully paid")
 
                 self._kpi_revenue.update_title("Today's Revenue")
                 self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-                self._kpi_revenue.update_trend("Sales & collections today")
+                self._kpi_revenue.update_trend("Fully paid bookings")
 
                 self._kpi_unpaid.update_title("Unpaid (Today)")
                 self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
@@ -1687,11 +1830,11 @@ class DashboardPage(QWidget):
 
                 self._kpi_downpayment.update_title("Downpayments")
                 self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
-                self._kpi_downpayment.update_trend("Collected this week")
+                self._kpi_downpayment.update_trend("Partial payments — not yet fully paid")
 
                 self._kpi_revenue.update_title("Weekly Revenue")
                 self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-                self._kpi_revenue.update_trend("Sales & collections this week")
+                self._kpi_revenue.update_trend("Fully paid bookings")
 
                 self._kpi_unpaid.update_title("Unpaid (This Week)")
                 self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
@@ -1713,11 +1856,11 @@ class DashboardPage(QWidget):
 
                 self._kpi_downpayment.update_title("Downpayments")
                 self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
-                self._kpi_downpayment.update_trend("Collected this month")
+                self._kpi_downpayment.update_trend("Partial payments — not yet fully paid")
 
                 self._kpi_revenue.update_title("Monthly Revenue")
                 self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-                self._kpi_revenue.update_trend("Sales & collections this month")
+                self._kpi_revenue.update_trend("Fully paid bookings")
 
                 self._kpi_unpaid.update_title("Unpaid (This Month)")
                 self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
@@ -1728,9 +1871,38 @@ class DashboardPage(QWidget):
                 self._kpi_profit.update_trend(f"Rev ₱{revenue:,.0f} − Exp ₱{expenses:,.0f}")
 
                 if hasattr(self, "_header_sub"):
-                    self._header_sub.setText(f"Here's what's happening at Jayraldine's Catering in {datetime.now().strftime('%B %Y')}.")
+                    month_lbl = self._period_month_combo.currentText() if hasattr(self, "_period_month_combo") else datetime.now().strftime("%B")
+                    year_lbl = self._period_year_combo.currentData() if hasattr(self, "_period_year_combo") else datetime.now().year
+                    self._header_sub.setText(f"Here's what's happening at Jayraldine's Catering in {month_lbl} {year_lbl}.")
                 if hasattr(self, "_ev_title"):
                     self._ev_title.setText("This Month's Events")
+
+            elif mode == "year":
+                yr_lbl = self._period_year_combo.currentData() if hasattr(self, "_period_year_combo") else datetime.now().year
+                self._kpi_today.update_title(f"{yr_lbl} Events")
+                self._kpi_today.update_value(str(todays))
+                self._kpi_today.update_trend(f"{todays} event{'s' if todays != 1 else ''} in {yr_lbl}")
+
+                self._kpi_downpayment.update_title("Downpayments")
+                self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
+                self._kpi_downpayment.update_trend("Partial payments — not yet fully paid")
+
+                self._kpi_revenue.update_title(f"{yr_lbl} Revenue")
+                self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
+                self._kpi_revenue.update_trend("Fully paid bookings")
+
+                self._kpi_unpaid.update_title(f"Unpaid ({yr_lbl})")
+                self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
+                self._kpi_unpaid.update_trend(f"Balance on {yr_lbl}'s events")
+
+                self._kpi_profit.update_title(f"Net Profit ({yr_lbl})")
+                self._kpi_profit.update_value(f"₱ {net_income:,.0f}")
+                self._kpi_profit.update_trend(f"Rev ₱{revenue:,.0f} − Exp ₱{expenses:,.0f}")
+
+                if hasattr(self, "_header_sub"):
+                    self._header_sub.setText(f"Here's what's happening at Jayraldine's Catering in {yr_lbl}.")
+                if hasattr(self, "_ev_title"):
+                    self._ev_title.setText(f"{yr_lbl} Events")
 
             elif mode == "custom":
                 c_date = getattr(self, "_filter_date", "")
@@ -1740,11 +1912,11 @@ class DashboardPage(QWidget):
 
                 self._kpi_downpayment.update_title("Downpayments")
                 self._kpi_downpayment.update_value(f"₱ {dp_rec:,.2f}")
-                self._kpi_downpayment.update_trend("Collected on date")
+                self._kpi_downpayment.update_trend("Partial payments — not yet fully paid")
 
                 self._kpi_revenue.update_title("Revenue (Date)")
                 self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-                self._kpi_revenue.update_trend("Sales & collections on date")
+                self._kpi_revenue.update_trend("Fully paid bookings")
 
                 self._kpi_unpaid.update_title("Unpaid (Date)")
                 self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
