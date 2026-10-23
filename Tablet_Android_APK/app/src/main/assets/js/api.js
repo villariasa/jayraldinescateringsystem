@@ -132,7 +132,7 @@ function _getTabletDeviceInfo() {
     device_id: devId,
     hostname: detected.hostname,
     os_info: detected.os_info,
-    app_version: "v2.7.1",
+    app_version: "v2.7.2",
     active_module: "Customer Booking Kiosk"
   };
 }
@@ -490,11 +490,16 @@ export const api = {
     return repo.getPackageBuckets(pkgId);
   },
 
+  async getPackageInclusions(pkgId) {
+    await ready();
+    return repo.getPackageInclusions(pkgId);
+  },
+
   // Authors a full package definition (package + default dishes + selection
   // buckets) on the Central Server. The server writes to Postgres and the
   // change flows back to every device on the next sync. Returns the server's
   // {ok, pkg_id, buckets, items} response, or throws if the server is unreachable.
-  async definePackage({ package: pkg, items = [], buckets = [] } = {}) {
+  async definePackage({ package: pkg, items = [], buckets = [], inclusions = [] } = {}) {
     await ready();
     const host = _getStoredSyncHost();
     if (!host) {
@@ -509,7 +514,7 @@ export const api = {
         const res = await fetch(`${base}/api/packages/define`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "69420" },
-          body: JSON.stringify({ package: pkg || {}, items: items || [], buckets: buckets || [] }),
+          body: JSON.stringify({ package: pkg || {}, items: items || [], buckets: buckets || [], inclusions: inclusions || [] }),
           signal: controller.signal,
         });
         clearTimeout(tid);
@@ -1167,7 +1172,7 @@ export const api = {
         repo.applyPaymentUpdates(res.payment_updates);
       }
       if (res.packages || res.menu_items || res.customers || res.occasions || res.menu_categories) {
-        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || [], res.occasions || [], res.package_buckets || [], res.menu_categories || []);
+        repo.updateMasterDataFromSync(res.packages || [], res.menu_items || [], res.package_items || [], res.customers || [], res.occasions || [], res.package_buckets || [], res.menu_categories || [], res.package_inclusions || []);
       }
       if (res.deleted_booking_refs && res.deleted_booking_refs.length > 0) {
         repo.purgeDeletedBookings(res.deleted_booking_refs);
