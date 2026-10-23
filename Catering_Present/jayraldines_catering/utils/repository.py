@@ -3592,7 +3592,8 @@ def get_dashboard_kpis() -> dict:
             SELECT
                 COUNT(*) AS total_bookings,
                 COALESCE(SUM(bk_pax), 0) AS total_pax,
-                COALESCE(SUM({_FULLY_PAID_SALES_CASE}), 0.0) AS total_sales
+                COALESCE(SUM({_FULLY_PAID_SALES_CASE}), 0.0) AS total_sales,
+                COALESCE(SUM(bk_total_amount), 0.0) AS total_contract_value
             FROM bookings
             WHERE bk_status IN ('CONFIRMED', 'COMPLETED')
         """)
@@ -3604,7 +3605,8 @@ def get_dashboard_kpis() -> dict:
                 SELECT
                     COUNT(*) AS total_bookings,
                     COALESCE(SUM(bk_pax), 0) AS total_pax,
-                    COALESCE(SUM({_FULLY_PAID_SALES_CASE}), 0.0) AS total_sales
+                    COALESCE(SUM({_FULLY_PAID_SALES_CASE}), 0.0) AS total_sales,
+                    COALESCE(SUM(bk_total_amount), 0.0) AS total_contract_value
                 FROM bookings
                 WHERE bk_status != 'CANCELLED'
             """)
@@ -3614,6 +3616,9 @@ def get_dashboard_kpis() -> dict:
     total_bookings = int(all_row["total_bookings"] if all_row and all_row.get("total_bookings") is not None else 0)
     total_pax = int(all_row["total_pax"] if all_row and all_row.get("total_pax") is not None else 0)
     total_sales = float(all_row["total_sales"] if all_row and all_row.get("total_sales") is not None else 0.0)
+    # Accrual-basis (full contract value) — matches Reports' "Total Revenue" for
+    # the All Time view, which sums bk_total_amount unconditionally.
+    total_contract_value = float(all_row["total_contract_value"] if all_row and all_row.get("total_contract_value") is not None else 0.0)
     total_dp = dp_rec
 
     try:
@@ -3642,7 +3647,7 @@ def get_dashboard_kpis() -> dict:
     return {
         "todays_events":         todays_events,
         "pending_bookings":      pending_bookings,
-        "weekly_revenue":        total_sales,
+        "weekly_revenue":        total_contract_value,
         "unpaid_invoices":       total_unpaid,
         "todays_pax":            todays_pax,
         "downpayment_received":  total_dp,
@@ -3650,12 +3655,14 @@ def get_dashboard_kpis() -> dict:
         # All-time metrics (correlated: total_revenue = total_downpayments + total_unpaid)
         "total_bookings":        total_bookings,
         "total_pax":             total_pax,
-        "total_revenue":         total_sales,
+        "total_revenue":         total_contract_value,
+        "total_sales_cash":      total_sales,
         "total_expenses":        total_exp,
         "total_downpayments":    total_dp,
         "total_on_process":      on_process_rec,
         "total_unpaid":          total_unpaid,
-        "all_time_net_income":   total_sales - total_exp,
+        "all_time_net_income":   total_contract_value - total_exp,
+        "all_time_net_income_cash": total_sales - total_exp,
     }
 
 
@@ -3686,10 +3693,15 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
     """
 
     # 1. Events and sales for confirmed/completed bookings in this period (matches Reports exactly)
+    #    period_sales   = cash-basis revenue (only bookings that are FULLY paid count)
+    #    period_total_value = accrual-basis revenue (full contract value, matching
+    #    Reports' "Total Revenue" calc in reports_page.py, which sums bk_total_amount
+    #    unconditionally regardless of payment status)
     c_row = db.fetchone(f"""
         SELECT COUNT(*) AS events_count, COALESCE(SUM(bk_pax), 0) AS total_pax,
                COALESCE(SUM({_period_revenue_case}), 0.0) AS period_sales,
-               COALESCE(SUM({_period_dp_case}), 0.0) AS total_dp
+               COALESCE(SUM({_period_dp_case}), 0.0) AS total_dp,
+               COALESCE(SUM(bk_total_amount), 0.0) AS period_total_value
         FROM bookings
         WHERE bk_event_date >= %s AND bk_event_date <= %s
           AND bk_status IN ('CONFIRMED', 'COMPLETED')
@@ -3702,12 +3714,14 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
         total_pax = int(c_row.get("total_pax") or 0)
         period_sales = float(c_row.get("period_sales") or 0.0)
         dp_amt = float(c_row.get("total_dp") or 0.0)
+        period_total_value = float(c_row.get("period_total_value") or 0.0)
     else:
         # Fallback to all non-cancelled bookings if none are marked confirmed yet (matches Reports logic)
         all_b_row = db.fetchone(f"""
             SELECT COUNT(*) AS events_count, COALESCE(SUM(bk_pax), 0) AS total_pax,
                    COALESCE(SUM({_period_revenue_case}), 0.0) AS period_sales,
-                   COALESCE(SUM({_period_dp_case}), 0.0) AS total_dp
+                   COALESCE(SUM({_period_dp_case}), 0.0) AS total_dp,
+                   COALESCE(SUM(bk_total_amount), 0.0) AS period_total_value
             FROM bookings
             WHERE bk_event_date >= %s AND bk_event_date <= %s
               AND bk_status != 'CANCELLED'
@@ -3716,6 +3730,7 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
         total_pax = int(all_b_row.get("total_pax") or 0) if all_b_row else 0
         period_sales = float(all_b_row.get("period_sales") or 0.0) if all_b_row else 0.0
         dp_amt = float(all_b_row.get("total_dp") or 0.0) if all_b_row else 0.0
+        period_total_value = float(all_b_row.get("period_total_value") or 0.0) if all_b_row else 0.0
 
     # 2. Pending bookings for this period
     p_row = db.fetchone("""
@@ -3768,7 +3783,13 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
     return {
         "todays_events":        events_count,
         "pending_bookings":     pending,
-        "weekly_revenue":       period_sales,
+        # Accrual-basis (full contract value) — matches Reports' "Total Revenue"
+        # exactly, since both now sum bk_total_amount over the same
+        # confirmed/completed-with-fallback booking set for this period.
+        "weekly_revenue":       period_total_value,
+        "period_total_value":   period_total_value,
+        # Cash-basis (only fully-paid bookings count) — kept for anything else
+        # that still wants "money actually in hand", e.g. Downpayments tile.
         "daily_sales":          period_sales,
         "daily_payments":       paid_amt,
         "daily_expenses":       exp_amt,
@@ -3776,7 +3797,8 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
         "todays_pax":           total_pax,
         "downpayment_received": dp_amt,
         "on_process_received":  on_process_amt,
-        "net_income":           period_sales - exp_amt,
+        "net_income":           period_total_value - exp_amt,
+        "net_income_cash":      period_sales - exp_amt,
     }
 
 

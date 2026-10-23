@@ -118,7 +118,9 @@ class DatabaseRestoreWorker(QThread):
             import os
             import sqlite3
             from pathlib import Path
+            from utils.logger import get_logger
 
+            log = get_logger()
             path = self.file_path
             self.progress_update.emit("Inspecting database backup structure...")
 

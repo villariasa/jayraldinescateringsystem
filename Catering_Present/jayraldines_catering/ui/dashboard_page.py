@@ -1808,7 +1808,7 @@ class DashboardPage(QWidget):
 
                 self._kpi_revenue.update_title("Today's Revenue")
                 self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-                self._kpi_revenue.update_trend("Fully paid bookings")
+                self._kpi_revenue.update_trend("Confirmed booking value")
 
                 self._kpi_unpaid.update_title("Unpaid (Today)")
                 self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
@@ -1834,7 +1834,7 @@ class DashboardPage(QWidget):
 
                 self._kpi_revenue.update_title("Weekly Revenue")
                 self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-                self._kpi_revenue.update_trend("Fully paid bookings")
+                self._kpi_revenue.update_trend("Confirmed booking value")
 
                 self._kpi_unpaid.update_title("Unpaid (This Week)")
                 self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
@@ -1860,7 +1860,7 @@ class DashboardPage(QWidget):
 
                 self._kpi_revenue.update_title("Monthly Revenue")
                 self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-                self._kpi_revenue.update_trend("Fully paid bookings")
+                self._kpi_revenue.update_trend("Confirmed booking value")
 
                 self._kpi_unpaid.update_title("Unpaid (This Month)")
                 self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
@@ -1889,7 +1889,7 @@ class DashboardPage(QWidget):
 
                 self._kpi_revenue.update_title(f"{yr_lbl} Revenue")
                 self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-                self._kpi_revenue.update_trend("Fully paid bookings")
+                self._kpi_revenue.update_trend("Confirmed booking value")
 
                 self._kpi_unpaid.update_title(f"Unpaid ({yr_lbl})")
                 self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
@@ -1916,7 +1916,7 @@ class DashboardPage(QWidget):
 
                 self._kpi_revenue.update_title("Revenue (Date)")
                 self._kpi_revenue.update_value(f"₱ {revenue:,.0f}")
-                self._kpi_revenue.update_trend("Fully paid bookings")
+                self._kpi_revenue.update_trend("Confirmed booking value")
 
                 self._kpi_unpaid.update_title("Unpaid (Date)")
                 self._kpi_unpaid.update_value(f"₱ {unpaid:,.0f}")
