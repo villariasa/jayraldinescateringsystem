@@ -735,6 +735,10 @@ export function openOrderDetailModal(bookingId) {
 async function renderPackagesTab(content) {
   content.innerHTML = `<p style="color:var(--text-muted); padding:20px; text-align:center;">Loading packages…</p>`;
   const packages = await api.getPackages();
+  const inclusionsByPkg = {};
+  await Promise.all(packages.map(async (p) => {
+    try { inclusionsByPkg[p.id] = await api.getPackageInclusions(p.id); } catch (_) { inclusionsByPkg[p.id] = []; }
+  }));
   content.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <div style="font-size:14px; color:var(--text-muted); font-weight:600;">Configured Buffet Packages (${packages.length})</div>
@@ -749,7 +753,9 @@ async function renderPackagesTab(content) {
             ${p.image ? `<img src="${p.image}" alt="pkg" class="management-card-thumb">` : `<div class="management-card-thumb-placeholder">${icon("package")}</div>`}
             <div class="management-card-info">
               <h4 class="management-card-title">${escapeHtml(p.name)}</h4>
-              <p class="management-card-desc">${escapeHtml(p.description || "Standard buffet catering setup.")}</p>
+              ${(inclusionsByPkg[p.id] || []).length
+                ? `<p class="management-card-desc">${inclusionsByPkg[p.id].map((i) => `✓ ${escapeHtml(i.label)}`).join("&nbsp;&nbsp;•&nbsp;&nbsp;")}</p>`
+                : `<p class="management-card-desc">${escapeHtml(p.description || "Standard buffet catering setup.")}</p>`}
             </div>
           </div>
           <div class="management-card-meta">
@@ -803,9 +809,11 @@ async function openPackageForm(content, pkg) {
   // Ensure every category that has dishes is offered even if not in the master list.
   for (const c of Object.keys(grouped)) if (!allCategories.includes(c)) allCategories.push(c);
 
+  let inclusions = [];
   if (pkg) {
     try { existingItems = await api.getPackageItems(pkg.id); } catch (_) { existingItems = []; }
     try { buckets = await api.getPackageBuckets(pkg.id); } catch (_) { buckets = []; }
+    try { inclusions = await api.getPackageInclusions(pkg.id); } catch (_) { inclusions = []; }
   }
 
   // Sensible starting buckets for a brand-new package: Dishes + Dessert.
@@ -842,6 +850,13 @@ async function openPackageForm(content, pkg) {
       </div>
     `;
   };
+
+  const inclusionRowHtml = (label = "", idx = 0) => `
+    <div class="pkg-inclusion-row" data-iidx="${idx}" style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+      <span style="color:#22C55E; font-weight:800; font-size:14px;">✓</span>
+      <input type="text" class="form-control inc-label" value="${escapeHtml(label)}" placeholder="e.g. Unlimited Rice" style="flex:1;">
+      <button type="button" class="btn btn-ghost inc-remove" style="color:var(--danger,#ef4444); padding:4px 10px;">✕</button>
+    </div>`;
 
   const bucketRowHtml = (b, idx) => `
     <div class="pkg-bucket-row" data-bidx="${idx}" style="border:1.5px solid var(--border,#cbd5e1); border-radius:12px; padding:12px; margin-bottom:12px; background:var(--card-bg,#fff); box-shadow:0 1px 3px rgba(0,0,0,0.05);">
@@ -899,8 +914,16 @@ async function openPackageForm(content, pkg) {
         <input type="text" class="form-control" id="f-name" value="${escapeHtml(pkg?.name || "")}">
       </div>
       <div class="form-group">
-        <label>Description</label>
-        <textarea class="form-control" id="f-desc" rows="2">${escapeHtml(pkg?.description || "")}</textarea>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <label style="margin:0;">Inclusions</label>
+          <button type="button" class="btn btn-ghost" id="add-inclusion-btn" style="color:var(--primary,#e11d48); font-weight:700; font-size:12px; padding:2px 8px;">${icon("plus")} Add Inclusion</button>
+        </div>
+        <p style="color:var(--text-muted); font-size:11px; margin:2px 0 8px;">One checklist item per line, e.g. "Unlimited Rice", "Free Use of Tables &amp; Chairs". Shown to customers as a ✓ check list instead of a paragraph.</p>
+        <div id="pkg-inclusions-list">${(inclusions.length ? inclusions : [{ label: "" }]).map((i, idx) => inclusionRowHtml(i.label, idx)).join("")}</div>
+      </div>
+      <div class="form-group">
+        <label>Description (internal notes, optional)</label>
+        <textarea class="form-control" id="f-desc" rows="2" placeholder="Customers now see the Inclusions checklist above instead.">${escapeHtml(pkg?.description || "")}</textarea>
       </div>
       <div class="grid-2">
         <div class="form-group">
@@ -975,6 +998,21 @@ async function openPackageForm(content, pkg) {
   const removeBtn = modal.querySelector("#remove-pkg-img-btn");
   const previewWrap = modal.querySelector("#pkg-img-preview-wrap");
   const bucketsList = modal.querySelector("#pkg-buckets-list");
+  const inclusionsList = modal.querySelector("#pkg-inclusions-list");
+
+  const wireInclusionInteractions = () => {
+    inclusionsList.querySelectorAll(".pkg-inclusion-row").forEach((row) => {
+      const removeBtn = row.querySelector(".inc-remove");
+      if (removeBtn) removeBtn.onclick = () => row.remove();
+    });
+  };
+  wireInclusionInteractions();
+
+  modal.querySelector("#add-inclusion-btn").addEventListener("click", () => {
+    const idx = inclusionsList.querySelectorAll(".pkg-inclusion-row").length;
+    inclusionsList.insertAdjacentHTML("beforeend", inclusionRowHtml("", idx));
+    wireInclusionInteractions();
+  });
 
   // Bucket interactions wiring (minus/plus, chip toggles, select/clear all, remove)
   const wireBucketInteractions = () => {
@@ -1083,6 +1121,13 @@ async function openPackageForm(content, pkg) {
       outBuckets.push({ name: bn, limit, categories: cats });
     });
 
+    // Collect inclusion checklist items (non-blank, in display order)
+    const outInclusions = [];
+    inclusionsList.querySelectorAll(".pkg-inclusion-row").forEach((row) => {
+      const label = row.querySelector(".inc-label").value.trim();
+      if (label) outInclusions.push(label);
+    });
+
     // Collect default dishes
     const outItems = [];
     modal.querySelectorAll(".pkg-dish-cb:checked").forEach((cb) => {
@@ -1116,7 +1161,7 @@ async function openPackageForm(content, pkg) {
     }
 
     try {
-      await api.definePackage({ package: pkgPayload, items: outItems, buckets: outBuckets });
+      await api.definePackage({ package: pkgPayload, items: outItems, buckets: outBuckets, inclusions: outInclusions });
       toast("Package saved and synced to Central DB.", "success");
       closeModal(formId);
       renderPackagesTab(content);
