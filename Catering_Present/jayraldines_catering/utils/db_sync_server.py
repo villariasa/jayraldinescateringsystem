@@ -1306,6 +1306,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 ("packages",                   "SELECT * FROM packages ORDER BY pkg_id"),
                 ("package_items",              "SELECT * FROM package_items ORDER BY pi_id"),
                 ("package_buckets",            "SELECT * FROM package_buckets ORDER BY pb_id"),
+                ("package_inclusions",         "SELECT * FROM package_inclusions ORDER BY pinc_id"),
                 ("customer_loyalty_tiers",     "SELECT * FROM customer_loyalty_tiers ORDER BY cl_id"),
                 ("customers",                  "SELECT * FROM customers ORDER BY cus_id"),
                 ("customer_addresses",         "SELECT * FROM customer_addresses ORDER BY ca_id"),
@@ -1555,6 +1556,9 @@ class SyncServerHandler(BaseHTTPRequestHandler):
             buckets = payload.get("buckets")
             if buckets is not None:
                 repo.set_package_buckets(pkg_id, buckets)
+            inclusions = payload.get("inclusions")
+            if inclusions is not None:
+                repo.set_package_inclusions(pkg_id, inclusions)
 
             bump_db_version()
 
@@ -1564,6 +1568,7 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 "pkg_id": pkg_id,
                 "buckets": repo.get_package_buckets(pkg_id),
                 "items": repo.get_package_items(pkg_id),
+                "inclusions": repo.get_package_inclusions(pkg_id),
                 "version": get_db_version(),
             }, default=str).encode("utf-8"))
         except Exception as exc:
@@ -1858,11 +1863,13 @@ def perform_server_sync(payload: dict) -> dict:
             if db.get_engine_type() == "postgres":
                 db.execute("DELETE FROM package_buckets WHERE pb_package_id = %s", (pid_int,))
                 db.execute("DELETE FROM package_items WHERE pi_package_id = %s", (pid_int,))
+                db.execute("DELETE FROM package_inclusions WHERE pinc_package_id = %s", (pid_int,))
                 db.execute("DELETE FROM packages WHERE pkg_id = %s", (pid_int,))
                 db.execute("INSERT INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('packages', %s, %s) ON CONFLICT (dr_ref) DO NOTHING", (ref_val, pid_int))
             else:
                 db.execute("DELETE FROM package_buckets WHERE pb_package_id = ?", (pid_int,))
                 db.execute("DELETE FROM package_items WHERE pi_package_id = ?", (pid_int,))
+                db.execute("DELETE FROM package_inclusions WHERE pinc_package_id = ?", (pid_int,))
                 db.execute("DELETE FROM packages WHERE pkg_id = ?", (pid_int,))
                 db.execute("INSERT OR IGNORE INTO deleted_records (dr_table, dr_ref, dr_record_id) VALUES ('packages', ?, ?)", (ref_val, pid_int))
             deleted_package_ids.add(pid_int)
@@ -2592,6 +2599,30 @@ def perform_server_sync(payload: dict) -> dict:
         logger.warning(f"[SyncServer] Failed to fetch package_buckets: {e}")
         package_buckets = []
 
+    # Pull package inclusions (checklist-style perks shown instead of a
+    # free-text description)
+    package_inclusions = []
+    try:
+        pinc_raw = db.fetchall("""
+            SELECT pinc_id, pinc_package_id,
+                   COALESCE(pinc_label, '') AS pinc_label,
+                   COALESCE(pinc_sort_order, 0) AS pinc_sort_order
+            FROM package_inclusions
+            ORDER BY pinc_package_id, pinc_sort_order, pinc_id
+        """) or []
+        package_inclusions = [
+            {
+                "pinc_id": r["pinc_id"],
+                "pinc_package_id": r["pinc_package_id"],
+                "pinc_label": r.get("pinc_label", ""),
+                "pinc_sort_order": int(r.get("pinc_sort_order") or 0)
+            }
+            for r in pinc_raw
+        ]
+    except Exception as e:
+        logger.warning(f"[SyncServer] Failed to fetch package_inclusions: {e}")
+        package_inclusions = []
+
     # Pull latest customers
     customers = []
     try:
@@ -2707,6 +2738,7 @@ def perform_server_sync(payload: dict) -> dict:
         "menu_categories": menu_categories,
         "package_items": package_items,
         "package_buckets": package_buckets,
+        "package_inclusions": package_inclusions,
         "customers": customers,
         "occasions": occasions,
         "synced_booking_refs": synced_booking_refs,
