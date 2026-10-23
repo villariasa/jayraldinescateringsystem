@@ -360,6 +360,9 @@ export function updateLiveDbBadge(connected, server = "") {
 
 async function openPackagesQuickModal() {
   const pkgs = await api.getPackages();
+  await Promise.all(pkgs.map(async (p) => {
+    try { p.inclusions = await api.getPackageInclusions(p.id); } catch (_) { p.inclusions = []; }
+  }));
   openModal({
     id: "quick-packages-modal",
     title: `${icon("package")} Catering Buffet Packages`,
@@ -376,7 +379,9 @@ async function openPackagesQuickModal() {
             <div class="pkg-badge">${p.is_set ? "Food Set" : p.is_food_service ? "Food & Services" : "Buffet Tier"}</div>
             <h3 class="pkg-name">${escapeHtml(p.name)}</h3>
             <div class="pkg-rate">${peso(p.price_per_pax)}<span class="pkg-unit"> / ${p.is_set ? "set" : "pax"}</span></div>
-            <p class="pkg-desc">${escapeHtml(p.description || "Complete buffet service with setup, tableware and crew.")}</p>
+            <p class="pkg-desc">${(p.inclusions || []).length
+              ? p.inclusions.map((i) => `✓ ${escapeHtml(i.label)}`).join("<br>")
+              : escapeHtml(p.description || "Complete buffet service with setup, tableware and crew.")}</p>
             <div class="pkg-meta">
               <span>${icon("user")} Min ${p.min_pax || 1} ${p.is_set ? "Set(s)" : "Pax"}</span>
             </div>
