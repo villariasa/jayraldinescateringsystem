@@ -2433,6 +2433,19 @@ class BookingPage(QWidget):
         c2.addWidget(pax_lbl)
         lay.addLayout(c2, 2)
 
+        # Col 2.5: Event Type (Occasion)
+        c_occ = QVBoxLayout()
+        c_occ.setSpacing(2)
+        occ_title = QLabel("EVENT TYPE")
+        occ_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #6B7280; letter-spacing: 0.5px;")
+        occ_val = QLabel(str(b.get("occasion") or "—"))
+        occ_val.setObjectName("subtitle")
+        occ_val.setStyleSheet("font-weight: 700; font-size: 13px;")
+        occ_val.setWordWrap(True)
+        c_occ.addWidget(occ_title)
+        c_occ.addWidget(occ_val)
+        lay.addLayout(c_occ, 1)
+
         # Col 3: Total Amount
         c3 = QVBoxLayout()
         c3.setSpacing(2)
