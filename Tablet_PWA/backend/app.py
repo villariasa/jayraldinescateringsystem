@@ -539,6 +539,8 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
             ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_pickup_time VARCHAR(50);
             ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_dropoff_time VARCHAR(50);
             ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_num_sets INT DEFAULT 0;
+            ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_on_process INT DEFAULT 0;
+            ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_survey_source TEXT DEFAULT '';
             ALTER TABLE packages ADD COLUMN IF NOT EXISTS pkg_is_set INT DEFAULT 0;
             ALTER TABLE packages ADD COLUMN IF NOT EXISTS pkg_is_food_service INT DEFAULT 0;
 
@@ -653,8 +655,9 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
                         bk_event_time, bk_pickup_time, bk_dropoff_time, bk_venue, bk_occasion,
                         bk_pax, bk_num_sets, bk_total_amount,
                         bk_base_total, bk_payment_mode, bk_amount_paid, bk_down_payment,
-                        bk_down_payment_status, bk_status, bk_notes, bk_menu_type
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        bk_down_payment_status, bk_status, bk_notes, bk_menu_type,
+                        bk_survey_source
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (bk_booking_ref) DO NOTHING
                     RETURNING bk_id;
                 """, (
@@ -666,6 +669,7 @@ def lan_sync(payload: Optional[LanSyncIn] = None):
                     b.get("bk_down_payment", 0.0), b.get("bk_down_payment_status", "PENDING"),
                     b.get("bk_status", "PENDING"), b.get("bk_notes", "Kiosk Order"),
                     b.get("bk_menu_type", "package"),
+                    b.get("bk_survey_source", ""),
                 ))
                 new_row = pg_cur.fetchone()
                 if new_row:
