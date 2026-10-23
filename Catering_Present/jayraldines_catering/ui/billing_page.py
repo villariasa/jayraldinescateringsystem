@@ -1795,6 +1795,12 @@ class BillingPage(QWidget):
         c1.addWidget(inv_lbl)
         c1.addWidget(cust_lbl)
         c1.addWidget(date_lbl)
+        occasion = inv.get("occasion") or ""
+        if occasion:
+            occ_lbl = QLabel(f"🎉 {occasion}")
+            occ_lbl.setObjectName("subtitle")
+            occ_lbl.setStyleSheet("font-weight: 600;")
+            c1.addWidget(occ_lbl)
         lay.addLayout(c1, 3)
 
         # Col 2: Total, Down Payment, Paid, Balance
@@ -1915,6 +1921,22 @@ class BillingPage(QWidget):
         charges_btn.setEnabled(can_edit and bool(inv.get("booking_id")))
         charges_btn.clicked.connect(lambda _, invoice=inv: self._open_additional_charges(invoice))
 
+        # ON PROCESS toggle — lets billing itself clear (or set) the flag
+        # instead of forcing a trip back to Bookings to unmark it.
+        onproc_now = bool(inv.get("on_process"))
+        onproc_btn = QPushButton()
+        onproc_btn.setIcon(get_icon("clock", color="#A78BFA" if onproc_now else "#9CA3AF", size=QSize(14, 14)))
+        onproc_btn.setIconSize(QSize(14, 14))
+        onproc_btn.setFixedSize(32, 32)
+        onproc_btn.setStyleSheet("background: transparent; border: none;")
+        onproc_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
+        onproc_btn.setToolTip(
+            ("Unmark ON PROCESS" if onproc_now else "Mark as ON PROCESS (payment being processed)")
+            if can_edit else "Permission required"
+        )
+        onproc_btn.setEnabled(can_edit and bool(inv.get("booking_id")))
+        onproc_btn.clicked.connect(lambda _, invoice=inv: self._toggle_on_process_dict(invoice))
+
         print_btn = QPushButton()
         print_btn.setIcon(get_icon("export", color="#9CA3AF", size=QSize(14, 14)))
         print_btn.setIconSize(QSize(14, 14))
@@ -1951,6 +1973,8 @@ class BillingPage(QWidget):
         actions_l.addWidget(hist_btn)
         if can_edit:
             actions_l.addWidget(charges_btn)
+        if can_edit:
+            actions_l.addWidget(onproc_btn)
         actions_l.addWidget(print_btn)
         if can_edit:
             actions_l.addWidget(edit_btn)
@@ -1960,6 +1984,25 @@ class BillingPage(QWidget):
         lay.addWidget(actions_w)
 
         return card
+
+    def _toggle_on_process_dict(self, inv: dict):
+        """Flip the linked booking's ON PROCESS flag directly from Billing —
+        same repo call booking_page.py's own toggle uses, so both pages stay
+        in sync. No-op without a linked booking."""
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("bookings", "edit"):
+            return
+        db_id = inv.get("booking_id")
+        if not db_id:
+            return
+        new_flag = not bool(inv.get("on_process"))
+        repo.set_booking_on_process(db_id, new_flag)
+        success(self, message=f"{inv.get('customer', 'Booking')} marked {'ON PROCESS' if new_flag else 'as not on process'}.")
+        # booking_updated is already connected to this page's own
+        # _mark_dirty_and_reload, and also notifies Bookings so both pages
+        # stay in sync — no need to call self.reload() separately here.
+        app_events().booking_updated.emit()
+        app_events().data_changed.emit()
 
     def _open_additional_charges(self, inv: dict):
         """Open the Additional Charges dialog for the invoice's linked booking,
