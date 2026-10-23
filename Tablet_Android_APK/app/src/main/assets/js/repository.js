@@ -410,6 +410,19 @@ export function getPackageItems(pkgId) {
   }
 }
 
+export function getPackageInclusions(pkgId) {
+  if (!pkgId) return [];
+  try {
+    const rows = fetchAll(
+      "SELECT pinc_id, pinc_label, pinc_sort_order FROM package_inclusions WHERE pinc_package_id = ? ORDER BY pinc_sort_order, pinc_id",
+      [pkgId]
+    );
+    return rows.map((r) => ({ id: r.pinc_id, label: r.pinc_label, sort_order: r.pinc_sort_order || 0 }));
+  } catch (_) {
+    return [];
+  }
+}
+
 export function getPackageBuckets(pkgId) {
   if (!pkgId) return [];
   try {
@@ -673,6 +686,14 @@ function genBookingRef() {
 
 export function createOrder(order) {
   let customerId = order.customer_id;
+  if (customerId) {
+    try {
+      const custExists = fetchOne("SELECT cus_id FROM customers WHERE cus_id = ?", [customerId]);
+      if (!custExists) customerId = null;
+    } catch (_) {
+      customerId = null;
+    }
+  }
   if (!customerId) {
     customerId = addCustomer(order.customer_name, order.contact || "", order.email || "", order.address || "");
   }
@@ -692,6 +713,17 @@ export function createOrder(order) {
   if (!["package", "custom", "food_set", "food_tray", "food_service"].includes(menuType)) menuType = "package";
   const numSets = Number(order.num_sets) || 0;
 
+  // Safely resolve package foreign key to prevent SQLite foreign key constraint failure
+  let resolvedPackageId = order.package_id ?? null;
+  if (resolvedPackageId) {
+    try {
+      const pkgExists = fetchOne("SELECT pkg_id FROM packages WHERE pkg_id = ?", [resolvedPackageId]);
+      if (!pkgExists) resolvedPackageId = null;
+    } catch (_) {
+      resolvedPackageId = null;
+    }
+  }
+
   const bookingId = run(`
     INSERT INTO bookings (
       bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time, bk_event_end_time,
@@ -704,13 +736,22 @@ export function createOrder(order) {
     order.pickup_time || null, order.dropoff_time || null,
     order.venue || "To be followed", resolvedOccasion, Number(order.pax) || 1, numSets,
     total, baseTotal, order.payment_method || "Cash", downPayment, downPayment,
-    menuType, order.package_id ?? null, order.notes || "", order.motif || order.color_theme || "Standard",
+    menuType, resolvedPackageId, order.notes || "", order.motif || order.color_theme || "Standard",
     order.survey_source || "",
   ]);
 
   for (const m of order.menu_selections || []) {
+    let itemId = m.menu_item_id ?? null;
+    if (itemId) {
+      try {
+        const itemExists = fetchOne("SELECT mi_id FROM menu_items WHERE mi_id = ?", [itemId]);
+        if (!itemExists) itemId = null;
+      } catch (_) {
+        itemId = null;
+      }
+    }
     run(`INSERT INTO booking_menu_items (bmi_booking_id, bmi_item_id, bmi_item_name, bmi_category, bmi_price, bmi_quantity) VALUES (?, ?, ?, ?, ?, ?)`,
-      [bookingId, m.menu_item_id ?? null, m.item_name, m.category || "", Number(m.price) || 0, Number(m.quantity) || 1]);
+      [bookingId, itemId, m.item_name, m.category || "", Number(m.price) || 0, Number(m.quantity) || 1]);
   }
 
   // Food Set selections (supports MULTIPLE sets and REPEATING the same set
@@ -720,7 +761,15 @@ export function createOrder(order) {
   // only looks at booking_menu_items (kitchen/order-print/export/receipt).
   (order.sets || []).forEach((s, sortIdx) => {
     if (!s) return;
-    const sId = s.set_id ?? null;
+    let sId = s.set_id ?? null;
+    if (sId) {
+      try {
+        const setExists = fetchOne("SELECT pkg_id FROM packages WHERE pkg_id = ?", [sId]);
+        if (!setExists) sId = null;
+      } catch (_) {
+        sId = null;
+      }
+    }
     const sName = s.name || "";
     const sQty = Number(s.quantity) || 1;
     const sPrice = Number(s.unit_price) || 0;
@@ -1165,7 +1214,7 @@ export function deleteBooking(bookingIdOrRef) {
   return true;
 }
 
-export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = [], occasions = [], packageBuckets = [], menuCategories = []) {
+export function updateMasterDataFromSync(packages = [], menuItems = [], packageItems = [], customers = [], occasions = [], packageBuckets = [], menuCategories = [], packageInclusions = []) {
   const pendingPackageImages = getPendingPackageImageMap();
   const pendingMenuItemImages = getPendingMenuItemImageMap();
 
@@ -1175,6 +1224,7 @@ export function updateMasterDataFromSync(packages = [], menuItems = [], packageI
       menuItems: menuItems || [],
       packageItems: packageItems || [],
       packageBuckets: packageBuckets || [],
+      packageInclusions: packageInclusions || [],
       customers: customers || []
     });
   }
@@ -1335,6 +1385,7 @@ export function purgeDeletedPackages(pkgIds = []) {
       run("DELETE FROM entity_images WHERE entity_type = 'package' AND entity_id = ?", [id]);
       run("DELETE FROM package_items WHERE pi_package_id = ?", [id]);
       run("DELETE FROM package_buckets WHERE pb_package_id = ?", [id]);
+      run("DELETE FROM package_inclusions WHERE pinc_package_id = ?", [id]);
       run("DELETE FROM packages WHERE pkg_id = ?", [id]);
     } catch (_) {}
   }
