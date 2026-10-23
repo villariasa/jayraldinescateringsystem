@@ -720,20 +720,20 @@ class PackageDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
 
-        # Size the (large, two-column) dialog relative to the available screen,
-        # clamped so it stays usable on both small and very large displays.
+        # Size the dialog relative to the available screen, constrained so it
+        # never overflows or overlaps the screen on small or scaled displays.
         from PySide6.QtWidgets import QApplication
         screen = QApplication.primaryScreen()
         if screen:
             avail = screen.availableGeometry()
-            target_w = min(1120, max(820, int(avail.width() * 0.92)))
-            target_h = min(880, max(560, int(avail.height() * 0.90)))
+            target_w = min(980, max(720, int(avail.width() * 0.85)))
+            target_h = min(680, max(460, int(avail.height() * 0.85)))
             self.resize(target_w, target_h)
-            self.setMinimumSize(min(800, target_w), min(540, target_h))
-            self.setMaximumSize(avail.width(), avail.height())
+            self.setMinimumSize(min(680, target_w), min(440, target_h))
+            self.setMaximumSize(max(target_w, avail.width() - 20), max(target_h, avail.height() - 20))
         else:
-            self.resize(1080, 820)
-            self.setMinimumSize(800, 540)
+            self.resize(920, 640)
+            self.setMinimumSize(680, 440)
 
         self._result = None
         self._selected_items = {}      # {menu_item_id: custom_price}
@@ -795,7 +795,7 @@ class PackageDialog(QDialog):
 
         # ---------- LEFT: big package photo + thumbnail strip ----------
         left_w = QWidget()
-        left_w.setFixedWidth(460)
+        left_w.setFixedWidth(340)
         left = QVBoxLayout(left_w)
         left.setContentsMargins(0, 0, 0, 0)
         left.setSpacing(10)
@@ -807,7 +807,7 @@ class PackageDialog(QDialog):
             f"#card {{ border: 1px solid {_ph_border}; border-radius: 12px; "
             f"background: {'#F1F5F9' if _is_light else '#0B1220'}; }}"
         )
-        self._img_holder.setMinimumHeight(430)
+        self._img_holder.setMinimumHeight(180)
         self._img_holder.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         holder_lay = QVBoxLayout(self._img_holder)
         holder_lay.setContentsMargins(0, 0, 0, 0)
@@ -833,7 +833,7 @@ class PackageDialog(QDialog):
         thumb_row = QHBoxLayout()
         thumb_row.setSpacing(8)
         self._thumb_lbl = QLabel()
-        self._thumb_lbl.setFixedSize(96, 72)
+        self._thumb_lbl.setFixedSize(84, 64)
         self._thumb_lbl.setAlignment(Qt.AlignCenter)
         self._thumb_lbl.setStyleSheet(
             f"border: 2px solid #2563EB; border-radius: 8px; background: {'#F1F5F9' if _is_light else '#0B1220'};"
@@ -841,7 +841,7 @@ class PackageDialog(QDialog):
         thumb_row.addWidget(self._thumb_lbl)
 
         upload_tile = QPushButton("＋\nUpload\nImage")
-        upload_tile.setFixedSize(96, 72)
+        upload_tile.setFixedSize(84, 64)
         upload_tile.setCursor(Qt.PointingHandCursor)
         upload_tile.setStyleSheet(
             f"QPushButton {{ border: 1.5px dashed {'#94A3B8' if _is_light else '#475569'}; "
@@ -861,10 +861,22 @@ class PackageDialog(QDialog):
 
         content.addWidget(left_w)
 
-        # ---------- RIGHT: fields ----------
-        right = QVBoxLayout()
-        right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(12)
+        # ---------- RIGHT: scrollable fields ----------
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QFrame.NoFrame)
+        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        right_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        right_scroll.setStyleSheet("""
+            QScrollArea { background: transparent; border: none; }
+            QScrollArea > QWidget > QWidget { background: transparent; }
+        """)
+
+        right_w = QWidget()
+        right_w.setStyleSheet("background: transparent;")
+        right = QVBoxLayout(right_w)
+        right.setContentsMargins(0, 0, 8, 0)
+        right.setSpacing(10)
 
         _nm_lbl = QLabel("Package Name *"); _nm_lbl.setStyleSheet(_fld_lbl)
         right.addWidget(_nm_lbl)
@@ -905,9 +917,9 @@ class PackageDialog(QDialog):
         right.addLayout(pm_row)
 
         # "Food Set" and "Food and Services" flags:
-        self.chk_is_set = QCheckBox("This is a Food Set (shows in \"Food Set\" order type)")
+        self.chk_is_set = QCheckBox("Food Set package (shows in \"Food Set\" order type)")
         self.chk_is_set.setStyleSheet("font-size: 12px; font-weight: 600;")
-        self.chk_is_food_service = QCheckBox("This is a Food and Services package (shows in \"Food and Services\")")
+        self.chk_is_food_service = QCheckBox("Food & Services package (shows in \"Food and Services\")")
         self.chk_is_food_service.setStyleSheet("font-size: 12px; font-weight: 600;")
 
         def _on_is_set_toggled(checked):
@@ -966,7 +978,8 @@ class PackageDialog(QDialog):
         right.addWidget(_ds_lbl)
         self.desc_field = QTextEdit()
         self.desc_field.setPlaceholderText("Optional internal notes — customers now see the Inclusions checklist above instead.")
-        self.desc_field.setMinimumHeight(70)
+        self.desc_field.setMinimumHeight(54)
+        self.desc_field.setMaximumHeight(80)
         if self._edit_mode:
             self.desc_field.setPlainText(self._pkg_data.get("description", ""))
         right.addWidget(self.desc_field)
@@ -1000,6 +1013,7 @@ class PackageDialog(QDialog):
         b_titlecol.addWidget(b_lbl)
         b_hint = QLabel("Limit how many items a customer may pick per group (none = unlimited)")
         b_hint.setStyleSheet("color: #9CA3AF; font-size: 10px;")
+        b_hint.setWordWrap(True)
         b_titlecol.addWidget(b_hint)
         buckets_hdr.addLayout(b_titlecol)
         buckets_hdr.addStretch()
@@ -1010,25 +1024,21 @@ class PackageDialog(QDialog):
         buckets_hdr.addWidget(add_bucket_btn)
         right.addLayout(buckets_hdr)
 
-        b_scroll = QScrollArea()
-        b_scroll.setWidgetResizable(True)
-        b_scroll.setFrameShape(QFrame.NoFrame)
-        b_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        b_scroll.setMinimumHeight(200)
         self._buckets_container = QWidget()
         self._buckets_layout = QVBoxLayout(self._buckets_container)
-        self._buckets_layout.setContentsMargins(4, 4, 4, 4)
+        self._buckets_layout.setContentsMargins(0, 0, 0, 0)
         self._buckets_layout.setSpacing(6)
         self._buckets_layout.addStretch()
-        b_scroll.setWidget(self._buckets_container)
-        right.addWidget(b_scroll, 1)
+        right.addWidget(self._buckets_container)
 
         self._err = QLabel("")
         self._err.setStyleSheet("color: #E11D48; font-size: 12px;")
         self._err.hide()
         right.addWidget(self._err)
 
-        content.addLayout(right, 1)
+        right.addStretch()
+        right_scroll.setWidget(right_w)
+        content.addWidget(right_scroll, 1)
         lay.addLayout(content, 1)
 
         btn_row = QHBoxLayout()
@@ -1393,8 +1403,8 @@ class PackageDialog(QDialog):
 
         # Big preview scaled to fully fit the holder (whole image visible).
         holder = getattr(self, "_img_holder", None)
-        tw = holder.width() - 4 if holder and holder.width() > 20 else 440
-        th = holder.height() - 4 if holder and holder.height() > 20 else 430
+        tw = holder.width() - 4 if holder and holder.width() > 20 else 320
+        th = holder.height() - 4 if holder and holder.height() > 20 else 220
         if has_img:
             self.img_preview.setPixmap(pm.scaled(max(tw, 40), max(th, 40),
                                                  Qt.KeepAspectRatio, Qt.SmoothTransformation))
@@ -1406,7 +1416,7 @@ class PackageDialog(QDialog):
         # Thumbnail + remove button state
         if hasattr(self, "_thumb_lbl"):
             if has_img:
-                self._thumb_lbl.setPixmap(pm.scaled(96, 72, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
+                self._thumb_lbl.setPixmap(pm.scaled(84, 64, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
                 self._thumb_lbl.setText("")
                 self._thumb_lbl.show()
             else:
