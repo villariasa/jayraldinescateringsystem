@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     bk_status TEXT DEFAULT 'PENDING',
     bk_color_theme TEXT DEFAULT '#2563EB',
     bk_cancellation_reason TEXT,
+    bk_survey_source TEXT DEFAULT '',
     bk_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -384,6 +385,7 @@ export async function initDb() {
   try { db.run("ALTER TABLE bookings ADD COLUMN bk_pickup_time TEXT;"); } catch (_) {}
   try { db.run("ALTER TABLE bookings ADD COLUMN bk_dropoff_time TEXT;"); } catch (_) {}
   try { db.run("ALTER TABLE bookings ADD COLUMN bk_num_sets INTEGER DEFAULT 0;"); } catch (_) {}
+  try { db.run("ALTER TABLE bookings ADD COLUMN bk_survey_source TEXT DEFAULT '';"); } catch (_) {}
   try {
     db.run(`
       CREATE TABLE IF NOT EXISTS booking_sets (
