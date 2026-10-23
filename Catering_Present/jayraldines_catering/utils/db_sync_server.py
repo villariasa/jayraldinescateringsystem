@@ -2060,6 +2060,10 @@ def perform_server_sync(payload: dict) -> dict:
         
         # Extract customer notes / special instructions
         notes = (b.get("bk_special_notes") or b.get("special_notes") or b.get("bk_notes") or b.get("notes") or "").strip()
+        # "How did you hear about us?" survey answer(s), JSON array string —
+        # was previously dropped entirely on sync since this handler's INSERT/
+        # UPDATE statements never referenced bk_survey_source.
+        survey = b.get("bk_survey_source") or b.get("survey_source") or ""
         
         # Lookup customer id and contact info
         c_chk_sql = "SELECT cus_id, cus_contact, cus_email FROM customers WHERE LOWER(cus_name) = LOWER(%s) LIMIT 1" if db.get_engine_type() == "postgres" else "SELECT cus_id, cus_contact, cus_email FROM customers WHERE LOWER(cus_name) = LOWER(?) LIMIT 1"
@@ -2088,13 +2092,13 @@ def perform_server_sync(payload: dict) -> dict:
                             bk_event_date, bk_event_time, bk_event_end_time, bk_pickup_time, bk_dropoff_time,
                             bk_venue, bk_occasion, bk_pax, bk_num_sets, bk_total_amount,
                             bk_base_total, bk_menu_type, bk_color_theme, bk_payment_mode, bk_amount_paid, bk_down_payment,
-                            bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id
+                            bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id, bk_survey_source
                         ) VALUES (
                             %s, %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
                             %s, %s, %s, %s::payment_method, %s, %s,
-                            %s, %s::booking_status, %s, %s, %s
+                            %s, %s::booking_status, %s, %s, %s, %s
                         )
                         ON CONFLICT (bk_booking_ref) DO UPDATE SET
                             bk_special_notes = EXCLUDED.bk_special_notes,
@@ -2115,14 +2119,15 @@ def perform_server_sync(payload: dict) -> dict:
                             bk_amount_paid = EXCLUDED.bk_amount_paid,
                             bk_down_payment = EXCLUDED.bk_down_payment,
                             bk_down_payment_status = EXCLUDED.bk_down_payment_status,
-                            bk_package_id = EXCLUDED.bk_package_id
+                            bk_package_id = EXCLUDED.bk_package_id,
+                            bk_survey_source = COALESCE(NULLIF(EXCLUDED.bk_survey_source, ''), bookings.bk_survey_source)
                         RETURNING bk_id;
                     """, (
                         ref, cust_id, cust_name, cust_contact, cust_email, addr,
                         ev_date, ev_time, ev_end_time, pickup_time, dropoff_time,
                         venue, occ, pax, num_sets, total,
                         base_tot, menu_type, color_theme, pay_mode, paid, down_pay,
-                        dp_status, "PENDING", notes, notes, pkg_id
+                        dp_status, "PENDING", notes, notes, pkg_id, survey
                     ))
                     if row:
                         bk_id = row.get("bk_id")
@@ -2133,14 +2138,14 @@ def perform_server_sync(payload: dict) -> dict:
                             bk_event_date, bk_event_time, bk_event_end_time, bk_pickup_time, bk_dropoff_time,
                             bk_venue, bk_occasion, bk_pax, bk_num_sets, bk_total_amount,
                             bk_base_total, bk_menu_type, bk_color_theme, bk_payment_mode, bk_amount_paid, bk_down_payment,
-                            bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            bk_down_payment_status, bk_status, bk_special_notes, bk_notes, bk_package_id, bk_survey_source
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         ref, cust_id, cust_name, cust_contact, cust_email, addr,
                         ev_date, ev_time, ev_end_time, pickup_time, dropoff_time,
                         venue, occ, pax, num_sets, total,
                         base_tot, menu_type, color_theme, pay_mode, paid, down_pay,
-                        dp_status, "PENDING", notes, notes, pkg_id
+                        dp_status, "PENDING", notes, notes, pkg_id, survey
                     ))
                     b_chk = db.fetchone("SELECT bk_id FROM bookings WHERE bk_booking_ref = ?", (ref,))
                     if b_chk:
@@ -2173,14 +2178,15 @@ def perform_server_sync(payload: dict) -> dict:
                             bk_down_payment_status = %s,
                             bk_special_notes = %s,
                             bk_notes = %s,
-                            bk_package_id = %s
+                            bk_package_id = %s,
+                            bk_survey_source = COALESCE(NULLIF(%s, ''), bk_survey_source)
                         WHERE bk_id = %s
                     """, (
                         cust_name, cust_contact, cust_email, addr,
                         ev_date, ev_time, ev_end_time, pickup_time, dropoff_time,
                         venue, occ, pax, num_sets, total,
                         base_tot, menu_type, color_theme, pay_mode, paid, down_pay,
-                        dp_status, notes, notes, pkg_id,
+                        dp_status, notes, notes, pkg_id, survey,
                         bk_id
                     ))
                 else:
@@ -2209,14 +2215,15 @@ def perform_server_sync(payload: dict) -> dict:
                             bk_down_payment_status = ?,
                             bk_special_notes = ?,
                             bk_notes = ?,
-                            bk_package_id = ?
+                            bk_package_id = ?,
+                            bk_survey_source = COALESCE(NULLIF(?, ''), bk_survey_source)
                         WHERE bk_id = ?
                     """, (
                         cust_name, cust_contact, cust_email, addr,
                         ev_date, ev_time, ev_end_time, pickup_time, dropoff_time,
                         venue, occ, pax, num_sets, total,
                         base_tot, menu_type, color_theme, pay_mode, paid, down_pay,
-                        dp_status, notes, notes, pkg_id,
+                        dp_status, notes, notes, pkg_id, survey,
                         bk_id
                     ))
 
