@@ -1287,6 +1287,58 @@ def set_package_items(package_id: int, items: list[dict]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# PACKAGE INCLUSIONS (short checklist-style perks, e.g. "Unlimited Rice",
+# "Free Use of Tables & Chairs" — shown as a check list to customers instead
+# of a free-text description. Deliberately separate from package_items,
+# which are actual menu dishes.)
+# ---------------------------------------------------------------------------
+
+def get_package_inclusions(package_id: int) -> list[dict]:
+    rows = db.fetchall(
+        """
+        SELECT pinc_id AS id, pinc_label AS label, pinc_sort_order AS sort_order
+        FROM package_inclusions
+        WHERE pinc_package_id = %s
+        ORDER BY pinc_sort_order ASC, pinc_id ASC
+        """,
+        (package_id,),
+    )
+    if not rows:
+        return []
+    return [{"id": r["id"], "label": r["label"], "sort_order": r.get("sort_order") or 0} for r in rows]
+
+
+def set_package_inclusions(package_id: int, labels: list[str]) -> bool:
+    """Replace a package's full inclusions list. `labels` is an ordered list
+    of plain strings; blanks are skipped. Called by the package editor every
+    time its Inclusions section is saved."""
+    try:
+        pkg_row = db.fetchone("SELECT pkg_id FROM packages WHERE pkg_id = %s", (package_id,))
+        if not pkg_row:
+            return False
+        db.execute("DELETE FROM package_inclusions WHERE pinc_package_id = %s", (package_id,))
+        for i, label in enumerate(labels):
+            label = str(label or "").strip()
+            if not label:
+                continue
+            db.execute(
+                "INSERT INTO package_inclusions (pinc_package_id, pinc_label, pinc_sort_order) VALUES (%s, %s, %s)",
+                (package_id, label, i),
+            )
+        from utils.data_cache import DataCache
+        DataCache.invalidate("packages")
+        try:
+            from utils.db_sync_server import bump_db_version
+            bump_db_version()
+        except Exception:
+            pass
+        return True
+    except Exception as exc:
+        print(f"[repository] set_package_inclusions failed: {exc}")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # PACKAGE SELECTION BUCKETS (dish/dessert quotas)
 # ---------------------------------------------------------------------------
 
