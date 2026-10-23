@@ -2675,6 +2675,249 @@ svg {
   }
 }
 
+/* ── Bucket Quota Pills: mini progress bars (Menu step) ──────────────── */
+.bucket-progress-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 12px 8px;
+  border-radius: var(--radius-md);
+  background: var(--card-elevated);
+  border: 1.5px solid var(--border);
+  min-width: 150px;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.bucket-progress-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.bucket-progress-name {
+  flex: 1;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bucket-progress-count {
+  font-weight: 800;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.bucket-progress-check {
+  display: inline-flex;
+  align-items: center;
+  color: var(--success);
+}
+
+.bucket-progress-check svg {
+  width: 15px;
+  height: 15px;
+}
+
+.bucket-progress-track {
+  width: 100%;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--border);
+  overflow: hidden;
+}
+
+.bucket-progress-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--gold);
+  transition: width 0.25s ease, background-color 0.25s ease;
+}
+
+.bucket-progress-pill.complete {
+  border-color: var(--success);
+  background: var(--success-bg);
+}
+
+.bucket-progress-pill.complete .bucket-progress-count {
+  color: var(--success);
+}
+
+.bucket-progress-pill.complete .bucket-progress-fill {
+  background: var(--success);
+}
+
+/* ── "Your Selections" Tray: sticky review/undo bar above the step footer ── */
+.kiosk-selection-tray {
+  position: -webkit-sticky;
+  position: sticky;
+  bottom: 0;
+  z-index: 44;
+  margin: 20px -28px 0 -28px;
+  padding: 0 28px;
+  background: var(--card);
+  border-top: 1.5px solid var(--border);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
+  box-sizing: border-box;
+}
+
+[data-theme="dark"] .kiosk-selection-tray {
+  background: rgba(19, 29, 56, 0.98);
+}
+
+[data-theme="light"] .kiosk-selection-tray {
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.tray-toggle-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  padding: 12px 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.tray-toggle-text {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.tray-toggle-chevron {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+
+.tray-chips-wrap {
+  padding: 0 0 14px;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kiosk-selection-tray.collapsed .tray-chips-wrap {
+  display: none;
+}
+
+.tray-empty-msg {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.tray-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tray-group-label {
+  font-size: 11.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.tray-group-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tray-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 10px;
+  border-radius: var(--radius-full);
+  background: var(--success-bg);
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tray-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.12);
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.tray-chip-remove svg {
+  width: 11px;
+  height: 11px;
+}
+
+.tray-chip-remove:hover {
+  background: var(--danger);
+  color: #FFFFFF;
+}
+
+@media (max-width: 768px) {
+  .kiosk-selection-tray {
+    margin: 16px -16px 0 -16px;
+    padding: 0 16px;
+  }
+}
+
+/* ── Swap Sheet Modal: pick which current selection to remove ─────────── */
+.swap-sheet-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--card-elevated);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.swap-sheet-row:hover {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(225, 29, 72, 0.08) 0%, var(--card-elevated) 100%);
+}
+
+.swap-sheet-row-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--gold);
+  flex-shrink: 0;
+}
+
 .kiosk-card-img-wrap {
   width: 100%;
   height: 140px;
