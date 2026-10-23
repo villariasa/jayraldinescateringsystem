@@ -745,6 +745,7 @@ class PackageDialog(QDialog):
         self._load_catalog()           # populate catalog + seed selections (edit)
         self._build_ui()
         self._load_buckets()           # seed bucket rows (edit mode only)
+        self._load_inclusions()        # seed inclusion rows (edit mode only)
 
     def showEvent(self, event):
         """Runs the open animation (fade/scale) and centers the dialog on first show."""
@@ -931,11 +932,41 @@ class PackageDialog(QDialog):
         right.addWidget(self.chk_is_set)
         right.addWidget(self.chk_is_food_service)
 
-        _ds_lbl = QLabel("Description"); _ds_lbl.setStyleSheet(_fld_lbl)
+        # ---- Inclusions checklist (what customers actually see) ----
+        # Short perk line items ("Unlimited Rice", "Free Use of Tables &
+        # Chairs", ...) shown as a ✓ check list instead of a paragraph -
+        # much easier to scan than a wall of description text.
+        inc_hdr_row = QHBoxLayout()
+        inc_lbl = QLabel("Inclusions"); inc_lbl.setStyleSheet(_fld_lbl)
+        inc_hdr_row.addWidget(inc_lbl)
+        inc_hdr_row.addStretch()
+        add_inc_btn = QPushButton("+ Add Inclusion")
+        add_inc_btn.setCursor(Qt.PointingHandCursor)
+        add_inc_btn.setStyleSheet(
+            "QPushButton { background: transparent; color: #E11D48; border: none; "
+            "font-size: 12px; font-weight: 700; } QPushButton:hover { text-decoration: underline; }"
+        )
+        add_inc_btn.clicked.connect(lambda: self._add_inclusion_row(""))
+        inc_hdr_row.addWidget(add_inc_btn)
+        right.addLayout(inc_hdr_row)
+
+        inc_hint = QLabel("One checklist item per line, e.g. \"Unlimited Rice\", \"Free Use of Tables & Chairs\".")
+        inc_hint.setObjectName("subtitle")
+        inc_hint.setWordWrap(True)
+        right.addWidget(inc_hint)
+
+        self._inclusion_rows = []  # list of (row_widget, QLineEdit)
+        self._inclusions_container = QWidget()
+        self._inclusions_list_layout = QVBoxLayout(self._inclusions_container)
+        self._inclusions_list_layout.setContentsMargins(0, 4, 0, 4)
+        self._inclusions_list_layout.setSpacing(6)
+        right.addWidget(self._inclusions_container)
+
+        _ds_lbl = QLabel("Description (internal notes, optional)"); _ds_lbl.setStyleSheet(_fld_lbl)
         right.addWidget(_ds_lbl)
         self.desc_field = QTextEdit()
-        self.desc_field.setPlaceholderText("Describe what's included in this package...")
-        self.desc_field.setMinimumHeight(120)
+        self.desc_field.setPlaceholderText("Optional internal notes — customers now see the Inclusions checklist above instead.")
+        self.desc_field.setMinimumHeight(70)
         if self._edit_mode:
             self.desc_field.setPlainText(self._pkg_data.get("description", ""))
         right.addWidget(self.desc_field)
@@ -1233,6 +1264,67 @@ class PackageDialog(QDialog):
             if sync:
                 sync()
 
+    def _add_inclusion_row(self, label_text=""):
+        """Appends one removable "✓ [line edit]" row to the Inclusions list."""
+        row_w = QWidget()
+        row_l = QHBoxLayout(row_w)
+        row_l.setContentsMargins(0, 0, 0, 0)
+        row_l.setSpacing(8)
+
+        check_lbl = QLabel("✓")
+        check_lbl.setStyleSheet("color: #22C55E; font-weight: 800; font-size: 14px;")
+        row_l.addWidget(check_lbl)
+
+        edit = QLineEdit()
+        edit.setPlaceholderText("e.g. Unlimited Rice")
+        edit.setText(label_text)
+        edit.setMinimumHeight(34)
+        row_l.addWidget(edit, 1)
+
+        # Text glyphs ("✕") can render blank depending on the active font, so
+        # use the same icon-button pattern already proven elsewhere in this
+        # dialog (e.g. the dish-picker's delete button) instead.
+        remove_btn = QPushButton()
+        remove_btn.setIcon(get_icon("trash", color="#EF4444", size=QSize(14, 14)))
+        remove_btn.setIconSize(QSize(14, 14))
+        remove_btn.setCursor(Qt.PointingHandCursor)
+        remove_btn.setFixedSize(28, 28)
+        remove_btn.setStyleSheet("QPushButton { background: transparent; border: none; }")
+        remove_btn.clicked.connect(lambda: self._remove_inclusion_row(row_w))
+        row_l.addWidget(remove_btn)
+
+        self._inclusions_list_layout.addWidget(row_w)
+        self._inclusion_rows.append((row_w, edit))
+
+    def _remove_inclusion_row(self, row_w):
+        self._inclusion_rows = [(w, e) for (w, e) in self._inclusion_rows if w is not row_w]
+        row_w.setParent(None)
+        row_w.deleteLater()
+
+    def _load_inclusions(self):
+        """Edit mode: seed one row per stored inclusion. New packages start
+        with a single blank row so the list isn't empty/confusing."""
+        if self._edit_mode and self._pkg_id:
+            try:
+                rows = repo.get_package_inclusions(self._pkg_id)
+            except Exception:
+                rows = []
+            if rows:
+                for r in rows:
+                    self._add_inclusion_row(r.get("label", ""))
+                return
+        self._add_inclusion_row("")
+
+    def _collect_inclusions(self):
+        """Serializes the Inclusions rows into an ordered list of non-blank
+        label strings for saving."""
+        out = []
+        for _, edit in self._inclusion_rows:
+            text = edit.text().strip()
+            if text:
+                out.append(text)
+        return out
+
     def _load_buckets(self):
         """Edit mode: recreate a bucket row for each stored bucket, then run the
         coordinator once so exclusivity/caps are correct from the start."""
@@ -1377,6 +1469,7 @@ class PackageDialog(QDialog):
             "image":         saved_img,
             "items":         selected_items,
             "buckets":       self._collect_buckets(),
+            "inclusions":    self._collect_inclusions(),
             # Not a repository.py field; persisted directly via repo.db by the
             # caller (see _open_add_package_dialog / _edit_package_dict).
             "is_set":        self.chk_is_set.isChecked(),
@@ -3391,7 +3484,20 @@ class MenuPage(QWidget):
         name_lbl = QLabel(highlight_html(pkg["name"], getattr(self, "_filter_pkg_q", getattr(self, "_filter_q", ""))) + badge_html)
         name_lbl.setTextFormat(Qt.RichText)
         name_lbl.setStyleSheet("font-weight: 700; font-size: 15px;")
-        desc_lbl = QLabel(pkg.get("description", "No description"))
+        # Inclusions checklist takes over as the "what's included" display -
+        # falls back to the old free-text description for packages that
+        # haven't had their inclusions filled in yet.
+        try:
+            pkg_inclusions = repo.get_package_inclusions(pkg["id"]) if pkg.get("id") else []
+        except Exception:
+            pkg_inclusions = []
+        if pkg_inclusions:
+            desc_lbl = QLabel(
+                "<br>".join(f"✓ {highlight_html(i['label'], getattr(self, '_filter_pkg_q', getattr(self, '_filter_q', '')))}" for i in pkg_inclusions)
+            )
+            desc_lbl.setTextFormat(Qt.RichText)
+        else:
+            desc_lbl = QLabel(pkg.get("description", "No description"))
         desc_lbl.setObjectName("subtitle")
         desc_lbl.setWordWrap(True)
         c1.addWidget(name_lbl)
@@ -3505,6 +3611,7 @@ class MenuPage(QWidget):
                     # the newly-created package id.
                     repo.set_package_items(pkg_id, result.get("items", []))
                     repo.set_package_buckets(pkg_id, result.get("buckets", []))
+                    repo.set_package_inclusions(pkg_id, result.get("inclusions", []))
                     # Food Set flag: not a repository.py field, so persisted
                     # directly here via repo.db (utils/repository.py is not modified).
                     try:
@@ -3614,6 +3721,7 @@ class MenuPage(QWidget):
                 if ok:
                     repo.set_package_items(pkg["id"], result.get("items", []))
                     repo.set_package_buckets(pkg["id"], result.get("buckets", []))
+                    repo.set_package_inclusions(pkg["id"], result.get("inclusions", []))
                     # Food Set flag: not a repository.py field, so persisted
                     # directly here via repo.db (utils/repository.py is not modified).
                     try:
