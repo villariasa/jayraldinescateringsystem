@@ -1604,6 +1604,7 @@ _BOOKING_ROW_SQL = """
                )                         AS down_payment,
                b.bk_status               AS status,
                b.bk_color_theme          AS color_theme,
+               COALESCE(b.bk_on_process, 0) AS on_process,
                COALESCE(NULLIF(b.bk_special_notes, ''), NULLIF(b.bk_notes, ''), '') AS notes,
                b.bk_menu_type            AS menu_type,
                b.bk_payment_mode         AS payment_mode,
@@ -1661,6 +1662,7 @@ def _rows_to_booking_dicts(rows) -> list[dict]:
             "down_payment":        dp_val if dp_val > 0 else effective_paid,
             "balance":             bal_val,
             "status":              r["status"] or "PENDING",
+            "on_process":          bool(r.get("on_process") or 0),
             "color_theme":         clean_motif_name(r.get("color_theme")),
             "color":               clean_motif_name(r.get("color_theme")),
             "motif":               clean_motif_name(r.get("color_theme")),
@@ -1901,7 +1903,8 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
                COALESCE(NULLIF(b.bk_contact, ''), NULLIF(c.cus_contact, ''), '') AS contact,
                COALESCE(NULLIF(b.bk_email, ''), NULLIF(c.cus_email, ''), '') AS email,
                p.pkg_name AS package_name,
-               COALESCE(p.pkg_description, '') AS package_inclusions
+               COALESCE(p.pkg_description, '') AS package_inclusions,
+               COALESCE(b.bk_survey_source, '') AS survey_source
         FROM bookings b
         LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
         LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
@@ -2475,6 +2478,31 @@ def update_booking_status(db_id: int, new_status: str, cancellation_reason: str 
     )
 
 
+def set_booking_on_process(db_id: int, flag: bool) -> None:
+    """Toggle the manual 'ON PROCESS' flag on a booking (payment/order being processed,
+    excluded from Down Payment / Total Received until resolved)."""
+    flag_val = 1 if flag else 0
+    db.execute("UPDATE bookings SET bk_on_process = %s WHERE bk_id = %s", (flag_val, db_id))
+
+    c_name = ""
+    try:
+        row = db.fetchone("SELECT bk_customer_name FROM bookings WHERE bk_id = %s", (db_id,))
+        if row:
+            c_name = row.get("bk_customer_name", "")
+    except Exception:
+        pass
+
+    write_audit_log(
+        action="UPDATE",
+        table_name="bookings",
+        record_id=db_id,
+        new_value={
+            "customer": c_name or f"Order #{db_id}",
+            "on_process": bool(flag),
+        }
+    )
+
+
 def check_date_capacity(event_date, exclude_id: int = 0) -> dict:
     result = db.callproc_out(
         "sp_check_date_capacity",
@@ -2563,9 +2591,11 @@ _INVOICE_ROW_SQL = """
                     END AS balance_due,
                i.inv_status         AS status,
                i.inv_payment_verified AS payment_verified,
+               COALESCE(b.bk_on_process, 0) AS on_process,
                COALESCE(c.cus_email, '') AS customer_email
         FROM invoices i
         LEFT JOIN customers c ON c.cus_name = i.inv_customer_name
+        LEFT JOIN bookings b ON b.bk_id = i.inv_booking_id
         WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
 """
 
@@ -2588,6 +2618,7 @@ def _rows_to_invoice_dicts(rows) -> list[dict]:
             "balance":        float(r["balance_due"]),
             "status":         r["status"],
             "payment_verified": bool(r.get("payment_verified")),
+            "on_process":     bool(r.get("on_process")),
         }
         for r in rows
     ]
@@ -2620,6 +2651,8 @@ def get_invoices_page(offset: int = 0, limit: int = 50, date_start: str = None, 
         where += " AND CAST(i.inv_status AS TEXT) IN ('Unpaid', 'Partial')"
     elif paid_status == "paid":
         where += " AND CAST(i.inv_status AS TEXT) = 'Paid'"
+    elif paid_status == "on_process":
+        where += " AND COALESCE(b.bk_on_process, 0) = 1"
 
     if paid_status in (None, "", "all"):
         order = "ORDER BY (CASE WHEN CAST(i.inv_status AS TEXT) IN ('Unpaid', 'Partial') THEN 0 ELSE 1 END), i.inv_event_date ASC"
@@ -2721,9 +2754,27 @@ def get_invoices_summary(date_start: str = None, date_end: str = None,
         where += " AND CAST(i.inv_status AS TEXT) IN ('Unpaid', 'Partial')"
     elif paid_status == "paid":
         where += " AND CAST(i.inv_status AS TEXT) = 'Paid'"
+    elif paid_status == "on_process":
+        where += " AND COALESCE(b.bk_on_process, 0) = 1"
+
+    # Mutually-exclusive buckets - see Part 0 money semantics. on_process is
+    # checked FIRST so a flagged invoice's paid amount never double-counts
+    # into down_payment/total_received.
     row = db.fetchone(f"""
         SELECT
-            COALESCE(SUM(i.inv_amount_paid), 0.0) AS total_received,
+            COALESCE(SUM(
+                CASE WHEN COALESCE(b.bk_on_process, 0) = 1 THEN COALESCE(i.inv_amount_paid, 0) ELSE 0.0 END
+            ), 0.0) AS on_process,
+            COALESCE(SUM(
+                CASE WHEN COALESCE(b.bk_on_process, 0) = 1 THEN 0.0
+                     WHEN CAST(i.inv_status AS TEXT) = 'Paid' THEN COALESCE(i.inv_amount_paid, 0)
+                     ELSE 0.0 END
+            ), 0.0) AS total_received,
+            COALESCE(SUM(
+                CASE WHEN COALESCE(b.bk_on_process, 0) = 1 THEN 0.0
+                     WHEN CAST(i.inv_status AS TEXT) != 'Paid' THEN COALESCE(i.inv_amount_paid, 0)
+                     ELSE 0.0 END
+            ), 0.0) AS down_payment,
             COALESCE(SUM(
                 CASE WHEN CAST(i.inv_status AS TEXT) != 'Paid'
                           AND (i.inv_total_amount - COALESCE(i.inv_amount_paid, 0)) > 0
@@ -2732,32 +2783,17 @@ def get_invoices_summary(date_start: str = None, date_end: str = None,
             ), 0.0) AS total_pending,
             COUNT(*) AS events_count
         FROM invoices i
+        LEFT JOIN bookings b ON b.bk_id = i.inv_booking_id
         {where}
     """, tuple(params))
     if not row:
-        return {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
-
-    pay_where = "WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')"
-    pay_params: list = []
-    if date_start and date_end:
-        pay_where += " AND pr.pr_payment_date BETWEEN %s AND %s"
-        pay_params.extend([date_start, date_end])
-    if customer:
-        pay_where += " AND i.inv_customer_name ILIKE %s"
-        pay_params.append(f"%{customer}%")
-    p_row = db.fetchone(f"""
-        SELECT COALESCE(SUM(pr.pr_amount), 0.0) AS period_received
-        FROM payment_records pr
-        JOIN invoices i ON i.inv_id = pr.pr_invoice_id
-        {pay_where}
-    """, tuple(pay_params))
-    total_received_val = float(p_row["period_received"] if p_row and p_row.get("period_received") is not None else 0.0)
-    if not date_start and not date_end:
-        total_received_val = max(total_received_val, float(row.get("total_received") or 0.0))
+        return {"total_received": 0.0, "total_pending": 0.0, "down_payment": 0.0, "on_process": 0.0, "events_count": 0}
 
     return {
-        "total_received": total_received_val,
+        "total_received": float(row.get("total_received") or 0.0),
         "total_pending":  float(row["total_pending"] or 0.0),
+        "down_payment":   float(row.get("down_payment") or 0.0),
+        "on_process":     float(row.get("on_process") or 0.0),
         "events_count":   int(row["events_count"] or 0),
     }
 
@@ -3490,20 +3526,26 @@ def get_recent_notifications(limit: int = 20) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def get_downpayment_received() -> float:
-    """Total amount of downpayments/payments received for upcoming/active events (not yet completed or cancelled)."""
+    """Total amount actually paid on bookings that are NOT yet fully paid and
+    NOT flagged ON PROCESS (client definition: a 20k booking with 10k paid
+    shows 10k here and 0 in revenue; once fully paid it becomes 0 here and
+    20k in revenue). Excludes only CANCELLED bookings."""
     try:
         row = db.fetchone("""
             SELECT COALESCE(SUM(
-                CASE 
-                    WHEN b.bk_amount_paid > 0 THEN b.bk_amount_paid
-                    WHEN b.bk_down_payment > 0 THEN b.bk_down_payment
-                    WHEN i.inv_amount_paid > 0 THEN i.inv_amount_paid
+                CASE
+                    WHEN COALESCE(NULLIF(b.bk_amount_paid, 0), NULLIF(b.bk_down_payment, 0), 0.0) > 0
+                     AND NOT (
+                         b.bk_total_amount > 0
+                         AND COALESCE(NULLIF(b.bk_amount_paid, 0), NULLIF(b.bk_down_payment, 0), 0.0) >= b.bk_total_amount
+                     )
+                    THEN COALESCE(NULLIF(b.bk_amount_paid, 0), NULLIF(b.bk_down_payment, 0), 0.0)
                     ELSE 0.0
                 END
             ), 0.0) AS total_downpayment
             FROM bookings b
-            LEFT JOIN invoices i ON b.bk_id = i.inv_booking_id
-            WHERE b.bk_status NOT IN ('COMPLETED', 'CANCELLED')
+            WHERE b.bk_status != 'CANCELLED'
+              AND COALESCE(b.bk_on_process, 0) = 0
         """)
         return float(row["total_downpayment"] if row and row.get("total_downpayment") is not None else 0.0)
     except Exception as exc:
@@ -3511,24 +3553,46 @@ def get_downpayment_received() -> float:
         return 0.0
 
 
+def get_on_process_received() -> float:
+    """Total amount paid on bookings manually flagged ON PROCESS - excluded
+    from both Down Payment and Total Received until the flag is cleared."""
+    try:
+        row = db.fetchone("""
+            SELECT COALESCE(SUM(
+                COALESCE(NULLIF(b.bk_amount_paid, 0), NULLIF(b.bk_down_payment, 0), 0.0)
+            ), 0.0) AS total_on_process
+            FROM bookings b
+            WHERE b.bk_status != 'CANCELLED'
+              AND COALESCE(b.bk_on_process, 0) = 1
+        """)
+        return float(row["total_on_process"] if row and row.get("total_on_process") is not None else 0.0)
+    except Exception as exc:
+        print(f"[repository] get_on_process_received failed: {exc}")
+        return 0.0
+
+
+_FULLY_PAID_SALES_CASE = """
+    CASE WHEN bk_total_amount > 0
+              AND COALESCE(NULLIF(bk_amount_paid, 0), NULLIF(bk_down_payment, 0), 0.0) >= bk_total_amount
+              AND COALESCE(bk_on_process, 0) = 0
+         THEN bk_total_amount ELSE 0.0 END
+"""
+
+
 def get_dashboard_kpis() -> dict:
     row = db.fetchone("SELECT * FROM v_dashboard_kpis")
+    # Single source of truth for both buckets - see Part 0 money semantics.
     dp_rec = get_downpayment_received()
+    on_process_rec = get_on_process_received()
 
-    # Query all-time aggregate totals for All Time view (matching Reports)
+    # Query all-time aggregate totals for All Time view (matching Reports).
+    # total_sales here = revenue, i.e. SUM(total) over FULLY PAID bookings only.
     try:
-        c_all = db.fetchone("""
+        c_all = db.fetchone(f"""
             SELECT
                 COUNT(*) AS total_bookings,
                 COALESCE(SUM(bk_pax), 0) AS total_pax,
-                COALESCE(SUM(bk_total_amount), 0.0) AS total_sales,
-                COALESCE(SUM(
-                    CASE 
-                        WHEN bk_amount_paid > 0 THEN bk_amount_paid
-                        WHEN bk_down_payment > 0 THEN bk_down_payment
-                        ELSE 0.0 
-                    END
-                ), 0.0) AS total_dp
+                COALESCE(SUM({_FULLY_PAID_SALES_CASE}), 0.0) AS total_sales
             FROM bookings
             WHERE bk_status IN ('CONFIRMED', 'COMPLETED')
         """)
@@ -3536,18 +3600,11 @@ def get_dashboard_kpis() -> dict:
         if has_c:
             all_row = c_all
         else:
-            all_row = db.fetchone("""
+            all_row = db.fetchone(f"""
                 SELECT
                     COUNT(*) AS total_bookings,
                     COALESCE(SUM(bk_pax), 0) AS total_pax,
-                    COALESCE(SUM(bk_total_amount), 0.0) AS total_sales,
-                    COALESCE(SUM(
-                        CASE 
-                            WHEN bk_amount_paid > 0 THEN bk_amount_paid
-                            WHEN bk_down_payment > 0 THEN bk_down_payment
-                            ELSE 0.0 
-                        END
-                    ), 0.0) AS total_dp
+                    COALESCE(SUM({_FULLY_PAID_SALES_CASE}), 0.0) AS total_sales
                 FROM bookings
                 WHERE bk_status != 'CANCELLED'
             """)
@@ -3557,7 +3614,7 @@ def get_dashboard_kpis() -> dict:
     total_bookings = int(all_row["total_bookings"] if all_row and all_row.get("total_bookings") is not None else 0)
     total_pax = int(all_row["total_pax"] if all_row and all_row.get("total_pax") is not None else 0)
     total_sales = float(all_row["total_sales"] if all_row and all_row.get("total_sales") is not None else 0.0)
-    total_dp = float(all_row["total_dp"] if all_row and all_row.get("total_dp") is not None else 0.0)
+    total_dp = dp_rec
 
     try:
         pay_row = db.fetchone("SELECT COALESCE(SUM(pr_amount), 0.0) AS total_paid FROM payment_records")
@@ -3588,13 +3645,15 @@ def get_dashboard_kpis() -> dict:
         "weekly_revenue":        total_sales,
         "unpaid_invoices":       total_unpaid,
         "todays_pax":            todays_pax,
-        "downpayment_received":  total_dp if total_dp > 0 else dp_rec,
+        "downpayment_received":  total_dp,
+        "on_process_received":   on_process_rec,
         # All-time metrics (correlated: total_revenue = total_downpayments + total_unpaid)
         "total_bookings":        total_bookings,
         "total_pax":             total_pax,
         "total_revenue":         total_sales,
         "total_expenses":        total_exp,
-        "total_downpayments":    total_dp if total_dp > 0 else dp_rec,
+        "total_downpayments":    total_dp,
+        "total_on_process":      on_process_rec,
         "total_unpaid":          total_unpaid,
         "all_time_net_income":   total_sales - total_exp,
     }
@@ -3610,17 +3669,27 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
     d_start_str = d_start_obj.strftime("%Y-%m-%d")
     d_end_str = d_end_obj.strftime("%Y-%m-%d")
 
+    # Shared paid-amount expression (legacy-tolerant) and bucket CASEs - see
+    # Part 0 money semantics: revenue = fully-paid totals, downpayment =
+    # partial payments on bookings not flagged ON PROCESS.
+    _paid_expr = "COALESCE(NULLIF(bk_amount_paid, 0), NULLIF(bk_down_payment, 0), 0.0)"
+    _period_revenue_case = f"""
+        CASE WHEN bk_total_amount > 0 AND {_paid_expr} >= bk_total_amount
+                  AND COALESCE(bk_on_process, 0) = 0
+             THEN bk_total_amount ELSE 0.0 END
+    """
+    _period_dp_case = f"""
+        CASE WHEN {_paid_expr} > 0
+                  AND NOT (bk_total_amount > 0 AND {_paid_expr} >= bk_total_amount)
+                  AND COALESCE(bk_on_process, 0) = 0
+             THEN {_paid_expr} ELSE 0.0 END
+    """
+
     # 1. Events and sales for confirmed/completed bookings in this period (matches Reports exactly)
-    c_row = db.fetchone("""
+    c_row = db.fetchone(f"""
         SELECT COUNT(*) AS events_count, COALESCE(SUM(bk_pax), 0) AS total_pax,
-               COALESCE(SUM(bk_total_amount), 0.0) AS period_sales,
-               COALESCE(SUM(
-                   CASE 
-                       WHEN bk_amount_paid > 0 THEN bk_amount_paid
-                       WHEN bk_down_payment > 0 THEN bk_down_payment
-                       ELSE 0.0
-                   END
-               ), 0.0) AS total_dp
+               COALESCE(SUM({_period_revenue_case}), 0.0) AS period_sales,
+               COALESCE(SUM({_period_dp_case}), 0.0) AS total_dp
         FROM bookings
         WHERE bk_event_date >= %s AND bk_event_date <= %s
           AND bk_status IN ('CONFIRMED', 'COMPLETED')
@@ -3635,16 +3704,10 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
         dp_amt = float(c_row.get("total_dp") or 0.0)
     else:
         # Fallback to all non-cancelled bookings if none are marked confirmed yet (matches Reports logic)
-        all_b_row = db.fetchone("""
+        all_b_row = db.fetchone(f"""
             SELECT COUNT(*) AS events_count, COALESCE(SUM(bk_pax), 0) AS total_pax,
-                   COALESCE(SUM(bk_total_amount), 0.0) AS period_sales,
-                   COALESCE(SUM(
-                       CASE 
-                           WHEN bk_amount_paid > 0 THEN bk_amount_paid
-                           WHEN bk_down_payment > 0 THEN bk_down_payment
-                           ELSE 0.0
-                       END
-                   ), 0.0) AS total_dp
+                   COALESCE(SUM({_period_revenue_case}), 0.0) AS period_sales,
+                   COALESCE(SUM({_period_dp_case}), 0.0) AS total_dp
             FROM bookings
             WHERE bk_event_date >= %s AND bk_event_date <= %s
               AND bk_status != 'CANCELLED'
@@ -3663,18 +3726,18 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
     """, (d_start_str, d_end_str))
     pending = int(p_row["pending_bookings"] if p_row and p_row.get("pending_bookings") is not None else 0)
 
-    # 3. Downpayments actually collected in this period (cash received during window)
-    dp_pay_row = db.fetchone("""
-        SELECT COALESCE(SUM(pr.pr_amount), 0.0) AS dp_collected
-        FROM payment_records pr
-        JOIN invoices i ON i.inv_id = pr.pr_invoice_id
-        WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
-          AND pr.pr_payment_date >= %s AND pr.pr_payment_date <= %s
-          AND (pr.pr_is_downpayment = 1 OR pr.pr_id = (
-              SELECT MIN(pr2.pr_id) FROM payment_records pr2 WHERE pr2.pr_invoice_id = pr.pr_invoice_id
-          ))
+    # 3. On-process amount for bookings in this period (flagged, excluded from
+    # both downpayment and revenue - see Part 0 money semantics)
+    on_proc_row = db.fetchone("""
+        SELECT COALESCE(SUM(
+            COALESCE(NULLIF(bk_amount_paid, 0), NULLIF(bk_down_payment, 0), 0.0)
+        ), 0.0) AS on_process_amt
+        FROM bookings
+        WHERE bk_event_date >= %s AND bk_event_date <= %s
+          AND bk_status != 'CANCELLED'
+          AND COALESCE(bk_on_process, 0) = 1
     """, (d_start_str, d_end_str))
-    actual_dp_collected = float(dp_pay_row["dp_collected"] if dp_pay_row and dp_pay_row.get("dp_collected") is not None else 0.0)
+    on_process_amt = float(on_proc_row["on_process_amt"] if on_proc_row and on_proc_row.get("on_process_amt") is not None else 0.0)
 
     # 4. Total payments collected in this period
     pay_row = db.fetchone("""
@@ -3711,7 +3774,8 @@ def get_dashboard_kpis_filtered(target_date: str = None, date_end: str = None) -
         "daily_expenses":       exp_amt,
         "unpaid_invoices":      unpaid,
         "todays_pax":           total_pax,
-        "downpayment_received": actual_dp_collected,
+        "downpayment_received": dp_amt,
+        "on_process_received":  on_process_amt,
         "net_income":           period_sales - exp_amt,
     }
 
@@ -6269,6 +6333,82 @@ def get_expense_breakdown(year: int, month: Optional[int] = None) -> list[dict]:
     except Exception:
         pass
     return []
+
+
+_SURVEY_SOURCE_LABELS = {
+    "word_of_mouth": "Word of Mouth / Personal Referral",
+    "personal_referral": "Word of Mouth / Personal Referral",
+    "social_media": "Social Media",
+    "search_engine": "Search Engine",
+    "online_advertising": "Online Advertising or Media",
+    "online_advertising_or_media": "Online Advertising or Media",
+    "events_local_community": "Events & Local Community",
+    "events_and_local_community": "Events & Local Community",
+    "online_reviews": "Online Reviews & Recommendations",
+    "online_reviews_recommendations": "Online Reviews & Recommendations",
+}
+
+
+def get_survey_source_breakdown(year: int = None) -> list[dict]:
+    """Counts of "how did you hear about us?" survey answers across bookings.
+
+    ``bk_survey_source`` stores a JSON array string of selected option values
+    (a booking can select more than one, so a booking with 2 selections
+    increments both of their counts). Parsing/counting is done in Python
+    rather than in SQL so it behaves identically on SQLite and Postgres.
+    """
+    import json
+
+    try:
+        if year:
+            if db.get_engine_type() == "postgres":
+                sql = """
+                    SELECT bk_survey_source
+                    FROM bookings
+                    WHERE bk_survey_source IS NOT NULL AND bk_survey_source != ''
+                      AND bk_status != 'CANCELLED'
+                      AND CAST(EXTRACT(YEAR FROM bk_event_date) AS INTEGER) = %s
+                """
+            else:
+                sql = """
+                    SELECT bk_survey_source
+                    FROM bookings
+                    WHERE bk_survey_source IS NOT NULL AND bk_survey_source != ''
+                      AND bk_status != 'CANCELLED'
+                      AND CAST(strftime('%Y', bk_event_date) AS INTEGER) = %s
+                """
+            rows = db.fetchall(sql, (int(year),))
+        else:
+            rows = db.fetchall("""
+                SELECT bk_survey_source
+                FROM bookings
+                WHERE bk_survey_source IS NOT NULL AND bk_survey_source != ''
+                  AND bk_status != 'CANCELLED'
+            """)
+    except Exception:
+        return []
+
+    counts: dict = {}
+    for r in rows or []:
+        raw = r["bk_survey_source"]
+        if not raw:
+            continue
+        try:
+            values = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(values, list):
+            continue
+        for v in values:
+            if not isinstance(v, str) or not v:
+                continue
+            label = _SURVEY_SOURCE_LABELS.get(v.strip().lower().replace(" ", "_").replace("-", "_"), "Other")
+            counts[label] = counts.get(label, 0) + 1
+
+    return [
+        {"source": label, "count": cnt}
+        for label, cnt in sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+    ]
 
 
 def get_bookings_any_status() -> list[dict]:
