@@ -133,8 +133,8 @@ class OrderIn(BaseModel):
     occasion: str = ""
     pax: int = 1
     num_sets: int = 0
-    # 'package' | 'custom' | 'food_set' | 'food_tray' — which Order-Type
-    # branch of the wizard produced this order.
+    # 'package' | 'custom' | 'food_set' | 'food_tray' | 'food_service' —
+    # which Order-Type branch of the wizard produced this order.
     menu_type: str = "package"
     package_id: Optional[int] = None
     base_total: float = 0.0
