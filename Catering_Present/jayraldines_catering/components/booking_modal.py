@@ -1479,7 +1479,18 @@ class BookingModal(QDialog):
             info.setSpacing(3)
             n_lbl = QLabel(pkg["name"])
             n_lbl.setStyleSheet(_package_name_style())
-            d_lbl = QLabel(pkg.get("description") or f"Min: {pkg.get('min_pax', 1)} set")
+            # Perks checklist ("Unlimited Rice", "Free Use of Tables & Chairs",
+            # ...) takes over as the package's "what's included" blurb - falls
+            # back to the old free-text description for packages that haven't
+            # had their inclusions filled in yet.
+            try:
+                pkg_inclusions = repo.get_package_inclusions(pkg_id) if pkg_id else []
+            except Exception:
+                pkg_inclusions = []
+            if pkg_inclusions:
+                d_lbl = QLabel("  •  ".join(f"✓ {i['label']}" for i in pkg_inclusions))
+            else:
+                d_lbl = QLabel(pkg.get("description") or f"Min: {pkg.get('min_pax', 1)} set")
             d_lbl.setStyleSheet(_package_desc_style())
             d_lbl.setWordWrap(True)
             info.addWidget(n_lbl)
