@@ -812,7 +812,7 @@ class BillingPage(QWidget):
         # state and can crash PySide (QWidgetItem errors) if the user scrolls
         # right after the page opens, before the initial page finishes rendering.
         self._rendering = False
-        self._summary = {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
+        self._summary = {"total_received": 0.0, "total_pending": 0.0, "down_payment": 0.0, "on_process": 0.0, "events_count": 0}
         # Default fetch scope: Unpaid Invoices, no date window (must show
         # every outstanding balance regardless of event date, not just
         # near-term ones - see _on_filter_changed for why "unpaid" always
@@ -1006,7 +1006,7 @@ class BillingPage(QWidget):
         if gen is not None and gen != getattr(self, "_data_gen", None):
             return  # Superseded by a newer reload/search - discard.
         summary, page = result if result else ({}, [])
-        self._summary = summary or {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
+        self._summary = summary or {"total_received": 0.0, "total_pending": 0.0, "down_payment": 0.0, "on_process": 0.0, "events_count": 0}
         if len(page) < self._page_size:
             self._has_more = False
         self._on_invoices_loaded(page, gen)
@@ -1020,13 +1020,31 @@ class BillingPage(QWidget):
     def _compute_summary_from_rows(rows, full_rows=None):
         """Compute the header KPI summary directly from a list of invoice rows.
 
-        Returns a dict with total_received (sum of paid from full_rows if provided,
-        else rows), total_pending (sum of outstanding balance across non-Paid invoices),
-        and events_count (row count)."""
+        Mirrors the Part 0 money semantics used by repo.get_invoices_summary()
+        so the header never flickers between definitions depending on whether
+        it's sourced from the DB-side summary or this row-based fallback:
+        on_process (flagged, excluded from the other two buckets),
+        total_received (fully-paid, not flagged), down_payment (partial, not
+        flagged), total_pending (outstanding balance across non-Paid
+        invoices), events_count (row count)."""
         source_for_rcv = full_rows if full_rows is not None else rows
-        total_rcv = sum(float(i.get("paid", 0.0) or 0.0) for i in source_for_rcv)
+        on_process = sum(float(i.get("paid", 0.0) or 0.0) for i in source_for_rcv if i.get("on_process"))
+        total_rcv = sum(
+            float(i.get("paid", 0.0) or 0.0) for i in source_for_rcv
+            if not i.get("on_process") and i.get("status") == "Paid"
+        )
+        down_payment = sum(
+            float(i.get("paid", 0.0) or 0.0) for i in source_for_rcv
+            if not i.get("on_process") and i.get("status") != "Paid"
+        )
         total_pending = sum(max(0.0, float(i.get("amount", 0.0) or 0.0) - float(i.get("paid", 0.0) or 0.0)) for i in rows if i.get("status") != "Paid")
-        return {"total_received": total_rcv, "total_pending": total_pending, "events_count": len(rows)}
+        return {
+            "total_received": total_rcv,
+            "total_pending": total_pending,
+            "down_payment": down_payment,
+            "on_process": on_process,
+            "events_count": len(rows),
+        }
 
     def _reload_finished(self):
         """Release the reload in-flight guard and, if another reload was
@@ -1208,7 +1226,40 @@ class BillingPage(QWidget):
         dp_lay.setSpacing(24)
         dp_outer_lay.addLayout(dp_lay)
 
-        # DP (Down Payments Received)
+        # Down Payment (partial payments on bookings not yet fully paid)
+        dp_down = QVBoxLayout()
+        dp_down.setSpacing(4)
+        self._dp_down_lbl = dp_down_lbl = QLabel("DOWN PAYMENT")
+        dp_down_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
+        self._dp_down_val = QLabel("₱ 0.00")
+        self._dp_down_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #F59E0B;")
+        dp_down.addWidget(dp_down_lbl)
+        dp_down.addWidget(self._dp_down_val)
+        dp_lay.addLayout(dp_down)
+
+        # Unpaid Balance
+        dp2 = QVBoxLayout()
+        dp2.setSpacing(4)
+        self._dp2_lbl = dp2_lbl = QLabel("UNPAID BALANCE")
+        dp2_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
+        self._dp2_val = QLabel("₱ 0.00")
+        self._dp2_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #EF4444;")
+        dp2.addWidget(dp2_lbl)
+        dp2.addWidget(self._dp2_val)
+        dp_lay.addLayout(dp2)
+
+        # On Process (payment/order being processed, not yet counted as received)
+        dp_onproc = QVBoxLayout()
+        dp_onproc.setSpacing(4)
+        self._dp_onproc_lbl = dp_onproc_lbl = QLabel("ON PROCESS")
+        dp_onproc_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
+        self._dp_onproc_val = QLabel("₱ 0.00")
+        self._dp_onproc_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #A78BFA;")
+        dp_onproc.addWidget(dp_onproc_lbl)
+        dp_onproc.addWidget(self._dp_onproc_val)
+        dp_lay.addLayout(dp_onproc)
+
+        # Total Received (fully-paid bookings only)
         dp1 = QVBoxLayout()
         dp1.setSpacing(4)
         self._dp1_lbl = dp1_lbl = QLabel("TOTAL RECEIVED")
@@ -1218,28 +1269,6 @@ class BillingPage(QWidget):
         dp1.addWidget(dp1_lbl)
         dp1.addWidget(self._dp1_val)
         dp_lay.addLayout(dp1)
-
-        # Unpaid Balance
-        dp2 = QVBoxLayout()
-        dp2.setSpacing(4)
-        self._dp2_lbl = dp2_lbl = QLabel("UNPAID BALANCE")
-        dp2_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
-        self._dp2_val = QLabel("₱ 0.00")
-        self._dp2_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #F59E0B;")
-        dp2.addWidget(dp2_lbl)
-        dp2.addWidget(self._dp2_val)
-        dp_lay.addLayout(dp2)
-
-        # Total (DP + Unpaid)
-        dp4 = QVBoxLayout()
-        dp4.setSpacing(4)
-        self._dp4_lbl = dp4_lbl = QLabel("TOTAL (RECEIVED + UNPAID)")
-        dp4_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #9CA3AF;")
-        self._dp4_val = QLabel("₱ 0.00")
-        self._dp4_val.setStyleSheet("font-size: 20px; font-weight: 800; color: #A78BFA;")
-        dp4.addWidget(dp4_lbl)
-        dp4.addWidget(self._dp4_val)
-        dp_lay.addLayout(dp4)
 
         # Active Events
         dp3 = QVBoxLayout()
@@ -1314,6 +1343,7 @@ class BillingPage(QWidget):
         self._paid_filter.addItem("Unpaid Invoices (Default)", "unpaid")
         self._paid_filter.addItem("Recent (Windowed, All)", None)
         self._paid_filter.addItem("Show All Paid", "paid")
+        self._paid_filter.addItem("On Process", "on_process")
         self._paid_filter.addItem("Show All (Full History)", "all")
         self._paid_filter.currentIndexChanged.connect(self._on_filter_changed)
         filter_row.addWidget(self._paid_filter)
@@ -1413,7 +1443,7 @@ class BillingPage(QWidget):
         self._filter_customer = None if (not cust or cust == "All Customers") else cust
 
         mode = self._paid_filter.currentData()
-        if mode in ("all", "unpaid"):
+        if mode in ("all", "unpaid", "on_process"):
             # "unpaid" must show EVERY outstanding invoice regardless of how
             # old/far-out its event date is - collecting on an old unpaid
             # balance is exactly the point of this view. Keeping the default
@@ -1474,22 +1504,27 @@ class BillingPage(QWidget):
             source = self._header_summary if getattr(self, "_header_summary", None) is not None else self._summary
             total_rcv = source.get("total_received", 0.0)
             total_pending = source.get("total_pending", 0.0)
+            down_payment = source.get("down_payment", 0.0)
+            on_process = source.get("on_process", 0.0)
             events_cnt = source.get("events_count", 0)
 
-            if hasattr(self, "_dp1_val"):
-                self._dp1_val.setText(f"₱ {total_rcv:,.2f}")
+            if hasattr(self, "_dp_down_val"):
+                self._dp_down_val.setText(f"₱ {down_payment:,.2f}")
             if hasattr(self, "_dp2_val"):
                 self._dp2_val.setText(f"₱ {total_pending:,.2f}")
-            if hasattr(self, "_dp4_val"):
-                self._dp4_val.setText(f"₱ {(total_rcv + total_pending):,.2f}")
+            if hasattr(self, "_dp_onproc_val"):
+                self._dp_onproc_val.setText(f"₱ {on_process:,.2f}")
+            if hasattr(self, "_dp1_val"):
+                self._dp1_val.setText(f"₱ {total_rcv:,.2f}")
             if hasattr(self, "_dp3_val"):
                 self._dp3_val.setText(f"{events_cnt} Event{'s' if events_cnt != 1 else ''}")
 
             period = getattr(self, "_header_period", None)
             suffix = f" ({period})" if (period and period not in ("All Time", "All Time (Default)")) else ""
             for lbl_attr, base in (
-                ("_dp1_lbl", "TOTAL RECEIVED"), ("_dp2_lbl", "UNPAID BALANCE"),
-                ("_dp4_lbl", "TOTAL (RECEIVED + UNPAID)"), ("_dp3_lbl", "ACTIVE EVENTS"),
+                ("_dp_down_lbl", "DOWN PAYMENT"), ("_dp2_lbl", "UNPAID BALANCE"),
+                ("_dp_onproc_lbl", "ON PROCESS"), ("_dp1_lbl", "TOTAL RECEIVED"),
+                ("_dp3_lbl", "ACTIVE EVENTS"),
             ):
                 if hasattr(self, lbl_attr):
                     getattr(self, lbl_attr).setText(base + suffix)
@@ -1541,7 +1576,7 @@ class BillingPage(QWidget):
     def _on_header_summary_loaded(self, summary):
         """UI-thread callback: store the period-scoped header summary (falling
         back to zeros) and refresh the KPI labels."""
-        self._header_summary = summary or {"total_received": 0.0, "total_pending": 0.0, "events_count": 0}
+        self._header_summary = summary or {"total_received": 0.0, "total_pending": 0.0, "down_payment": 0.0, "on_process": 0.0, "events_count": 0}
         self._apply_header_kpis()
 
     def _populate_table(self):
@@ -1822,6 +1857,11 @@ class BillingPage(QWidget):
             unver_lbl = QLabel("Unverified")
             unver_lbl.setStyleSheet("font-weight: 700; font-size: 10px; color: #F59E0B; padding: 2px 6px; background: rgba(245,158,11,0.15); border-radius: 4px;")
             col_status.addWidget(unver_lbl)
+
+        if inv.get("on_process"):
+            onproc_lbl = QLabel("ON PROCESS")
+            onproc_lbl.setStyleSheet("font-weight: 700; font-size: 10px; color: #A78BFA; padding: 2px 6px; background: rgba(167,139,250,0.15); border-radius: 4px;")
+            col_status.addWidget(onproc_lbl)
 
         lay.addLayout(col_status)
 
