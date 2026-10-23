@@ -750,6 +750,135 @@ class OccasionBreakdownChart(QVBoxLayout):
             QToolTip.hideText()
 
 
+class SurveySourceChart(QVBoxLayout):
+    """Bar chart of "How did you hear about us?" survey answers.
+
+    Cloned from ``OccasionBreakdownChart`` — each survey source is its own
+    single-value bar set (so it gets its own color and legend entry), and a
+    two-column legend table with counts/percentages is added beneath the
+    chart. Since the survey is multi-select, a booking that picked two
+    sources contributes to both of their counts.
+    """
+    # Class-level default palette; index 0 is overridden per-instance below.
+    _COLORS = [
+        "#E11D48", "#F59E0B", "#3B82F6", "#22C55E", "#8B5CF6",
+        "#F97316", "#06B6D4", "#EC4899", "#84CC16", "#6366F1",
+    ]
+
+    def __init__(self):
+        super().__init__()
+        # Swap the first palette slot for the live app accent color.
+        self._COLORS = [AccentManager().current] + self.__class__._COLORS[1:]
+
+        self._title_lbl = QLabel("How Did You Hear About Us?")
+        self._title_lbl.setObjectName("h3")
+        self.addWidget(self._title_lbl)
+
+        if not _CHARTS_AVAILABLE:
+            no_c = QLabel("Survey source breakdown chart unavailable.")
+            no_c.setObjectName("subtitle")
+            self.addWidget(no_c)
+            return
+
+        db_data = repo.get_survey_source_breakdown()
+        if db_data:
+            sources = [r["source"] for r in db_data]
+            counts  = [r["count"]  for r in db_data]
+        else:
+            sources = ["No Data"]
+            counts  = [0]
+
+        self._sources = sources
+        self._counts  = counts
+
+        _lbl_c = "#0F172A" if not ThemeManager().is_dark() else "#F9FAFB"
+
+        self._series = QBarSeries()
+        # One bar set per survey source → distinct color + individual legend
+        # entry, all sharing the single "Bookings" category on the x-axis.
+        for i, (src, cnt) in enumerate(zip(sources, counts)):
+            bar_set = QBarSet(src)
+            bar_set.setColor(QColor(self._COLORS[i % len(self._COLORS)]))
+            bar_set.setLabelColor(QColor(_lbl_c))
+            bar_set.append(cnt)
+            # Bind source/count per-iteration so hover shows the right bar.
+            bar_set.hovered.connect(
+                lambda state, idx, s=src, c=cnt: self._on_hover(state, s, c)
+            )
+            self._series.append(bar_set)
+
+        self._chart = QChart()
+        self._chart.addSeries(self._series)
+        self._chart.setAnimationOptions(QChart.SeriesAnimations)
+        self._chart.legend().setAlignment(Qt.AlignBottom)
+        self._chart.legend().setLabelColor(QColor(_lbl_c))
+
+        self._ax = QBarCategoryAxis()
+        self._ax.append(["Bookings"])  # single shared category; sets sit side by side
+        _axis_style(self._ax)
+        self._chart.addAxis(self._ax, Qt.AlignBottom)
+        self._series.attachAxis(self._ax)
+
+        self._ay = QValueAxis()
+        self._ay.setRange(0, max(counts) * 1.3 if counts and max(counts) > 0 else 10)
+        self._ay.setLabelFormat("%d")
+        _axis_style(self._ay)
+        self._chart.addAxis(self._ay, Qt.AlignLeft)
+        self._series.attachAxis(self._ay)
+
+        self._view = _chart_view(self._chart)
+        self._view.setMinimumHeight(260)
+        self.addWidget(self._view)
+
+        # Only worth a legend table when there's real data behind the bars.
+        if db_data:
+            self._add_legend_table(db_data)
+
+    def _add_legend_table(self, db_data: list[dict]):
+        """Render a two-column legend under the chart: color dot + name ×count (%)."""
+        total = sum(r["count"] for r in db_data) or 1  # % denominator, guard zero
+        grid = QHBoxLayout()
+        grid.setSpacing(8)
+        left_col  = QVBoxLayout()
+        right_col = QVBoxLayout()
+        for i, r in enumerate(db_data):
+            pct = r["count"] / total * 100
+            color = self._COLORS[i % len(self._COLORS)]
+            row_w = QWidget()
+            row_l = QHBoxLayout(row_w)
+            row_l.setContentsMargins(0, 2, 0, 2)
+            row_l.setSpacing(6)
+            dot = QLabel("●")
+            dot.setStyleSheet(f"color:{color}; font-size:14px;")
+            dot.setFixedWidth(16)
+            lbl = QLabel(f"{r['source']}  <span style='color:#6B7280;font-size:11px;'>×{r['count']} ({pct:.0f}%)</span>")
+            lbl.setTextFormat(Qt.RichText)
+            lbl.setStyleSheet("font-size:12px;")
+            row_l.addWidget(dot)
+            row_l.addWidget(lbl)
+            row_l.addStretch()
+            # Alternate rows between the two columns (even→left, odd→right).
+            if i % 2 == 0:
+                left_col.addWidget(row_w)
+            else:
+                right_col.addWidget(row_w)
+        left_col.addStretch()
+        right_col.addStretch()
+        grid.addLayout(left_col)
+        grid.addLayout(right_col)
+        self.addLayout(grid)
+
+    def _on_hover(self, state: bool, source: str, count: int):
+        """Tooltip showing a survey source and its booking count."""
+        if state:
+            QToolTip.showText(
+                QCursor.pos(),
+                f"<b>{source}</b><br>Bookings: <b>{count}</b>"
+            )
+        else:
+            QToolTip.hideText()
+
+
 # ─────────────────────────────────────────────
 # MAIN REPORTS PAGE
 # ─────────────────────────────────────────────
@@ -927,6 +1056,14 @@ class ReportsPage(QWidget):
         self.occasion_card.setLayout(self._occasion_chart_layout)
         self.occasion_card.layout().setContentsMargins(28, 24, 28, 20)
         self.main_layout.addWidget(self.occasion_card)
+
+        # ── ROW 5: Survey Source Breakdown ─────────────────────────────────────
+        self._survey_chart_layout = SurveySourceChart()
+        self.survey_card = QFrame(self.scroll_content)
+        self.survey_card.setObjectName("card")
+        self.survey_card.setLayout(self._survey_chart_layout)
+        self.survey_card.layout().setContentsMargins(28, 24, 28, 20)
+        self.main_layout.addWidget(self.survey_card)
 
         # ── SALES TARGET EVALUATION (REF IMAGE 1) ─────────────────────────
         self._sales_eval_card = self._build_sales_evaluation_card()
@@ -2625,6 +2762,7 @@ class ReportsPage(QWidget):
             ("Orders by Category",        "category_card"),
             ("Year vs Year Comparison",   "year_cmp_card"),
             ("Bookings by Occasion",      "occasion_card"),
+            ("How Did You Hear About Us?", "survey_card"),
         ]
         images = []
         tmp_dir = tempfile.mkdtemp(prefix="jc_report_")
