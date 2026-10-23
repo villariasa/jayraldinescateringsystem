@@ -957,27 +957,55 @@ class ReportsPage(QWidget):
         self.main_layout.addLayout(self._header_row)
 
         # ── PERIOD FILTER CHIPS & DYNAMIC SUB-SELECTORS ───────────────────────
+        # "Week"/"Month"/"Today" are each a single pill button that is ALSO its
+        # own dropdown trigger (QToolButton + InstantPopup) — clicking the pill
+        # activates that period AND pops its own list (Week N / month names /
+        # days-this-week) right from the button, no separate combo row. "Year"
+        # keeps its existing standalone combo (unrelated duplication complaint).
         self._period_row = QHBoxLayout()
         self._period_row.setSpacing(8)
         self._period_btns = []
-        from PySide6.QtWidgets import QButtonGroup, QGridLayout
+        self._period_menu_buttons = {}  # label -> QToolButton, for Today/Week/Month
+        from PySide6.QtWidgets import QButtonGroup, QGridLayout, QToolButton
         self._period_group = QButtonGroup(self)
         self._period_group.setExclusive(True)
         _is_dark = ThemeManager().is_dark()
+
+        # Shared state behind the Week/Month/Today dropdowns (replaces the old
+        # always-visible Month/Week combo boxes).
+        _today0 = date.today()
+        self._selected_month = _today0.month
+        self._selected_week = min((_today0.day - 1) // 7 + 1, 5)
+        self._period_today_date = _today0
+
+        _menu_labels = ("Today", "Week", "Month")
         for lbl in _PERIOD_LABELS:
-            btn = QPushButton(lbl)
+            if lbl in _menu_labels:
+                btn = QToolButton()
+                btn.setPopupMode(QToolButton.InstantPopup)
+                menu = QMenu(btn)
+                menu.aboutToShow.connect(
+                    lambda b=btn, l=lbl, m=menu: self._on_period_menu_about_to_show(b, l, m)
+                )
+                btn.setMenu(menu)
+                self._period_menu_buttons[lbl] = btn
+            else:
+                btn = QPushButton(lbl)
             btn.setCheckable(True)
             btn.setFixedHeight(28)
             btn.setChecked(lbl == "All Time")
             btn.setCursor(Qt.PointingHandCursor)
             _period_style = (
-                "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
-                "background:transparent;border:1px solid #CBD5E1;"
+                "QToolButton, QPushButton{border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
+                "background:transparent;border:1px solid #CBD5E1;}"
+                "QToolButton::menu-indicator{image:none;width:0px;}"
             ) if not _is_dark else (
-                "border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
-                "background:transparent;color:#9CA3AF;border:1px solid #374151;"
+                "QToolButton, QPushButton{border-radius:14px;font-size:12px;font-weight:600;padding:0 14px;"
+                "background:transparent;color:#9CA3AF;border:1px solid #374151;}"
+                "QToolButton::menu-indicator{image:none;width:0px;}"
             )
             btn.setStyleSheet(_period_style)
+            self._set_period_button_label(btn, lbl)
             self._period_group.addButton(btn)
             self._period_btns.append(btn)
             btn.toggled.connect(lambda checked, b=btn, p=lbl: self._on_period(b, p, checked))
@@ -1353,7 +1381,13 @@ class ReportsPage(QWidget):
     # ── Period filter & Dynamic Sub-Controls ───────────────────────────────────
 
     def _build_period_sub_controls(self):
-        """Construct the dynamic sub-selectors (Month, Week, Year) for period filtering."""
+        """Construct the Year sub-selector for period filtering.
+
+        Month and Week no longer have their own always-visible combo boxes —
+        picking a month/week now happens directly from the Month/Week pill's
+        own dropdown (see _on_period_menu_about_to_show). Year is left as its
+        own standalone combo, unrelated to that duplication complaint.
+        """
         self._period_sub_widget = QWidget(self.scroll_content)
         self._period_sub_layout = QHBoxLayout(self._period_sub_widget)
         self._period_sub_layout.setContentsMargins(6, 0, 0, 0)
@@ -1371,32 +1405,7 @@ class ReportsPage(QWidget):
             f"QComboBox QAbstractItemView {{ background-color: #1F2937; color: #F9FAFB; border: 1px solid #243244; border-radius: 6px; selection-background-color: rgba(225,29,72,0.2); selection-color: #E11D48; }}"
         )
 
-        # Month combo
-        self._period_month_combo = QComboBox(self._period_sub_widget)
-        self._period_month_combo.setFixedHeight(28)
-        self._period_month_combo.setMinimumWidth(110)
-        self._period_month_combo.setStyleSheet(combo_style)
-        _months = [
-            ("January", 1), ("February", 2), ("March", 3), ("April", 4),
-            ("May", 5), ("June", 6), ("July", 7), ("August", 8),
-            ("September", 9), ("October", 10), ("November", 11), ("December", 12)
-        ]
-        for m_name, m_val in _months:
-            self._period_month_combo.addItem(m_name, m_val)
-        cur_mo = datetime.now().month
-        self._period_month_combo.setCurrentIndex(cur_mo - 1)
-        self._period_month_combo.currentIndexChanged.connect(lambda _: self._on_period_month_changed())
-        self._period_sub_layout.addWidget(self._period_month_combo)
-
-        # Week combo
-        self._period_week_combo = QComboBox(self._period_sub_widget)
-        self._period_week_combo.setFixedHeight(28)
-        self._period_week_combo.setMinimumWidth(140)
-        self._period_week_combo.setStyleSheet(combo_style)
-        self._period_week_combo.currentIndexChanged.connect(lambda _: self._on_period_sub_changed())
-        self._period_sub_layout.addWidget(self._period_week_combo)
-
-        # Year combo
+        # Year combo (unchanged)
         self._period_year_combo = QComboBox(self._period_sub_widget)
         self._period_year_combo.setFixedHeight(28)
         self._period_year_combo.setMinimumWidth(85)
@@ -1405,7 +1414,6 @@ class ReportsPage(QWidget):
         self._period_year_combo.currentIndexChanged.connect(lambda _: self._on_period_year_changed())
         self._period_sub_layout.addWidget(self._period_year_combo)
 
-        self._update_week_combo_options()
         self._period_sub_widget.setVisible(False)
 
     def _populate_period_years(self):
@@ -1433,112 +1441,144 @@ class ReportsPage(QWidget):
         finally:
             self._suppress_period_sub = False
 
-    def _update_week_combo_options(self):
-        """Recompute Week options (Week 1 to Week 4 or 5) for selected Year and Month."""
-        if not hasattr(self, "_period_week_combo") or not hasattr(self, "_period_month_combo"):
-            return
-        import calendar
-        from datetime import date
+    def _current_period_year(self):
         today = date.today()
-        yr = self._period_year_combo.currentData() if hasattr(self, "_period_year_combo") and self._period_year_combo.currentData() else today.year
-        mo = self._period_month_combo.currentData() if self._period_month_combo.currentData() else today.month
-        _, num_days = calendar.monthrange(yr, mo)
+        if hasattr(self, "_period_year_combo") and self._period_year_combo.currentData():
+            return self._period_year_combo.currentData()
+        return today.year
 
-        prev_wk = self._period_week_combo.currentData()
-        self._period_week_combo.blockSignals(True)
-        self._period_week_combo.clear()
-        self._period_week_combo.addItem("Week 1 (Days 1–7)", 1)
-        self._period_week_combo.addItem("Week 2 (Days 8–14)", 2)
-        self._period_week_combo.addItem("Week 3 (Days 15–21)", 3)
-        self._period_week_combo.addItem("Week 4 (Days 22–28)", 4)
+    def _week_options_for(self, year, month):
+        """Return [(week_num, start_day, end_day), ...] for a given year/month."""
+        import calendar
+        _, num_days = calendar.monthrange(year, month)
+        opts = [(w, (w - 1) * 7 + 1, min(w * 7, num_days)) for w in range(1, 5)]
         if num_days > 28:
-            self._period_week_combo.addItem(f"Week 5 (Days 29–{num_days})", 5)
+            opts.append((5, 29, num_days))
+        return opts
 
-        target_wk = prev_wk
-        if not target_wk:
-            if yr == today.year and mo == today.month:
-                target_wk = min((today.day - 1) // 7 + 1, 5 if num_days > 28 else 4)
+    def _set_period_button_label(self, btn, lbl):
+        """Set a period pill's text, including a dropdown chevron for the
+        Today/Week/Month pills and reflecting the current selection once
+        that pill is the active period."""
+        if lbl == "Week":
+            text = f"Week {self._selected_week}" if self._period == "Week" else "Week"
+            btn.setText(f"{text} ▾")
+        elif lbl == "Month":
+            import calendar
+            text = calendar.month_abbr[self._selected_month] if self._period == "Month" else "Month"
+            btn.setText(f"{text} ▾")
+        elif lbl == "Today":
+            if self._period == "Today" and self._period_today_date != date.today():
+                text = self._period_today_date.strftime("%a %d")
             else:
-                target_wk = 1
-        idx = self._period_week_combo.findData(target_wk)
-        if idx >= 0:
-            self._period_week_combo.setCurrentIndex(idx)
+                text = "Today"
+            btn.setText(f"{text} ▾")
         else:
-            self._period_week_combo.setCurrentIndex(0)
-        self._period_week_combo.blockSignals(False)
+            btn.setText(lbl)
 
-    def _update_period_sub_controls_visibility(self):
-        """Show or hide Month, Week, and Year sub-controls according to active period."""
-        p = getattr(self, "_period", "All Time")
-        if not hasattr(self, "_period_sub_widget"):
-            return
-        if p in ("All Time", "Today"):
-            self._period_sub_widget.setVisible(False)
-        elif p == "Year":
-            self._period_sub_widget.setVisible(True)
-            self._period_year_combo.setVisible(True)
-            self._period_month_combo.setVisible(False)
-            self._period_week_combo.setVisible(False)
-        elif p == "Month":
-            self._period_sub_widget.setVisible(True)
-            self._period_month_combo.setVisible(True)
-            self._period_year_combo.setVisible(True)
-            self._period_week_combo.setVisible(False)
-        elif p == "Week":
-            self._period_sub_widget.setVisible(True)
-            self._period_month_combo.setVisible(True)
-            self._period_week_combo.setVisible(True)
-            self._period_year_combo.setVisible(True)
-            self._update_week_combo_options()
+    def _refresh_period_button_labels(self):
+        for lbl, btn in self._period_menu_buttons.items():
+            self._set_period_button_label(btn, lbl)
 
-    def _on_period_month_changed(self):
-        if getattr(self, "_suppress_period_sub", False):
-            return
+    def _on_period_menu_about_to_show(self, btn, lbl, menu):
+        """Populate a Week/Month/Today pill's dropdown right before it opens,
+        and activate that pill as the current period (merges "click to
+        activate" and "click to open the list" into one action, per spec)."""
+        menu.clear()
+        if not btn.isChecked():
+            btn.setChecked(True)  # fires _on_period via the button group
+
+        if lbl == "Week":
+            yr = self._current_period_year()
+            for wk, sday, eday in self._week_options_for(yr, self._selected_month):
+                mark = "✓ " if wk == self._selected_week else "      "
+                act = QAction(f"{mark}Week {wk} (Days {sday}–{eday})", self)
+                act.triggered.connect(lambda checked=False, w=wk: self._select_week(w))
+                menu.addAction(act)
+        elif lbl == "Month":
+            import calendar
+            for m in range(1, 13):
+                mark = "✓ " if m == self._selected_month else "      "
+                act = QAction(f"{mark}{calendar.month_name[m]}", self)
+                act.triggered.connect(lambda checked=False, mo=m: self._select_month(mo))
+                menu.addAction(act)
+        elif lbl == "Today":
+            today = date.today()
+            wk_of_today = min((today.day - 1) // 7 + 1, 5)
+            for wk, sday, eday in self._week_options_for(today.year, today.month):
+                if wk != wk_of_today:
+                    continue
+                for d in range(sday, eday + 1):
+                    dd = date(today.year, today.month, d)
+                    mark = "✓ " if dd == self._period_today_date else "      "
+                    act = QAction(f"{mark}{dd.strftime('%a %d')}", self)
+                    act.triggered.connect(lambda checked=False, picked=dd: self._select_today_day(picked))
+                    menu.addAction(act)
+
+    def _select_week(self, wk):
+        self._selected_week = wk
+        self._refresh_period_button_labels()
         if self._period == "Week":
-            self._suppress_period_sub = True
-            try:
-                self._update_week_combo_options()
-            finally:
-                self._suppress_period_sub = False
-        self._apply_period_filter()
+            self._apply_period_filter()
+        else:
+            self._period_menu_buttons["Week"].setChecked(True)
+
+    def _select_month(self, mo):
+        self._selected_month = mo
+        yr = self._current_period_year()
+        # Spec: if the selected week no longer exists in the new month,
+        # fall back to the first available week.
+        valid_weeks = {w for w, _, _ in self._week_options_for(yr, mo)}
+        if self._selected_week not in valid_weeks:
+            self._selected_week = 1
+        self._refresh_period_button_labels()
+        if self._period == "Month":
+            self._apply_period_filter()
+        else:
+            self._period_menu_buttons["Month"].setChecked(True)
+
+    def _select_today_day(self, picked_date):
+        self._period_today_date = picked_date
+        self._refresh_period_button_labels()
+        if self._period == "Today":
+            self._apply_period_filter()
+        else:
+            self._period_menu_buttons["Today"].setChecked(True)
 
     def _on_period_year_changed(self):
         if getattr(self, "_suppress_period_sub", False):
             return
-        if self._period == "Week":
-            self._suppress_period_sub = True
-            try:
-                self._update_week_combo_options()
-            finally:
-                self._suppress_period_sub = False
+        # Spec: if the selected week no longer exists for the new year's
+        # selected month (leap-year Feb edge case etc.), fall back to week 1.
+        yr = self._current_period_year()
+        valid_weeks = {w for w, _, _ in self._week_options_for(yr, self._selected_month)}
+        if self._selected_week not in valid_weeks:
+            self._selected_week = 1
+            self._refresh_period_button_labels()
         # Sync sales evaluation year combo if present
         if hasattr(self, "_eval_year_combo") and self._period == "Year":
-            yr = self._period_year_combo.currentData()
             if yr:
                 idx = self._eval_year_combo.findText(str(yr))
                 if idx >= 0:
                     self._eval_year_combo.setCurrentIndex(idx)
         self._apply_period_filter()
 
-    def _on_period_sub_changed(self):
-        if getattr(self, "_suppress_period_sub", False):
-            return
-        self._apply_period_filter()
-
     def _get_active_date_range(self):
         """Return (start_date, end_date, human_label) for the active period selection."""
         import calendar
-        from datetime import date
         today = date.today()
         p = getattr(self, "_period", "All Time")
 
         if p == "Today":
-            return today, today, f"Today ({today.strftime('%b %d, %Y')})"
+            d = getattr(self, "_period_today_date", today)
+            if d == today:
+                return d, d, f"Today ({d.strftime('%b %d, %Y')})"
+            return d, d, f"{d.strftime('%a, %b %d, %Y')} (this week)"
 
         if p == "Week":
-            yr = self._period_year_combo.currentData() if hasattr(self, "_period_year_combo") and self._period_year_combo.currentData() else today.year
-            mo = self._period_month_combo.currentData() if hasattr(self, "_period_month_combo") and self._period_month_combo.currentData() else today.month
-            wk = self._period_week_combo.currentData() if hasattr(self, "_period_week_combo") and self._period_week_combo.currentData() else 1
+            yr = self._current_period_year()
+            mo = self._selected_month
+            wk = self._selected_week
             _, num_days = calendar.monthrange(yr, mo)
             start_day = (wk - 1) * 7 + 1
             end_day = min(wk * 7, num_days)
@@ -1548,8 +1588,8 @@ class ReportsPage(QWidget):
             return start_d, end_d, f"{m_name} {yr} · Week {wk} ({start_d.strftime('%b %d')} – {end_d.strftime('%b %d')})"
 
         if p == "Month":
-            yr = self._period_year_combo.currentData() if hasattr(self, "_period_year_combo") and self._period_year_combo.currentData() else today.year
-            mo = self._period_month_combo.currentData() if hasattr(self, "_period_month_combo") and self._period_month_combo.currentData() else today.month
+            yr = self._current_period_year()
+            mo = self._selected_month
             _, num_days = calendar.monthrange(yr, mo)
             start_d = date(yr, mo, 1)
             end_d = date(yr, mo, num_days)
@@ -1557,7 +1597,7 @@ class ReportsPage(QWidget):
             return start_d, end_d, f"{m_name} {yr}"
 
         if p == "Year":
-            yr = self._period_year_combo.currentData() if hasattr(self, "_period_year_combo") and self._period_year_combo.currentData() else today.year
+            yr = self._current_period_year()
             start_d = date(yr, 1, 1)
             end_d = date(yr, 12, 31)
             return start_d, end_d, f"Year {yr}"
@@ -1587,8 +1627,17 @@ class ReportsPage(QWidget):
             if b is not btn:
                 b.setStyleSheet(inactive_style)
 
+        self._refresh_period_button_labels()
         self._update_period_sub_controls_visibility()
         self._apply_period_filter()
+
+    def _update_period_sub_controls_visibility(self):
+        """Show/hide the standalone Year combo. Month/Week no longer have a
+        separate always-visible combo — see Week/Month pill dropdowns."""
+        if not hasattr(self, "_period_sub_widget"):
+            return
+        p = getattr(self, "_period", "All Time")
+        self._period_sub_widget.setVisible(p in ("Week", "Month", "Year"))
 
     def _apply_period_filter(self):
         """Apply active period date range to cached KPIs, tables, and expenses."""
