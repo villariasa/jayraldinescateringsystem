@@ -94,6 +94,18 @@ def _status_badge(text):
     return lbl
 
 
+def _on_process_badge():
+    """Small violet pill flagging a booking as ON PROCESS (payment/order being
+    processed; excluded from Down Payment / Total Received until resolved)."""
+    lbl = QLabel("ON PROCESS")
+    lbl.setStyleSheet(
+        "font-weight:700;font-size:10px;padding:3px 9px;border-radius:12px;"
+        "background:rgba(167,139,250,.15);color:#A78BFA;border:1px solid rgba(167,139,250,.3);"
+    )
+    lbl.setAlignment(Qt.AlignCenter)
+    return lbl
+
+
 def _action_buttons(status, on_approve, on_decline, can_edit=True):
     """Build the inline approve/decline button row shown on PENDING cards.
 
@@ -2449,6 +2461,8 @@ class BookingPage(QWidget):
         c4.setSpacing(4)
         c4.setAlignment(Qt.AlignCenter)
         c4.addWidget(_status_badge(b["status"]), alignment=Qt.AlignLeft)
+        if b.get("on_process"):
+            c4.addWidget(_on_process_badge(), alignment=Qt.AlignLeft)
         # Cancelled orders show their reason; editable pending orders show the
         # inline approve/decline controls instead.
         if b["status"] == "CANCELLED" and b.get("cancellation_reason"):
@@ -2509,6 +2523,22 @@ class BookingPage(QWidget):
             color_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
         color_btn.clicked.connect(lambda _, r=bref: self._change_booking_color(r))
 
+        on_process_now = bool(b.get("on_process"))
+        onproc_btn = QPushButton(parent=actions_w)
+        onproc_btn.setIcon(get_icon("clock", color="#A78BFA" if on_process_now else "#9CA3AF", size=QSize(13, 13)))
+        onproc_btn.setIconSize(QSize(13, 13))
+        onproc_btn.setFixedSize(30, 30)
+        onproc_btn.setStyleSheet("background:transparent;border:none;")
+        onproc_btn.setCursor(Qt.PointingHandCursor if can_edit else Qt.ForbiddenCursor)
+        onproc_btn.setToolTip(
+            ("Unmark ON PROCESS" if on_process_now else "Mark as ON PROCESS (payment being processed)")
+            if can_edit else "Permission required to edit"
+        )
+        onproc_btn.setEnabled(can_edit and b.get("status") != "CANCELLED")
+        if b.get("status") == "CANCELLED":
+            onproc_btn.setStyleSheet("background:transparent;border:none;opacity:0.3;")
+        onproc_btn.clicked.connect(lambda _, r=bref: self._toggle_on_process(r))
+
         del_btn = QPushButton(parent=actions_w)
         del_btn.setIcon(btn_icon_red("trash") if can_delete else get_icon("trash", color="#4B5563", size=QSize(13, 13)))
         del_btn.setIconSize(QSize(13, 13))
@@ -2557,6 +2587,7 @@ class BookingPage(QWidget):
         actions_l.addWidget(edit_btn)
         actions_l.addWidget(charges_btn)
         actions_l.addWidget(color_btn)
+        actions_l.addWidget(onproc_btn)
         actions_l.addWidget(del_btn)
         actions_l.addWidget(confirm_btn)
 
@@ -2668,6 +2699,26 @@ class BookingPage(QWidget):
             app_events().booking_updated.emit()
             app_events().data_changed.emit()
             success(self, message=f"Motif updated for {b.get('name', ref)}!")
+
+    def _toggle_on_process(self, ref: str):
+        """Flip a booking's manual ON PROCESS flag (billing excludes/includes
+        its paid amount from Down Payment vs On Process accordingly)."""
+        from utils.auth import SessionManager
+        if not SessionManager.has_permission("bookings", "edit"):
+            return
+        b = next((x for x in self._bookings if x["id"] == ref), None)
+        if not b:
+            return
+        db_id = b.get("db_id")
+        if not db_id:
+            return
+        new_flag = not bool(b.get("on_process"))
+        repo.set_booking_on_process(db_id, new_flag)
+        b["on_process"] = new_flag
+        self._populate_table()
+        app_events().booking_updated.emit()
+        app_events().data_changed.emit()
+        success(self, message=f"{b.get('name', ref)} marked {'ON PROCESS' if new_flag else 'as not on process'}.")
 
     def _approve_booking(self, ref):
         """Approve/confirm a single pending booking via the confirm dialog.
