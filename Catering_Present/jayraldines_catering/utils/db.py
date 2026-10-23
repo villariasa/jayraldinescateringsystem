@@ -473,6 +473,8 @@ def _ensure_pg_places_and_auth(conn) -> None:
                     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_notes TEXT DEFAULT '';
                     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_cancellation_reason TEXT DEFAULT '';
                     ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_event_end_time TIME NULL;
+                    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_on_process INT DEFAULT 0;
+                    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_survey_source TEXT DEFAULT '';
                     ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS mi_image TEXT DEFAULT '';
                     ALTER TABLE packages ADD COLUMN IF NOT EXISTS pkg_image TEXT DEFAULT '';
                     ALTER TABLE customers ADD COLUMN IF NOT EXISTS cus_notes TEXT DEFAULT '';
@@ -624,6 +626,8 @@ def _ensure_pg_places_and_auth(conn) -> None:
             "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_down_payment NUMERIC(12, 2) DEFAULT 0.00;",
             "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_color_theme VARCHAR(50) DEFAULT '#2563EB';",
             "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_event_end_time TIME;",
+            "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_on_process INT DEFAULT 0;",
+            "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS bk_survey_source TEXT DEFAULT '';",
             "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_item_name VARCHAR(255) DEFAULT '';",
             "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_category VARCHAR(100) DEFAULT '';",
             "ALTER TABLE package_items ADD COLUMN IF NOT EXISTS pi_quantity INT DEFAULT 1;",
