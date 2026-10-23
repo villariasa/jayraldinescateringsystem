@@ -198,6 +198,62 @@ def _field_label(text):
     return lbl
 
 
+# Short survey-option values (as stored in ``bk_survey_source``'s JSON array)
+# mapped to their human-readable labels, mirroring utils.repository's
+# _SURVEY_SOURCE_LABELS mapping used for the reports chart.
+_SURVEY_SOURCE_LABELS = {
+    "word_of_mouth": "Word of Mouth / Personal Referral",
+    "personal_referral": "Word of Mouth / Personal Referral",
+    "social_media": "Social Media",
+    "search_engine": "Search Engine",
+    "online_advertising": "Online Advertising or Media",
+    "online_advertising_or_media": "Online Advertising or Media",
+    "events_local_community": "Events & Local Community",
+    "events_and_local_community": "Events & Local Community",
+    "online_reviews": "Online Reviews & Recommendations",
+    "online_reviews_recommendations": "Online Reviews & Recommendations",
+}
+
+
+def _format_survey_sources(raw):
+    """Turn a stored ``bk_survey_source`` value into a display string.
+
+    The value is normally a JSON array string like
+    ``["word_of_mouth","social_media"]``, but may be empty/NULL for older
+    bookings, or (defensively) a plain legacy string. Returns "" when there's
+    nothing worth showing.
+    """
+    if not raw:
+        return ""
+    raw = str(raw).strip()
+    if not raw:
+        return ""
+
+    values = None
+    try:
+        import json
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            values = parsed
+        elif isinstance(parsed, str):
+            values = [parsed]
+    except Exception:
+        values = None
+
+    if values is None:
+        # Not valid JSON — treat as a plain legacy string value.
+        values = [raw]
+
+    labels = []
+    for v in values:
+        if not isinstance(v, str) or not v.strip():
+            continue
+        key = v.strip().lower().replace(" ", "_").replace("-", "_")
+        labels.append(_SURVEY_SOURCE_LABELS.get(key, v.strip()))
+
+    return ", ".join(labels)
+
+
 def _input(placeholder="", fixed_height=38):
     """Create a QLineEdit with the given placeholder text and fixed height."""
     f = QLineEdit()
@@ -781,6 +837,16 @@ class BookingModal(QDialog):
         self.f_notes.setFixedHeight(60)
         self.f_notes.setStyleSheet(_notes_style())
         lay.addWidget(self.f_notes)
+
+        # Read-only "How did you hear about us?" info row (tablet survey
+        # answer). Only shown when there's an actual value to display —
+        # old bookings have no survey data, so the row is just omitted.
+        self.lbl_survey_source = QLabel()
+        self.lbl_survey_source.setWordWrap(True)
+        self.lbl_survey_source.setStyleSheet("color: #64748B; font-size: 12px; font-weight: 600;")
+        self.lbl_survey_source.hide()
+        lay.addWidget(self.lbl_survey_source)
+
         lay.addStretch()
 
         if self._edit_mode:
@@ -837,6 +903,11 @@ class BookingModal(QDialog):
             notes_raw = str(self._booking_data.get("notes", "") or "")
             _, clean_notes = repo.extract_and_clean_addons(notes_raw)
             self.f_notes.setPlainText(clean_notes)
+
+            survey_label = _format_survey_sources(self._booking_data.get("survey_source"))
+            if survey_label:
+                self.lbl_survey_source.setText(f"Heard about us: {survey_label}")
+                self.lbl_survey_source.show()
 
             # Robust case-insensitive occasion selection
             occasion_val = str(self._booking_data.get("occasion", "") or "").strip()
@@ -987,6 +1058,9 @@ class BookingModal(QDialog):
         pkg_lay = QVBoxLayout(pkg_w)
         pkg_lay.setSpacing(12)
         pkg_lay.setContentsMargins(0, 0, 8, 0)
+        self._pkg_btns = []
+        self._pkg_dish_checks = []
+        all_pkgs = repo.get_all_packages() or []
         def _is_fs(p):
             n = (p.get("name") or "").lower()
             return bool(p.get("is_food_service") or p.get("pkg_is_food_service") or "food and service" in n or "food & service" in n)
