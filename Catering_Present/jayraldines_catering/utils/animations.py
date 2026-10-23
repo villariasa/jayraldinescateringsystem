@@ -136,7 +136,6 @@ def center_dialog_on_window(dialog):
         win_rect = top_win.geometry()
         x = win_rect.x() + (win_rect.width() - dialog.width()) // 2
         y = win_rect.y() + (win_rect.height() - dialog.height()) // 2
-        dialog.move(x, y)
     else:
         # No window to anchor to — center on the primary screen instead.
         screen = QApplication.primaryScreen()
@@ -144,7 +143,16 @@ def center_dialog_on_window(dialog):
             avail = screen.availableGeometry()
             x = avail.x() + (avail.width() - dialog.width()) // 2
             y = avail.y() + (avail.height() - dialog.height()) // 2
-            dialog.move(x, y)
+        else:
+            x, y = 0, 0
+
+    # Ensure dialog is never positioned outside available screen area
+    screen = QApplication.primaryScreen()
+    if screen:
+        avail = screen.availableGeometry()
+        x = max(avail.left() + 8, min(x, avail.right() - dialog.width() - 8))
+        y = max(avail.top() + 8, min(y, avail.bottom() - dialog.height() - 8))
+    dialog.move(x, y)
 
 
 def animate_dialog_open(dialog, duration=240, auto_center=True):
