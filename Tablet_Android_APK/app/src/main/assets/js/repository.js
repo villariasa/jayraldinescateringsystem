@@ -696,8 +696,8 @@ export function createOrder(order) {
     INSERT INTO bookings (
       bk_booking_ref, bk_customer_id, bk_customer_name, bk_address, bk_event_date, bk_event_time, bk_event_end_time,
       bk_pickup_time, bk_dropoff_time, bk_venue, bk_occasion, bk_pax, bk_num_sets, bk_total_amount, bk_base_total, bk_payment_mode,
-      bk_amount_paid, bk_down_payment, bk_menu_type, bk_package_id, bk_notes, bk_color_theme, bk_status, sync_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'pending')
+      bk_amount_paid, bk_down_payment, bk_menu_type, bk_package_id, bk_notes, bk_color_theme, bk_survey_source, bk_status, sync_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'pending')
   `, [
     bookingRef, customerId, order.customer_name, order.address || "", order.event_date,
     order.event_time || "To be followed", order.event_end_time || null,
@@ -705,6 +705,7 @@ export function createOrder(order) {
     order.venue || "To be followed", resolvedOccasion, Number(order.pax) || 1, numSets,
     total, baseTotal, order.payment_method || "Cash", downPayment, downPayment,
     menuType, order.package_id ?? null, order.notes || "", order.motif || order.color_theme || "Standard",
+    order.survey_source || "",
   ]);
 
   for (const m of order.menu_selections || []) {
