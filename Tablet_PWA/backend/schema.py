@@ -109,6 +109,18 @@ CREATE TABLE IF NOT EXISTS package_buckets (
     pb_sort INTEGER DEFAULT 0
 );
 
+-- Package inclusions: short checklist-style perks shown instead of a
+-- free-text description ("Unlimited Rice", "Free Use of Tables & Chairs",
+-- ...). Mirrors Catering_Present's package_inclusions table exactly so the
+-- desktop <-> tablet sync keeps working. Deliberately separate from
+-- package_items (actual menu dishes).
+CREATE TABLE IF NOT EXISTS package_inclusions (
+    pinc_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pinc_package_id INTEGER NOT NULL REFERENCES packages(pkg_id) ON DELETE CASCADE,
+    pinc_label TEXT NOT NULL,
+    pinc_sort_order INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS bookings (
     bk_id INTEGER PRIMARY KEY AUTOINCREMENT,
     bk_booking_ref TEXT NOT NULL UNIQUE,
