@@ -300,11 +300,12 @@ def create_order(order: dict) -> dict:
     total = base_total + charges_sum
     down_payment = float(order.get("down_payment") or 0.0)
 
-    # 'package' | 'custom' | 'food_set' | 'food_tray' — set by the wizard's
-    # Order-Type screen. Falls back to 'package' only if the caller didn't
-    # specify one (never hardcoded here — mirrors the desktop app).
+    # 'package' | 'custom' | 'food_set' | 'food_tray' | 'food_service' — set by
+    # the wizard's Order-Type screen. Falls back to 'package' only if the
+    # caller didn't specify one (never hardcoded here — mirrors the desktop
+    # app and the frontend's own js/repository.js createOrder()).
     menu_type = str(order.get("menu_type") or "package").strip().lower()
-    if menu_type not in ("package", "custom", "food_set", "food_tray"):
+    if menu_type not in ("package", "custom", "food_set", "food_tray", "food_service"):
         menu_type = "package"
     num_sets = int(order.get("num_sets") or 0)
 
