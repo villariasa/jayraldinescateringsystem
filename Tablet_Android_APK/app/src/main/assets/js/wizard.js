@@ -3111,6 +3111,7 @@ function renderStepPreview(card) {
       </div>
       <div class="card card-elevated" style="padding:16px;">
         <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase;">Event Schedule</div>
+        ${d.event.occasion ? `<div style="font-size:14px; font-weight:700; color:var(--accent); margin-top:2px;">🎉 ${escapeHtml(d.event.occasion)}</div>` : ""}
         <div style="font-size:16px; font-weight:700; color:var(--text); margin-top:4px;">${escapeHtml(d.event.date)} at ${escapeHtml(d.event.time)}</div>
         <div style="font-size:13px; color:var(--gold); font-weight:700;">${d.flowType === "food_set" ? setSelectionsTotalQty(d) : d.event.pax} ${d.flowType === "food_set" || isFoodSet(d.package.name) ? "Set(s)" : "Pax"} · ${escapeHtml(d.event.venue)}</div>
         ${d.event.pickupTime ? `<div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Pickup: ${escapeHtml(d.event.pickupTime)}</div>` : ""}
