@@ -96,12 +96,24 @@ window.__clearWizardCaches = () => {
   occasionsCache = [];
 };
 
+// Attaches `.inclusions` (checklist perks, e.g. "Unlimited Rice") to each
+// package so card templates can render it synchronously instead of a
+// per-card description paragraph. Best-effort — falls back silently.
+async function attachPackageInclusions(pkgs) {
+  try {
+    await Promise.all(pkgs.map(async (p) => {
+      try { p.inclusions = await api.getPackageInclusions(p.id); } catch (_) { p.inclusions = []; }
+    }));
+  } catch (_) {}
+  return pkgs;
+}
+
 async function refreshVisiblePackageCards() {
   if (!root || wizard.step !== 2) return;
   const grid = root.querySelector("#pkg-grid");
   if (!grid) return;
 
-  const pkgs = await api.getPackages();
+  const pkgs = await attachPackageInclusions(await api.getPackages());
   packagesCache = pkgs.filter((p) => !p.is_set && !p.is_food_service);
   foodServicesCache = pkgs.filter((p) => p.is_food_service);
   const activeList = wizard.draft.flowType === "food_service" ? foodServicesCache : packagesCache;
@@ -1432,11 +1444,12 @@ async function renderStepPackage(card) {
   if (!packagesCache.length && !foodSetsCache.length && !foodServicesCache.length) {
     card.innerHTML = `<h2 style="margin:0 0 10px;">${icon("package")} Event &amp; Package</h2><p style="color:var(--text-muted);">Fetching packages from Live Database…</p>`;
     try {
-      const [pkgs, occs, sets] = await Promise.all([
+      const [pkgsRaw, occs, sets] = await Promise.all([
         api.getPackages(),
         api.getOccasions().catch(() => []),
         api.getFoodSets().catch(() => [])
       ]);
+      const pkgs = await attachPackageInclusions(pkgsRaw);
     packagesCache = pkgs.filter((p) => !p.is_set && !p.is_food_service);
     foodSetsCache = sets && sets.length ? sets : pkgs.filter((p) => p.is_set);
     foodServicesCache = pkgs.filter((p) => p.is_food_service);
@@ -1671,7 +1684,9 @@ async function renderStepPackage(card) {
                     ${icon("info")} Details
                   </button>
                 </div>
-                <p class="kiosk-card-desc">${escapeHtml(p.description || "Standard buffet catering setup.")}</p>
+                <p class="kiosk-card-desc">${(p.inclusions || []).length
+                  ? p.inclusions.slice(0, 3).map((i) => `✓ ${escapeHtml(i.label)}`).join("&nbsp;&nbsp;•&nbsp;&nbsp;") + (p.inclusions.length > 3 ? ` +${p.inclusions.length - 3} more` : "")
+                  : escapeHtml(p.description || "Standard buffet catering setup.")}</p>
                 <div class="kiosk-card-footer">
                   <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / ${p.is_set || isFoodSet(p.name) ? "set" : "pax"}</span></span>
                   <div style="display:flex; gap:6px; align-items:center;">
