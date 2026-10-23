@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS customers (
     cus_total_spent REAL DEFAULT 0.0,
     cus_status TEXT DEFAULT 'Active',
     cus_notes TEXT,
+    sync_status TEXT DEFAULT 'pending',
     cus_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -87,6 +88,13 @@ CREATE TABLE IF NOT EXISTS package_buckets (
     pb_sort INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS package_inclusions (
+    pinc_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pinc_package_id INTEGER NOT NULL REFERENCES packages(pkg_id) ON DELETE CASCADE,
+    pinc_label TEXT NOT NULL,
+    pinc_sort_order INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS bookings (
     bk_id INTEGER PRIMARY KEY AUTOINCREMENT,
     bk_booking_ref TEXT NOT NULL UNIQUE,
@@ -115,6 +123,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     bk_color_theme TEXT DEFAULT '#2563EB',
     bk_cancellation_reason TEXT,
     bk_survey_source TEXT DEFAULT '',
+    sync_status TEXT DEFAULT 'pending',
     bk_created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -425,6 +434,16 @@ export async function initDb() {
   } catch (_) {}
   try {
     db.run(`
+      CREATE TABLE IF NOT EXISTS package_inclusions (
+        pinc_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pinc_package_id INTEGER NOT NULL REFERENCES packages(pkg_id) ON DELETE CASCADE,
+        pinc_label TEXT NOT NULL,
+        pinc_sort_order INTEGER DEFAULT 0
+      );
+    `);
+  } catch (_) {}
+  try {
+    db.run(`
       CREATE TABLE IF NOT EXISTS pending_package_images (
         pkg_id INTEGER PRIMARY KEY,
         image_data TEXT,
@@ -501,13 +520,14 @@ export function exportDbBytes() {
  * historical orders because bookings snapshot their own prices at the time
  * they were placed (booking_menu_items/bk_base_total/booking_additional_
  * charges never reference packages/menu_items live). */
-export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], packageItems = [], packageBuckets = [], customers = [] }) {
-  const stats = { packages: 0, menu_items: 0, package_items: 0, package_buckets: 0, customers: 0 };
+export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], packageItems = [], packageBuckets = [], packageInclusions = [], customers = [] }) {
+  const stats = { packages: 0, menu_items: 0, package_items: 0, package_buckets: 0, package_inclusions: 0, customers: 0 };
   db.run("PRAGMA foreign_keys = OFF;");
   try {
     if (Array.isArray(packages)) {
       db.run("DELETE FROM package_buckets");
       db.run("DELETE FROM package_items");
+      db.run("DELETE FROM package_inclusions");
       db.run("DELETE FROM packages");
       for (const p of packages) {
         const name = (p.pkg_name || p.name || "").trim();
@@ -599,6 +619,25 @@ export function replaceMasterTablesWithDbIds({ packages = [], menuItems = [], pa
             [pkgId, name, limit, catsJson, sort]);
         }
         stats.package_buckets++;
+      }
+    }
+
+    if (Array.isArray(packageInclusions)) {
+      db.run("DELETE FROM package_inclusions");
+      for (const pinc of packageInclusions) {
+        const pkgId = pinc.pinc_package_id || pinc.package_id;
+        const label = (pinc.pinc_label || pinc.label || "").trim();
+        if (!pkgId || !label) continue;
+        const sort = Number(pinc.pinc_sort_order ?? pinc.sort_order) || 0;
+        const id = pinc.pinc_id || pinc.id;
+        if (id) {
+          db.run("INSERT INTO package_inclusions (pinc_id, pinc_package_id, pinc_label, pinc_sort_order) VALUES (?, ?, ?, ?)",
+            [id, pkgId, label, sort]);
+        } else {
+          db.run("INSERT INTO package_inclusions (pinc_package_id, pinc_label, pinc_sort_order) VALUES (?, ?, ?)",
+            [pkgId, label, sort]);
+        }
+        stats.package_inclusions++;
       }
     }
 
