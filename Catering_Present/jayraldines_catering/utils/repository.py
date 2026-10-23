@@ -2644,6 +2644,7 @@ _INVOICE_ROW_SQL = """
                i.inv_status         AS status,
                i.inv_payment_verified AS payment_verified,
                COALESCE(b.bk_on_process, 0) AS on_process,
+               COALESCE(b.bk_occasion, '') AS occasion,
                COALESCE(c.cus_email, '') AS customer_email
         FROM invoices i
         LEFT JOIN customers c ON c.cus_name = i.inv_customer_name
@@ -2671,6 +2672,7 @@ def _rows_to_invoice_dicts(rows) -> list[dict]:
             "status":         r["status"],
             "payment_verified": bool(r.get("payment_verified")),
             "on_process":     bool(r.get("on_process")),
+            "occasion":       r.get("occasion") or "",
         }
         for r in rows
     ]
