@@ -869,24 +869,33 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
         qty_disp = str(num_sets_val) if is_set and num_sets_val else pax
         pax_val  = f"{qty_disp} {'Set(s)' if is_set else 'Pax'}"
 
-        # Package inclusions: booking-carried text, else the package description.
-        pkg_inclusions = (booking_detail.get("package_inclusions")
-                          or booking_detail.get("pkg_description")
-                          or booking_detail.get("package_description") or "")
-        if not pkg_inclusions:
-            try:
-                _pid = booking_detail.get("package_id") or inv.get("package_id")
+        # Package inclusions: package_inclusions table, else booking-carried text / package description.
+        pkg_inclusions = booking_detail.get("package_inclusions") or ""
+        _pid = booking_detail.get("package_id") or inv.get("package_id")
+        try:
+            if _pid:
+                _incs = _repo.get_package_inclusions(_pid)
+                if _incs:
+                    pkg_inclusions = "\n".join(i["label"] for i in _incs if i.get("label"))
+            if not pkg_inclusions:
                 _ph = "%s" if _repo.db.get_engine_type() == "postgres" else "?"
                 if _pid:
                     _pr = _repo.db.fetchone(f"SELECT pkg_description FROM packages WHERE pkg_id = {_ph}", (_pid,))
                 else:
                     _pr = _repo.db.fetchone(
-                        f"SELECT pkg_description FROM packages WHERE LOWER(TRIM(pkg_name)) = LOWER(TRIM({_ph})) LIMIT 1",
+                        f"SELECT pkg_id, pkg_description FROM packages WHERE LOWER(TRIM(pkg_name)) = LOWER(TRIM({_ph})) LIMIT 1",
                         (pkg_name,))
-                if _pr and _pr.get("pkg_description"):
+                    if _pr and _pr.get("pkg_id"):
+                        _incs = _repo.get_package_inclusions(_pr["pkg_id"])
+                        if _incs:
+                            pkg_inclusions = "\n".join(i["label"] for i in _incs if i.get("label"))
+                if not pkg_inclusions and _pr and _pr.get("pkg_description"):
                     pkg_inclusions = _pr["pkg_description"]
-            except Exception:
-                pass
+        except Exception:
+            pass
+        if not pkg_inclusions:
+            pkg_inclusions = (booking_detail.get("pkg_description")
+                              or booking_detail.get("package_description") or "")
 
         raw_dishes = booking_detail.get("selected_dishes") or booking_detail.get("dishes") or []
         dishes = []
@@ -1148,7 +1157,7 @@ def export_receipt_pdf(path: str, inv: dict, business: dict = None,
                 T(rightColX + 22, rY, fl[0], 9, bold=False, color=BLACK)
                 rY += 13
         else:
-            T(rightColX + 20, rY, "Standard package inclusions.", 8.5, bold=False, color=MUTED, italic=True)
+            # No inclusions defined in DB - do not print anything
             rY += 13
 
         # ADD-ONS & EXTRAS (pinned lower in the card, matching the tablet)
@@ -1364,6 +1373,37 @@ def _build_order_slip_story(booking: dict, business: dict, styles: dict) -> list
         ]))
         story.append(info_tbl)
         story.append(Spacer(1, 0.4*cm))
+
+        # Food Sets Breakdown (on top when present)
+        sets_list = booking.get("sets") or []
+        if sets_list:
+            story.append(Paragraph("FOOD SETS BREAKDOWN", styles["SectionHead"]))
+            set_table_data = [[
+                Paragraph("Food Set", styles["TableHead"]),
+                Paragraph("Selected Dishes Breakdown", styles["TableHead"]),
+            ]]
+            for s in sets_list:
+                s_name = str(s.get("name") or "Set").strip()
+                s_qty = s.get("quantity") or 1
+                s_dishes = s.get("dishes") or []
+                dish_line = ", ".join(str(d.get("name") or "").strip() for d in s_dishes if d.get("name"))
+                set_table_data.append([
+                    Paragraph(f"<b>{s_name} &times; {s_qty}</b>", styles["DetailLabel"]),
+                    Paragraph(dish_line or "—", styles["DetailValue"]),
+                ])
+            set_tbl = Table(set_table_data, colWidths=[_CONTENT_W * 0.30, _CONTENT_W * 0.70])
+            set_tbl.setStyle(TableStyle([
+                ("BOX",          (0, 0), (-1, -1), 0.4, _C_BORDER),
+                ("INNERGRID",    (0, 0), (-1, -1), 0.3, _C_BORDER),
+                ("BACKGROUND",   (0, 0), (-1, 0),  _C_RED),
+                ("TOPPADDING",   (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 5),
+                ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+            ]))
+            story.append(set_tbl)
+            story.append(Spacer(1, 0.3*cm))
 
         # Package & Dishes Section
         story.append(Paragraph(f"MENU & DISHES — <font color='{_C_RED.hexval()}'>{pkg_name.upper()}</font>", styles["SectionHead"]))
