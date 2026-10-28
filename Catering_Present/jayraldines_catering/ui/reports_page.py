@@ -2055,21 +2055,44 @@ class ReportsPage(QWidget):
             s_notes = b.get("special_notes") or b.get("bk_special_notes") or ""
             mt = (b.get("menu_type") or b.get("bk_menu_type") or "").strip().lower()
             is_pkg_fs = bool(b.get("pkg_is_food_service") or 0)
+
+            # 1. Food Tray (from order type / tab)
+            if mt in ("food_tray", "foodtray", "food tray") or any(
+                "food tray" in (x or "").lower() or "foodtray" in (x or "").lower()
+                for x in (occ, pkg_name, notes, s_notes)
+            ):
+                return "food_tray"
+
+            # 2. Foods and Services
             if is_pkg_fs or mt in ("food_service", "food and services", "food & services") or any(
                 "food and service" in (x or "").lower() or "food & service" in (x or "").lower()
                 for x in (pkg_name, occ, notes, s_notes)
             ):
                 return "fs"
-            if mt in ("food_tray", "food_set") or repo._is_food_order(
+
+            # 3. Food Orders (Food Sets / Packed Meals)
+            if mt in ("food_set", "foodset", "food_order") or repo._is_food_order(
                 pkg_name=pkg_name, occasion=occ, notes=notes, special_notes=s_notes, menu_type=mt
             ):
                 return "food"
+
+            # 4. Events
             return "events"
 
         evt_cnt = sum(1 for b in target_b if _classify_booking(b) == "events")
         fo_cnt = sum(1 for b in target_b if _classify_booking(b) == "food")
         fs_cnt = sum(1 for b in target_b if _classify_booking(b) == "fs")
-        booking_breakdown_sub = f"{evt_cnt} Events • {fo_cnt} Food Orders • {fs_cnt} Foods and Services"
+        ft_cnt = sum(1 for b in target_b if _classify_booking(b) == "food_tray")
+
+        evt_lbl = f"{evt_cnt} Event" if evt_cnt == 1 else f"{evt_cnt} Events"
+        fo_lbl = f"{fo_cnt} Food Order" if fo_cnt == 1 else f"{fo_cnt} Food Orders"
+        fs_lbl = f"{fs_cnt} Foods and Services"
+        ft_lbl = f"{ft_cnt} Food Tray" if ft_cnt == 1 else f"{ft_cnt} Food Trays"
+
+        if total_bookings > 0:
+            booking_breakdown_sub = f"{evt_lbl} • {fo_lbl} • {fs_lbl} • {ft_lbl}"
+        else:
+            booking_breakdown_sub = f"No bookings ({period_label})"
 
         subs = [
             booking_breakdown_sub,
@@ -2089,6 +2112,7 @@ class ReportsPage(QWidget):
                     w.setText(val)
                 if w and w.objectName() == "subtitle":
                     w.setText(sub)
+                    w.setWordWrap(True)
 
     def _reload_table(self, all_bookings: list = None):
         """Rebuild booking table cards from pre-fetched list (safe to call on GUI thread)."""
@@ -2301,6 +2325,7 @@ class ReportsPage(QWidget):
 
         lbl_s = QLabel(sub, card)
         lbl_s.setObjectName("subtitle")
+        lbl_s.setWordWrap(True)
         if sub_color:
             lbl_s.setStyleSheet(f"color: {sub_color}; font-weight: 600; font-size: 12px;")
         lay.addWidget(lbl_s)
