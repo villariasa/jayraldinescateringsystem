@@ -1314,6 +1314,8 @@ class SyncServerHandler(BaseHTTPRequestHandler):
                 ("bookings",                   "SELECT * FROM bookings ORDER BY bk_id"),
                 ("booking_menu_items",         "SELECT * FROM booking_menu_items ORDER BY bmi_id"),
                 ("booking_items",              "SELECT * FROM booking_items ORDER BY bi_id"),
+                ("booking_sets",               "SELECT * FROM booking_sets ORDER BY bs_id"),
+                ("booking_set_items",          "SELECT * FROM booking_set_items ORDER BY bsi_id"),
                 ("booking_additional_charges", "SELECT * FROM booking_additional_charges ORDER BY ac_id"),
                 ("terms_acknowledgements",     "SELECT * FROM terms_acknowledgements ORDER BY ta_id"),
                 ("invoices",                   "SELECT * FROM invoices ORDER BY inv_id"),
