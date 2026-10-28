@@ -2042,6 +2042,19 @@ def get_booking_detail(db_id: int) -> Optional[dict]:
     else:
         d["dishes"] = []
 
+    # Fetch package inclusions from package_inclusions table (authoritative DB records)
+    if d.get("package_id"):
+        inc_rows = get_package_inclusions(d["package_id"])
+        if inc_rows:
+            d["package_inclusions"] = "\n".join(r["label"] for r in inc_rows if r.get("label"))
+            d["inclusions"] = [r["label"] for r in inc_rows if r.get("label")]
+        elif d.get("package_inclusions"):
+            d["inclusions"] = [x.strip() for x in str(d["package_inclusions"]).splitlines() if x.strip()]
+        else:
+            d["inclusions"] = []
+    else:
+        d["inclusions"] = []
+
     # Fetch Food Set selections (multiple / repeated sets) with per-set dishes
     try:
         set_rows = db.fetchall(
