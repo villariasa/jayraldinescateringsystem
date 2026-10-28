@@ -54,6 +54,7 @@ _SNAPSHOT_TABLES = [
     "packages",
     "package_items",
     "package_buckets",
+    "package_inclusions",
     # Customers & Follow-ups
     "customer_loyalty_tiers",
     "customers",
@@ -63,6 +64,8 @@ _SNAPSHOT_TABLES = [
     "bookings",
     "booking_menu_items",
     "booking_items",
+    "booking_sets",
+    "booking_set_items",
     "booking_additional_charges",
     "terms_acknowledgements",
     # Invoices & Billing
@@ -98,6 +101,7 @@ _TABLE_PKS = {
     "packages":                    "pkg_id",
     "package_items":               "pi_id",
     "package_buckets":             "pb_id",
+    "package_inclusions":          "pinc_id",
     "customer_loyalty_tiers":      "cl_id",
     "customers":                   "cus_id",
     "customer_addresses":          "ca_id",
@@ -105,6 +109,8 @@ _TABLE_PKS = {
     "bookings":                    "bk_id",
     "booking_menu_items":          "bmi_id",
     "booking_items":               "bi_id",
+    "booking_sets":                "bs_id",
+    "booking_set_items":           "bsi_id",
     "booking_additional_charges":  "ac_id",
     "terms_acknowledgements":      "ta_id",
     "invoices":                    "inv_id",
@@ -369,6 +375,12 @@ def _upsert_rows(table: str, rows: List[Dict]) -> int:
 
     server_ids = set()
     upserted = 0
+    try:
+        cur.execute(f"PRAGMA table_info({table})")
+        local_cols = {r[1]: r[2] for r in cur.fetchall()}
+    except Exception:
+        local_cols = {}
+
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -379,11 +391,22 @@ def _upsert_rows(table: str, rows: List[Dict]) -> int:
                 pass
             server_ids.add(row[pk])
 
-        cols = list(row.keys())
+        # Auto-add any missing columns on client local SQLite (e.g. bk_on_process, bk_survey_source)
+        if local_cols:
+            for k in row.keys():
+                if k not in local_cols:
+                    try:
+                        cur.execute(f"ALTER TABLE {table} ADD COLUMN {k} TEXT DEFAULT ''")
+                        local_cols[k] = "TEXT"
+                    except Exception:
+                        pass
+
+        valid_row = {k: v for k, v in row.items() if (not local_cols or k in local_cols)}
+        cols = list(valid_row.keys())
         col_names = ", ".join(cols)
         placeholders = ", ".join(["?" for _ in cols])
         values = []
-        for k, v in row.items():
+        for k, v in valid_row.items():
             if isinstance(v, str):
                 if k == "password_hash":
                     pass  # Preserve password hashes intact
@@ -406,7 +429,7 @@ def _upsert_rows(table: str, rows: List[Dict]) -> int:
             )
             upserted += 1
         except Exception as e:
-            log.debug(f"[ClientSync] Upsert row in {table} failed: {e}")
+            log.warning(f"[ClientSync] Upsert row in {table} failed: {e}")
 
     # Reconcile deletions: remove any local rows that no longer exist on server
     if pk and server_ids:
