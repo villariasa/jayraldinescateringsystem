@@ -528,10 +528,7 @@ class OrderPrintDialog(QDialog):
 
     def _build_sets_html(self, booking: dict, compact: bool = False) -> str:
         """Renders the booking's Food Set selections (name, quantity, dishes),
-        when present. Separate from ``_build_dishes_table_2col`` because set
-        dishes are also flattened into ``booking.dishes``/booking_menu_items
-        for backward compatibility - this adds an EXPLICIT per-set breakdown
-        on top of (not instead of) that existing dish rendering."""
+        when present. Positioned on top of the menu selections list."""
         sets_list = booking.get("sets") or []
         if not sets_list:
             return ""
@@ -545,12 +542,13 @@ class OrderPrintDialog(QDialog):
             dishes = s.get("dishes") or []
             dish_line = ", ".join(str(d.get("name") or "").strip() for d in dishes if d.get("name"))
             blocks.append(
-                f'<div style="font-size:{name_font}; font-weight:800; color:#000000; margin-top:6px;">&bull; {s_name} &times; {s_qty}</div>'
+                f'<div style="font-size:{name_font}; font-weight:800; color:#000000; margin-top:4px;">&bull; {s_name} &times; {s_qty}</div>'
                 + (f'<div style="font-size:{dish_font}; color:#333333; margin-left:12px; margin-top:1px;">{dish_line}</div>' if dish_line else "")
             )
         return (
-            f'<div style="font-size:{title_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.4px; margin-top:10px; margin-bottom:4px;">FOOD SETS BREAKDOWN</div>'
+            f'<div style="font-size:{title_font}; font-weight:800; color:#000000; text-transform:uppercase; letter-spacing:0.4px; margin-top:0px; margin-bottom:4px;">FOOD SETS BREAKDOWN:</div>'
             + "".join(blocks)
+            + '<div style="margin-bottom:12px;"></div>'
         )
 
     def _build_addons_html(self, booking: dict, compact: bool = False) -> str:
@@ -699,8 +697,8 @@ class OrderPrintDialog(QDialog):
 
                 <!-- Right Column: Category | Menu (strictly 2 columns) -->
                 <td style="width:56%; vertical-align:top;">
-                    {foods_grid_html}
                     {sets_grid_html}
+                    {foods_grid_html}
                 </td>
             </tr>
         </table>
@@ -1003,25 +1001,37 @@ class OrderPrintDialog(QDialog):
         base_total_str = _peso(booking.get("base_total") or booking.get("bk_base_total") or booking.get("total_amount") or booking.get("total") or 0)
         package_qty_line = (f"Quantity: <b>{pax}</b> Set(s)" if is_food_set else f"Quantity: <b>{pax}</b> Pax") + f"  &middot;  Base: <b>{base_total_str}</b>"
 
-        # Package inclusions from get_booking_detail's package_inclusions field or packages table
-        _inc_raw = booking.get("package_inclusions") or booking.get("pkg_description") or booking.get("package_description") or ""
-        if not _inc_raw:
-            _pkg_id = booking.get("package_id") or booking.get("bk_package_id")
-            _pkg_nm = booking.get("package_name") or booking.get("package")
-            if _pkg_id:
-                try:
+        # Package inclusions from package_inclusions table, booking detail, or packages table
+        _inc_raw = booking.get("package_inclusions") or ""
+        _pkg_id = booking.get("package_id") or booking.get("bk_package_id")
+        if _pkg_id:
+            try:
+                _p_incs = repo.get_package_inclusions(_pkg_id)
+                if _p_incs:
+                    _inc_raw = "\n".join(r["label"] for r in _p_incs if r.get("label"))
+                elif not _inc_raw:
                     _p_row = repo.get_package_by_id(_pkg_id)
                     if _p_row:
                         _inc_raw = _p_row.get("description") or _p_row.get("pkg_description") or ""
-                except Exception:
-                    pass
-            elif _pkg_nm:
+            except Exception:
+                pass
+        if not _inc_raw:
+            _pkg_nm = booking.get("package_name") or booking.get("package")
+            if _pkg_nm:
                 try:
                     _p_row = repo.get_package_by_name(_pkg_nm)
-                    if _p_row:
+                    if _p_row and _p_row.get("id"):
+                        _p_incs = repo.get_package_inclusions(_p_row["id"])
+                        if _p_incs:
+                            _inc_raw = "\n".join(r["label"] for r in _p_incs if r.get("label"))
+                        else:
+                            _inc_raw = _p_row.get("description") or _p_row.get("pkg_description") or ""
+                    elif _p_row:
                         _inc_raw = _p_row.get("description") or _p_row.get("pkg_description") or ""
                 except Exception:
                     pass
+        if not _inc_raw:
+            _inc_raw = booking.get("pkg_description") or booking.get("package_description") or ""
 
         inclusions_html = ""
         if _inc_raw and str(_inc_raw).strip():
@@ -1057,19 +1067,20 @@ class OrderPrintDialog(QDialog):
                     + (f'<div style="font-size:10px; color:#334155; margin-left:12px;">{dish_line}</div>' if dish_line else "")
                 )
             sets_breakdown_html = (
-                '<div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; margin-top:10px; margin-bottom:4px;">FOOD SETS BREAKDOWN:</div>'
+                '<div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; margin-top:6px; margin-bottom:4px;">FOOD SETS BREAKDOWN:</div>'
                 + "".join(_set_blocks)
+                + '<div style="margin-bottom:8px;"></div>'
             )
 
         package_menu_card = _card_open("cloche", "PACKAGE &amp; MENU") + f"""
             <div style="font-size:11px; font-weight:900; color:#0F172A;">PACKAGE: {pkg_name.upper()}</div>
             <div style="font-size:10px; color:#334155; margin-top:1px; margin-bottom:4px;">{package_qty_line}</div>
             {inclusions_html}
+            {sets_breakdown_html}
             <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; padding-bottom:2px; margin-bottom:4px; margin-top:6px;">MENU:</div>
             <table width="100%" style="width:100%; border-collapse:collapse;">
                 {''.join(dish_items_html)}
             </table>
-            {sets_breakdown_html}
             <div style="font-size:10.5px; font-weight:900; color:#0F172A; text-transform:uppercase; margin-top:10px; margin-bottom:4px;">ADD-ONS &amp; EXTRAS:</div>
             {addons_content_html}
         """ + _card_close
