@@ -1070,10 +1070,14 @@ function renderFoodSetCards(d) {
               </div>
             </div>
             <p class="kiosk-card-desc">${escapeHtml(set.description || `Min: ${set.min_pax || 20} pax`)}</p>
-            ${dishes.length > 0 ? `
+            ${(set.inclusions && set.inclusions.length > 0) ? `
               <div style="font-size:11.5px; color:var(--text-muted); margin:6px 0 10px; line-height:1.4;">
-                <b style="color:var(--text);">Inclusions:</b> ${dishes.map((x) => escapeHtml(x.name)).join(", ")}
-                ${removedCount > 0 ? `<div style="color:var(--gold); font-weight:700; margin-top:3px;">🔄 ${removedCount} dish(es) removed (to replace in Menu tab)</div>` : ""}
+                <b style="color:var(--text);">Inclusions:</b> ${set.inclusions.map((x) => escapeHtml(x.label || x.pinc_label || x)).join(" • ")}
+              </div>
+            ` : ""}
+            ${removedCount > 0 ? `
+              <div style="font-size:11.5px; color:var(--gold); font-weight:700; margin:4px 0 8px;">
+                🔄 ${removedCount} dish(es) removed (to replace in Menu tab)
               </div>
             ` : ""}
             <div class="kiosk-card-footer" style="flex-wrap:wrap; gap:8px;">
@@ -1444,12 +1448,13 @@ async function renderStepPackage(card) {
   if (!packagesCache.length && !foodSetsCache.length && !foodServicesCache.length) {
     card.innerHTML = `<h2 style="margin:0 0 10px;">${icon("package")} Event &amp; Package</h2><p style="color:var(--text-muted);">Fetching packages from Live Database…</p>`;
     try {
-      const [pkgsRaw, occs, sets] = await Promise.all([
+      const [pkgsRaw, occs, setsRaw] = await Promise.all([
         api.getPackages(),
         api.getOccasions().catch(() => []),
         api.getFoodSets().catch(() => [])
       ]);
       const pkgs = await attachPackageInclusions(pkgsRaw);
+      const sets = await attachPackageInclusions(setsRaw || []);
     packagesCache = pkgs.filter((p) => !p.is_set && !p.is_food_service);
     foodSetsCache = sets && sets.length ? sets : pkgs.filter((p) => p.is_set);
     foodServicesCache = pkgs.filter((p) => p.is_food_service);
@@ -1684,9 +1689,9 @@ async function renderStepPackage(card) {
                     ${icon("info")} Details
                   </button>
                 </div>
-                <p class="kiosk-card-desc">${(p.inclusions || []).length
-                  ? p.inclusions.slice(0, 3).map((i) => `✓ ${escapeHtml(i.label)}`).join("&nbsp;&nbsp;•&nbsp;&nbsp;") + (p.inclusions.length > 3 ? ` +${p.inclusions.length - 3} more` : "")
-                  : escapeHtml(p.description || "Standard buffet catering setup.")}</p>
+                ${(p.inclusions && p.inclusions.length > 0)
+                  ? `<p class="kiosk-card-desc">${p.inclusions.slice(0, 3).map((i) => `✓ ${escapeHtml(i.label || i.pinc_label || i)}`).join("&nbsp;&nbsp;•&nbsp;&nbsp;") + (p.inclusions.length > 3 ? ` +${p.inclusions.length - 3} more` : "")}</p>`
+                  : (p.description ? `<p class="kiosk-card-desc">${escapeHtml(p.description)}</p>` : "")}
                 <div class="kiosk-card-footer">
                   <span class="kiosk-price-tag">${peso(p.price_per_pax)}<span style="font-size:12px; font-weight:600; color:var(--text-muted); font-family:inherit;"> / ${p.is_set || isFoodSet(p.name) ? "set" : "pax"}</span></span>
                   <div style="display:flex; gap:6px; align-items:center;">
@@ -2315,7 +2320,7 @@ async function renderStepMenu(card) {
             <div style="font-size:12.5px; color:var(--text-muted); line-height:1.6;">
               ${(d.setSelections || []).map((s) => `
                 <div>
-                  <b style="color:var(--text);">${escapeHtml(s.name)} Inclusions:</b>
+                  <b style="color:var(--text);">${escapeHtml(s.name)} Selected Dishes:</b>
                   ${(s.dishes || []).map((dd) => `<span class="pill pill-paid" style="font-size:11px; margin-right:4px; padding:2px 7px;">${escapeHtml(dd.name)}</span>`).join("")}
                   ${(s.removedDishes && s.removedDishes.length > 0) ? `
                     <div style="color:var(--danger,#ef4444); font-size:11.5px; margin-top:2px;">
