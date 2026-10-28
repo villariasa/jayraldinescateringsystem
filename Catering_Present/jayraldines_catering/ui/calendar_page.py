@@ -27,7 +27,32 @@ from components.dialogs import confirm, success, prompt_file_saved
 import utils.repository as repo
 import utils.exporter as _exporter
 import utils.importer as _importer
-from utils.data_loader import run_async
+def _clean_css_color(c: str, default: str = "#3B82F6") -> str:
+    """Ensure c is a valid CSS hex color string to avoid Qt CSS parse warnings."""
+    if not c or not isinstance(c, str):
+        return default
+    c = c.strip()
+    if not c:
+        return default
+    if c.startswith("#") and len(c) in (4, 7, 9) and all(ch in "0123456789abcdefABCDEF" for ch in c[1:]):
+        return c
+    from PySide6.QtGui import QColor
+    qc = QColor(c)
+    if qc.isValid():
+        return qc.name()
+    named_map = {
+        "white": "#FFFFFF",
+        "standard": "#3B82F6",
+        "red": "#EF4444",
+        "blue": "#3B82F6",
+        "green": "#10B981",
+        "gold": "#F59E0B",
+        "orange": "#F97316",
+        "purple": "#8B5CF6",
+        "pink": "#EC4899",
+        "custom color": "#3B82F6",
+    }
+    return named_map.get(c.lower(), default)
 
 
 class AnimatedCard(QFrame):
@@ -195,7 +220,8 @@ class DayCell(QFrame):
             pax = int(ev.get("pax", 0) or 0)
 
             # Prefer a booking's own colour; otherwise cycle the fallback palette.
-            b_col = ev.get("color_theme") or ev.get("color") or border_colors[idx % len(border_colors)]
+            raw_col = ev.get("color_theme") or ev.get("color") or border_colors[idx % len(border_colors)]
+            b_col = _clean_css_color(raw_col)
             title_txt = f"{occ} {t_short}".strip()
 
             if is_ultra:
@@ -318,7 +344,8 @@ class ScheduleCard(AnimatedCard):
         """
         super().__init__(parent)
         # Explicit theme wins; else blue for bookings, brand red for manual entries.
-        border_color = color_theme if color_theme else ("#3B82F6" if source == "booking" else "#E11D48")
+        raw_b_col = color_theme if color_theme else ("#3B82F6" if source == "booking" else "#E11D48")
+        border_color = _clean_css_color(raw_b_col)
         self.setStyleSheet(f"QFrame#card {{ border-left: 4px solid {border_color}; border-radius: 8px; }}")
 
         layout = QVBoxLayout(self)

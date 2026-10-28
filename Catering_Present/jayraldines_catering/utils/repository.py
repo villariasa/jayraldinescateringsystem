@@ -1661,7 +1661,8 @@ _BOOKING_ROW_SQL = """
                b.bk_menu_type            AS menu_type,
                b.bk_payment_mode         AS payment_mode,
                b.bk_cancellation_reason  AS cancellation_reason,
-               p.pkg_name                AS package_name
+               p.pkg_name                AS package_name,
+               COALESCE(p.pkg_is_food_service, 0) AS pkg_is_food_service
         FROM bookings b
         LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
         LEFT JOIN packages p ON p.pkg_id = b.bk_package_id
@@ -1721,6 +1722,7 @@ def _rows_to_booking_dicts(rows) -> list[dict]:
             "notes":               r.get("notes") or "",
             "menu_type":           r.get("menu_type") or "package",
             "package_name":        r.get("package_name") or "",
+            "pkg_is_food_service": bool(r.get("pkg_is_food_service") or 0),
             "payment_mode":        r.get("payment_mode") or "Cash",
             "cancellation_reason": r.get("cancellation_reason") or "",
         })
@@ -2796,7 +2798,7 @@ def get_invoices_summary(date_start: str = None, date_end: str = None,
     unrelated all-time total, which is what the client found confusing when
     changing filters never visibly changed the header numbers. Call with no
     args at all for a true all-time/unfiltered aggregate (e.g. Reports)."""
-    where = "WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')"
+    where = "WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled') AND (b.bk_status IS NULL OR CAST(b.bk_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled'))"
     params: list = []
     if date_start and date_end:
         where += " AND i.inv_event_date BETWEEN %s AND %s"
@@ -3114,7 +3116,8 @@ def add_payment_record(invoice_id: int, amount: float,
 
 
 def get_payment_ledger(year: int = None, month: int = None,
-                       date_start: str = None, date_end: str = None) -> list[dict]:
+                       date_start: str = None, date_end: str = None,
+                       customer: str = None, search: str = None) -> list[dict]:
     """Full cross-customer payment history for the Ledger view:
     Payment Date, Event Date, Customer, Transaction type, Amount, Status.
 
@@ -3125,16 +3128,16 @@ def get_payment_ledger(year: int = None, month: int = None,
 
     Filtering (all optional):
     - year + month: restrict to a single calendar month (legacy).
-    - date_start + date_end: inclusive ISO (YYYY-MM-DD) range on the payment date.
-      Used by the Billing Ledger period filter (Today / This Week / This Month /
-      This Year). If both a month and a range are given, the range wins.
+    - date_start + date_end: inclusive ISO (YYYY-MM-DD) range on payment date OR event date.
+    - customer: filter by customer name substring.
+    - search: filter by customer name or invoice reference.
     """
     sql = """
         SELECT pr.pr_id            AS id,
                pr.pr_payment_date  AS payment_date,
                pr.pr_created_at    AS created_at,
                i.inv_id            AS invoice_id,
-               i.inv_customer_name AS customer,
+               COALESCE(c.cus_name, b.bk_customer_name, i.inv_customer_name) AS customer,
                b.bk_event_date     AS event_date,
                pr.pr_amount        AS amount,
                i.inv_total_amount  AS total_amount,
@@ -3152,15 +3155,33 @@ def get_payment_ledger(year: int = None, month: int = None,
         FROM payment_records pr
         JOIN invoices i ON i.inv_id = pr.pr_invoice_id
         LEFT JOIN bookings b ON b.bk_id = i.inv_booking_id
+        LEFT JOIN customers c ON c.cus_id = b.bk_customer_id
         WHERE CAST(i.inv_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled')
+          AND (b.bk_status IS NULL OR CAST(b.bk_status AS TEXT) NOT IN ('CANCELLED', 'Cancelled'))
     """
     params: list = []
     if date_start and date_end:
-        sql += " AND date(pr.pr_payment_date) BETWEEN %s AND %s"
-        params.extend([str(date_start), str(date_end)])
+        sql += " AND (date(pr.pr_payment_date) BETWEEN %s AND %s OR date(b.bk_event_date) BETWEEN %s AND %s)"
+        params.extend([str(date_start), str(date_end), str(date_start), str(date_end)])
     elif year and month:
-        sql += " AND strftime('%Y', pr.pr_payment_date) = %s AND strftime('%m', pr.pr_payment_date) = %s"
-        params.extend([str(year), f"{month:02d}"])
+        try:
+            m_int = int(month)
+            y_int = int(year)
+            ym = f"{y_int}-{m_int:02d}"
+        except (ValueError, TypeError):
+            ym = f"{year}-{month}"
+        if db.get_engine_type() == "postgres":
+            sql += " AND (TO_CHAR(pr.pr_payment_date, 'YYYY-MM') = %s OR TO_CHAR(b.bk_event_date, 'YYYY-MM') = %s)"
+            params.extend([ym, ym])
+        else:
+            sql += " AND (strftime('%Y-%m', pr.pr_payment_date) = %s OR strftime('%Y-%m', b.bk_event_date) = %s)"
+            params.extend([ym, ym])
+    if customer:
+        sql += " AND (COALESCE(c.cus_name, b.bk_customer_name, i.inv_customer_name) ILIKE %s)"
+        params.append(f"%{customer}%")
+    if search:
+        sql += " AND (COALESCE(c.cus_name, b.bk_customer_name, i.inv_customer_name) ILIKE %s OR i.inv_invoice_ref ILIKE %s)"
+        params.extend([f"%{search}%", f"%{search}%"])
     sql += " ORDER BY pr.pr_payment_date DESC, pr.pr_id DESC"
     rows = db.fetchall(sql, tuple(params))
     if not rows:

@@ -1147,7 +1147,7 @@ def execute_batch_import(
                         inv_row = db.fetchone("SELECT inv_id FROM invoices WHERE inv_booking_id = %s LIMIT 1", (b_id,))
                         if inv_row:
                             inv_id = inv_row["inv_id"]
-                            pay_date_val = str(r.get("booking_date") or r.get("created_at") or date.today().isoformat())[:10]
+                            pay_date_val = str(data.get("booking_date") or data.get("created_at") or date.today().isoformat())[:10]
                             pr_row = db.fetchone("SELECT pr_id FROM payment_records WHERE pr_invoice_id = %s LIMIT 1", (inv_id,))
                             if pr_row:
                                 db.execute("""
@@ -1369,11 +1369,13 @@ def execute_batch_import(
                 if t_deposit > 0 or t_withdrawal > 0 or t_actual_sales > 0 or t_particulars:
                     cf_key = (t_date, t_check.lower(), t_particulars.lower(), round(t_deposit, 2), round(t_withdrawal, 2), round(t_actual_sales, 2))
                     if cf_key in seen_cash_flow:
-                        success_count += 1
+                        fail_count += 1
+                        errors.append(f"Row {row_info['_row_index']}: Already exists in batch, skipped duplicate.")
                         continue
                     if repo.find_duplicate_cash_flow(t_date, t_particulars, t_deposit, t_withdrawal, t_actual_sales, t_check):
                         seen_cash_flow.add(cf_key)
-                        success_count += 1
+                        fail_count += 1
+                        errors.append(f"Row {row_info['_row_index']}: Already exists in database, skipped duplicate.")
                         continue
 
                     tx_id = repo.add_cash_flow_transaction({

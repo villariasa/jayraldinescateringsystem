@@ -2047,8 +2047,32 @@ class ReportsPage(QWidget):
             f"{total_pax:,}",
             f"PHP {total_unpaid:,.0f}",
         ]
+        # Categorize bookings in the current period by category
+        def _classify_booking(b):
+            pkg_name = b.get("package_name") or b.get("pkg_name") or ""
+            occ = b.get("occasion") or b.get("bk_occasion") or ""
+            notes = b.get("notes") or b.get("bk_notes") or ""
+            s_notes = b.get("special_notes") or b.get("bk_special_notes") or ""
+            mt = (b.get("menu_type") or b.get("bk_menu_type") or "").strip().lower()
+            is_pkg_fs = bool(b.get("pkg_is_food_service") or 0)
+            if is_pkg_fs or mt in ("food_service", "food and services", "food & services") or any(
+                "food and service" in (x or "").lower() or "food & service" in (x or "").lower()
+                for x in (pkg_name, occ, notes, s_notes)
+            ):
+                return "fs"
+            if mt in ("food_tray", "food_set") or repo._is_food_order(
+                pkg_name=pkg_name, occasion=occ, notes=notes, special_notes=s_notes, menu_type=mt
+            ):
+                return "food"
+            return "events"
+
+        evt_cnt = sum(1 for b in target_b if _classify_booking(b) == "events")
+        fo_cnt = sum(1 for b in target_b if _classify_booking(b) == "food")
+        fs_cnt = sum(1 for b in target_b if _classify_booking(b) == "fs")
+        booking_breakdown_sub = f"{evt_cnt} Events • {fo_cnt} Food Orders • {fs_cnt} Foods and Services"
+
         subs = [
-            f"{today_bk} Today • {week_bk} Week • {month_bk} Month",
+            booking_breakdown_sub,
             f"{total_bookings} Confirmed booking(s) ({period_label})" if total_bookings > 0 else f"No income for {period_label}",
             "All operational costs",
             "Revenue − Expenses",

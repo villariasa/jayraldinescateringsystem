@@ -34,12 +34,16 @@ class ConfirmBookingDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setMinimumWidth(540)
+        self.setMinimumWidth(680)
         self.setModal(True)
 
         screen = QApplication.primaryScreen()
         screen_h = screen.availableGeometry().height() if screen else 768
+        target_w = 680
+        target_h = min(640, max(460, int(screen_h * 0.82)))
+        self.setMinimumHeight(min(520, target_h))
         self.setMaximumHeight(min(640, max(420, int(screen_h * 0.88))))
+        self.resize(target_w, target_h)
 
         self._booking = booking_info
         self._tot_val = _parse_amount(self._booking.get("total") or self._booking.get("total_amount") or 0.0)
@@ -51,6 +55,9 @@ class ConfirmBookingDialog(QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         animate_dialog_open(self, duration=240)
+        from PySide6.QtCore import QTimer
+        if hasattr(self, "_scroll_area") and self._scroll_area:
+            QTimer.singleShot(50, lambda: self._scroll_area.verticalScrollBar().setValue(0))
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -94,10 +101,13 @@ class ConfirmBookingDialog(QDialog):
 
         # ── 2. SCROLLABLE MIDDLE BODY ────────────────────────────────────────
         scroll_area = QScrollArea()
+        self._scroll_area = scroll_area
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.NoFrame)
         scroll_area.setStyleSheet("background: transparent; border: none;")
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setMinimumHeight(300)
 
         scroll_content = QWidget()
         scroll_content.setStyleSheet("background: transparent;")
@@ -406,12 +416,16 @@ class BatchConfirmBookingDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(680)
         self.setModal(True)
 
         screen = QApplication.primaryScreen()
         screen_h = screen.availableGeometry().height() if screen else 768
+        target_w = 680
+        target_h = min(640, max(460, int(screen_h * 0.82)))
+        self.setMinimumHeight(min(520, target_h))
         self.setMaximumHeight(min(640, max(420, int(screen_h * 0.88))))
+        self.resize(target_w, target_h)
 
         self._bookings = pending_bookings
         self._count = len(pending_bookings)
@@ -425,6 +439,9 @@ class BatchConfirmBookingDialog(QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         animate_dialog_open(self, duration=240)
+        from PySide6.QtCore import QTimer
+        if hasattr(self, "_scroll_area") and self._scroll_area:
+            QTimer.singleShot(50, lambda: self._scroll_area.verticalScrollBar().setValue(0))
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -468,10 +485,12 @@ class BatchConfirmBookingDialog(QDialog):
 
         # ── 2. SCROLLABLE BODY ───────────────────────────────────────────────
         scroll_area = QScrollArea()
+        self._scroll_area = scroll_area
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.NoFrame)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setMinimumHeight(300)
         scroll_area.setStyleSheet("""
             QScrollArea {
                 background: transparent;

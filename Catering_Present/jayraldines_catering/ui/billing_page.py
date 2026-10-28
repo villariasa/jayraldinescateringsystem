@@ -1471,6 +1471,8 @@ class BillingPage(QWidget):
             # newly-changed customer/paid-status filter too, instead of
             # leaving the header stuck on the pre-change combination.
             self._on_header_period_changed()
+        if hasattr(self, "tabs") and self.tabs.currentIndex() == 1:
+            self._populate_ledger()
 
     def _on_billing_tab_changed(self, idx: int):
         """Tab-change handler: lazily (re)populate the Ledger tab (index 1)
@@ -1501,7 +1503,13 @@ class BillingPage(QWidget):
         # call so a list reload/search doesn't stomp the period-filtered
         # header back to matching the table.
         try:
-            source = self._header_summary if getattr(self, "_header_summary", None) is not None else self._summary
+            period = getattr(self, "_header_period", None)
+            is_period_active = bool(period and period not in ("All Time", "All Time (Default)"))
+            if is_period_active:
+                source = getattr(self, "_header_summary", None) or {"total_received": 0.0, "total_pending": 0.0, "down_payment": 0.0, "on_process": 0.0, "events_count": 0}
+            else:
+                source = getattr(self, "_header_summary", None) if getattr(self, "_header_summary", None) is not None else self._summary
+
             total_rcv = source.get("total_received", 0.0)
             total_pending = source.get("total_pending", 0.0)
             down_payment = source.get("down_payment", 0.0)
@@ -1535,6 +1543,7 @@ class BillingPage(QWidget):
         """(date_start, date_end) ISO strings for the header KPI Period
         filter, scoped by invoice event_date - or (None, None) for All Time."""
         from datetime import date, timedelta
+        import calendar
         period = getattr(self, "_header_period", None)
         today = date.today()
         if not period or period in ("All Time", "All Time (Default)"):
@@ -1542,11 +1551,13 @@ class BillingPage(QWidget):
         if period == "Today (As of Today)":
             return today.isoformat(), today.isoformat()
         if period == "This Week":
-            # Full Mon-Sun week, not capped at today - bookings are
-            # routinely dated in the future, so an "as of today" cutoff
-            # silently dropped this week's upcoming events from the total.
-            start = today - timedelta(days=today.weekday())
-            end = start + timedelta(days=6)
+            # Match Dashboard and Reports calendar week definition (Week 1=1-7, Week 2=8-14, etc.)
+            _, num_days = calendar.monthrange(today.year, today.month)
+            wk = min((today.day - 1) // 7 + 1, 5)
+            start_day = (wk - 1) * 7 + 1
+            end_day = min(wk * 7, num_days)
+            start = date(today.year, today.month, start_day)
+            end = date(today.year, today.month, end_day)
             return start.isoformat(), end.isoformat()
         if period == "This Month":
             # Full calendar month (1st through last day), same reasoning.
@@ -1697,15 +1708,21 @@ class BillingPage(QWidget):
         """(date_start, date_end) ISO strings for the Ledger period filter,
         or (None, None) for All Time."""
         from datetime import date, timedelta
+        import calendar
         period = getattr(self, "_ledger_period", None)
         today = date.today()
-        if not period:
+        if not period or period == "All Time":
             return None, None
         if period == "Today":
             return today.isoformat(), today.isoformat()
         if period == "This Week":
-            start = today - timedelta(days=today.weekday())
-            end = start + timedelta(days=6)
+            # Match Dashboard and Reports calendar week definition (Week 1=1-7, Week 2=8-14, etc.)
+            _, num_days = calendar.monthrange(today.year, today.month)
+            wk = min((today.day - 1) // 7 + 1, 5)
+            start_day = (wk - 1) * 7 + 1
+            end_day = min(wk * 7, num_days)
+            start = date(today.year, today.month, start_day)
+            end = date(today.year, today.month, end_day)
             return start.isoformat(), end.isoformat()
         if period == "This Month":
             if today.month == 12:
@@ -1731,7 +1748,12 @@ class BillingPage(QWidget):
         log)."""
         date_start, date_end = self._ledger_period_range()
         try:
-            entries = repo.get_payment_ledger(date_start=date_start, date_end=date_end)
+            entries = repo.get_payment_ledger(
+                date_start=date_start,
+                date_end=date_end,
+                customer=getattr(self, "_filter_customer", None),
+                search=getattr(self, "_search_query", None)
+            )
         except Exception as exc:
             # Previously swallowed silently, so a real query/schema failure
             # here looked identical to "genuinely no payment records exist" -
@@ -2223,6 +2245,8 @@ class BillingPage(QWidget):
         # paid invoices, looking like the record had disappeared.
         q = (text or "").strip()
         self._search_query = q
+        if hasattr(self, "tabs") and self.tabs.currentIndex() == 1:
+            self._populate_ledger()
         if not q:
             # Search cleared: run one fresh reload (also picks up anything a
             # background sync deferred while the user was searching).
