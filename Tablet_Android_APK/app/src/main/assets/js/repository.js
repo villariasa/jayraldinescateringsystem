@@ -907,7 +907,11 @@ export function getOrderDetail(bookingId) {
     pax: Number(b.bk_pax || 1),
     package_id: b.bk_package_id,
     package_name: pkg ? pkg.pkg_name : (b.bk_menu_type || "Catering Package"),
-    package_inclusions: (pkg && pkg.pkg_description) ? pkg.pkg_description : "",
+    package_inclusions: (() => {
+      const incs = b.bk_package_id ? getPackageInclusions(b.bk_package_id) : [];
+      if (incs && incs.length) return incs.map((i) => i.pinc_label || i.label).filter(Boolean).join("\n");
+      return (pkg && pkg.pkg_description) ? pkg.pkg_description : "";
+    })(),
     pkg_description: (pkg && pkg.pkg_description) ? pkg.pkg_description : "",
     package_subtotal: baseTotal || (grandTotal - addonsTotal),
     base_total: baseTotal,
