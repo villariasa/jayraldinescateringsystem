@@ -30,6 +30,8 @@ def create_installer():
             "Qt6ChartsQml.dll", "QtCharts.pyd", "pyside6.abi3.dll",
             "Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll",
             "Qt6Network.dll", "Qt6PrintSupport.dll", "Qt6Svg.dll",
+            "Qt6Pdf.dll", "Qt6PdfWidgets.dll", "Qt6PdfQuick.dll",
+            "QtPdf.pyd", "QtPdfWidgets.pyd",
             "PySide6.dll", "shiboken6.dll"
         ]
         for f in CRITICAL_DLLS:
@@ -38,9 +40,19 @@ def create_installer():
             if s_file.exists() and not d_file.exists():
                 shutil.copy2(s_file, d_file)
 
+        # Ensure imageformats plugin (including qpdf.dll) is bundled
+        img_fmt_src = pyside_src / "plugins" / "imageformats"
+        img_fmt_dst = pyside_dst / "plugins" / "imageformats"
+        if img_fmt_src.exists():
+            img_fmt_dst.mkdir(parents=True, exist_ok=True)
+            for f in img_fmt_src.glob("*.dll"):
+                dest_f = img_fmt_dst / f.name
+                if not dest_f.exists():
+                    shutil.copy2(f, dest_f)
+
         # Remove heavy unused modules (WebEngine, 3D, multimedia codecs) to keep installer lightweight
         EXCLUDE_PREFIXES = [
-            "Qt6WebEngine", "Qt6Quick3D", "Qt6Designer", "Qt6Pdf",
+            "Qt6WebEngine", "Qt6Quick3D", "Qt6Designer",
             "Qt6SpatialAudio", "Qt6VirtualKeyboard", "Qt6Sensors",
             "Qt6SerialPort", "Qt6Positioning", "Qt6Bluetooth", "Qt63D",
             "avcodec", "avformat", "avutil", "swscale", "swresample"
