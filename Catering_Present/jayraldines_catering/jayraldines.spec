@@ -2,6 +2,10 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 block_cipher = None
 qt_data = collect_data_files("PySide6", includes=[
+    "plugins/platforms/*",
+    "plugins/imageformats/*",
+    "plugins/iconengines/*",
+    "plugins/styles/*",
     "Qt/plugins/platforms/*",
     "Qt/plugins/imageformats/*",
     "Qt/plugins/iconengines/*",
