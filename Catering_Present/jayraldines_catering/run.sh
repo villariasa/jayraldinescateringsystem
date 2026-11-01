@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 cd "$(dirname "$(readlink -f "$0")")"
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-if [ -x "$HOME/.local/pystand/bin/python3" ]; then
+if [ -x "$SCRIPT_DIR/venv/bin/python" ]; then
+    PYTHON="$SCRIPT_DIR/venv/bin/python"
+elif [ -x "$HOME/.local/pystand/bin/python3" ]; then
     PYTHON="$HOME/.local/pystand/bin/python3"
 elif [ -x "$HOME/miniconda3/envs/catering_env/bin/python" ]; then
     PYTHON="$HOME/miniconda3/envs/catering_env/bin/python"
